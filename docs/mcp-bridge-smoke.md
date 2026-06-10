@@ -171,7 +171,9 @@ provided, creates a smoke user/token, starts a loopback MCP HTTP server, starts
 the local Bridge daemon, configures an MCP Proxy server with
 `transport=qidian_browser`, actively closes the first Bridge session to verify
 daemon reconnect, verifies that a write-disabled daemon rejects `remote_write`
-with `REMOTE_WRITE_DISABLED` and refunds billing, then concurrently calls:
+with `REMOTE_WRITE_DISABLED` and refunds billing, verifies that non-loopback
+MCP Proxy targets are rejected with `MCP_PROXY_FORBIDDEN_TARGET`, then
+concurrently calls:
 
 - `remote_write`
 - `remote_edit`

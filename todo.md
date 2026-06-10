@@ -8,7 +8,7 @@
 - [x] Add daemon negative-path smoke coverage for write-disabled clients.
   - Acceptance: a daemon started without `--enable-write` rejects `remote_write` with `REMOTE_WRITE_DISABLED`.
   - Acceptance: server records error status and refund path for the failed MCP call.
-- [ ] Add daemon MCP target policy smoke coverage.
+- [x] Add daemon MCP target policy smoke coverage.
   - Acceptance: non-loopback MCP targets are rejected by default with `MCP_PROXY_FORBIDDEN_TARGET`.
   - Acceptance: policy relaxation through `--allow-non-loopback-mcp` is documented but not enabled by default in smoke.
 

@@ -417,13 +417,15 @@ func cleanup(p cleanupPayload) (map[string]any, error) {
 		_ = model.DB.Unscoped().Where("client_id LIKE ?", clientPattern).Delete(&model.BridgeClient{}).Error
 	}
 	if p.Namespace != "" {
-		var server model.MCPProxyServer
-		if err := model.DB.Unscoped().Where("namespace = ?", p.Namespace).First(&server).Error; err == nil {
-			_ = model.DB.Unscoped().Where("proxy_server_id = ?", server.Id).Delete(&model.MCPProxyTool{}).Error
-			_ = model.DB.Unscoped().Where("proxy_server_id = ?", server.Id).Delete(&model.MCPProxyDiscoveryEvent{}).Error
-			_ = model.DB.Unscoped().Delete(&server).Error
+		var servers []model.MCPProxyServer
+		if err := model.DB.Unscoped().Where("namespace LIKE ?", p.Namespace + "%").Find(&servers).Error; err == nil {
+			for _, server := range servers {
+				_ = model.DB.Unscoped().Where("proxy_server_id = ?", server.Id).Delete(&model.MCPProxyTool{}).Error
+				_ = model.DB.Unscoped().Where("proxy_server_id = ?", server.Id).Delete(&model.MCPProxyDiscoveryEvent{}).Error
+				_ = model.DB.Unscoped().Delete(&server).Error
+			}
 		}
-		_ = model.DB.Unscoped().Where("name LIKE ?", p.Namespace + ".%").Delete(&model.MCPTool{}).Error
+		_ = model.DB.Unscoped().Where("name LIKE ?", p.Namespace + "%.%").Delete(&model.MCPTool{}).Error
 	}
 	if p.TokenId > 0 {
 		_ = model.DB.Unscoped().Where("id = ?", p.TokenId).Delete(&model.Token{}).Error
@@ -561,6 +563,23 @@ async function apiSend(method, url, headers, body) {
   const json = await response.json().catch(() => ({}));
   if (!response.ok || json.success !== true) {
     throw new Error(`${method} ${url} failed: HTTP ${response.status} ${JSON.stringify(json)}`);
+  }
+  return json;
+}
+
+async function expectAPIError(method, url, headers, body, expectedText) {
+  const response = await fetch(url, {
+    method,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const json = await response.json().catch(() => ({}));
+  if (response.ok && json.success === true) {
+    throw new Error(`${method} ${url} unexpectedly succeeded: ${JSON.stringify(json)}`);
+  }
+  const text = JSON.stringify(json);
+  if (expectedText && !text.includes(expectedText)) {
+    throw new Error(`${method} ${url} error mismatch: expected ${expectedText}, got HTTP ${response.status} ${text}`);
   }
   return json;
 }
@@ -1197,6 +1216,48 @@ async function assertWriteDisabledDaemonScenario(baseUrl, apiToken, headers, suf
   }
 }
 
+async function assertMCPProxyTargetPolicyScenario(baseUrl, headers, suffix, namespace, clientId, auditLogPath) {
+  const policyNamespace = `${namespace}_policy`;
+  const forbiddenTarget = 'http://198.51.100.10:65535/mcp';
+  log('verifying MCP proxy target policy', { clientId, forbiddenTarget });
+  const create = await apiSend('POST', `${baseUrl}/api/mcp/proxy/servers`, headers, {
+    name: 'Bridge Daemon Smoke Forbidden MCP',
+    namespace: policyNamespace,
+    transport: 'qidian_browser',
+    endpoint: `bridge://${clientId}?target=${encodeURIComponent(forbiddenTarget)}`,
+    auth_type: 'none',
+    timeout_ms: 10000,
+    max_result_size: 1048576,
+    max_metadata_size: 65536,
+    visibility: 'admin',
+    status: 'enabled',
+  });
+  const server = create.data;
+  await expectAPIError(
+    'POST',
+    `${baseUrl}/api/mcp/proxy/servers/${server.id}/test`,
+    headers,
+    undefined,
+    'loopback',
+  );
+  const auditEvent = await waitForLocalAuditEvent(
+    auditLogPath,
+    (event) => (
+      event.type === 'tool_error'
+      && event.tool_name === 'mcp_proxy.test'
+      && event.code === 'MCP_PROXY_FORBIDDEN_TARGET'
+    ),
+    'MCP_PROXY_FORBIDDEN_TARGET policy error',
+    Math.min(config.timeoutMs, 30_000),
+  );
+  return {
+    namespace: policyNamespace,
+    proxyServerId: server.id,
+    auditRequestId: auditEvent.request_id,
+    code: auditEvent.code,
+  };
+}
+
 async function assertReconnectScenario(baseUrl, apiToken, headers, suffix, clientId, currentSessionId) {
   if (!currentSessionId) {
     throw new Error('bridge client did not expose session_id for reconnect verification');
@@ -1267,6 +1328,19 @@ async function waitForLocalAuditEvents(auditLogPath, expectations, timeoutMs) {
     await sleep(200);
   }
   throw new Error(`local bridge daemon audit log missing events: ${JSON.stringify(lastMissing)}`);
+}
+
+async function waitForLocalAuditEvent(auditLogPath, predicate, description, timeoutMs) {
+  const started = Date.now();
+  let lastCount = 0;
+  while (Date.now() - started < timeoutMs) {
+    const events = await readLocalAuditEvents(auditLogPath);
+    lastCount = events.length;
+    const found = events.find(predicate);
+    if (found) return found;
+    await sleep(200);
+  }
+  throw new Error(`local bridge daemon audit log missing ${description}; events=${lastCount}`);
 }
 
 function sleep(ms) {
@@ -1415,6 +1489,14 @@ async function main() {
     clientId,
     bridgeClient.session_id,
   );
+  const policyResult = await assertMCPProxyTargetPolicyScenario(
+    baseUrl,
+    dashboardHeaders,
+    suffix,
+    namespace,
+    clientId,
+    auditLogPath,
+  );
 
   const proxy = await configureProxy(baseUrl, dashboardHeaders, clientId, localMCP.url, namespace);
   const exposedNames = proxy.tools.map((tool) => tool.exposed_tool_name);
@@ -1459,6 +1541,7 @@ async function main() {
     proxy_server_id: proxy.server.id,
     audit_log: auditLogPath,
     write_disabled_request_id: writeDisabledResult.requestId,
+    policy_audit_request_id: policyResult.auditRequestId,
   });
 }
 
