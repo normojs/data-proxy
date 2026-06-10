@@ -219,8 +219,10 @@ Override the stress defaults with `MCP_BRIDGE_STRESS_CONCURRENCY`,
 
 The smoke validates the reconnect call and every successful concurrent request
 in `mcp_tool_calls` and `bridge_audit_logs`, verifies the negative-path records,
-checks the daemon JSONL audit file, and cleans its user, token, proxy server,
-bridge client, sessions, calls, audit logs, and temporary workspace by default.
+checks the daemon JSONL audit file, verifies structured reconnect events
+(`server_close`, `connection_close`, and `reconnect_scheduled`), and cleans its
+user, token, proxy server, bridge client, sessions, calls, audit logs, and
+temporary workspace by default.
 
 Use `--base-url=http://127.0.0.1:<port>` to run against an already running
 data-proxy process. Use `--keep-data` only when manually inspecting rows or the

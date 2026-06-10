@@ -1343,6 +1343,38 @@ async function waitForLocalAuditEvent(auditLogPath, predicate, description, time
   throw new Error(`local bridge daemon audit log missing ${description}; events=${lastCount}`);
 }
 
+function assertReconnectAuditEvents(events) {
+  const expectedReason = 'bridge daemon reconnect smoke';
+  const serverClose = events.find((event) => (
+    event.type === 'server_close'
+    && event.reason === expectedReason
+    && Number(event.connection_attempt) >= 1
+  ));
+  if (!serverClose) {
+    throw new Error('local audit log missing structured server_close reconnect reason');
+  }
+  const closeEvent = events.find((event) => (
+    event.type === 'connection_close'
+    && event.opened === true
+    && event.clean_close === true
+    && event.server_close_reason === expectedReason
+  ));
+  if (!closeEvent) {
+    throw new Error('local audit log missing structured connection_close reconnect fields');
+  }
+  const reconnect = events.find((event) => (
+    event.type === 'reconnect_scheduled'
+    && Number(event.attempt) >= 1
+    && Number(event.delay_ms) > 0
+    && event.opened === true
+    && event.clean_close === true
+    && event.server_close_reason === expectedReason
+  ));
+  if (!reconnect) {
+    throw new Error('local audit log missing structured reconnect_scheduled event');
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1529,6 +1561,7 @@ async function main() {
     localAuditExpectations,
     Math.min(config.timeoutMs, 30_000),
   );
+  assertReconnectAuditEvents(localAuditEvents);
 
   log('bridge daemon concurrency smoke passed', {
     calls: results.length,

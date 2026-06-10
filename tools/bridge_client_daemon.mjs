@@ -893,7 +893,7 @@ function createLimiter(maxConcurrency) {
   };
 }
 
-async function onMessage(ws, config, limit, raw) {
+async function onMessage(ws, config, limit, raw, connectionState) {
   let message;
   try {
     message = JSON.parse(raw.toString());
@@ -909,8 +909,14 @@ async function onMessage(ws, config, limit, raw) {
   if (message.type === 'pong') return;
   if (message.type === 'close') {
     log('WARN', 'server requested bridge close', message.data);
-    await audit(config, { type: 'server_close', data: message.data || {} });
     const reason = typeof message.data?.reason === 'string' ? message.data.reason : 'server requested bridge close';
+    connectionState.serverCloseReason = reason;
+    await audit(config, {
+      type: 'server_close',
+      connection_attempt: connectionState.connectionAttempt,
+      reason,
+      data: message.data || {},
+    });
     try {
       ws.close(1000, reason.slice(0, 120));
     } catch {
@@ -971,10 +977,14 @@ function startHeartbeat(ws, intervalMs) {
   }, intervalMs);
 }
 
-async function runOnce(config) {
+async function runOnce(config, connectionAttempt) {
   return new Promise((resolve) => {
     const ws = createWebSocket(config);
     const limit = createLimiter(config.maxConcurrency);
+    const connectionState = {
+      connectionAttempt,
+      serverCloseReason: '',
+    };
     let heartbeat = null;
     let opened = false;
 
@@ -986,11 +996,19 @@ async function runOnce(config) {
         workspace: config.workspace,
         capabilities: config.capabilities,
       });
+      audit(config, {
+        type: 'connection_open',
+        connection_attempt: connectionAttempt,
+        server: config.server,
+        client_id: config.clientId,
+      }).catch((err) => {
+        log('ERROR', 'failed to write connection_open audit', err.message);
+      });
       sendRegister(ws, config);
       heartbeat = startHeartbeat(ws, config.pingIntervalMs);
     });
     ws.addEventListener('message', (event) => {
-      onMessage(ws, config, limit, event.data).catch((err) => {
+      onMessage(ws, config, limit, event.data, connectionState).catch((err) => {
         log('ERROR', 'unhandled bridge message error', err.stack || err.message);
       });
     });
@@ -999,12 +1017,31 @@ async function runOnce(config) {
     });
     ws.addEventListener('close', (event) => {
       if (heartbeat) clearInterval(heartbeat);
+      const result = {
+        opened,
+        clean: event.wasClean,
+        closeCode: event.code,
+        closeReason: event.reason || '',
+        serverCloseReason: connectionState.serverCloseReason,
+      };
       log('WARN', 'WebSocket closed', {
         code: event.code,
         reason: event.reason,
         was_clean: event.wasClean,
       });
-      resolve({ opened, clean: event.wasClean });
+      audit(config, {
+        type: 'connection_close',
+        connection_attempt: connectionAttempt,
+        opened,
+        clean_close: event.wasClean,
+        close_code: event.code,
+        close_reason: event.reason || '',
+        server_close_reason: connectionState.serverCloseReason,
+      }).catch((err) => {
+        log('ERROR', 'failed to write connection_close audit', err.message);
+      }).finally(() => {
+        resolve(result);
+      });
     });
   });
 }
@@ -1073,13 +1110,23 @@ async function main() {
   }
   let attempt = 0;
   for (;;) {
-    const result = await runOnce(config);
+    const result = await runOnce(config, attempt + 1);
     if (!config.reconnect) {
       process.exit(result.clean ? 0 : 1);
     }
     attempt += 1;
     const delay = Math.min(config.reconnectBaseMs * 2 ** Math.min(attempt - 1, 6), config.reconnectMaxMs);
     log('INFO', 'reconnecting bridge client', { attempt, delay_ms: delay, opened: result.opened });
+    await audit(config, {
+      type: 'reconnect_scheduled',
+      attempt,
+      delay_ms: delay,
+      opened: result.opened,
+      clean_close: result.clean,
+      close_code: result.closeCode,
+      close_reason: result.closeReason,
+      server_close_reason: result.serverCloseReason,
+    });
     await sleep(delay);
   }
 }
