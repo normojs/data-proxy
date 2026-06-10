@@ -47,14 +47,23 @@ type MCPOpenAPIPreviewOperation struct {
 	HasRequestBody bool           `json:"has_request_body"`
 }
 
+type MCPOpenAPISchemaMetrics struct {
+	OperationCount    int `json:"operation_count"`
+	ImportedToolCount int `json:"imported_tool_count"`
+	SchemaCount       int `json:"schema_count"`
+	UniqueSchemaCount int `json:"unique_schema_count"`
+	ReusedSchemaCount int `json:"reused_schema_count"`
+}
+
 type MCPOpenAPIPreviewResponse struct {
-	OpenAPIUrl string                       `json:"openapi_url"`
-	Title      string                       `json:"title"`
-	Version    string                       `json:"version"`
-	ServerURL  string                       `json:"server_url"`
-	Namespace  string                       `json:"namespace"`
-	Category   string                       `json:"category"`
-	Operations []MCPOpenAPIPreviewOperation `json:"operations"`
+	OpenAPIUrl    string                       `json:"openapi_url"`
+	Title         string                       `json:"title"`
+	Version       string                       `json:"version"`
+	ServerURL     string                       `json:"server_url"`
+	Namespace     string                       `json:"namespace"`
+	Category      string                       `json:"category"`
+	SchemaMetrics MCPOpenAPISchemaMetrics      `json:"schema_metrics"`
+	Operations    []MCPOpenAPIPreviewOperation `json:"operations"`
 }
 
 type MCPOpenAPIImportItem struct {

@@ -470,6 +470,7 @@ func openAPIDocumentBytes(ctx context.Context, openAPIURL string, document any) 
 }
 
 func mcpOpenAPISpecToPreview(spec *mcpopenapi.Spec, namespace string, category string) *dto.MCPOpenAPIPreviewResponse {
+	schemaMetrics := mcpopenapi.BuildSchemaMetrics(spec)
 	response := &dto.MCPOpenAPIPreviewResponse{
 		OpenAPIUrl: spec.OpenAPIUrl,
 		Title:      spec.Title,
@@ -477,6 +478,13 @@ func mcpOpenAPISpecToPreview(spec *mcpopenapi.Spec, namespace string, category s
 		ServerURL:  spec.ServerURL,
 		Namespace:  namespace,
 		Category:   category,
+		SchemaMetrics: dto.MCPOpenAPISchemaMetrics{
+			OperationCount:    schemaMetrics.OperationCount,
+			ImportedToolCount: previewImportableOpenAPIToolCount(spec, namespace),
+			SchemaCount:       schemaMetrics.SchemaCount,
+			UniqueSchemaCount: schemaMetrics.UniqueSchemaCount,
+			ReusedSchemaCount: schemaMetrics.ReusedSchemaCount,
+		},
 		Operations: make([]dto.MCPOpenAPIPreviewOperation, 0, len(spec.Operations)),
 	}
 	for _, operation := range spec.Operations {
@@ -493,6 +501,19 @@ func mcpOpenAPISpecToPreview(spec *mcpopenapi.Spec, namespace string, category s
 		})
 	}
 	return response
+}
+
+func previewImportableOpenAPIToolCount(spec *mcpopenapi.Spec, namespace string) int {
+	if spec == nil {
+		return 0
+	}
+	count := 0
+	for _, operation := range spec.Operations {
+		if err := validateMCPToolName(mcpopenapi.ToolName(namespace, operation)); err == nil {
+			count++
+		}
+	}
+	return count
 }
 
 func selectedOpenAPIOperations(operations []string) map[string]bool {

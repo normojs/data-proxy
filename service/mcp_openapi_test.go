@@ -83,6 +83,62 @@ const openAPITestDocument = `{
   }
 }`
 
+const duplicatedSchemaOpenAPITestDocument = `{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Shared Schema API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "https://api.example.test" }
+  ],
+  "components": {
+    "schemas": {
+      "PetCreate": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/cats": {
+      "post": {
+        "operationId": "createCat",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PetCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" }
+        }
+      }
+    },
+    "/dogs": {
+      "post": {
+        "operationId": "createDog",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PetCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" }
+        }
+      }
+    }
+  }
+}`
+
 func TestPreviewMCPOpenAPIForAdmin(t *testing.T) {
 	preview, err := PreviewMCPOpenAPIForAdmin(context.Background(), dto.MCPOpenAPIPreviewRequest{
 		OpenAPIUrl: "https://docs.example.test/openapi.json",
@@ -102,6 +158,20 @@ func TestPreviewMCPOpenAPIForAdmin(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, properties, "petId")
 	require.True(t, byKey["POST /pets"].HasRequestBody)
+}
+
+func TestPreviewMCPOpenAPIForAdminReportsSchemaMetrics(t *testing.T) {
+	preview, err := PreviewMCPOpenAPIForAdmin(context.Background(), dto.MCPOpenAPIPreviewRequest{
+		OpenAPIUrl: "https://docs.example.test/openapi.json",
+		Document:   duplicatedSchemaOpenAPITestDocument,
+		Namespace:  "pet_api",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, preview.SchemaMetrics.OperationCount)
+	require.Equal(t, 2, preview.SchemaMetrics.ImportedToolCount)
+	require.Equal(t, 4, preview.SchemaMetrics.SchemaCount)
+	require.Equal(t, 2, preview.SchemaMetrics.UniqueSchemaCount)
+	require.Equal(t, 2, preview.SchemaMetrics.ReusedSchemaCount)
 }
 
 func TestImportMCPOpenAPIForAdmin(t *testing.T) {

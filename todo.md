@@ -27,7 +27,7 @@
   - Acceptance: pending calls fail with `BRIDGE_CLIENT_DISCONNECTED` or timeout consistently and refund billing.
 - [x] Add OpenAPI binary object authorization regression tests for expired/foreign download links.
   - Acceptance: owner/admin can download valid links; other users and expired links are rejected.
-- [ ] Add schema de-duplication metrics to OpenAPI import preview.
+- [x] Add schema de-duplication metrics to OpenAPI import preview.
   - Acceptance: preview shows reused schema count and imported tool count.
 
 ## P2 - Operations Dashboard polish
