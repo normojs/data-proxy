@@ -3,7 +3,8 @@ package openapi
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 type SchemaMetrics struct {
@@ -47,7 +48,7 @@ func (m *SchemaMetrics) recordSchema(schema map[string]any, seen map[string]bool
 }
 
 func schemaHash(schema map[string]any) string {
-	bytes, err := json.Marshal(schema)
+	bytes, err := common.Marshal(schema)
 	if err != nil {
 		return ""
 	}
