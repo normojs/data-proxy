@@ -32,7 +32,7 @@
 
 ## P2 - Operations Dashboard polish
 
-- [ ] Add a compact dashboard smoke route test for MCP navigation sections.
+- [x] Add a compact dashboard smoke route test for MCP navigation sections.
   - Acceptance: generated route tree includes MCP index and section routes.
 - [ ] Add trend panel empty-state and partial-data handling tests.
   - Acceptance: no runtime error when trend endpoints return empty arrays.
