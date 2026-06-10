@@ -170,7 +170,9 @@ the local Bridge daemon, configures an MCP Proxy server with
 daemon reconnect, then concurrently calls:
 
 - `remote_write`
+- `remote_edit`
 - `remote_read`
+- `remote_glob`
 - `remote_grep`
 - `remote_tree`
 - `<namespace>.echo` through MCP Proxy over Bridge

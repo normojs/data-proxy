@@ -51,7 +51,7 @@ Options:
 The smoke starts a real local bridge daemon, enables write tools against a
 temporary workspace, starts a loopback MCP HTTP server, configures a
 qidian_browser MCP Proxy server, then concurrently calls remote read/write/tree
-grep and proxied MCP tools through /mcp/v1.
+glob/grep/edit and proxied MCP tools through /mcp/v1.
 `);
 }
 
@@ -684,6 +684,12 @@ async function setupWorkspace(suffix) {
     ].join('\n'),
     'utf8',
   );
+  const editFixtures = Math.max(config.iterations * concurrentCallFamilies('fixture').length, 32);
+  await Promise.all(Array.from({ length: editFixtures }, (_, index) => fs.writeFile(
+    path.join(root, 'docs', `edit-${index}.txt`),
+    `pending-${index}\nbridge daemon edit fixture\n`,
+    'utf8',
+  )));
   return root;
 }
 
@@ -715,9 +721,8 @@ async function configureProxy(baseUrl, headers, clientId, mcpUrl, namespace) {
   return { server, tools };
 }
 
-function buildConcurrentCalls(baseUrl, apiToken, suffix, namespace) {
-  const calls = [];
-  const families = [
+function concurrentCallFamilies(namespace) {
+  return [
     (i) => ({
       name: 'remote_write',
       arguments: {
@@ -726,9 +731,21 @@ function buildConcurrentCalls(baseUrl, apiToken, suffix, namespace) {
         create_dirs: true,
       },
     }),
+    (i) => ({
+      name: 'remote_edit',
+      arguments: {
+        file_path: `docs/edit-${i}.txt`,
+        old_string: `pending-${i}`,
+        new_string: `edited-${i}`,
+      },
+    }),
     () => ({
       name: 'remote_read',
       arguments: { file_path: 'docs/seed.txt', offset: 1, limit: 10 },
+    }),
+    () => ({
+      name: 'remote_glob',
+      arguments: { path: '.', pattern: 'docs/*.txt', max_results: 100 },
     }),
     () => ({
       name: 'remote_grep',
@@ -743,6 +760,20 @@ function buildConcurrentCalls(baseUrl, apiToken, suffix, namespace) {
       arguments: { message: `proxy-${i}` },
     }),
   ];
+}
+
+function validateConcurrentResult(call, text) {
+  if (call.name === 'remote_edit' && !text.includes(`edited ${call.arguments.file_path}`)) {
+    throw new Error(`${call.name} ${call.requestId} did not report edited file: ${text}`);
+  }
+  if (call.name === 'remote_glob' && !text.includes('docs/seed.txt')) {
+    throw new Error(`${call.name} ${call.requestId} did not include docs/seed.txt: ${text}`);
+  }
+}
+
+function buildConcurrentCalls(baseUrl, apiToken, suffix, namespace) {
+  const calls = [];
+  const families = concurrentCallFamilies(namespace);
   let index = 0;
   for (let iteration = 0; iteration < config.iterations; iteration += 1) {
     for (const family of families) {
@@ -768,6 +799,7 @@ function buildConcurrentCalls(baseUrl, apiToken, suffix, namespace) {
     if (!text.trim()) {
       throw new Error(`${call.name} ${call.requestId} returned empty content`);
     }
+    validateConcurrentResult(call, text);
     return { ...call, text };
   });
 }
@@ -1132,7 +1164,7 @@ async function main() {
     { cwd: repoRoot },
   );
   const bridgeClient = await waitForBridgeClient(baseUrl, dashboardHeaders, clientId, config.timeoutMs);
-  for (const capability of ['remote_read', 'remote_write', 'remote_tree', 'remote_grep', 'remote_env_info', 'mcp_proxy']) {
+  for (const capability of ['remote_read', 'remote_write', 'remote_edit', 'remote_tree', 'remote_glob', 'remote_grep', 'remote_env_info', 'mcp_proxy']) {
     if (!bridgeClient.capabilities?.includes(capability)) {
       throw new Error(`bridge daemon did not advertise ${capability}: ${JSON.stringify(bridgeClient.capabilities)}`);
     }
