@@ -166,7 +166,8 @@ Default safety boundaries:
 The concurrency smoke starts a local `new-api` process unless `--base-url` is
 provided, creates a smoke user/token, starts a loopback MCP HTTP server, starts
 the local Bridge daemon, configures an MCP Proxy server with
-`transport=qidian_browser`, then concurrently calls:
+`transport=qidian_browser`, actively closes the first Bridge session to verify
+daemon reconnect, then concurrently calls:
 
 - `remote_write`
 - `remote_read`
@@ -199,10 +200,10 @@ Override the stress defaults with `MCP_BRIDGE_STRESS_CONCURRENCY`,
 `MCP_BRIDGE_STRESS_ITERATIONS`, `MCP_BRIDGE_STRESS_TIMEOUT`, or
 `MCP_BRIDGE_STRESS_ARGS`.
 
-The smoke validates every successful concurrent request in `mcp_tool_calls` and
-`bridge_audit_logs`, verifies the negative-path records, checks the daemon JSONL
-audit file, and cleans its user, token, proxy server, bridge client, sessions,
-calls, audit logs, and temporary workspace by default.
+The smoke validates the reconnect call and every successful concurrent request
+in `mcp_tool_calls` and `bridge_audit_logs`, verifies the negative-path records,
+checks the daemon JSONL audit file, and cleans its user, token, proxy server,
+bridge client, sessions, calls, audit logs, and temporary workspace by default.
 
 Use `--base-url=http://127.0.0.1:<port>` to run against an already running
 data-proxy process. Use `--keep-data` only when manually inspecting rows or the

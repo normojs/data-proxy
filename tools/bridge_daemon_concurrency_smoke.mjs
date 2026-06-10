@@ -494,6 +494,28 @@ async function waitForBridgeClient(baseUrl, headers, clientId, timeoutMs) {
   throw new Error(`timeout waiting for bridge client ${clientId}; ${last}`);
 }
 
+async function waitForBridgeClientReconnect(baseUrl, headers, clientId, previousSessionId, timeoutMs) {
+  const started = Date.now();
+  let last = '';
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const json = await apiGet(`${baseUrl}/api/bridge/clients?scope=all&page_size=50`, headers);
+      const found = pageItems(json).find((item) => (
+        item.client_id === clientId
+        && item.online === true
+        && item.session_id
+        && item.session_id !== previousSessionId
+      ));
+      if (found) return found;
+      last = `clients=${pageItems(json).map((item) => `${item.client_id}:${item.online}:${item.session_id || '-'}`).join(',')}`;
+    } catch (err) {
+      last = err.message;
+    }
+    await sleep(500);
+  }
+  throw new Error(`timeout waiting for bridge client ${clientId} to reconnect; ${last}`);
+}
+
 function startLocalMCPServer() {
   const sessions = new Set();
   const server = http.createServer(async (req, res) => {
@@ -924,6 +946,46 @@ async function assertFailureScenarios(baseUrl, apiToken, headers, suffix, namesp
   return failures;
 }
 
+async function assertReconnectScenario(baseUrl, apiToken, headers, suffix, clientId, currentSessionId) {
+  if (!currentSessionId) {
+    throw new Error('bridge client did not expose session_id for reconnect verification');
+  }
+  log('verifying bridge daemon reconnect', { clientId, previous_session_id: currentSessionId });
+  await apiSend('POST', `${baseUrl}/api/bridge/sessions/${encodeURIComponent(currentSessionId)}/close`, headers, {
+    reason: 'bridge daemon reconnect smoke',
+  });
+  const reconnected = await waitForBridgeClientReconnect(baseUrl, headers, clientId, currentSessionId, config.timeoutMs);
+  const requestId = `bridge-daemon-smoke-${suffix}-reconnect-env`;
+  const response = await postMCP(baseUrl, apiToken, {
+    jsonrpc: '2.0',
+    id: requestId,
+    method: 'tools/call',
+    params: {
+      name: 'remote_env_info',
+      arguments: {},
+    },
+  });
+  if (response.error) {
+    throw new Error(`remote_env_info after reconnect returned ${JSON.stringify(response.error)}`);
+  }
+  await assertMCPCallRecord(baseUrl, headers, requestId, {
+    status: 'success',
+    toolName: 'remote_env_info',
+    clientId,
+  });
+  await assertBridgeAuditRecord(baseUrl, headers, requestId, {
+    status: 'success',
+    toolName: 'remote_env_info',
+    clientId,
+  });
+  return {
+    requestId,
+    toolName: 'remote_env_info',
+    previousSessionId: currentSessionId,
+    sessionId: reconnected.session_id,
+  };
+}
+
 async function readLocalAuditEvents(auditLogPath) {
   let raw = '';
   try {
@@ -1075,6 +1137,14 @@ async function main() {
       throw new Error(`bridge daemon did not advertise ${capability}: ${JSON.stringify(bridgeClient.capabilities)}`);
     }
   }
+  const reconnectResult = await assertReconnectScenario(
+    baseUrl,
+    prepared.api_token,
+    dashboardHeaders,
+    suffix,
+    clientId,
+    bridgeClient.session_id,
+  );
 
   const proxy = await configureProxy(baseUrl, dashboardHeaders, clientId, localMCP.url, namespace);
   const exposedNames = proxy.tools.map((tool) => tool.exposed_tool_name);
@@ -1098,6 +1168,7 @@ async function main() {
   const failureResults = await assertFailureScenarios(baseUrl, prepared.api_token, dashboardHeaders, suffix, namespace, clientId);
 
   const localAuditExpectations = [
+    { requestId: reconnectResult.requestId, finalType: 'tool_result' },
     ...results.map((result) => ({ requestId: result.requestId, finalType: 'tool_result' })),
     ...failureResults.map((result) => ({ requestId: result.requestId, finalType: 'tool_error' })),
   ];
@@ -1114,6 +1185,7 @@ async function main() {
     concurrency: config.concurrency,
     duration_ms: durationMS,
     client_id: clientId,
+    reconnect_session_id: reconnectResult.sessionId,
     proxy_server_id: proxy.server.id,
     audit_log: auditLogPath,
   });

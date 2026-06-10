@@ -899,6 +899,13 @@ async function onMessage(ws, config, limit, raw) {
   if (message.type === 'pong') return;
   if (message.type === 'close') {
     log('WARN', 'server requested bridge close', message.data);
+    await audit(config, { type: 'server_close', data: message.data || {} });
+    const reason = typeof message.data?.reason === 'string' ? message.data.reason : 'server requested bridge close';
+    try {
+      ws.close(1000, reason.slice(0, 120));
+    } catch {
+      // The close may race with a network disconnect; the reconnect loop handles both paths.
+    }
     return;
   }
   if (message.type !== 'tool_call') {
