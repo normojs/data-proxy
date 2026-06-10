@@ -135,3 +135,7 @@ For request structs that are parsed from client JSON and then re-marshaled to up
 ### Rule 7: Billing Expression System — Read `pkg/billingexpr/expr.md`
 
 When working on tiered/dynamic billing (expression-based pricing), you MUST read `pkg/billingexpr/expr.md` first. It documents the design philosophy, expression language (variables, functions, examples), full system architecture (editor → storage → pre-consume → settlement → log display), token normalization rules (`p`/`c` auto-exclusion), quota conversion, and expression versioning. All code changes to the billing expression system must follow the patterns described in that document.
+
+### Rule 8: data-proxy MCP / Bridge / OpenAPI Work — Read `docs/ai-code-rules.md`
+
+When working on the current data-proxy MCP, Bridge, OpenAPI import/execution, MCP billing, or operations dashboard tasks, you MUST read `docs/ai-code-rules.md` first. It defines the current project boundary, explicitly excludes QidianBrowser product-client work, maps the relevant modules, and lists the required smoke tests and safety checks for Bridge daemon, MCP Proxy, OpenAPI binary downloads, billing events, and the MCP operations dashboard.
