@@ -63,6 +63,8 @@ Options:
   --name=<name>                  Client display name.
   --version=<version>            Client version.
   --enable-write                 Advertise and execute remote_write/remote_edit.
+  --advertise-disabled-write-tools
+                                 Advertise write tools while keeping writes disabled; intended for smoke tests.
   --allow-absolute-path          Allow absolute paths outside workspace.
   --allow-non-loopback-mcp       Allow MCP proxy targets outside loopback.
   --max-concurrency=<n>          Concurrent tool calls. Default ${DEFAULT_MAX_CONCURRENCY}
@@ -98,6 +100,10 @@ function buildConfig() {
   }
   const workspace = path.resolve(args.workspace || process.env.BRIDGE_DAEMON_WORKSPACE || repoRoot);
   const enableWrite = args['enable-write'] === true || process.env.BRIDGE_DAEMON_ENABLE_WRITE === '1';
+  const advertiseDisabledWriteTools = (
+    args['advertise-disabled-write-tools'] === true
+    || process.env.BRIDGE_DAEMON_ADVERTISE_DISABLED_WRITE_TOOLS === '1'
+  );
   const capabilities = [
     'remote_read',
     'remote_tree',
@@ -106,7 +112,7 @@ function buildConfig() {
     'remote_env_info',
     'mcp_proxy',
   ];
-  if (enableWrite) {
+  if (enableWrite || advertiseDisabledWriteTools) {
     capabilities.push('remote_write', 'remote_edit');
   }
   return {
@@ -118,6 +124,7 @@ function buildConfig() {
     version: args.version || process.env.BRIDGE_DAEMON_VERSION || DEFAULT_VERSION,
     platform: args.platform || process.env.BRIDGE_DAEMON_PLATFORM || `${os.platform()}-${os.arch()}`,
     enableWrite,
+    advertiseDisabledWriteTools,
     allowAbsolutePath:
       args['allow-absolute-path'] === true || process.env.BRIDGE_DAEMON_ALLOW_ABSOLUTE_PATH === '1',
     allowNonLoopbackMCP:

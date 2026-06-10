@@ -5,7 +5,7 @@
 - [x] Expand the real Bridge daemon concurrency smoke to cover `remote_edit` and `remote_glob`.
   - Acceptance: `make mcp-bridge-smoke` exercises write/read/edit/glob/grep/tree/MCP proxy calls through `/mcp/v1`.
   - Acceptance: every added call is persisted in `mcp_tool_calls`, `bridge_audit_logs`, and the local daemon JSONL audit.
-- [ ] Add daemon negative-path smoke coverage for write-disabled clients.
+- [x] Add daemon negative-path smoke coverage for write-disabled clients.
   - Acceptance: a daemon started without `--enable-write` rejects `remote_write` with `REMOTE_WRITE_DISABLED`.
   - Acceptance: server records error status and refund path for the failed MCP call.
 - [ ] Add daemon MCP target policy smoke coverage.

@@ -17,6 +17,7 @@ const DEFAULT_TIMEOUT_MS = 240_000;
 const DEFAULT_CONCURRENCY = 12;
 const DEFAULT_ITERATIONS = 4;
 const GO_CACHE_ROOT = '/Volumes/fushilu/.caches/gocache';
+const WRITE_DISABLED_PRICE_PER_CALL = 0.001;
 
 function parseArgs(argv) {
   const args = {};
@@ -74,6 +75,7 @@ const config = {
 const children = [];
 let prepared = null;
 let workspace = '';
+const workspaces = new Set();
 let localMCP = null;
 let cleaned = false;
 
@@ -233,6 +235,7 @@ function helperSource() {
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 
@@ -252,6 +255,18 @@ type cleanupPayload struct {
 	TokenId int ` + "`json:\"token_id\"`" + `
 	Suffix string ` + "`json:\"suffix\"`" + `
 	Namespace string ` + "`json:\"namespace\"`" + `
+}
+
+type toolPricePayload struct {
+	Name string ` + "`json:\"name\"`" + `
+	PricePerCall float64 ` + "`json:\"price_per_call\"`" + `
+	FreeQuota int ` + "`json:\"free_quota\"`" + `
+}
+
+type billingRefundPayload struct {
+	RequestId string ` + "`json:\"request_id\"`" + `
+	ExpectedQuota int ` + "`json:\"expected_quota\"`" + `
+	ExpectedReason string ` + "`json:\"expected_reason\"`" + `
 }
 
 func main() {
@@ -283,6 +298,14 @@ func main() {
 		var p cleanupPayload
 		mustUnmarshal(payload, &p)
 		result, err = cleanup(p)
+	case "set_tool_price":
+		var p toolPricePayload
+		mustUnmarshal(payload, &p)
+		result, err = setToolPrice(p)
+	case "assert_billing_refund":
+		var p billingRefundPayload
+		mustUnmarshal(payload, &p)
+		result, err = assertBillingRefund(p)
 	default:
 		err = fmt.Errorf("unknown action %s", action)
 	}
@@ -305,6 +328,18 @@ func mustUnmarshal(payload []byte, target any) {
 	}
 }
 
+func remoteToolNames() []string {
+	return []string{
+		"remote_read",
+		"remote_write",
+		"remote_edit",
+		"remote_tree",
+		"remote_glob",
+		"remote_grep",
+		"remote_env_info",
+	}
+}
+
 func prepare(p preparePayload) (map[string]any, error) {
 	if p.Suffix == "" {
 		p.Suffix = common.GetRandomString(12)
@@ -315,28 +350,8 @@ func prepare(p preparePayload) (map[string]any, error) {
 	if err := model.SeedBuiltinMCPTools(); err != nil {
 		return nil, err
 	}
-	remoteTools := []string{
-		"remote_read",
-		"remote_write",
-		"remote_edit",
-		"remote_tree",
-		"remote_glob",
-		"remote_grep",
-		"remote_env_info",
-	}
-	for _, name := range remoteTools {
-		tool, err := model.GetMCPToolByName(name)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := model.UpdateMCPToolFields(tool.Id, map[string]any{
-			"price_per_call": 0,
-			"price_unit": model.MCPToolPriceUnitPerCall,
-			"is_remote": true,
-			"status": model.MCPToolStatusEnabled,
-		}); err != nil {
-			return nil, err
-		}
+	if err := resetRemoteToolPricing(); err != nil {
+		return nil, err
 	}
 	if err := model.UpdateOption("performance_setting.monitor_disk_threshold", "100"); err != nil {
 		return nil, err
@@ -391,13 +406,15 @@ func prepare(p preparePayload) (map[string]any, error) {
 }
 
 func cleanup(p cleanupPayload) (map[string]any, error) {
+	_ = resetRemoteToolPricing()
 	if p.Suffix != "" {
 		pattern := "%bridge-daemon-smoke-" + p.Suffix + "%"
+		clientPattern := "bridge-daemon-" + p.Suffix + "%"
 		_ = model.DB.Where("request_id LIKE ?", pattern).Delete(&model.BillingEvent{}).Error
 		_ = model.DB.Where("request_id LIKE ?", pattern).Delete(&model.BridgeAuditLog{}).Error
 		_ = model.DB.Where("request_id LIKE ?", pattern).Delete(&model.MCPToolCall{}).Error
-		_ = model.DB.Where("client_id = ?", "bridge-daemon-" + p.Suffix).Delete(&model.BridgeSession{}).Error
-		_ = model.DB.Unscoped().Where("client_id = ?", "bridge-daemon-" + p.Suffix).Delete(&model.BridgeClient{}).Error
+		_ = model.DB.Where("client_id LIKE ?", clientPattern).Delete(&model.BridgeSession{}).Error
+		_ = model.DB.Unscoped().Where("client_id LIKE ?", clientPattern).Delete(&model.BridgeClient{}).Error
 	}
 	if p.Namespace != "" {
 		var server model.MCPProxyServer
@@ -415,6 +432,97 @@ func cleanup(p cleanupPayload) (map[string]any, error) {
 		_ = model.DB.Unscoped().Where("id = ?", p.UserId).Delete(&model.User{}).Error
 	}
 	return map[string]any{"cleaned": true}, nil
+}
+
+func resetRemoteToolPricing() error {
+	for _, name := range remoteToolNames() {
+		tool, err := model.GetMCPToolByName(name)
+		if err != nil {
+			return err
+		}
+		if _, err := model.UpdateMCPToolFields(tool.Id, map[string]any{
+			"price_per_call": 0,
+			"price_unit": model.MCPToolPriceUnitPerCall,
+			"free_quota": 0,
+			"is_remote": true,
+			"status": model.MCPToolStatusEnabled,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func setToolPrice(p toolPricePayload) (map[string]any, error) {
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		return nil, fmt.Errorf("tool name is required")
+	}
+	tool, err := model.GetMCPToolByName(name)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := model.UpdateMCPToolFields(tool.Id, map[string]any{
+		"price_per_call": p.PricePerCall,
+		"price_unit": model.MCPToolPriceUnitPerCall,
+		"free_quota": p.FreeQuota,
+		"is_remote": true,
+		"status": model.MCPToolStatusEnabled,
+	}); err != nil {
+		return nil, err
+	}
+	groupRatio := ratio_setting.GetGroupRatio("default")
+	if groupRatio < 0 {
+		groupRatio = 1
+	}
+	expectedQuota := int(math.Round(p.PricePerCall * common.QuotaPerUnit * groupRatio))
+	return map[string]any{"updated": true, "tool_id": tool.Id, "name": name, "price_per_call": p.PricePerCall, "expected_quota": expectedQuota}, nil
+}
+
+func assertBillingRefund(p billingRefundPayload) (map[string]any, error) {
+	if strings.TrimSpace(p.RequestId) == "" {
+		return nil, fmt.Errorf("request_id is required")
+	}
+	var call model.MCPToolCall
+	if err := model.DB.Where("request_id = ?", p.RequestId).First(&call).Error; err != nil {
+		return nil, err
+	}
+	var events []model.BillingEvent
+	if err := model.DB.Where("source = ? AND request_id = ?", model.BillingEventSourceMCPToolCall, p.RequestId).
+		Order("id asc").
+		Find(&events).Error; err != nil {
+		return nil, err
+	}
+	if p.ExpectedQuota <= 0 {
+		return map[string]any{"request_id": p.RequestId, "events": len(events), "call_id": call.Id}, nil
+	}
+	if len(events) != 2 {
+		return nil, fmt.Errorf("expected settlement and refund events for %s, got %d", p.RequestId, len(events))
+	}
+	settlement := events[0]
+	refund := events[1]
+	expectedSourceId := fmt.Sprint(call.Id)
+	expectedSettlementId := "mcp_tool_call:" + expectedSourceId + ":settlement"
+	expectedRefundId := "mcp_tool_call:" + expectedSourceId + ":refund"
+	if settlement.EventId != expectedSettlementId || settlement.EventType != model.BillingEventTypeDebit || settlement.AmountQuota != p.ExpectedQuota || settlement.QuotaDelta != -p.ExpectedQuota {
+		return nil, fmt.Errorf("settlement event mismatch: %#v", settlement)
+	}
+	if refund.EventId != expectedRefundId || refund.EventType != model.BillingEventTypeCredit || refund.AmountQuota != p.ExpectedQuota || refund.QuotaDelta != p.ExpectedQuota {
+		return nil, fmt.Errorf("refund event mismatch: %#v", refund)
+	}
+	if settlement.SourceId != expectedSourceId || refund.SourceId != expectedSourceId {
+		return nil, fmt.Errorf("billing event source id mismatch: settlement=%s refund=%s expected=%s", settlement.SourceId, refund.SourceId, expectedSourceId)
+	}
+	if p.ExpectedReason != "" {
+		var metadata map[string]any
+		if err := json.Unmarshal([]byte(refund.Metadata), &metadata); err != nil {
+			return nil, fmt.Errorf("refund metadata is not valid JSON: %w", err)
+		}
+		if fmt.Sprint(metadata["reason"]) != p.ExpectedReason {
+			return nil, fmt.Errorf("refund reason mismatch: want %s metadata=%s", p.ExpectedReason, refund.Metadata)
+		}
+	}
+	return map[string]any{"request_id": p.RequestId, "events": len(events), "call_id": call.Id, "quota": p.ExpectedQuota}, nil
 }
 `;
 }
@@ -514,6 +622,23 @@ async function waitForBridgeClientReconnect(baseUrl, headers, clientId, previous
     await sleep(500);
   }
   throw new Error(`timeout waiting for bridge client ${clientId} to reconnect; ${last}`);
+}
+
+async function waitForBridgeClientOffline(baseUrl, headers, clientId, timeoutMs) {
+  const started = Date.now();
+  let last = '';
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const json = await apiGet(`${baseUrl}/api/bridge/clients?scope=all&page_size=50`, headers);
+      const found = pageItems(json).find((item) => item.client_id === clientId);
+      if (!found || found.online !== true) return;
+      last = `client=${found.client_id}:${found.online}:${found.session_id || '-'}`;
+    } catch (err) {
+      last = err.message;
+    }
+    await sleep(500);
+  }
+  throw new Error(`timeout waiting for bridge client ${clientId} to go offline; ${last}`);
 }
 
 function startLocalMCPServer() {
@@ -673,6 +798,7 @@ function writeJSON(res, status, value) {
 async function setupWorkspace(suffix) {
   const root = path.join(repoRoot, '.test', `bridge-daemon-workspace-${suffix}`);
   await fs.rm(root, { recursive: true, force: true });
+  workspaces.add(root);
   await fs.mkdir(path.join(root, 'docs'), { recursive: true });
   await fs.writeFile(
     path.join(root, 'docs', 'seed.txt'),
@@ -978,6 +1104,99 @@ async function assertFailureScenarios(baseUrl, apiToken, headers, suffix, namesp
   return failures;
 }
 
+async function assertWriteDisabledDaemonScenario(baseUrl, apiToken, headers, suffix) {
+  const disabledClientId = `bridge-daemon-${suffix}-readonly`;
+  const disabledWorkspace = await setupWorkspace(`${suffix}-readonly`);
+  const auditLogPath = path.join(disabledWorkspace, 'bridge-daemon-readonly-audit.jsonl');
+  log('starting write-disabled bridge daemon', { clientId: disabledClientId, workspace: disabledWorkspace });
+  const daemon = spawnLogged(
+    'bridge-daemon-readonly',
+    'node',
+    [
+      daemonPath,
+      `--server=${bridgeWSURL(baseUrl)}`,
+      `--token=${apiToken}`,
+      `--workspace=${disabledWorkspace}`,
+      `--client-id=${disabledClientId}`,
+      '--name=Local Bridge Daemon Smoke Readonly',
+      '--advertise-disabled-write-tools',
+      '--ping-interval-ms=5000',
+      '--max-concurrency=2',
+      `--audit-log=${auditLogPath}`,
+    ],
+    { cwd: repoRoot },
+  );
+
+  let priceConfig = null;
+  try {
+    const bridgeClient = await waitForBridgeClient(baseUrl, headers, disabledClientId, config.timeoutMs);
+    if (!bridgeClient.capabilities?.includes('remote_write')) {
+      throw new Error(`write-disabled daemon did not advertise remote_write: ${JSON.stringify(bridgeClient.capabilities)}`);
+    }
+    priceConfig = await runSmokeHelper('set_tool_price', {
+      name: 'remote_write',
+      price_per_call: WRITE_DISABLED_PRICE_PER_CALL,
+      free_quota: 0,
+    });
+
+    const requestId = `bridge-daemon-smoke-${suffix}-write-disabled`;
+    await expectMCPError(baseUrl, apiToken, {
+      jsonrpc: '2.0',
+      id: requestId,
+      method: 'tools/call',
+      params: {
+        name: 'remote_write',
+        arguments: {
+          file_path: 'out/write-disabled.txt',
+          content: 'this write must be rejected because --enable-write is absent\n',
+          create_dirs: true,
+        },
+      },
+    }, -32003);
+    await assertMCPCallRecord(baseUrl, headers, requestId, {
+      status: 'error',
+      toolName: 'remote_write',
+      errorCode: 'REMOTE_WRITE_DISABLED',
+      clientId: disabledClientId,
+    });
+    await assertBridgeAuditRecord(baseUrl, headers, requestId, {
+      status: 'error',
+      toolName: 'remote_write',
+      errorCode: 'REMOTE_WRITE_DISABLED',
+      clientId: disabledClientId,
+    });
+    await runSmokeHelper('assert_billing_refund', {
+      request_id: requestId,
+      expected_quota: Number(priceConfig?.expected_quota || 0),
+      expected_reason: 'REMOTE_WRITE_DISABLED',
+    });
+    await waitForLocalAuditEvents(
+      auditLogPath,
+      [{ requestId, finalType: 'tool_error' }],
+      Math.min(config.timeoutMs, 30_000),
+    );
+    return {
+      requestId,
+      toolName: 'remote_write',
+      clientId: disabledClientId,
+      auditLogPath,
+      expectedQuota: Number(priceConfig?.expected_quota || 0),
+    };
+  } finally {
+    await runSmokeHelper('set_tool_price', {
+      name: 'remote_write',
+      price_per_call: 0,
+      free_quota: 0,
+    }).catch((err) => {
+      console.error(`[bridge-smoke] failed to restore remote_write price: ${err.message}`);
+    });
+    await stopChild(daemon);
+    await waitForBridgeClientOffline(baseUrl, headers, disabledClientId, Math.min(config.timeoutMs, 30_000)).catch((err) => {
+      console.error(`[bridge-smoke] write-disabled daemon did not go offline cleanly: ${err.message}`);
+    });
+  }
+}
+
 async function assertReconnectScenario(baseUrl, apiToken, headers, suffix, clientId, currentSessionId) {
   if (!currentSessionId) {
     throw new Error('bridge client did not expose session_id for reconnect verification');
@@ -1066,6 +1285,16 @@ async function stopChildren() {
   }
 }
 
+async function stopChild(child) {
+  if (!child || child.killed || child.exitCode !== null) return;
+  killChildProcessGroup(child, 'SIGTERM');
+  await sleep(500);
+  if (!child.killed && child.exitCode === null) {
+    killChildProcessGroup(child, 'SIGKILL');
+    await sleep(200);
+  }
+}
+
 function killChildProcessGroup(child, signal) {
   try {
     process.kill(-child.pid, signal);
@@ -1095,8 +1324,10 @@ async function cleanup() {
       console.error(`[bridge-smoke] cleanup failed: ${err.message}`);
     });
   }
-  if (workspace && !config.keepData) {
-    await fs.rm(workspace, { recursive: true, force: true }).catch(() => {});
+  if (!config.keepData) {
+    for (const item of workspaces) {
+      await fs.rm(item, { recursive: true, force: true }).catch(() => {});
+    }
   }
 }
 
@@ -1144,6 +1375,13 @@ async function main() {
     });
     await waitForHTTP(`${baseUrl}/api/setup`, config.timeoutMs);
   }
+
+  const writeDisabledResult = await assertWriteDisabledDaemonScenario(
+    baseUrl,
+    prepared.api_token,
+    dashboardHeaders,
+    suffix,
+  );
 
   log('starting local bridge daemon', { clientId, workspace });
   spawnLogged(
@@ -1220,6 +1458,7 @@ async function main() {
     reconnect_session_id: reconnectResult.sessionId,
     proxy_server_id: proxy.server.id,
     audit_log: auditLogPath,
+    write_disabled_request_id: writeDisabledResult.requestId,
   });
 }
 

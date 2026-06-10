@@ -148,6 +148,9 @@ Supported capabilities:
 - Always advertised: `remote_read`, `remote_tree`, `remote_glob`,
   `remote_grep`, `remote_env_info`, `mcp_proxy`.
 - Advertised with `--enable-write`: `remote_write`, `remote_edit`.
+- Smoke-only policy verification can pass `--advertise-disabled-write-tools`
+  without `--enable-write` so data-proxy can exercise the daemon's
+  `REMOTE_WRITE_DISABLED` error and billing refund path.
 - MCP Proxy bridge tools: `mcp_proxy.test`, `mcp_proxy.tools_list`,
   `mcp_proxy.tools_call`.
 
@@ -167,7 +170,8 @@ The concurrency smoke starts a local `new-api` process unless `--base-url` is
 provided, creates a smoke user/token, starts a loopback MCP HTTP server, starts
 the local Bridge daemon, configures an MCP Proxy server with
 `transport=qidian_browser`, actively closes the first Bridge session to verify
-daemon reconnect, then concurrently calls:
+daemon reconnect, verifies that a write-disabled daemon rejects `remote_write`
+with `REMOTE_WRITE_DISABLED` and refunds billing, then concurrently calls:
 
 - `remote_write`
 - `remote_edit`
