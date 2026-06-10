@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	mcpopenapi "github.com/QuantumNous/new-api/pkg/mcp/openapi"
@@ -355,6 +356,39 @@ func TestDownloadMCPOpenAPIBinaryObjectEnforcesOwner(t *testing.T) {
 	require.NoError(t, model.DB.Where("object_id = ?", object.Id).First(&refreshed).Error)
 	require.Equal(t, 2, refreshed.DownloadCount)
 	require.NotZero(t, refreshed.LastDownloadedAt)
+
+	expiredObject, err := mcpopenapi.SaveBinaryObject([]byte("expired"), "application/octet-stream", "expired")
+	require.NoError(t, err)
+	require.NoError(t, model.CreateMCPOpenAPIBinaryObject(&model.MCPOpenAPIBinaryObject{
+		ObjectId:      expiredObject.Id,
+		Provider:      expiredObject.Provider,
+		StorageKey:    expiredObject.StorageKey,
+		ContentType:   expiredObject.ContentType,
+		ContentFamily: "binary",
+		SHA256:        expiredObject.SHA256,
+		Size:          expiredObject.Size,
+		Filename:      expiredObject.Filename,
+		Disposition:   "attachment",
+		MCPToolCallId: 12,
+		MCPToolId:     22,
+		OpenAPIToolId: 33,
+		UserId:        101,
+		TokenId:       201,
+		RequestId:     "openapi-binary-expired",
+		OperationKey:  "GET /download",
+		ExpiresAt:     common.GetTimestamp() - 60,
+	}))
+	_, err = DownloadMCPOpenAPIBinaryObject(context.Background(), MCPOpenAPIBinaryDownloadParams{
+		ObjectId: expiredObject.Id,
+		UserId:   101,
+	})
+	require.ErrorIs(t, err, ErrMCPOpenAPIBinaryObjectNotFound)
+	_, err = DownloadMCPOpenAPIBinaryObject(context.Background(), MCPOpenAPIBinaryDownloadParams{
+		ObjectId: expiredObject.Id,
+		UserId:   999,
+		IsAdmin:  true,
+	})
+	require.ErrorIs(t, err, ErrMCPOpenAPIBinaryObjectNotFound)
 }
 
 func requireOpenAPIImportChange(t *testing.T, changes []dto.MCPOpenAPIImportChange, field string, previous string, current string) {
