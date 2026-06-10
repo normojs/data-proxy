@@ -143,6 +143,15 @@ node tools/bridge_client_daemon.mjs \
   --audit-log=/tmp/data-proxy-bridge-workspace/bridge-daemon-audit.jsonl
 ```
 
+Offline guard self-test:
+
+```bash
+node tools/bridge_client_daemon.mjs --self-test --workspace=/tmp/data-proxy-bridge-self-test
+```
+
+The self-test does not require a token or data-proxy connection. It verifies a
+local read, write-disabled rejection, and outside-workspace write rejection.
+
 Supported capabilities:
 
 - Always advertised: `remote_read`, `remote_tree`, `remote_glob`,
@@ -230,6 +239,7 @@ It runs:
 
 - `node --check` for `tools/bridge_client_daemon.mjs`.
 - `node --check` for `tools/bridge_daemon_concurrency_smoke.mjs`.
+- The daemon offline self-test against a temporary workspace.
 - Targeted Go tests for Bridge, MCP Proxy over Bridge, and remote Bridge
   executor paths.
 

@@ -14,7 +14,7 @@
 
 ## P1 - Bridge daemon hardening
 
-- [ ] Add a lightweight daemon self-test mode that exercises file guards without connecting to data-proxy.
+- [x] Add a lightweight daemon self-test mode that exercises file guards without connecting to data-proxy.
   - Acceptance: `node tools/bridge_client_daemon.mjs --self-test --workspace=<tmp>` exits 0 and covers path traversal/write-disabled checks.
 - [ ] Add structured reconnect counters to daemon local audit events.
   - Acceptance: audit JSONL includes reconnect attempt, delay, open/clean-close status, and server-close reason.

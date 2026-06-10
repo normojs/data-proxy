@@ -108,6 +108,7 @@ mcp-bridge-check:
 	@echo "Checking MCP Bridge daemon scripts..."
 	@node --check tools/bridge_client_daemon.mjs
 	@node --check tools/bridge_daemon_concurrency_smoke.mjs
+	@tmp_dir=$$(mktemp -d); node tools/bridge_client_daemon.mjs --self-test --workspace="$$tmp_dir"; self_test_status=$$?; rm -rf "$$tmp_dir"; exit $$self_test_status
 	@echo "Running MCP Bridge Go tests..."
 	@go test ./pkg/mcp/proxy ./pkg/mcp/executor ./service -run '$(MCP_BRIDGE_GO_TEST_PATTERN)' -count=1 -timeout=120s
 

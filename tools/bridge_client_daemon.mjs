@@ -71,6 +71,7 @@ Options:
   --ping-interval-ms=<ms>        Heartbeat interval. Default ${DEFAULT_PING_INTERVAL_MS}
   --no-reconnect                 Exit after first WebSocket close.
   --audit-log=<path>             Append local JSONL audit events.
+  --self-test                    Run local file guard checks and exit without connecting.
   --help                         Show help.
 
 Supported tools:
@@ -93,8 +94,9 @@ function buildConfig() {
     printHelp();
     process.exit(0);
   }
+  const selfTest = args['self-test'] === true || process.env.BRIDGE_DAEMON_SELF_TEST === '1';
   const token = args.token || process.env.BRIDGE_DAEMON_TOKEN || process.env.QIDIAN_BRIDGE_TOKEN || '';
-  if (!token) {
+  if (!token && !selfTest) {
     console.error('missing token: pass --token=<token> or set BRIDGE_DAEMON_TOKEN');
     process.exit(1);
   }
@@ -117,7 +119,7 @@ function buildConfig() {
   }
   return {
     server: args.server || process.env.BRIDGE_DAEMON_SERVER || DEFAULT_SERVER,
-    token,
+    token: token || 'self-test-token',
     workspace,
     clientId: args['client-id'] || process.env.BRIDGE_DAEMON_CLIENT_ID || DEFAULT_CLIENT_ID,
     name: args.name || process.env.BRIDGE_DAEMON_NAME || DEFAULT_CLIENT_NAME,
@@ -135,6 +137,7 @@ function buildConfig() {
     reconnectMaxMs: positiveInt(process.env.BRIDGE_DAEMON_RECONNECT_MAX_MS, DEFAULT_RECONNECT_MAX_MS),
     maxConcurrency: positiveInt(args['max-concurrency'] || process.env.BRIDGE_DAEMON_MAX_CONCURRENCY, DEFAULT_MAX_CONCURRENCY, 128),
     auditLog: args['audit-log'] || process.env.BRIDGE_DAEMON_AUDIT_LOG || '',
+    selfTest,
     capabilities,
     mcp: new LocalMCPProxyClient(),
   };
@@ -1006,9 +1009,68 @@ async function runOnce(config) {
   });
 }
 
+async function expectToolError(label, expectedCode, fn) {
+  try {
+    await fn();
+  } catch (err) {
+    if (err.code === expectedCode) return;
+    throw new Error(`${label} returned ${err.code || '<no code>'}, expected ${expectedCode}: ${err.message}`);
+  }
+  throw new Error(`${label} unexpectedly succeeded; expected ${expectedCode}`);
+}
+
+async function runSelfTest(config) {
+  await fs.mkdir(config.workspace, { recursive: true });
+  const docsDir = path.join(config.workspace, 'docs');
+  await fs.mkdir(docsDir, { recursive: true });
+  await fs.writeFile(path.join(docsDir, 'seed.txt'), 'bridge daemon self-test\n', 'utf8');
+
+  const readOnlyConfig = {
+    ...config,
+    enableWrite: false,
+    capabilities: ['remote_read', 'remote_tree', 'remote_glob', 'remote_grep', 'remote_env_info', 'mcp_proxy', 'remote_write', 'remote_edit'],
+  };
+  const writeConfig = {
+    ...readOnlyConfig,
+    enableWrite: true,
+  };
+
+  const readResult = await handleRemoteRead(readOnlyConfig, { file_path: 'docs/seed.txt', offset: 1, limit: 5 });
+  const readText = readResult.content?.[0]?.text || '';
+  if (!readText.includes('bridge daemon self-test')) {
+    throw new Error(`self-test remote_read mismatch: ${readText}`);
+  }
+
+  await expectToolError('write-disabled remote_write', 'REMOTE_WRITE_DISABLED', () => (
+    handleRemoteWrite(readOnlyConfig, {
+      file_path: 'out/disabled.txt',
+      content: 'must not be written\n',
+      create_dirs: true,
+    })
+  ));
+
+  await expectToolError('path traversal remote_write', 'REMOTE_WRITE_FORBIDDEN', () => (
+    handleRemoteWrite(writeConfig, {
+      file_path: '../outside-workspace.txt',
+      content: 'must not escape workspace\n',
+      create_dirs: true,
+    })
+  ));
+
+  console.log(JSON.stringify({
+    ok: true,
+    workspace: config.workspace,
+    checks: ['remote_read', 'remote_write_disabled', 'remote_write_path_guard'],
+  }));
+}
+
 async function main() {
   const config = buildConfig();
   await fs.mkdir(config.workspace, { recursive: true });
+  if (config.selfTest) {
+    await runSelfTest(config);
+    return;
+  }
   let attempt = 0;
   for (;;) {
     const result = await runOnce(config);
