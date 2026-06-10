@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/status-badge'
 import { getMCPProxyTrends, mcpQueryKeys } from '../api'
+import { normalizeMCPProxyTrendResponse } from '../lib/proxy-trends'
 import { mcpQueryError, mcpQueryErrorMessage } from '../lib/query-errors'
 import type {
   MCPProxyTrendResponse,
@@ -295,7 +296,7 @@ export function ProxyTrendsPanel(props: ProxyTrendsPanelProps) {
       if (!result.success) {
         throw mcpQueryError(result.message, 'Failed to load MCP proxy trends')
       }
-      return result.data
+      return normalizeMCPProxyTrendResponse(result.data)
     },
     staleTime: 30 * 1000,
     refetchInterval: 60 * 1000,
