@@ -140,6 +140,9 @@ node tools/bridge_client_daemon.mjs \
   --token="$DATA_PROXY_API_TOKEN" \
   --workspace=/tmp/data-proxy-bridge-workspace \
   --enable-write \
+  --max-results=200 \
+  --tree-depth=3 \
+  --walk-depth=8 \
   --audit-log=/tmp/data-proxy-bridge-workspace/bridge-daemon-audit.jsonl
 ```
 
@@ -170,6 +173,9 @@ Default safety boundaries:
 - MCP Proxy targets must be `localhost`, `127.0.0.1`, or `::1`;
   `--allow-non-loopback-mcp` is needed for other hosts.
 - Tool execution is limited by `--max-concurrency`.
+- Scan and result sizes are bounded by `--max-results`, `--tree-depth`,
+  `--walk-depth`, `--max-result-bytes`, and `--max-scan-file-bytes`; these
+  values are returned in `remote_env_info.metadata.limits`.
 - The daemon heartbeats and reconnects with exponential backoff unless
   `--no-reconnect` is set.
 

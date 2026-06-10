@@ -19,8 +19,8 @@ const DEFAULT_MAX_CONCURRENCY = 16;
 const DEFAULT_MAX_RESULTS = 200;
 const DEFAULT_TREE_DEPTH = 3;
 const DEFAULT_WALK_DEPTH = 8;
-const MAX_RESULT_BYTES = 512 * 1024;
-const MAX_SCAN_FILE_BYTES = 2 * 1024 * 1024;
+const DEFAULT_MAX_RESULT_BYTES = 512 * 1024;
+const DEFAULT_MAX_SCAN_FILE_BYTES = 2 * 1024 * 1024;
 const MCP_PROTOCOL_VERSION = '2025-06-18';
 
 const DEFAULT_IGNORES = new Set([
@@ -68,6 +68,11 @@ Options:
   --allow-absolute-path          Allow absolute paths outside workspace.
   --allow-non-loopback-mcp       Allow MCP proxy targets outside loopback.
   --max-concurrency=<n>          Concurrent tool calls. Default ${DEFAULT_MAX_CONCURRENCY}
+  --max-results=<n>              Max listed/search results per tool. Default ${DEFAULT_MAX_RESULTS}
+  --tree-depth=<n>               Default and maximum remote_tree depth. Default ${DEFAULT_TREE_DEPTH}
+  --walk-depth=<n>               Default and maximum glob/grep walk depth. Default ${DEFAULT_WALK_DEPTH}
+  --max-result-bytes=<n>         Max text result bytes. Default ${DEFAULT_MAX_RESULT_BYTES}
+  --max-scan-file-bytes=<n>      Max file size scanned by remote_grep. Default ${DEFAULT_MAX_SCAN_FILE_BYTES}
   --ping-interval-ms=<ms>        Heartbeat interval. Default ${DEFAULT_PING_INTERVAL_MS}
   --no-reconnect                 Exit after first WebSocket close.
   --audit-log=<path>             Append local JSONL audit events.
@@ -136,6 +141,11 @@ function buildConfig() {
     reconnectBaseMs: positiveInt(process.env.BRIDGE_DAEMON_RECONNECT_BASE_MS, DEFAULT_RECONNECT_BASE_MS),
     reconnectMaxMs: positiveInt(process.env.BRIDGE_DAEMON_RECONNECT_MAX_MS, DEFAULT_RECONNECT_MAX_MS),
     maxConcurrency: positiveInt(args['max-concurrency'] || process.env.BRIDGE_DAEMON_MAX_CONCURRENCY, DEFAULT_MAX_CONCURRENCY, 128),
+    maxResults: positiveInt(args['max-results'] || process.env.BRIDGE_DAEMON_MAX_RESULTS, DEFAULT_MAX_RESULTS, 5000),
+    treeDepth: positiveInt(args['tree-depth'] || process.env.BRIDGE_DAEMON_TREE_DEPTH, DEFAULT_TREE_DEPTH, 16),
+    walkDepth: positiveInt(args['walk-depth'] || process.env.BRIDGE_DAEMON_WALK_DEPTH, DEFAULT_WALK_DEPTH, 32),
+    maxResultBytes: positiveInt(args['max-result-bytes'] || process.env.BRIDGE_DAEMON_MAX_RESULT_BYTES, DEFAULT_MAX_RESULT_BYTES, 50 * 1024 * 1024),
+    maxScanFileBytes: positiveInt(args['max-scan-file-bytes'] || process.env.BRIDGE_DAEMON_MAX_SCAN_FILE_BYTES, DEFAULT_MAX_SCAN_FILE_BYTES, 100 * 1024 * 1024),
     auditLog: args['audit-log'] || process.env.BRIDGE_DAEMON_AUDIT_LOG || '',
     selfTest,
     capabilities,
@@ -285,16 +295,45 @@ function sliceLines(text, offset, limit) {
   };
 }
 
-function enforceResultLimit(text) {
+function configuredLimit(config, key, fallback, hardMax) {
+  return positiveInt(config?.[key], fallback, hardMax);
+}
+
+function cappedOption(value, fallback, cap) {
+  return Math.min(positiveInt(value, fallback, cap), cap);
+}
+
+function maxResultsOption(config, value) {
+  const cap = configuredLimit(config, 'maxResults', DEFAULT_MAX_RESULTS, 5000);
+  return cappedOption(value, cap, cap);
+}
+
+function treeDepthOption(config, value) {
+  const cap = configuredLimit(config, 'treeDepth', DEFAULT_TREE_DEPTH, 16);
+  return cappedOption(value, cap, cap);
+}
+
+function walkDepthOption(config, value) {
+  const cap = configuredLimit(config, 'walkDepth', DEFAULT_WALK_DEPTH, 32);
+  return cappedOption(value, cap, cap);
+}
+
+function scanCandidateLimit(config, outputLimit, multiplier) {
+  const cap = configuredLimit(config, 'maxResults', DEFAULT_MAX_RESULTS, 5000);
+  return Math.min(outputLimit * multiplier, cap * multiplier, 5000);
+}
+
+function enforceResultLimit(text, config) {
+  const maxResultBytes = configuredLimit(config, 'maxResultBytes', DEFAULT_MAX_RESULT_BYTES, 50 * 1024 * 1024);
   const bytes = Buffer.byteLength(text, 'utf8');
-  if (bytes <= MAX_RESULT_BYTES) {
+  if (bytes <= maxResultBytes) {
     return { text, bytes, truncated: false };
   }
   const chunks = [];
   let size = 0;
   for (const char of text) {
     const charSize = Buffer.byteLength(char, 'utf8');
-    if (size + charSize > MAX_RESULT_BYTES) break;
+    if (size + charSize > maxResultBytes) break;
     chunks.push(char);
     size += charSize;
   }
@@ -383,7 +422,7 @@ async function handleRemoteRead(config, args) {
   const offset = lineOption(args?.offset, 1);
   const limit = lineOption(args?.limit, 100);
   const sliced = sliceLines(raw, offset, limit);
-  const limited = enforceResultLimit(sliced.text);
+  const limited = enforceResultLimit(sliced.text, config);
   const relative = relativeWorkspacePath(config, filePath);
   return {
     content: [{ type: 'text', text: limited.text }],
@@ -467,8 +506,8 @@ async function handleRemoteTree(config, args) {
   if (!stat.isDirectory()) {
     throw createToolError('REMOTE_TREE_NOT_DIRECTORY', `target is not a directory: ${args?.path || '.'}`);
   }
-  const depth = positiveInt(args?.depth ?? args?.max_depth, DEFAULT_TREE_DEPTH, 16);
-  const maxResults = positiveInt(args?.max_results, DEFAULT_MAX_RESULTS, 5000);
+  const depth = treeDepthOption(config, args?.depth ?? args?.max_depth);
+  const maxResults = maxResultsOption(config, args?.max_results);
   const walked = await walkWorkspace(rootPath, { maxDepth: depth, maxResults, includeDirectories: true });
   const rootRelative = relativeWorkspacePath(config, rootPath);
   const lines = [`${rootRelative}/`];
@@ -476,7 +515,7 @@ async function handleRemoteTree(config, args) {
     const indent = '  '.repeat(Math.max(item.depth - 1, 0));
     lines.push(`${indent}${item.type === 'directory' ? 'd' : '-'} ${relativeWorkspacePath(config, item.path)}`);
   }
-  const limited = enforceResultLimit(lines.join('\n'));
+  const limited = enforceResultLimit(lines.join('\n'), config);
   return {
     content: [{ type: 'text', text: limited.text }],
     summary: `${rootRelative} (${walked.items.length} entries)`,
@@ -498,11 +537,11 @@ async function handleRemoteGlob(config, args) {
     throw createToolError('REMOTE_GLOB_INVALID_ARGUMENT', 'pattern must be a non-empty string');
   }
   const rootPath = await resolveExistingWorkspacePath(config, args?.path || '.', 'REMOTE_GLOB');
-  const maxResults = positiveInt(args?.max_results, DEFAULT_MAX_RESULTS, 5000);
+  const maxResults = maxResultsOption(config, args?.max_results);
   const matcher = globToRegExp(args.pattern.trim());
   const walked = await walkWorkspace(rootPath, {
-    maxDepth: positiveInt(args?.max_depth, DEFAULT_WALK_DEPTH, 32),
-    maxResults: maxResults * 4,
+    maxDepth: walkDepthOption(config, args?.max_depth),
+    maxResults: scanCandidateLimit(config, maxResults, 4),
   });
   const matches = [];
   for (const item of walked.items) {
@@ -511,7 +550,7 @@ async function handleRemoteGlob(config, args) {
     matches.push(relative);
     if (matches.length >= maxResults) break;
   }
-  const limited = enforceResultLimit(matches.join('\n'));
+  const limited = enforceResultLimit(matches.join('\n'), config);
   return {
     content: [{ type: 'text', text: limited.text }],
     summary: `${matches.length} files matched ${args.pattern}`,
@@ -533,7 +572,7 @@ async function handleRemoteGrep(config, args) {
     throw createToolError('REMOTE_GREP_INVALID_ARGUMENT', 'pattern must be a non-empty string');
   }
   const rootPath = await resolveExistingWorkspacePath(config, args?.path || '.', 'REMOTE_GREP');
-  const maxResults = positiveInt(args?.max_results, DEFAULT_MAX_RESULTS, 5000);
+  const maxResults = maxResultsOption(config, args?.max_results);
   const globMatcher = args?.glob || args?.glob_pattern ? globToRegExp(args.glob || args.glob_pattern) : null;
   let matcher;
   try {
@@ -547,8 +586,8 @@ async function handleRemoteGrep(config, args) {
     candidates.push({ path: rootPath });
   } else if (stat.isDirectory()) {
     const walked = await walkWorkspace(rootPath, {
-      maxDepth: positiveInt(args?.max_depth, DEFAULT_WALK_DEPTH, 32),
-      maxResults: maxResults * 8,
+      maxDepth: walkDepthOption(config, args?.max_depth),
+      maxResults: scanCandidateLimit(config, maxResults, 8),
     });
     candidates.push(...walked.items);
   } else {
@@ -566,7 +605,7 @@ async function handleRemoteGrep(config, args) {
     } catch {
       continue;
     }
-    if (!fileStat.isFile() || fileStat.size > MAX_SCAN_FILE_BYTES) continue;
+    if (!fileStat.isFile() || fileStat.size > configuredLimit(config, 'maxScanFileBytes', DEFAULT_MAX_SCAN_FILE_BYTES, 100 * 1024 * 1024)) continue;
     let raw;
     try {
       raw = await fs.readFile(item.path, 'utf8');
@@ -581,7 +620,7 @@ async function handleRemoteGrep(config, args) {
       if (matches.length >= maxResults) break;
     }
   }
-  const limited = enforceResultLimit(matches.join('\n'));
+  const limited = enforceResultLimit(matches.join('\n'), config);
   return {
     content: [{ type: 'text', text: limited.text }],
     summary: `${matches.length} matches for ${args.pattern}`,
@@ -608,10 +647,17 @@ async function handleRemoteEnvInfo(config) {
     workspace: config.workspace,
     client_id: config.clientId,
     capabilities: config.capabilities,
+    limits: {
+      max_results: configuredLimit(config, 'maxResults', DEFAULT_MAX_RESULTS, 5000),
+      tree_depth: configuredLimit(config, 'treeDepth', DEFAULT_TREE_DEPTH, 16),
+      walk_depth: configuredLimit(config, 'walkDepth', DEFAULT_WALK_DEPTH, 32),
+      max_result_bytes: configuredLimit(config, 'maxResultBytes', DEFAULT_MAX_RESULT_BYTES, 50 * 1024 * 1024),
+      max_scan_file_bytes: configuredLimit(config, 'maxScanFileBytes', DEFAULT_MAX_SCAN_FILE_BYTES, 100 * 1024 * 1024),
+    },
     daemon: true,
   };
   const text = JSON.stringify(data, null, 2);
-  const limited = enforceResultLimit(text);
+  const limited = enforceResultLimit(text, config);
   return {
     content: [{ type: 'text', text: limited.text }],
     summary: `${data.platform}-${data.arch} ${data.node}`,
@@ -676,7 +722,7 @@ class LocalMCPProxyClient {
       server_name: result.serverInfo?.name || args?.server?.name || 'local-mcp',
       capabilities: result.capabilities || {},
     };
-    return bridgeResult(payload, `MCP ${payload.server_name} ready`, Date.now() - startedAt, {
+    return bridgeResult(config, payload, `MCP ${payload.server_name} ready`, Date.now() - startedAt, {
       result: payload,
       target,
     });
@@ -688,7 +734,7 @@ class LocalMCPProxyClient {
     await this.ensureInitialized(target);
     const result = await this.rpc(target, 'tools/list', {});
     const tools = Array.isArray(result?.tools) ? result.tools : [];
-    return bridgeResult(tools, `${tools.length} tools discovered`, Date.now() - startedAt, {
+    return bridgeResult(config, tools, `${tools.length} tools discovered`, Date.now() - startedAt, {
       result: { tools },
       target,
     });
@@ -809,9 +855,9 @@ class LocalMCPProxyClient {
   }
 }
 
-function bridgeResult(value, summary, durationMS, metadata) {
+function bridgeResult(config, value, summary, durationMS, metadata) {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-  const limited = enforceResultLimit(text);
+  const limited = enforceResultLimit(text, config);
   return {
     content: [{ type: 'text', text: limited.text }],
     summary,
@@ -1077,6 +1123,17 @@ async function runSelfTest(config) {
   if (!readText.includes('bridge daemon self-test')) {
     throw new Error(`self-test remote_read mismatch: ${readText}`);
   }
+  const envResult = await handleRemoteEnvInfo(readOnlyConfig);
+  const limits = envResult.metadata?.limits || {};
+  if (
+    limits.max_results !== config.maxResults
+    || limits.tree_depth !== config.treeDepth
+    || limits.walk_depth !== config.walkDepth
+    || limits.max_result_bytes !== config.maxResultBytes
+    || limits.max_scan_file_bytes !== config.maxScanFileBytes
+  ) {
+    throw new Error(`self-test remote_env_info limits mismatch: ${JSON.stringify(limits)}`);
+  }
 
   await expectToolError('write-disabled remote_write', 'REMOTE_WRITE_DISABLED', () => (
     handleRemoteWrite(readOnlyConfig, {
@@ -1097,7 +1154,7 @@ async function runSelfTest(config) {
   console.log(JSON.stringify({
     ok: true,
     workspace: config.workspace,
-    checks: ['remote_read', 'remote_write_disabled', 'remote_write_path_guard'],
+    checks: ['remote_read', 'remote_env_info_limits', 'remote_write_disabled', 'remote_write_path_guard'],
   }));
 }
 

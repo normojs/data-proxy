@@ -18,7 +18,7 @@
   - Acceptance: `node tools/bridge_client_daemon.mjs --self-test --workspace=<tmp>` exits 0 and covers path traversal/write-disabled checks.
 - [x] Add structured reconnect counters to daemon local audit events.
   - Acceptance: audit JSONL includes reconnect attempt, delay, open/clean-close status, and server-close reason.
-- [ ] Add configurable scan/result limits to daemon CLI.
+- [x] Add configurable scan/result limits to daemon CLI.
   - Acceptance: limits can be set by flags and are reflected in `remote_env_info` metadata.
 
 ## P1 - MCP Proxy / OpenAPI robustness
