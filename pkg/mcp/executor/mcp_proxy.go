@@ -108,7 +108,9 @@ func (e *MCPProxyExecutor) Execute(ctx context.Context, req Request) (Result, er
 			code = clientErr.Code
 		} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
 			code = ErrorCodeTimeout
-		} else if errors.Is(err, bridge.ErrClientNotFound) || errors.Is(err, bridge.ErrClientUnavailable) || errors.Is(err, bridge.ErrClientDisconnected) {
+		} else if errors.Is(err, bridge.ErrClientDisconnected) {
+			code = "BRIDGE_CLIENT_DISCONNECTED"
+		} else if errors.Is(err, bridge.ErrClientNotFound) || errors.Is(err, bridge.ErrClientUnavailable) {
 			code = "BRIDGE_CLIENT_NOT_FOUND"
 		}
 		return Result{

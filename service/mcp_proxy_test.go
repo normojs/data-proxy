@@ -1513,6 +1513,113 @@ func TestMCPProxyQidianBridgeToolErrorRefundsBilling(t *testing.T) {
 	require.Equal(t, "QIDIAN_PERMISSION_DENIED", audit.ErrorCode)
 }
 
+func TestMCPProxyQidianBridgeSessionReplacementRefundsPendingCall(t *testing.T) {
+	setupMCPProxyServiceTestDB(t)
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+
+	hub := bridge.NewHub()
+	outbound := make(chan bridge.OutboundMessage, 1)
+	hub.Register(bridge.Session{
+		SessionId:    "qidian-proxy-replaced-session",
+		ClientId:     "qidian-proxy-replaced-client",
+		UserId:       user.Id,
+		TokenId:      token.Id,
+		Capabilities: []string{mcpproxy.BridgeCapabilityMCPProxy},
+		Send:         outbound,
+	})
+	restore := setMCPProxyClientForTest(mcpproxy.NewBridgeClient(hub))
+	defer restore()
+
+	created, err := CreateMCPProxyServerForAdmin(dto.MCPProxyServerCreateRequest{
+		Name:      "Qidian Local MCP",
+		Namespace: "qidian",
+		Transport: model.MCPProxyTransportQidianBrowser,
+		Endpoint:  "bridge://qidian-proxy-replaced-client",
+		Status:    model.MCPProxyServerStatusEnabled,
+	})
+	require.NoError(t, err)
+	mcpTool := &model.MCPTool{
+		Name:         "qidian.qidian_status",
+		DisplayName:  "Qidian Status",
+		Description:  "Qidian Status",
+		Category:     "third_party",
+		Source:       model.MCPToolSourceMCPProxy,
+		InputSchema:  `{"type":"object"}`,
+		PricePerCall: 0.001,
+		PriceUnit:    model.MCPToolPriceUnitPerCall,
+		Status:       model.MCPToolStatusEnabled,
+	}
+	require.NoError(t, model.CreateMCPTool(mcpTool))
+	proxyTool := &model.MCPProxyTool{
+		ProxyServerId:         created.Id,
+		MCPToolId:             mcpTool.Id,
+		DownstreamToolName:    "qidian_status",
+		DownstreamTitle:       "Qidian Status",
+		DownstreamDescription: "Qidian Status",
+		DownstreamInputSchema: `{"type":"object"}`,
+		ExposedToolName:       "qidian.qidian_status",
+		ExposedDescription:    "Qidian Status",
+		SchemaHash:            "sha256:test",
+		Status:                model.MCPProxyToolStatusEnabled,
+	}
+	require.NoError(t, model.CreateMCPProxyTool(proxyTool))
+
+	respCh := make(chan *MCPToolCallResponse, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		resp, err := CallMCPTool(MCPToolCallRequest{
+			Context:        context.Background(),
+			UserId:         user.Id,
+			TokenId:        token.Id,
+			TokenKey:       token.Key,
+			TokenQuota:     token.RemainQuota,
+			TokenUnlimited: token.UnlimitedQuota,
+			UsingGroup:     "default",
+			RequestId:      "mcp-proxy-qidian-bridge-replaced",
+			Params: dto.MCPToolCallParams{
+				Name:      "qidian.qidian_status",
+				Arguments: map[string]any{},
+			},
+		})
+		errCh <- err
+		respCh <- resp
+	}()
+
+	msg := <-outbound
+	require.Equal(t, bridge.MessageTypeToolCall, msg.Type)
+	require.Equal(t, mcpproxy.BridgeToolMCPProxyCallTool, msg.Data.(dto.BridgeToolCallRequest).ToolName)
+	hub.Register(bridge.Session{
+		SessionId:    "qidian-proxy-replacement-session",
+		ClientId:     "qidian-proxy-replaced-client",
+		UserId:       user.Id,
+		TokenId:      token.Id,
+		Capabilities: []string{mcpproxy.BridgeCapabilityMCPProxy},
+		Send:         make(chan bridge.OutboundMessage, 1),
+	})
+
+	require.NoError(t, <-errCh)
+	resp := <-respCh
+	require.Nil(t, resp.Result)
+	require.Equal(t, dto.MCPErrorCodeExecutorFailed, resp.ErrorCode)
+
+	var call model.MCPToolCall
+	require.NoError(t, model.DB.Where("request_id = ?", "mcp-proxy-qidian-bridge-replaced").First(&call).Error)
+	require.Equal(t, model.MCPToolCallStatusError, call.Status)
+	require.Equal(t, "BRIDGE_CLIENT_DISCONNECTED", call.ErrorCode)
+	require.Equal(t, "qidian-proxy-replaced-session", call.BridgeSessionId)
+	require.Equal(t, "qidian-proxy-replaced-client", call.TargetClient)
+	require.Equal(t, 0, call.Quota)
+	assertMCPQuotaState(t, user.Id, token.Id, 100000, 100000, 0, 0, false)
+	assertMCPBillingDebitAndRefund(t, "mcp-proxy-qidian-bridge-replaced", call.Id, 500, "BRIDGE_CLIENT_DISCONNECTED")
+
+	var audit model.BridgeAuditLog
+	require.NoError(t, model.DB.Where("request_id = ?", "mcp-proxy-qidian-bridge-replaced").First(&audit).Error)
+	require.Equal(t, model.BridgeAuditStatusError, audit.Status)
+	require.Equal(t, "BRIDGE_CLIENT_DISCONNECTED", audit.ErrorCode)
+	require.Equal(t, "qidian-proxy-replaced-session", audit.SessionId)
+	require.Equal(t, "qidian-proxy-replaced-client", audit.ClientId)
+}
+
 func setupMCPProxyServiceTestDB(t *testing.T) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

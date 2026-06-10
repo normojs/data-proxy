@@ -23,7 +23,7 @@
 
 ## P1 - MCP Proxy / OpenAPI robustness
 
-- [ ] Add MCP Proxy bridge tests for session replacement while a call is pending.
+- [x] Add MCP Proxy bridge tests for session replacement while a call is pending.
   - Acceptance: pending calls fail with `BRIDGE_CLIENT_DISCONNECTED` or timeout consistently and refund billing.
 - [ ] Add OpenAPI binary object authorization regression tests for expired/foreign download links.
   - Acceptance: owner/admin can download valid links; other users and expired links are rejected.

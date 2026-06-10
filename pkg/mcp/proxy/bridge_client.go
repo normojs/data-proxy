@@ -298,7 +298,7 @@ func updateBridgeProxyAuditError(audit *model.BridgeAuditLog, status string, cod
 }
 
 func bridgeProxyAuditStatus(err error) string {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, bridge.ErrClientDisconnected) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return model.BridgeAuditStatusTimeout
 	}
 	return model.BridgeAuditStatusError
@@ -309,8 +309,11 @@ func bridgeProxyErrorCode(err error) string {
 	if errors.As(err, &clientErr) && clientErr.Code != "" {
 		return clientErr.Code
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, bridge.ErrClientDisconnected) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return "EXECUTOR_TIMEOUT"
+	}
+	if errors.Is(err, bridge.ErrClientDisconnected) {
+		return "BRIDGE_CLIENT_DISCONNECTED"
 	}
 	if errors.Is(err, bridge.ErrClientNotFound) {
 		return "BRIDGE_CLIENT_NOT_FOUND"
