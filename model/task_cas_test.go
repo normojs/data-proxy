@@ -46,6 +46,9 @@ func TestMain(m *testing.M) {
 		&SubscriptionOrder{},
 		&UserSubscription{},
 		&PerfMetric{},
+		&Redemption{},
+		&BillingEvent{},
+		&BillingEventRelation{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -55,7 +58,7 @@ func TestMain(m *testing.M) {
 
 func truncateTables(t *testing.T) {
 	t.Helper()
-	t.Cleanup(func() {
+	cleanup := func() {
 		DB.Exec("DELETE FROM tasks")
 		DB.Exec("DELETE FROM users")
 		DB.Exec("DELETE FROM tokens")
@@ -67,7 +70,12 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM subscription_plans")
 		DB.Exec("DELETE FROM user_subscriptions")
 		DB.Exec("DELETE FROM perf_metrics")
-	})
+		DB.Exec("DELETE FROM redemptions")
+		DB.Exec("DELETE FROM billing_event_relations")
+		DB.Exec("DELETE FROM billing_events")
+	}
+	cleanup()
+	t.Cleanup(cleanup)
 }
 
 func insertTask(t *testing.T, task *Task) {

@@ -571,7 +571,9 @@ func RelayTask(c *gin.Context) {
 
 	// ── 成功：结算 + 日志 + 插入任务 ──
 	if taskErr == nil {
+		billingSettled := true
 		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+			billingSettled = false
 			common.SysError("settle task billing error: " + settleErr.Error())
 		}
 		service.LogTaskConsumption(c, relayInfo)
@@ -594,6 +596,12 @@ func RelayTask(c *gin.Context) {
 		task.Action = relayInfo.Action
 		if insertErr := task.Insert(); insertErr != nil {
 			common.SysError("insert task error: " + insertErr.Error())
+		} else if billingSettled {
+			if err := service.RecordTaskInitialBillingEvent(relayInfo, task, result.Quota); err != nil {
+				logger.LogWarn(c, fmt.Sprintf("record async task billing event failed task %s: %s", task.TaskID, err.Error()))
+			}
+		} else {
+			logger.LogWarn(c, fmt.Sprintf("skip async task billing event because settlement failed task %s", task.TaskID))
 		}
 	}
 

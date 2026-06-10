@@ -337,6 +337,103 @@ func SetApiRouter(router *gin.Engine) {
 			prefillGroupRoute.DELETE("/:id", controller.DeletePrefillGroup)
 		}
 
+		mcpToolsRoute := apiRouter.Group("/mcp/tools")
+		{
+			mcpToolsRoute.GET("/", middleware.UserAuth(), controller.GetMCPTools)
+			mcpToolsRoute.POST("/", middleware.AdminAuth(), controller.CreateMCPTool)
+			mcpToolsRoute.POST("/seed", middleware.RootAuth(), controller.SeedMCPTools)
+			mcpToolsRoute.GET("/:id", middleware.UserAuth(), controller.GetMCPTool)
+			mcpToolsRoute.PATCH("/:id", middleware.AdminAuth(), controller.UpdateMCPTool)
+			mcpToolsRoute.POST("/:id/archive", middleware.AdminAuth(), controller.ArchiveMCPTool)
+			mcpToolsRoute.DELETE("/:id", middleware.AdminAuth(), controller.DeleteMCPTool)
+		}
+		mcpSummaryRoute := apiRouter.Group("/mcp/summary")
+		mcpSummaryRoute.Use(middleware.UserAuth())
+		{
+			mcpSummaryRoute.GET("/", controller.GetMCPSummary)
+		}
+		mcpToolCallsRoute := apiRouter.Group("/mcp/tool-calls")
+		mcpToolCallsRoute.Use(middleware.UserAuth())
+		{
+			mcpToolCallsRoute.GET("/", controller.GetMCPToolCalls)
+		}
+		mcpOpenAPIBinaryRoute := apiRouter.Group("/mcp/openapi/binary")
+		{
+			mcpOpenAPIBinaryRoute.POST("/cleanup", middleware.AdminAuth(), controller.CleanupMCPOpenAPIBinaryObjects)
+			mcpOpenAPIBinaryRoute.GET("/:object_id/download", middleware.UserAuth(), controller.DownloadMCPOpenAPIBinaryObject)
+		}
+		mcpOpenAPIRoute := apiRouter.Group("/mcp/openapi")
+		mcpOpenAPIRoute.Use(middleware.AdminAuth())
+		{
+			mcpOpenAPIRoute.POST("/preview", controller.PreviewMCPOpenAPI)
+			mcpOpenAPIRoute.POST("/diff", controller.DiffMCPOpenAPI)
+			mcpOpenAPIRoute.POST("/import", controller.ImportMCPOpenAPI)
+			mcpOpenAPIRoute.POST("/disable", controller.DisableMCPOpenAPI)
+			mcpOpenAPIRoute.DELETE("/", controller.DeleteMCPOpenAPI)
+		}
+		mcpProxyServersRoute := apiRouter.Group("/mcp/proxy/servers")
+		mcpProxyServersRoute.Use(middleware.AdminAuth())
+		{
+			mcpProxyServersRoute.GET("/", controller.GetMCPProxyServers)
+			mcpProxyServersRoute.POST("/", controller.CreateMCPProxyServer)
+			mcpProxyServersRoute.GET("/trends", controller.GetMCPProxyTrends)
+			mcpProxyServersRoute.GET("/health-check", controller.GetMCPProxyHealthCheck)
+			mcpProxyServersRoute.PUT("/health-check", controller.UpdateMCPProxyHealthCheck)
+			mcpProxyServersRoute.POST("/health-check/run", controller.RunMCPProxyHealthCheck)
+			mcpProxyServersRoute.GET("/heartbeat", controller.GetMCPProxyHeartbeat)
+			mcpProxyServersRoute.PUT("/heartbeat", controller.UpdateMCPProxyHeartbeat)
+			mcpProxyServersRoute.POST("/heartbeat/run", controller.RunMCPProxyHeartbeat)
+			mcpProxyServersRoute.GET("/:id", controller.GetMCPProxyServer)
+			mcpProxyServersRoute.PATCH("/:id", controller.UpdateMCPProxyServer)
+			mcpProxyServersRoute.DELETE("/:id", controller.DeleteMCPProxyServer)
+			mcpProxyServersRoute.POST("/:id/test", controller.TestMCPProxyServer)
+			mcpProxyServersRoute.POST("/:id/discover", controller.DiscoverMCPProxyServerTools)
+			mcpProxyServersRoute.GET("/:id/tools", controller.GetMCPProxyServerTools)
+			mcpProxyServersRoute.GET("/:id/health", controller.GetMCPProxyServerHealth)
+			mcpProxyServersRoute.GET("/:id/discovery-events", controller.GetMCPProxyServerDiscoveryEvents)
+		}
+		mcpProxyToolsRoute := apiRouter.Group("/mcp/proxy/tools")
+		mcpProxyToolsRoute.Use(middleware.AdminAuth())
+		{
+			mcpProxyToolsRoute.GET("/", controller.GetMCPProxyTools)
+			mcpProxyToolsRoute.GET("/:id", controller.GetMCPProxyTool)
+			mcpProxyToolsRoute.GET("/:id/health", controller.GetMCPProxyToolHealth)
+			mcpProxyToolsRoute.PATCH("/:id", controller.UpdateMCPProxyTool)
+		}
+		billingEventsRoute := apiRouter.Group("/billing/events")
+		billingEventsRoute.Use(middleware.UserAuth())
+		{
+			billingEventsRoute.GET("/", controller.GetBillingEvents)
+			billingEventsRoute.GET("/summary", controller.GetBillingEventSummary)
+			billingEventsRoute.GET("/health", middleware.AdminAuth(), controller.GetBillingEventHealth)
+			billingEventsRoute.GET("/source-matrix", middleware.AdminAuth(), controller.GetBillingEventSourceMatrix)
+			billingEventsRoute.GET("/relation-health", middleware.AdminAuth(), controller.GetBillingEventRelationHealth)
+			billingEventsRoute.POST("/relation-backfill", middleware.AdminAuth(), controller.BackfillBillingEventRelations)
+			billingEventsRoute.POST("/relation-orphans/cleanup", middleware.AdminAuth(), controller.CleanupBillingEventRelationOrphans)
+			billingEventsRoute.GET("/relation-inspection", middleware.AdminAuth(), controller.GetBillingEventRelationInspection)
+			billingEventsRoute.GET("/relation-inspection/runs", middleware.AdminAuth(), controller.GetBillingEventRelationInspectionRuns)
+			billingEventsRoute.PUT("/relation-inspection", middleware.AdminAuth(), controller.UpdateBillingEventRelationInspection)
+			billingEventsRoute.POST("/relation-inspection/run", middleware.AdminAuth(), controller.RunBillingEventRelationInspection)
+			billingEventsRoute.POST("/reconciliation", middleware.AdminAuth(), controller.ReconcileBillingEvents)
+			billingEventsRoute.POST("/reconciliation/mismatches", middleware.AdminAuth(), controller.GetBillingEventReconciliationMismatches)
+			billingEventsRoute.POST("/reconciliation/missing", middleware.AdminAuth(), controller.GetBillingEventReconciliationMissing)
+			billingEventsRoute.POST("/reconciliation/repair", middleware.AdminAuth(), controller.RepairBillingEventReconciliationMismatch)
+			billingEventsRoute.POST("/reconciliation/backfill-missing", middleware.AdminAuth(), controller.BackfillBillingEventReconciliationMissing)
+			billingEventsRoute.POST("/backfill", middleware.AdminAuth(), controller.BackfillBillingEvents)
+		}
+
+		bridgeRoute := apiRouter.Group("/bridge")
+		bridgeRoute.Use(middleware.UserAuth())
+		{
+			bridgeRoute.GET("/clients", controller.GetBridgeClients)
+			bridgeRoute.GET("/clients/:client_id/health", controller.GetBridgeClientHealth)
+			bridgeRoute.GET("/clients/:client_id", controller.GetBridgeClient)
+			bridgeRoute.PATCH("/clients/:client_id", middleware.AdminAuth(), controller.UpdateBridgeClient)
+			bridgeRoute.DELETE("/clients/:client_id", middleware.AdminAuth(), controller.DeleteBridgeClient)
+			bridgeRoute.POST("/sessions/:session_id/close", middleware.AdminAuth(), controller.CloseBridgeSession)
+			bridgeRoute.GET("/audit-logs", controller.GetBridgeAuditLogs)
+		}
+
 		mjRoute := apiRouter.Group("/mj")
 		mjRoute.GET("/self", middleware.UserAuth(), controller.GetUserMidjourney)
 		mjRoute.GET("/", middleware.AdminAuth(), controller.GetAllMidjourney)

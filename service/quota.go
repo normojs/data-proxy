@@ -228,6 +228,22 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 
 	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
+	} else if err := RecordModelRequestBillingEvent(relayInfo, ModelRequestBillingEventInput{
+		UsageKind:        "realtime",
+		ModelName:        modelName,
+		TokenName:        tokenName,
+		PromptTokens:     usage.InputTokens,
+		CompletionTokens: usage.OutputTokens,
+		TotalTokens:      usage.TotalTokens,
+		InputTokens:      usage.InputTokens,
+		OutputTokens:     usage.OutputTokens,
+		CacheTokens:      usage.InputTokenDetails.CachedTokens,
+		AudioTokens:      usage.InputTokenDetails.AudioTokens + usage.OutputTokenDetails.AudioTokens,
+		ReasoningTokens:  usage.OutputTokenDetails.ReasoningTokens,
+		Quota:            quota,
+		TieredResult:     tieredResult,
+	}); err != nil {
+		logger.LogError(ctx, "error recording model billing event: "+err.Error())
 	}
 
 	logModel := modelName
@@ -349,6 +365,23 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 
 	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
+	} else if err := RecordModelRequestBillingEvent(relayInfo, ModelRequestBillingEventInput{
+		UsageKind:        "audio",
+		ModelName:        relayInfo.OriginModelName,
+		TokenName:        tokenName,
+		PromptTokens:     usage.PromptTokens,
+		CompletionTokens: usage.CompletionTokens,
+		TotalTokens:      usage.TotalTokens,
+		InputTokens:      usage.InputTokens,
+		OutputTokens:     usage.OutputTokens,
+		CacheTokens:      usage.PromptTokensDetails.CachedTokens,
+		ImageTokens:      usage.PromptTokensDetails.ImageTokens,
+		AudioTokens:      usage.PromptTokensDetails.AudioTokens + usage.CompletionTokenDetails.AudioTokens,
+		ReasoningTokens:  usage.CompletionTokenDetails.ReasoningTokens,
+		Quota:            quota,
+		TieredResult:     tieredResult,
+	}); err != nil {
+		logger.LogError(ctx, "error recording model billing event: "+err.Error())
 	}
 
 	logModel := relayInfo.OriginModelName

@@ -26,6 +26,7 @@ import {
   LayoutDashboard,
   ListTodo,
   MessageSquare,
+  Puzzle,
   Radio,
   Settings,
   Ticket,
@@ -94,6 +95,11 @@ export function useSidebarData(): SidebarData {
             configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
             icon: ListTodo,
           },
+          {
+            title: t('MCP Market'),
+            url: '/mcp/market',
+            icon: Puzzle,
+          },
         ],
       },
       {
@@ -130,6 +136,49 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            title: t('MCP'),
+            icon: Puzzle,
+            activeUrls: [
+              '/mcp/tools',
+              '/mcp/market',
+              '/mcp/bridge-clients',
+              '/mcp/tool-calls',
+              '/mcp/billing-events',
+              '/mcp/audit-logs',
+            ],
+            configUrls: [
+              '/mcp',
+              '/mcp/tools',
+              '/mcp/market',
+              '/mcp/bridge-clients',
+              '/mcp/tool-calls',
+              '/mcp/billing-events',
+              '/mcp/audit-logs',
+            ],
+            items: [
+              {
+                title: t('MCP Tools'),
+                url: '/mcp/tools',
+              },
+              {
+                title: t('Bridge Clients'),
+                url: '/mcp/bridge-clients',
+              },
+              {
+                title: t('Tool Calls'),
+                url: '/mcp/tool-calls',
+              },
+              {
+                title: t('Billing Events'),
+                url: '/mcp/billing-events',
+              },
+              {
+                title: t('Bridge Audit Logs'),
+                url: '/mcp/audit-logs',
+              },
+            ],
           },
           {
             title: t('Redemption Codes'),

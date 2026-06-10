@@ -372,6 +372,26 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
+	} else if err := RecordModelRequestBillingEvent(relayInfo, ModelRequestBillingEventInput{
+		UsageKind:              "text",
+		ModelName:              summary.ModelName,
+		TokenName:              summary.TokenName,
+		PromptTokens:           summary.PromptTokens,
+		CompletionTokens:       summary.CompletionTokens,
+		TotalTokens:            summary.TotalTokens,
+		InputTokens:            usageInputTokens(summary, usage),
+		OutputTokens:           summary.CompletionTokens,
+		CacheTokens:            summary.CacheTokens,
+		CacheCreationTokens:    summary.CacheCreationTokens,
+		CacheCreationTokens5m:  summary.CacheCreationTokens5m,
+		CacheCreationTokens1h:  summary.CacheCreationTokens1h,
+		ImageTokens:            summary.ImageTokens,
+		AudioTokens:            summary.AudioTokens,
+		ToolCallSurchargeQuota: summary.ToolCallSurchargeQuota.Round(0).IntPart(),
+		Quota:                  summary.Quota,
+		TieredResult:           tieredResult,
+	}); err != nil {
+		logger.LogError(ctx, "error recording model billing event: "+err.Error())
 	}
 
 	logModel := summary.ModelName
@@ -476,4 +496,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
+}
+
+func usageInputTokens(summary textQuotaSummary, usage *dto.Usage) int {
+	if usage != nil && usage.InputTokens > 0 {
+		return usage.InputTokens
+	}
+	return summary.PromptTokens
 }

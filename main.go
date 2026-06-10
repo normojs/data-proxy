@@ -119,6 +119,15 @@ func main() {
 	// Subscription quota reset task (daily/weekly/monthly/custom)
 	service.StartSubscriptionQuotaResetTask()
 
+	// Billing event relation inspection task (admin-configurable)
+	service.StartBillingEventRelationInspectionTask()
+
+	// MCP proxy active health check task (admin-configurable)
+	service.StartMCPProxyHealthCheckTask()
+
+	// OpenAPI binary response object cleanup task (enabled by TTL env)
+	service.StartMCPOpenAPIBinaryObjectCleanupTask()
+
 	// Wire task polling adaptor factory (breaks service -> relay import cycle)
 	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
 		a := relay.GetTaskAdaptor(platform)

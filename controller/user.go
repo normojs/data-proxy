@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -23,6 +24,8 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type LoginRequest struct {
@@ -871,6 +874,135 @@ type ManageRequest struct {
 	Mode   string `json:"mode"`
 }
 
+func applyAdminWalletAdjust(userId int, adminInfo map[string]interface{}, mode string, eventType string, quota int) (int, int, error) {
+	if quota <= 0 {
+		return 0, 0, nil
+	}
+	oldQuota := 0
+	newQuota := 0
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		var user model.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("id", "quota").
+			Where("id = ?", userId).
+			First(&user).Error; err != nil {
+			return err
+		}
+		oldQuota = user.Quota
+		switch eventType {
+		case model.BillingEventTypeCredit:
+			newQuota = oldQuota + quota
+			if err := tx.Model(&model.User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", quota)).Error; err != nil {
+				return err
+			}
+		case model.BillingEventTypeDebit:
+			newQuota = oldQuota - quota
+			if err := tx.Model(&model.User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota - ?", quota)).Error; err != nil {
+				return err
+			}
+		default:
+			return errors.New("invalid wallet adjust event type")
+		}
+		sourceId := fmt.Sprintf("admin_adjust:%d:user:%d:%s:%d", adminInfo["admin_id"], userId, mode, time.Now().UnixNano())
+		metadata := map[string]any{
+			"admin_info": adminInfo,
+			"mode":       mode,
+			"old_quota":  oldQuota,
+			"new_quota":  newQuota,
+		}
+		return recordAdminWalletAdjustment(tx, userId, adminInfo, sourceId, mode, eventType, quota, oldQuota, newQuota, metadata)
+	})
+	return oldQuota, newQuota, err
+}
+
+func overrideAdminWalletQuota(userId int, adminInfo map[string]interface{}, newQuota int) (int, error) {
+	oldQuota := 0
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		var user model.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("id", "quota").
+			Where("id = ?", userId).
+			First(&user).Error; err != nil {
+			return err
+		}
+		oldQuota = user.Quota
+		delta := newQuota - oldQuota
+		if delta == 0 {
+			return nil
+		}
+		if err := tx.Model(&model.User{}).Where("id = ?", userId).Update("quota", newQuota).Error; err != nil {
+			return err
+		}
+		eventType := model.BillingEventTypeCredit
+		quota := delta
+		if delta < 0 {
+			eventType = model.BillingEventTypeDebit
+			quota = -delta
+		}
+		sourceId := fmt.Sprintf("admin_adjust:%d:user:%d:%s:%d", adminInfo["admin_id"], userId, "override", time.Now().UnixNano())
+		metadata := map[string]any{
+			"admin_info": adminInfo,
+			"mode":       "override",
+			"old_quota":  oldQuota,
+			"new_quota":  newQuota,
+		}
+		return recordAdminWalletAdjustment(tx, userId, adminInfo, sourceId, "override", eventType, quota, oldQuota, newQuota, metadata)
+	})
+	return oldQuota, err
+}
+
+func recordAdminWalletAdjustment(tx *gorm.DB, userId int, adminInfo map[string]interface{}, sourceId string, mode string, eventType string, quota int, oldQuota int, newQuota int, metadata map[string]any) error {
+	metadataBytes, err := common.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	createdAt := common.GetTimestamp()
+	adjustment := &model.WalletAdjustment{
+		SourceId:  sourceId,
+		UserId:    userId,
+		AdminId:   walletAdjustAdminId(adminInfo),
+		Mode:      mode,
+		EventType: eventType,
+		Amount:    quota,
+		OldQuota:  oldQuota,
+		NewQuota:  newQuota,
+		Metadata:  string(metadataBytes),
+		CreatedAt: createdAt,
+	}
+	created, err := model.CreateWalletAdjustmentIfNotExists(tx, adjustment)
+	if err != nil {
+		return err
+	}
+	if !created {
+		return fmt.Errorf("wallet adjustment source already exists: %s", sourceId)
+	}
+	if err := model.RecordWalletAdjustBillingEventTx(tx, userId, sourceId, eventType, quota, metadata); err != nil {
+		return err
+	}
+	return tx.Model(&model.WalletAdjustment{}).
+		Where("source_id = ?", sourceId).
+		Update("ledgered_at", createdAt).Error
+}
+
+func walletAdjustAdminId(adminInfo map[string]interface{}) int {
+	if adminInfo == nil {
+		return 0
+	}
+	switch value := adminInfo["admin_id"].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	case json.Number:
+		id, _ := value.Int64()
+		return int(id)
+	default:
+		return 0
+	}
+}
+
 // ManageUser Only admin user can do this
 func ManageUser(c *gin.Context) {
 	var req ManageRequest
@@ -953,9 +1085,12 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
-			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
+			if _, _, err := applyAdminWalletAdjust(user.Id, adminInfo, req.Mode, model.BillingEventTypeCredit, req.Value); err != nil {
 				common.ApiError(c, err)
 				return
+			}
+			if err := model.InvalidateUserCache(user.Id); err != nil {
+				common.SysLog(fmt.Sprintf("failed to invalidate user cache for user %d: %s", user.Id, err.Error()))
 			}
 			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
 				fmt.Sprintf("管理员增加用户额度 %s", logger.LogQuota(req.Value)), adminInfo)
@@ -964,17 +1099,23 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
-			if err := model.DecreaseUserQuota(user.Id, req.Value, true); err != nil {
+			if _, _, err := applyAdminWalletAdjust(user.Id, adminInfo, req.Mode, model.BillingEventTypeDebit, req.Value); err != nil {
 				common.ApiError(c, err)
 				return
+			}
+			if err := model.InvalidateUserCache(user.Id); err != nil {
+				common.SysLog(fmt.Sprintf("failed to invalidate user cache for user %d: %s", user.Id, err.Error()))
 			}
 			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
 				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), adminInfo)
 		case "override":
-			oldQuota := user.Quota
-			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
+			oldQuota, err := overrideAdminWalletQuota(user.Id, adminInfo, req.Value)
+			if err != nil {
 				common.ApiError(c, err)
 				return
+			}
+			if err := model.InvalidateUserCache(user.Id); err != nil {
+				common.SysLog(fmt.Sprintf("failed to invalidate user cache for user %d: %s", user.Id, err.Error()))
 			}
 			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
 				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), adminInfo)

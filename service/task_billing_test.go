@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,14 +41,33 @@ func TestMain(m *testing.M) {
 
 	if err := db.AutoMigrate(
 		&model.Task{},
+		&model.Midjourney{},
 		&model.User{},
 		&model.Token{},
 		&model.Log{},
 		&model.Channel{},
 		&model.TopUp{},
+		&model.SubscriptionPlan{},
+		&model.SubscriptionOrder{},
 		&model.UserSubscription{},
+		&model.SubscriptionPreConsumeRecord{},
+		&model.Redemption{},
+		&model.BillingEvent{},
+		&model.BillingEventRelation{},
+		&model.BillingEventRelationInspectionRun{},
+		&model.WalletAdjustment{},
+		&model.TaskBillingRecord{},
+		&model.ViolationFeeRecord{},
+		&model.Option{},
+		&model.MCPTool{},
+		&model.MCPToolCall{},
+		&model.MCPUserDailyQuota{},
+		&model.BridgeAuditLog{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
+	}
+	if err := model.SeedBuiltinMCPTools(); err != nil {
+		panic("failed to seed MCP tools: " + err.Error())
 	}
 
 	os.Exit(m.Run())
@@ -57,15 +79,35 @@ func TestMain(m *testing.M) {
 
 func truncate(t *testing.T) {
 	t.Helper()
-	t.Cleanup(func() {
+	clean := func() {
 		model.DB.Exec("DELETE FROM tasks")
+		model.DB.Exec("DELETE FROM midjourneys")
 		model.DB.Exec("DELETE FROM users")
 		model.DB.Exec("DELETE FROM tokens")
 		model.DB.Exec("DELETE FROM logs")
 		model.DB.Exec("DELETE FROM channels")
 		model.DB.Exec("DELETE FROM top_ups")
+		model.DB.Exec("DELETE FROM subscription_plans")
+		model.DB.Exec("DELETE FROM subscription_orders")
 		model.DB.Exec("DELETE FROM user_subscriptions")
-	})
+		model.DB.Exec("DELETE FROM subscription_pre_consume_records")
+		model.DB.Exec("DELETE FROM redemptions")
+		model.DB.Exec("DELETE FROM billing_event_relations")
+		model.DB.Exec("DELETE FROM billing_event_relation_inspection_runs")
+		model.DB.Exec("DELETE FROM billing_events")
+		model.DB.Exec("DELETE FROM wallet_adjustments")
+		model.DB.Exec("DELETE FROM task_billing_records")
+		model.DB.Exec("DELETE FROM violation_fee_records")
+		model.DB.Exec("DELETE FROM options")
+		model.DB.Exec("DELETE FROM mcp_tool_calls")
+		model.DB.Exec("DELETE FROM mcp_user_daily_quota")
+		model.DB.Exec("DELETE FROM bridge_audit_logs")
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = map[string]string{}
+		common.OptionMapRWMutex.Unlock()
+	}
+	clean()
+	t.Cleanup(clean)
 }
 
 func seedUser(t *testing.T, id int, quota int) {
@@ -90,9 +132,11 @@ func seedToken(t *testing.T, id int, userId int, key string, remainQuota int) {
 
 func seedSubscription(t *testing.T, id int, userId int, amountTotal int64, amountUsed int64) {
 	t.Helper()
+	seedSubscriptionPlan(t, id, amountTotal)
 	sub := &model.UserSubscription{
 		Id:          id,
 		UserId:      userId,
+		PlanId:      id,
 		AmountTotal: amountTotal,
 		AmountUsed:  amountUsed,
 		Status:      "active",
@@ -100,6 +144,21 @@ func seedSubscription(t *testing.T, id int, userId int, amountTotal int64, amoun
 		EndTime:     time.Now().Add(30 * 24 * time.Hour).Unix(),
 	}
 	require.NoError(t, model.DB.Create(sub).Error)
+}
+
+func seedSubscriptionPlan(t *testing.T, id int, totalAmount int64) {
+	t.Helper()
+	plan := &model.SubscriptionPlan{
+		Id:            id,
+		Title:         "test plan",
+		PriceAmount:   1,
+		Currency:      "USD",
+		DurationUnit:  "month",
+		DurationValue: 1,
+		Enabled:       true,
+		TotalAmount:   totalAmount,
+	}
+	require.NoError(t, model.DB.Create(plan).Error)
 }
 
 func seedChannel(t *testing.T, id int) {
@@ -184,6 +243,167 @@ func countLogs(t *testing.T) int64 {
 	return count
 }
 
+func getBillingEventByPhase(t *testing.T, taskID string, phase string) model.BillingEvent {
+	t.Helper()
+	var event model.BillingEvent
+	err := model.DB.Where("event_id = ?", billingEventID(model.BillingEventSourceAsyncTask, taskID, phase)).First(&event).Error
+	require.NoError(t, err)
+	return event
+}
+
+func decodeBillingEventMetadata(t *testing.T, event model.BillingEvent) map[string]any {
+	t.Helper()
+	var metadata map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(event.Metadata, &metadata))
+	return metadata
+}
+
+func assertNoBillingEvents(t *testing.T) {
+	t.Helper()
+	var count int64
+	require.NoError(t, model.DB.Model(&model.BillingEvent{}).Count(&count).Error)
+	assert.Equal(t, int64(0), count)
+}
+
+// ---------------------------------------------------------------------------
+// Tests: Per-call billing source selection
+// ---------------------------------------------------------------------------
+
+func TestPerCallBilling_SubscriptionFirstUsesSubscriptionWhenWalletInsufficient(t *testing.T) {
+	truncate(t)
+
+	const userID, tokenID, subID = 30, 30, 30
+	const quota = 1200
+
+	seedUser(t, userID, 0)
+	seedToken(t, tokenID, userID, "sk-per-call-sub", 5000)
+	seedSubscription(t, subID, userID, 10000, 3000)
+
+	relayInfo := &relaycommon.RelayInfo{
+		RequestId:       "per-call-subscription-first",
+		UserId:          userID,
+		TokenId:         tokenID,
+		TokenKey:        "sk-per-call-sub",
+		OriginModelName: "mj_imagine",
+		IsPlayground:    true,
+		UserSetting: dto.UserSetting{
+			BillingPreference: "subscription_first",
+		},
+	}
+
+	apiErr := PreConsumePerCallBilling(&gin.Context{}, quota, relayInfo)
+	require.Nil(t, apiErr)
+	require.Equal(t, BillingSourceSubscription, relayInfo.BillingSource)
+	require.Equal(t, subID, relayInfo.SubscriptionId)
+	require.Equal(t, int64(quota), relayInfo.SubscriptionPreConsumed)
+	require.Equal(t, int64(4200), getSubscriptionUsed(t, subID))
+	require.Equal(t, 5000, getTokenRemainQuota(t, tokenID))
+
+	require.NoError(t, FinalizePerCallBilling(&gin.Context{}, quota, relayInfo))
+	require.Equal(t, int64(4200), getSubscriptionUsed(t, subID))
+	require.Equal(t, 5000, getTokenRemainQuota(t, tokenID))
+}
+
+func TestPerCallBilling_RefundRestoresSubscriptionReservation(t *testing.T) {
+	truncate(t)
+
+	const userID, tokenID, subID = 31, 31, 31
+	const quota = 1500
+
+	seedUser(t, userID, 0)
+	seedToken(t, tokenID, userID, "sk-per-call-sub-refund", 5000)
+	seedSubscription(t, subID, userID, 10000, 3000)
+
+	relayInfo := &relaycommon.RelayInfo{
+		RequestId:       "per-call-subscription-refund",
+		UserId:          userID,
+		TokenId:         tokenID,
+		TokenKey:        "sk-per-call-sub-refund",
+		OriginModelName: "mj_imagine",
+		IsPlayground:    true,
+		UserSetting: dto.UserSetting{
+			BillingPreference: "subscription_only",
+		},
+	}
+
+	apiErr := PreConsumePerCallBilling(&gin.Context{}, quota, relayInfo)
+	require.Nil(t, apiErr)
+	require.Equal(t, int64(4500), getSubscriptionUsed(t, subID))
+	require.Equal(t, 5000, getTokenRemainQuota(t, tokenID))
+
+	relayInfo.Billing.Refund(&gin.Context{})
+
+	require.Eventually(t, func() bool {
+		return getSubscriptionUsed(t, subID) == 3000 && getTokenRemainQuota(t, tokenID) == 5000
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestRecordTaskInitialBillingEvent_Idempotent(t *testing.T) {
+	truncate(t)
+
+	const userID, tokenID, channelID = 40, 40, 40
+	const quota = 2400
+	task := makeTask(userID, channelID, quota, tokenID, BillingSourceSubscription, 7)
+	task.TaskID = "task_initial_billing_event"
+	task.Action = "generate"
+	task.PrivateData.UpstreamTaskID = "upstream-task-1"
+	task.Platform = "video"
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:          userID,
+		TokenId:         tokenID,
+		UsingGroup:      "default",
+		OriginModelName: "test-model",
+		BillingSource:   BillingSourceSubscription,
+		SubscriptionId:  7,
+		PriceData:       relaycommonPriceData(t, quota),
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId:         channelID,
+			ChannelType:       3,
+			UpstreamModelName: "upstream-model",
+		},
+	}
+
+	require.NoError(t, RecordTaskInitialBillingEvent(relayInfo, task, quota))
+	require.NoError(t, RecordTaskInitialBillingEvent(relayInfo, task, quota))
+
+	var events []model.BillingEvent
+	require.NoError(t, model.DB.Where("source = ? AND source_id = ?", model.BillingEventSourceAsyncTask, task.TaskID).Find(&events).Error)
+	require.Len(t, events, 1)
+	event := events[0]
+	assert.Equal(t, model.BillingEventTypeDebit, event.EventType)
+	assert.Equal(t, quota, event.AmountQuota)
+	assert.Equal(t, -quota, event.QuotaDelta)
+	assert.Equal(t, BillingSourceSubscription, event.BillingSource)
+	assert.Equal(t, "task", event.PriceUnit)
+
+	metadata := decodeBillingEventMetadata(t, event)
+	assert.Equal(t, taskBillingEventPhaseInitialSettlement, metadata["phase"])
+	assert.Equal(t, "generate", metadata["action"])
+	assert.Equal(t, "upstream-task-1", metadata["upstream_task_id"])
+	assert.Equal(t, float64(channelID), metadata["channel_id"])
+	assert.Equal(t, float64(3), metadata["channel_type"])
+
+	var records []model.TaskBillingRecord
+	require.NoError(t, model.DB.Where("source_id = ? AND phase = ?", task.TaskID, taskBillingEventPhaseInitialSettlement).Find(&records).Error)
+	require.Len(t, records, 1)
+	assert.Equal(t, task.TaskID, records[0].TaskId)
+	assert.Equal(t, quota, records[0].AmountQuota)
+	assert.Equal(t, -quota, records[0].QuotaDelta)
+}
+
+func relaycommonPriceData(t *testing.T, quota int) types.PriceData {
+	t.Helper()
+	return types.PriceData{
+		Quota:      quota,
+		ModelPrice: 0.02,
+		ModelRatio: 1.5,
+		GroupRatioInfo: types.GroupRatioInfo{
+			GroupRatio: 2,
+		},
+		OtherRatios: map[string]float64{"size": 1.5},
+	}
+}
+
 // ===========================================================================
 // RefundTaskQuota tests
 // ===========================================================================
@@ -217,6 +437,16 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed, log.Quota)
 	assert.Equal(t, "test-model", log.ModelName)
+
+	event := getBillingEventByPhase(t, task.TaskID, taskBillingEventPhaseFailureRefund)
+	assert.Equal(t, model.BillingEventSourceAsyncTask, event.Source)
+	assert.Equal(t, model.BillingEventTypeCredit, event.EventType)
+	assert.Equal(t, preConsumed, event.AmountQuota)
+	assert.Equal(t, preConsumed, event.QuotaDelta)
+	assert.Equal(t, BillingSourceWallet, event.BillingSource)
+	metadata := decodeBillingEventMetadata(t, event)
+	assert.Equal(t, taskBillingEventPhaseFailureRefund, metadata["phase"])
+	assert.Equal(t, "task failed: upstream error", metadata["reason"])
 }
 
 func TestRefundTaskQuota_Subscription(t *testing.T) {
@@ -246,6 +476,13 @@ func TestRefundTaskQuota_Subscription(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+
+	event := getBillingEventByPhase(t, task.TaskID, taskBillingEventPhaseFailureRefund)
+	assert.Equal(t, model.BillingEventTypeCredit, event.EventType)
+	assert.Equal(t, preConsumed, event.AmountQuota)
+	assert.Equal(t, BillingSourceSubscription, event.BillingSource)
+	metadata := decodeBillingEventMetadata(t, event)
+	assert.Equal(t, float64(subID), metadata["subscription_id"])
 }
 
 func TestRefundTaskQuota_ZeroQuota(t *testing.T) {
@@ -264,6 +501,7 @@ func TestRefundTaskQuota_ZeroQuota(t *testing.T) {
 
 	// No log created
 	assert.Equal(t, int64(0), countLogs(t))
+	assertNoBillingEvents(t)
 }
 
 func TestRefundTaskQuota_NoToken(t *testing.T) {
@@ -287,6 +525,10 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+
+	event := getBillingEventByPhase(t, task.TaskID, taskBillingEventPhaseFailureRefund)
+	assert.Equal(t, 0, event.TokenId)
+	assert.Equal(t, preConsumed, event.QuotaDelta)
 }
 
 // ===========================================================================
@@ -324,6 +566,14 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeConsume, log.Type)
 	assert.Equal(t, actualQuota-preConsumed, log.Quota)
+
+	event := getBillingEventByPhase(t, task.TaskID, taskBillingEventPhaseDeltaDebit)
+	assert.Equal(t, model.BillingEventTypeDebit, event.EventType)
+	assert.Equal(t, actualQuota-preConsumed, event.AmountQuota)
+	assert.Equal(t, -(actualQuota - preConsumed), event.QuotaDelta)
+	metadata := decodeBillingEventMetadata(t, event)
+	assert.Equal(t, float64(preConsumed), metadata["pre_consumed_quota"])
+	assert.Equal(t, float64(actualQuota), metadata["actual_quota"])
 }
 
 func TestRecalculate_NegativeDelta(t *testing.T) {
@@ -357,6 +607,11 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed-actualQuota, log.Quota)
+
+	event := getBillingEventByPhase(t, task.TaskID, taskBillingEventPhaseDeltaCredit)
+	assert.Equal(t, model.BillingEventTypeCredit, event.EventType)
+	assert.Equal(t, preConsumed-actualQuota, event.AmountQuota)
+	assert.Equal(t, preConsumed-actualQuota, event.QuotaDelta)
 }
 
 func TestRecalculate_ZeroDelta(t *testing.T) {
@@ -377,6 +632,7 @@ func TestRecalculate_ZeroDelta(t *testing.T) {
 
 	// No log created (delta is zero)
 	assert.Equal(t, int64(0), countLogs(t))
+	assertNoBillingEvents(t)
 }
 
 func TestRecalculate_ActualQuotaZero(t *testing.T) {
@@ -395,6 +651,7 @@ func TestRecalculate_ActualQuotaZero(t *testing.T) {
 	// No change (early return)
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
 	assert.Equal(t, int64(0), countLogs(t))
+	assertNoBillingEvents(t)
 }
 
 func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
@@ -427,6 +684,10 @@ func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+
+	event := getBillingEventByPhase(t, task.TaskID, taskBillingEventPhaseDeltaCredit)
+	assert.Equal(t, BillingSourceSubscription, event.BillingSource)
+	assert.Equal(t, preConsumed-actualQuota, event.QuotaDelta)
 }
 
 // ===========================================================================

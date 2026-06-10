@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ func insertUserForPaymentGuardTest(t *testing.T, id int, quota int) {
 	t.Helper()
 	user := &User{
 		Id:       id,
-		Username: "payment_guard_user",
+		Username: "payment_guard_user_" + strconv.Itoa(id),
 		Status:   common.UserStatusEnabled,
 		Quota:    quota,
 	}

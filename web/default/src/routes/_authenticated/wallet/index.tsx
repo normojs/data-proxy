@@ -20,8 +20,27 @@ import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
 import { Wallet } from '@/features/wallet'
 
+const arraySearchSchema = z
+  .preprocess((value) => {
+    if (value == null || value === '') return undefined
+    return Array.isArray(value) ? value : [value]
+  }, z.array(z.string()).optional())
+  .catch([])
+
 const walletSearchSchema = z.object({
   show_history: z.boolean().optional(),
+  ledgerPage: z.number().optional().catch(1),
+  ledgerPageSize: z.number().optional().catch(undefined),
+  ledgerFilter: z.string().optional().catch(''),
+  ledgerSourceKind: arraySearchSchema.optional(),
+  ledgerEventType: arraySearchSchema.optional(),
+  ledgerBillingSource: arraySearchSchema.optional(),
+  ledgerUsageKind: arraySearchSchema.optional(),
+  ledgerRequestId: z.string().optional().catch(''),
+  ledgerSourceId: z.string().optional().catch(''),
+  ledgerTokenId: z.string().optional().catch(''),
+  ledgerStartTime: z.number().optional(),
+  ledgerEndTime: z.number().optional(),
 })
 
 export const Route = createFileRoute('/_authenticated/wallet/')({

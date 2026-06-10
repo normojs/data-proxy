@@ -9,8 +9,17 @@ DEV_BACKEND_SERVICE = new-api
 DEV_POSTGRES_DB = new-api
 DEV_POSTGRES_USER = root
 DEV_SQLITE_PATH ?= one-api.db
+MCP_BRIDGE_GO_TEST_PATTERN ?= TestParseBridgeEndpoint|TestBridgeClient|TestMCPProxy.*Bridge|TestBridge|TestRemoteBridge|TestMCP.*Bridge
+MCP_BRIDGE_SMOKE_CONCURRENCY ?= 12
+MCP_BRIDGE_SMOKE_ITERATIONS ?= 4
+MCP_BRIDGE_SMOKE_TIMEOUT ?= 240000
+MCP_BRIDGE_SMOKE_ARGS ?=
+MCP_BRIDGE_STRESS_CONCURRENCY ?= 32
+MCP_BRIDGE_STRESS_ITERATIONS ?= 8
+MCP_BRIDGE_STRESS_TIMEOUT ?= 360000
+MCP_BRIDGE_STRESS_ARGS ?=
 
-.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup
+.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress
 
 all: build-all-frontends start-backend
 
@@ -94,3 +103,25 @@ reset-setup:
 		echo "Start the dev stack with 'make dev-api', or set SQLITE_PATH/DEV_SQLITE_PATH to your local SQLite database."; \
 		exit 1; \
 	fi
+
+mcp-bridge-check:
+	@echo "Checking MCP Bridge daemon scripts..."
+	@node --check tools/bridge_client_daemon.mjs
+	@node --check tools/bridge_daemon_concurrency_smoke.mjs
+	@echo "Running MCP Bridge Go tests..."
+	@go test ./pkg/mcp/proxy ./pkg/mcp/executor ./service -run '$(MCP_BRIDGE_GO_TEST_PATTERN)' -count=1 -timeout=120s
+
+mcp-bridge-smoke:
+	@echo "Running MCP Bridge local daemon concurrency smoke..."
+	@node tools/bridge_daemon_concurrency_smoke.mjs \
+		--concurrency=$(MCP_BRIDGE_SMOKE_CONCURRENCY) \
+		--iterations=$(MCP_BRIDGE_SMOKE_ITERATIONS) \
+		--timeout=$(MCP_BRIDGE_SMOKE_TIMEOUT) \
+		$(MCP_BRIDGE_SMOKE_ARGS)
+
+mcp-bridge-stress:
+	@$(MAKE) mcp-bridge-smoke \
+		MCP_BRIDGE_SMOKE_CONCURRENCY=$(MCP_BRIDGE_STRESS_CONCURRENCY) \
+		MCP_BRIDGE_SMOKE_ITERATIONS=$(MCP_BRIDGE_STRESS_ITERATIONS) \
+		MCP_BRIDGE_SMOKE_TIMEOUT=$(MCP_BRIDGE_STRESS_TIMEOUT) \
+		MCP_BRIDGE_SMOKE_ARGS="$(MCP_BRIDGE_STRESS_ARGS)"

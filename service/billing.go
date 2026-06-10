@@ -25,6 +25,21 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 	return nil
 }
 
+// PreConsumePerCallBilling reserves a fixed-price request and selects the
+// funding source without writing business logs or ledger events.
+func PreConsumePerCallBilling(c *gin.Context, quota int, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if quota <= 0 {
+		return nil
+	}
+	return PreConsumeBilling(c, quota, relayInfo)
+}
+
+// FinalizePerCallBilling marks a fixed-price request as settled after its
+// durable business row has been written.
+func FinalizePerCallBilling(c *gin.Context, quota int, relayInfo *relaycommon.RelayInfo) error {
+	return SettleBilling(c, relayInfo, quota)
+}
+
 // ---------------------------------------------------------------------------
 // SettleBilling — 后结算辅助函数
 // ---------------------------------------------------------------------------

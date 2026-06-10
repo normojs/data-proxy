@@ -287,3 +287,93 @@ export interface BillingHistoryResponse {
 export interface CompleteOrderRequest {
   trade_no: string
 }
+
+// ============================================================================
+// Unified ledger events
+// ============================================================================
+
+export interface PaginatedData<T> {
+  items: T[]
+  total: number
+}
+
+export interface BillingEventAuditLink {
+  id: number
+  event_id: string
+  source_id: string
+  price_unit: string
+  reason: string
+  label: string
+  admin_id: number
+  created_at: number
+}
+
+export interface BillingEventTargetLink {
+  id: number
+  event_id: string
+  user_id: number
+  source: string
+  source_id: string
+  event_type: string
+  status: string
+  price_unit: string
+  amount_quota: number
+  quota_delta: number
+  created_at: number
+}
+
+export interface BillingEventMCPToolCallLink {
+  id: number
+  tool_id: number
+  tool_name: string
+  request_id: string
+  status: string
+  error_code: string
+  error_message: string
+  metadata: string
+  bridge_session_id: string
+  target_client: string
+  duration_ms: number
+  result_size: number
+  created_at: number
+}
+
+export interface BillingEvent {
+  id: number
+  event_id: string
+  user_id: number
+  token_id: number
+  source: string
+  source_id: string
+  event_type: string
+  status: string
+  request_id: string
+  group: string
+  billing_source: string
+  price_unit: string
+  currency: string
+  amount_quota: number
+  quota_delta: number
+  cost: number
+  metadata: string
+  created_at: number
+  related_audit_events?: BillingEventAuditLink[]
+  related_target_event?: BillingEventTargetLink
+  related_mcp_tool_call?: BillingEventMCPToolCallLink
+}
+
+export type BillingEventListParams = Partial<{
+  p: number
+  page_size: number
+  keyword: string
+  token_id: number
+  source: string
+  source_id: string
+  event_type: string
+  status: string
+  request_id: string
+  billing_source: string
+  usage_kind: string
+  start_time: number
+  end_time: number
+}>

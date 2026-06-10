@@ -179,6 +179,9 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
 		Group:     task.Group,
 		Other:     other,
 	})
+	if err := RecordTaskRefundBillingEvent(task, quota, reason); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("记录任务退款账本失败 task %s: %s", task.TaskID, err.Error()))
+	}
 }
 
 // RecalculateTaskQuota 通用的异步差额结算。
@@ -242,6 +245,9 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		Group:     task.Group,
 		Other:     other,
 	})
+	if err := RecordTaskRecalculationBillingEvent(task, preConsumedQuota, actualQuota, quotaDelta, reason); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("记录任务差额结算账本失败 task %s: %s", task.TaskID, err.Error()))
+	}
 }
 
 // RecalculateTaskQuotaByTokens 根据实际 token 消耗重新计费（异步差额结算）。

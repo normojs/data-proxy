@@ -119,6 +119,11 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 	defer func() {
 		initCol()
 	}()
+	if !isLog {
+		common.UsingSQLite = false
+		common.UsingMySQL = false
+		common.UsingPostgreSQL = false
+	}
 	dsn := os.Getenv(envName)
 	if dsn != "" {
 		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
@@ -278,11 +283,37 @@ func migrateDB() error {
 		&SubscriptionOrder{},
 		&UserSubscription{},
 		&SubscriptionPreConsumeRecord{},
+		&BillingEvent{},
+		&BillingEventRelation{},
+		&BillingEventRelationInspectionRun{},
+		&WalletAdjustment{},
+		&TaskBillingRecord{},
+		&ViolationFeeRecord{},
 		&CustomOAuthProvider{},
 		&UserOAuthBinding{},
 		&PerfMetric{},
+		&MCPTool{},
+		&MCPToolCall{},
+		&MCPUserDailyQuota{},
+		&MCPOpenAPITool{},
+		&MCPOpenAPIBinaryObject{},
+		&MCPProxyServer{},
+		&MCPProxyTool{},
+		&MCPProxyDiscoveryEvent{},
+		&BridgeClient{},
+		&BridgeSession{},
+		&BridgeAuditLog{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := migrateMCPToolOpenAPIUrlColumn(); err != nil {
+		return err
+	}
+	if err := migrateMCPOpenAPIToolOpenAPIUrlColumn(); err != nil {
+		return err
+	}
+	if err := SeedBuiltinMCPTools(); err != nil {
 		return err
 	}
 	if common.UsingSQLite {
@@ -327,9 +358,26 @@ func migrateDBFast() error {
 		{&SubscriptionOrder{}, "SubscriptionOrder"},
 		{&UserSubscription{}, "UserSubscription"},
 		{&SubscriptionPreConsumeRecord{}, "SubscriptionPreConsumeRecord"},
+		{&BillingEvent{}, "BillingEvent"},
+		{&BillingEventRelation{}, "BillingEventRelation"},
+		{&BillingEventRelationInspectionRun{}, "BillingEventRelationInspectionRun"},
+		{&WalletAdjustment{}, "WalletAdjustment"},
+		{&TaskBillingRecord{}, "TaskBillingRecord"},
+		{&ViolationFeeRecord{}, "ViolationFeeRecord"},
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
 		{&UserOAuthBinding{}, "UserOAuthBinding"},
 		{&PerfMetric{}, "PerfMetric"},
+		{&MCPTool{}, "MCPTool"},
+		{&MCPToolCall{}, "MCPToolCall"},
+		{&MCPUserDailyQuota{}, "MCPUserDailyQuota"},
+		{&MCPOpenAPITool{}, "MCPOpenAPITool"},
+		{&MCPOpenAPIBinaryObject{}, "MCPOpenAPIBinaryObject"},
+		{&MCPProxyServer{}, "MCPProxyServer"},
+		{&MCPProxyTool{}, "MCPProxyTool"},
+		{&MCPProxyDiscoveryEvent{}, "MCPProxyDiscoveryEvent"},
+		{&BridgeClient{}, "BridgeClient"},
+		{&BridgeSession{}, "BridgeSession"},
+		{&BridgeAuditLog{}, "BridgeAuditLog"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -353,6 +401,15 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := migrateMCPToolOpenAPIUrlColumn(); err != nil {
+		return err
+	}
+	if err := migrateMCPOpenAPIToolOpenAPIUrlColumn(); err != nil {
+		return err
+	}
+	if err := SeedBuiltinMCPTools(); err != nil {
+		return err
 	}
 	if common.UsingSQLite {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {

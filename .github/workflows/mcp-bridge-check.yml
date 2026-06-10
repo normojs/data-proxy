@@ -1,0 +1,48 @@
+name: MCP Bridge Check
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/mcp-bridge-check.yml"
+      - "docs/mcp-bridge-smoke.md"
+      - "makefile"
+      - "controller/bridge.go"
+      - "controller/mcp*.go"
+      - "dto/bridge.go"
+      - "dto/mcp*.go"
+      - "model/bridge*.go"
+      - "model/mcp*.go"
+      - "pkg/bridge/**"
+      - "pkg/mcp/**"
+      - "router/bridge-router.go"
+      - "router/mcp-router.go"
+      - "service/bridge*.go"
+      - "service/mcp*.go"
+      - "tools/bridge_*.mjs"
+  workflow_dispatch:
+
+jobs:
+  mcp-bridge-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ">=1.25.1"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Run MCP Bridge check
+        run: make mcp-bridge-check

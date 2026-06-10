@@ -146,6 +146,18 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 		"upstream_error_code":  fmt.Sprintf("%v", oai.Code),
 		"violation_fee_marker": CSAMViolationMarker,
 	}
+	if err := RecordViolationFeeBillingEvent(relayInfo, ViolationFeeBillingEventInput{
+		FeeQuota:      feeQuota,
+		BaseAmount:    settings.ViolationDeductionAmount,
+		GroupRatio:    groupRatio,
+		StatusCode:    apiErr.StatusCode,
+		UpstreamType:  oai.Type,
+		UpstreamCode:  fmt.Sprintf("%v", oai.Code),
+		ViolationCode: types.ErrorCodeViolationFeeGrokCSAM,
+		Marker:        CSAMViolationMarker,
+	}); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("failed to record violation fee billing event: %s", err.Error()))
+	}
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:      relayInfo.ChannelId,

@@ -38,6 +38,9 @@ import type {
   WaffoPaymentResponse,
   WaffoPancakePaymentRequest,
   WaffoPancakePaymentResponse,
+  BillingEvent,
+  BillingEventListParams,
+  PaginatedData,
 } from './types'
 
 // ============================================================================
@@ -231,5 +234,25 @@ export async function completeOrder(
   request: CompleteOrderRequest
 ): Promise<ApiResponse> {
   const res = await api.post('/api/user/topup/complete', request)
+  return res.data
+}
+
+/**
+ * Get unified billing ledger events for the current user.
+ *
+ * The backend defaults to scope=self; wallet callers intentionally do not pass
+ * scope=all so ordinary users can only inspect their own ledger.
+ */
+export async function getUserBillingEvents(
+  params: BillingEventListParams
+): Promise<ApiResponse<PaginatedData<BillingEvent>>> {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value == null || value === '') return
+    query.set(key, String(value))
+  })
+  const res = await api.get(
+    `/api/billing/events/${query.toString() ? `?${query.toString()}` : ''}`
+  )
   return res.data
 }

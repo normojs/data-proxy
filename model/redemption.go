@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Redemption struct {
@@ -127,7 +128,7 @@ func Redeem(key string, userId int) (quota int, err error) {
 	}
 	common.RandomSleep()
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(keyCol+" = ?", key).First(redemption).Error
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(keyCol+" = ?", key).First(redemption).Error
 		if err != nil {
 			return errors.New("无效的兑换码")
 		}
@@ -145,7 +146,26 @@ func Redeem(key string, userId int) (quota int, err error) {
 		redemption.Status = common.RedemptionCodeStatusUsed
 		redemption.UsedUserId = userId
 		err = tx.Save(redemption).Error
-		return err
+		if err != nil {
+			return err
+		}
+		return RecordFundingBillingEvent(tx, FundingBillingEventInput{
+			Source:        BillingEventSourceWalletTopUp,
+			SourceId:      fmt.Sprintf("redemption:%d", redemption.Id),
+			Phase:         "redemption",
+			UserId:        userId,
+			RequestId:     fmt.Sprintf("redemption:%d", redemption.Id),
+			BillingSource: "wallet",
+			PriceUnit:     "redemption",
+			EventType:     BillingEventTypeCredit,
+			AmountQuota:   redemption.Quota,
+			Metadata: map[string]any{
+				"channel":       "redemption",
+				"redemption_id": redemption.Id,
+				"name":          redemption.Name,
+				"quota":         redemption.Quota,
+			},
+		})
 	})
 	if err != nil {
 		common.SysError("redemption failed: " + err.Error())
