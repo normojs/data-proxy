@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 
@@ -236,32 +237,42 @@ func (h *Hub) GetByClient(clientId string) (SessionSnapshot, bool) {
 }
 
 func (h *Hub) SelectSession(userId int, preferredClientId string, capability string) (SessionSnapshot, bool) {
-	if h == nil || userId <= 0 {
+	sessions := h.SelectSessions(userId, preferredClientId, capability)
+	if len(sessions) == 0 {
 		return SessionSnapshot{}, false
+	}
+	return sessions[0], true
+}
+
+func (h *Hub) SelectSessions(userId int, preferredClientId string, capability string) []SessionSnapshot {
+	if h == nil || userId < 0 {
+		return nil
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	if preferredClientId != "" {
 		sessionId := h.byClient[preferredClientId]
 		session, ok := h.sessions[sessionId]
-		if !ok || session == nil || session.UserId != userId {
-			return SessionSnapshot{}, false
+		if !ok || session == nil || (userId > 0 && session.UserId != userId) {
+			return nil
 		}
 		if !sessionSupports(*session, capability) {
-			return SessionSnapshot{}, false
+			return nil
 		}
-		return snapshotSession(*session), true
+		return []SessionSnapshot{snapshotSession(*session)}
 	}
+	snapshots := make([]SessionSnapshot, 0, len(h.sessions))
 	for _, session := range h.sessions {
-		if session == nil || session.UserId != userId {
+		if session == nil || (userId > 0 && session.UserId != userId) {
 			continue
 		}
 		if !sessionSupports(*session, capability) {
 			continue
 		}
-		return snapshotSession(*session), true
+		snapshots = append(snapshots, snapshotSession(*session))
 	}
-	return SessionSnapshot{}, false
+	sortSessionSnapshots(snapshots)
+	return snapshots
 }
 
 func (h *Hub) ForwardToolCall(ctx context.Context, sessionId string, req ToolCallRequest) (ToolCallResponse, error) {
@@ -420,6 +431,23 @@ func sessionSupports(session Session, capability string) bool {
 		}
 	}
 	return false
+}
+
+func sortSessionSnapshots(snapshots []SessionSnapshot) {
+	sort.SliceStable(snapshots, func(i, j int) bool {
+		left := snapshots[i]
+		right := snapshots[j]
+		if !left.LastSeenAt.Equal(right.LastSeenAt) {
+			return left.LastSeenAt.After(right.LastSeenAt)
+		}
+		if !left.ConnectedAt.Equal(right.ConnectedAt) {
+			return left.ConnectedAt.After(right.ConnectedAt)
+		}
+		if left.ClientId != right.ClientId {
+			return left.ClientId < right.ClientId
+		}
+		return left.SessionId < right.SessionId
+	})
 }
 
 func snapshotSession(session Session) SessionSnapshot {

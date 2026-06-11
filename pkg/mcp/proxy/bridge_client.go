@@ -30,8 +30,18 @@ type BridgeEndpoint struct {
 	Target   string
 }
 
+func (e BridgeEndpoint) IsAuto() bool {
+	clientId := strings.TrimSpace(strings.ToLower(e.ClientId))
+	return clientId == "auto" || clientId == "*"
+}
+
 type BridgeClient struct {
 	Hub *bridge.Hub
+}
+
+type bridgeSessionCandidate struct {
+	session bridge.SessionSnapshot
+	policy  bridgepolicy.Policy
 }
 
 func NewBridgeClient(hub *bridge.Hub) *BridgeClient {
@@ -83,11 +93,11 @@ func normalizeBridgeEndpointURL(raw string) string {
 }
 
 func (c *BridgeClient) Test(ctx context.Context, server model.MCPProxyServer) (TestResult, error) {
-	endpoint, session, policy, err := c.selectSession(server, 0)
+	endpoint, candidates, err := c.candidateSessions(server, 0)
 	if err != nil {
 		return TestResult{}, err
 	}
-	response, err := c.forward(ctx, session, BridgeToolMCPProxyTest, bridgeProxyBaseArguments(server, endpoint), "", 0, 0, policy)
+	response, err := c.forwardCandidates(ctx, candidates, BridgeToolMCPProxyTest, bridgeProxyBaseArguments(server, endpoint), "", 0, 0)
 	if err != nil {
 		return TestResult{}, err
 	}
@@ -108,11 +118,11 @@ func (c *BridgeClient) Test(ctx context.Context, server model.MCPProxyServer) (T
 }
 
 func (c *BridgeClient) ListTools(ctx context.Context, server model.MCPProxyServer) ([]ToolDefinition, error) {
-	endpoint, session, policy, err := c.selectSession(server, 0)
+	endpoint, candidates, err := c.candidateSessions(server, 0)
 	if err != nil {
 		return nil, err
 	}
-	response, err := c.forward(ctx, session, BridgeToolMCPProxyListTools, bridgeProxyBaseArguments(server, endpoint), "", 0, 0, policy)
+	response, err := c.forwardCandidates(ctx, candidates, BridgeToolMCPProxyListTools, bridgeProxyBaseArguments(server, endpoint), "", 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -125,14 +135,14 @@ func (c *BridgeClient) ListTools(ctx context.Context, server model.MCPProxyServe
 }
 
 func (c *BridgeClient) CallTool(ctx context.Context, server model.MCPProxyServer, req CallRequest) (CallResult, error) {
-	endpoint, session, policy, err := c.selectSession(server, req.UserId)
+	endpoint, candidates, err := c.candidateSessions(server, req.UserId)
 	if err != nil {
 		return CallResult{}, err
 	}
 	args := bridgeProxyBaseArguments(server, endpoint)
 	args["name"] = strings.TrimSpace(req.ToolName)
 	args["arguments"] = req.Arguments
-	response, err := c.forward(ctx, session, BridgeToolMCPProxyCallTool, args, req.RequestId, req.UserId, req.TokenId, policy)
+	response, err := c.forwardCandidates(ctx, candidates, BridgeToolMCPProxyCallTool, args, req.RequestId, req.UserId, req.TokenId)
 	result := bridgeCallResultFromResponse(response)
 	if err != nil {
 		return result, err
@@ -147,48 +157,58 @@ func (c *BridgeClient) SessionSnapshot(server model.MCPProxyServer) SessionSnaps
 		snapshot.LastError = err.Error()
 		return snapshot
 	}
-	session, err := c.sessionByEndpoint(endpoint, 0)
+	sessions, err := c.sessionsByEndpoint(endpoint, 0)
 	if err != nil {
 		snapshot.LastError = err.Error()
 		return snapshot
 	}
+	session := sessions[0]
 	snapshot.HasSession = true
 	snapshot.Initialized = bridgeSessionSupports(session, BridgeCapabilityMCPProxy)
 	snapshot.MessageEndpoint = endpoint.ClientId
+	snapshot.ActiveSessions = len(sessions)
+	if !session.LastSeenAt.IsZero() {
+		snapshot.LastActivityAt = session.LastSeenAt.Unix()
+	}
 	return snapshot
 }
 
-func (c *BridgeClient) selectSession(server model.MCPProxyServer, userId int) (BridgeEndpoint, bridge.SessionSnapshot, bridgepolicy.Policy, error) {
+func (c *BridgeClient) candidateSessions(server model.MCPProxyServer, userId int) (BridgeEndpoint, []bridgeSessionCandidate, error) {
 	endpoint, err := ParseBridgeEndpoint(server.Endpoint)
 	if err != nil {
-		return BridgeEndpoint{}, bridge.SessionSnapshot{}, bridgepolicy.Policy{}, err
+		return BridgeEndpoint{}, nil, err
 	}
-	session, err := c.sessionByEndpoint(endpoint, userId)
+	sessions, err := c.sessionsByEndpoint(endpoint, userId)
 	if err != nil {
-		return BridgeEndpoint{}, bridge.SessionSnapshot{}, bridgepolicy.Policy{}, err
+		return BridgeEndpoint{}, nil, err
 	}
-	policy, err := model.GetBridgeClientPolicyByClientId(session.ClientId)
-	if err != nil {
-		return BridgeEndpoint{}, bridge.SessionSnapshot{}, bridgepolicy.Policy{}, err
+	candidates := make([]bridgeSessionCandidate, 0, len(sessions))
+	for _, session := range sessions {
+		policy, err := model.GetBridgeClientPolicyByClientId(session.ClientId)
+		if err != nil {
+			return BridgeEndpoint{}, nil, err
+		}
+		candidates = append(candidates, bridgeSessionCandidate{
+			session: session,
+			policy:  policy,
+		})
 	}
-	return endpoint, session, policy, nil
+	return endpoint, candidates, nil
 }
 
-func (c *BridgeClient) sessionByEndpoint(endpoint BridgeEndpoint, userId int) (bridge.SessionSnapshot, error) {
+func (c *BridgeClient) sessionsByEndpoint(endpoint BridgeEndpoint, userId int) ([]bridge.SessionSnapshot, error) {
 	if c == nil || c.Hub == nil {
-		return bridge.SessionSnapshot{}, bridge.ErrClientUnavailable
+		return nil, bridge.ErrClientUnavailable
 	}
-	session, ok := c.Hub.GetByClient(endpoint.ClientId)
-	if !ok {
-		return bridge.SessionSnapshot{}, bridge.ErrClientNotFound
+	preferredClientId := strings.TrimSpace(endpoint.ClientId)
+	if endpoint.IsAuto() {
+		preferredClientId = ""
 	}
-	if userId > 0 && session.UserId != userId {
-		return bridge.SessionSnapshot{}, fmt.Errorf("%w: bridge client belongs to a different user", bridge.ErrClientNotFound)
+	sessions := c.Hub.SelectSessions(userId, preferredClientId, BridgeCapabilityMCPProxy)
+	if len(sessions) == 0 {
+		return nil, bridge.ErrClientNotFound
 	}
-	if !bridgeSessionSupports(session, BridgeCapabilityMCPProxy) {
-		return bridge.SessionSnapshot{}, fmt.Errorf("%w: bridge client does not support %s", bridge.ErrClientNotFound, BridgeCapabilityMCPProxy)
-	}
-	return session, nil
+	return sessions, nil
 }
 
 func (c *BridgeClient) forward(ctx context.Context, session bridge.SessionSnapshot, toolName string, args map[string]any, requestId string, userId int, tokenId int, policy bridgepolicy.Policy) (bridge.ToolCallResponse, error) {
@@ -232,6 +252,23 @@ func (c *BridgeClient) forward(ctx context.Context, session bridge.SessionSnapsh
 	}
 	updateBridgeProxyAuditSuccess(audit, durationMS, resultSize)
 	return response, nil
+}
+
+func (c *BridgeClient) forwardCandidates(ctx context.Context, candidates []bridgeSessionCandidate, toolName string, args map[string]any, requestId string, userId int, tokenId int) (bridge.ToolCallResponse, error) {
+	var lastResponse bridge.ToolCallResponse
+	var lastErr error
+	for index, candidate := range candidates {
+		response, err := c.forward(ctx, candidate.session, toolName, args, requestId, userId, tokenId, candidate.policy)
+		if err == nil {
+			return response, nil
+		}
+		lastResponse = response
+		lastErr = err
+		if index == len(candidates)-1 || !bridgeProxyShouldFailover(err) {
+			return response, err
+		}
+	}
+	return lastResponse, lastErr
 }
 
 func bridgeProxyBaseArguments(server model.MCPProxyServer, endpoint BridgeEndpoint) map[string]any {
@@ -337,6 +374,16 @@ func bridgeProxyAuditStatus(err error) string {
 	return model.BridgeAuditStatusError
 }
 
+func bridgeProxyShouldFailover(err error) bool {
+	switch bridgepolicy.ErrorCode(err) {
+	case bridgepolicy.ErrorCodeToolNotAllowed, bridgepolicy.ErrorCodeWriteDisabled, bridgepolicy.ErrorCodeMCPTargetForbidden:
+		return true
+	}
+	return errors.Is(err, bridge.ErrClientNotFound) ||
+		errors.Is(err, bridge.ErrClientUnavailable) ||
+		errors.Is(err, bridge.ErrClientDisconnected)
+}
+
 func bridgeProxyErrorCode(err error) string {
 	if code := bridgepolicy.ErrorCode(err); code != "" {
 		return code
@@ -350,6 +397,9 @@ func bridgeProxyErrorCode(err error) string {
 	}
 	if errors.Is(err, bridge.ErrClientDisconnected) {
 		return "BRIDGE_CLIENT_DISCONNECTED"
+	}
+	if errors.Is(err, bridge.ErrClientUnavailable) {
+		return "BRIDGE_CLIENT_UNAVAILABLE"
 	}
 	if errors.Is(err, bridge.ErrClientNotFound) {
 		return "BRIDGE_CLIENT_NOT_FOUND"

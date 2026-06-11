@@ -49,20 +49,12 @@ func (e *RemoteBridgeExecutor) Execute(ctx context.Context, req Request) (Result
 			Err:     bridge.ErrClientUnavailable,
 		}
 	}
-	session, ok := e.Hub.SelectSession(req.UserId, "", req.Tool.Name)
-	if !ok {
+	sessions := e.Hub.SelectSessions(req.UserId, "", req.Tool.Name)
+	if len(sessions) == 0 {
 		return Result{}, &ExecutionError{
 			Code:    "BRIDGE_CLIENT_NOT_FOUND",
 			Message: "No online bridge client supports this tool",
 			Err:     bridge.ErrClientNotFound,
-		}
-	}
-	policy, err := model.GetBridgeClientPolicyByClientId(session.ClientId)
-	if err != nil {
-		return Result{}, &ExecutionError{
-			Code:    ErrorCodeFailed,
-			Message: "failed to load bridge client policy",
-			Err:     err,
 		}
 	}
 	if ctx == nil {
@@ -75,6 +67,31 @@ func (e *RemoteBridgeExecutor) Execute(ctx context.Context, req Request) (Result
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	var lastResult Result
+	var lastErr error
+	for index, session := range sessions {
+		result, err := e.executeWithSession(callCtx, req, session)
+		if err == nil {
+			return result, nil
+		}
+		lastResult = result
+		lastErr = err
+		if index == len(sessions)-1 || !remoteBridgeShouldFailover(err) {
+			return result, err
+		}
+	}
+	return lastResult, lastErr
+}
+
+func (e *RemoteBridgeExecutor) executeWithSession(ctx context.Context, req Request, session bridge.SessionSnapshot) (Result, error) {
+	policy, err := model.GetBridgeClientPolicyByClientId(session.ClientId)
+	if err != nil {
+		return Result{}, &ExecutionError{
+			Code:    ErrorCodeFailed,
+			Message: "failed to load bridge client policy",
+			Err:     err,
+		}
+	}
 	startedAt := time.Now()
 	requestBody := ""
 	if bytes, err := common.Marshal(req.Arguments); err == nil {
@@ -110,7 +127,7 @@ func (e *RemoteBridgeExecutor) Execute(ctx context.Context, req Request) (Result
 	}
 
 	arguments := bridgepolicy.ApplyArgumentLimits(policy, req.Tool.Name, req.Arguments)
-	response, err := e.Hub.ForwardToolCall(callCtx, session.SessionId, bridge.ToolCallRequest{
+	response, err := e.Hub.ForwardToolCall(ctx, session.SessionId, bridge.ToolCallRequest{
 		Id:        req.RequestId,
 		ToolName:  req.Tool.Name,
 		Arguments: arguments,
@@ -118,13 +135,9 @@ func (e *RemoteBridgeExecutor) Execute(ctx context.Context, req Request) (Result
 	durationMS := int(time.Since(startedAt).Milliseconds())
 	if err != nil {
 		status := model.BridgeAuditStatusError
-		errorCode := ErrorCodeFailed
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, bridge.ErrClientDisconnected) {
+		errorCode := remoteBridgeErrorCode(err)
+		if errors.Is(err, context.DeadlineExceeded) {
 			status = model.BridgeAuditStatusTimeout
-			errorCode = ErrorCodeTimeout
-		}
-		if clientErr, ok := err.(*bridge.ClientError); ok && clientErr.Code != "" {
-			errorCode = clientErr.Code
 		}
 		_ = model.UpdateBridgeAuditLogStatus(audit.Id, status, map[string]any{
 			"error_code":    errorCode,
@@ -183,6 +196,36 @@ func (e *RemoteBridgeExecutor) Execute(ctx context.Context, req Request) (Result
 		BridgeSessionId: response.Session.SessionId,
 		TargetClient:    response.Session.ClientId,
 	}, nil
+}
+
+func remoteBridgeShouldFailover(err error) bool {
+	switch bridgepolicy.ErrorCode(err) {
+	case bridgepolicy.ErrorCodeToolNotAllowed, bridgepolicy.ErrorCodeWriteDisabled:
+		return true
+	}
+	return errors.Is(err, bridge.ErrClientNotFound) ||
+		errors.Is(err, bridge.ErrClientUnavailable) ||
+		errors.Is(err, bridge.ErrClientDisconnected)
+}
+
+func remoteBridgeErrorCode(err error) string {
+	var clientErr *bridge.ClientError
+	if errors.As(err, &clientErr) && clientErr.Code != "" {
+		return clientErr.Code
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrorCodeTimeout
+	}
+	if errors.Is(err, bridge.ErrClientDisconnected) {
+		return "BRIDGE_CLIENT_DISCONNECTED"
+	}
+	if errors.Is(err, bridge.ErrClientUnavailable) {
+		return "BRIDGE_CLIENT_UNAVAILABLE"
+	}
+	if errors.Is(err, bridge.ErrClientNotFound) {
+		return "BRIDGE_CLIENT_NOT_FOUND"
+	}
+	return ErrorCodeFailed
 }
 
 func bridgePolicyErrorCode(err error) string {

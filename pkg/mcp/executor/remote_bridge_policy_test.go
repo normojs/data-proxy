@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
@@ -131,4 +132,68 @@ func TestRemoteBridgeExecutorAppliesServerPolicyLimits(t *testing.T) {
 		ResultSize: 2,
 	}))
 	require.NoError(t, <-done)
+}
+
+func TestRemoteBridgeExecutorFailoversToNextEligibleSession(t *testing.T) {
+	setupRemoteBridgePolicyTestDB(t)
+
+	hub := bridge.NewHub()
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	backupOutbound := make(chan bridge.OutboundMessage, 1)
+	hub.Register(bridge.Session{
+		SessionId:    "session-unavailable",
+		ClientId:     "client-unavailable",
+		UserId:       1,
+		Capabilities: []string{"remote_read"},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(2 * time.Minute),
+	})
+	hub.Register(bridge.Session{
+		SessionId:    "session-backup",
+		ClientId:     "client-backup",
+		UserId:       1,
+		Capabilities: []string{"remote_read"},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(time.Minute),
+		Send:         backupOutbound,
+	})
+	executor := &RemoteBridgeExecutor{Hub: hub, Timeout: time.Second}
+
+	done := make(chan error, 1)
+	var result Result
+	go func() {
+		var err error
+		result, err = executor.Execute(context.Background(), Request{
+			UserId:    1,
+			TokenId:   2,
+			RequestId: "remote-bridge-failover",
+			Tool: model.MCPTool{
+				Name:     "remote_read",
+				IsRemote: true,
+			},
+			Arguments: map[string]any{"file_path": "README.md"},
+		})
+		done <- err
+	}()
+
+	msg := <-backupOutbound
+	call := msg.Data.(dto.BridgeToolCallRequest)
+	require.Equal(t, "remote_read", call.ToolName)
+	require.True(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{
+		Content:    []dto.MCPContentBlock{{Type: "text", Text: "ok"}},
+		Summary:    "ok",
+		ResultSize: 2,
+	}))
+	require.NoError(t, <-done)
+	require.Equal(t, "session-backup", result.BridgeSessionId)
+	require.Equal(t, "client-backup", result.TargetClient)
+
+	var audits []model.BridgeAuditLog
+	require.NoError(t, model.DB.Where("request_id = ?", "remote-bridge-failover").Order("id asc").Find(&audits).Error)
+	require.Len(t, audits, 2)
+	require.Equal(t, model.BridgeAuditStatusError, audits[0].Status)
+	require.Equal(t, "BRIDGE_CLIENT_UNAVAILABLE", audits[0].ErrorCode)
+	require.Equal(t, "client-unavailable", audits[0].ClientId)
+	require.Equal(t, model.BridgeAuditStatusSuccess, audits[1].Status)
+	require.Equal(t, "client-backup", audits[1].ClientId)
 }

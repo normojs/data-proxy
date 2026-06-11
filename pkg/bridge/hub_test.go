@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/dto"
 )
@@ -93,6 +94,128 @@ func TestHubUpdateClientMetadata(t *testing.T) {
 	}
 	if snapshot.Name != "new" || snapshot.Version != "1.2.3" || len(snapshot.Capabilities) != 1 {
 		t.Fatalf("metadata mismatch: %#v", snapshot)
+	}
+}
+
+func TestHubSelectSessionsSortsByLatestActivityAndCapability(t *testing.T) {
+	hub := NewHub()
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	hub.Register(Session{
+		SessionId:    "session-old",
+		ClientId:     "client-old",
+		UserId:       1,
+		Capabilities: []string{"mcp_proxy"},
+		ConnectedAt:  base.Add(time.Minute),
+		LastSeenAt:   base.Add(2 * time.Minute),
+	})
+	hub.Register(Session{
+		SessionId:    "session-new",
+		ClientId:     "client-new",
+		UserId:       1,
+		Capabilities: []string{"mcp_proxy"},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(3 * time.Minute),
+	})
+	hub.Register(Session{
+		SessionId:    "session-other-tool",
+		ClientId:     "client-other-tool",
+		UserId:       1,
+		Capabilities: []string{"remote_read"},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(4 * time.Minute),
+	})
+	hub.Register(Session{
+		SessionId:    "session-other-user",
+		ClientId:     "client-other-user",
+		UserId:       2,
+		Capabilities: []string{"mcp_proxy"},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(5 * time.Minute),
+	})
+
+	sessions := hub.SelectSessions(1, "", "mcp_proxy")
+	if len(sessions) != 2 {
+		t.Fatalf("expected two candidate sessions, got %#v", sessions)
+	}
+	if sessions[0].ClientId != "client-new" || sessions[1].ClientId != "client-old" {
+		t.Fatalf("unexpected candidate order: %#v", sessions)
+	}
+	selected, ok := hub.SelectSession(1, "", "mcp_proxy")
+	if !ok {
+		t.Fatal("expected selected session")
+	}
+	if selected.ClientId != "client-new" {
+		t.Fatalf("expected latest active session, got %#v", selected)
+	}
+}
+
+func TestHubSelectSessionsSortsTiesByConnectedAndClientId(t *testing.T) {
+	hub := NewHub()
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	hub.Register(Session{
+		SessionId:    "session-b",
+		ClientId:     "client-b",
+		UserId:       1,
+		Capabilities: []string{"mcp_proxy"},
+		ConnectedAt:  base.Add(time.Minute),
+		LastSeenAt:   base,
+	})
+	hub.Register(Session{
+		SessionId:    "session-a",
+		ClientId:     "client-a",
+		UserId:       1,
+		Capabilities: []string{"mcp_proxy"},
+		ConnectedAt:  base.Add(time.Minute),
+		LastSeenAt:   base,
+	})
+	hub.Register(Session{
+		SessionId:    "session-newer-connection",
+		ClientId:     "client-c",
+		UserId:       1,
+		Capabilities: []string{"mcp_proxy"},
+		ConnectedAt:  base.Add(2 * time.Minute),
+		LastSeenAt:   base,
+	})
+
+	sessions := hub.SelectSessions(1, "", "mcp_proxy")
+	if len(sessions) != 3 {
+		t.Fatalf("expected three candidate sessions, got %#v", sessions)
+	}
+	got := []string{sessions[0].ClientId, sessions[1].ClientId, sessions[2].ClientId}
+	want := []string{"client-c", "client-a", "client-b"}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("candidate order mismatch, got %v want %v", got, want)
+		}
+	}
+}
+
+func TestHubSelectSessionsPreferredClientIsExact(t *testing.T) {
+	hub := NewHub()
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	hub.Register(Session{
+		SessionId:    "session-preferred",
+		ClientId:     "client-preferred",
+		UserId:       1,
+		Capabilities: []string{"mcp_proxy"},
+		ConnectedAt:  base,
+		LastSeenAt:   base,
+	})
+	hub.Register(Session{
+		SessionId:    "session-newer",
+		ClientId:     "client-newer",
+		UserId:       1,
+		Capabilities: []string{"mcp_proxy"},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(time.Minute),
+	})
+
+	sessions := hub.SelectSessions(1, "client-preferred", "mcp_proxy")
+	if len(sessions) != 1 || sessions[0].ClientId != "client-preferred" {
+		t.Fatalf("expected exact preferred client match, got %#v", sessions)
+	}
+	if sessions := hub.SelectSessions(2, "client-preferred", "mcp_proxy"); len(sessions) != 0 {
+		t.Fatalf("preferred client should not cross users, got %#v", sessions)
 	}
 }
 

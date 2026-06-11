@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
@@ -28,6 +29,11 @@ func TestParseBridgeEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "qidian-client", plain.ClientId)
 	require.Empty(t, plain.Target)
+
+	auto, err := ParseBridgeEndpoint("bridge://auto?target=http%3A%2F%2F127.0.0.1%3A8767%2Fmcp")
+	require.NoError(t, err)
+	require.True(t, auto.IsAuto())
+	require.Equal(t, "http://127.0.0.1:8767/mcp", auto.Target)
 
 	_, err = ParseBridgeEndpoint("http://127.0.0.1:8765/mcp")
 	require.Error(t, err)
@@ -80,6 +86,130 @@ func TestBridgeClientListToolsParsesMetadata(t *testing.T) {
 	require.Equal(t, "Search Repos", tools[0].Title)
 	require.Equal(t, "object", tools[0].InputSchema["type"])
 	<-done
+}
+
+func TestBridgeClientListToolsAutoSelectsLatestActiveSession(t *testing.T) {
+	originalDB := model.DB
+	model.DB = nil
+	t.Cleanup(func() {
+		model.DB = originalDB
+	})
+
+	hub := bridge.NewHub()
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	oldOutbound := make(chan bridge.OutboundMessage, 1)
+	newOutbound := make(chan bridge.OutboundMessage, 1)
+	hub.Register(bridge.Session{
+		SessionId:    "session-old",
+		ClientId:     "client-old",
+		UserId:       1,
+		Capabilities: []string{BridgeCapabilityMCPProxy},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(time.Minute),
+		Send:         oldOutbound,
+	})
+	hub.Register(bridge.Session{
+		SessionId:    "session-new",
+		ClientId:     "client-new",
+		UserId:       1,
+		Capabilities: []string{BridgeCapabilityMCPProxy},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(2 * time.Minute),
+		Send:         newOutbound,
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-newOutbound
+		require.Equal(t, BridgeToolMCPProxyListTools, msg.Data.(dto.BridgeToolCallRequest).ToolName)
+		require.True(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{
+			Metadata: map[string]any{
+				"tools": []map[string]any{
+					{
+						"name":        "status",
+						"description": "Status",
+						"inputSchema": map[string]any{"type": "object"},
+					},
+				},
+			},
+		}))
+	}()
+
+	client := NewBridgeClient(hub)
+	tools, err := client.ListTools(context.Background(), model.MCPProxyServer{
+		Transport: model.MCPProxyTransportQidianBrowser,
+		Endpoint:  "bridge://auto?target=http%3A%2F%2F127.0.0.1%3A8765%2Fmcp",
+	})
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	require.Equal(t, "status", tools[0].Name)
+	<-done
+	select {
+	case msg := <-oldOutbound:
+		t.Fatalf("older session should not receive first auto call: %#v", msg)
+	default:
+	}
+}
+
+func TestBridgeClientCallToolAutoFailoversToNextEligibleSession(t *testing.T) {
+	originalDB := model.DB
+	model.DB = nil
+	t.Cleanup(func() {
+		model.DB = originalDB
+	})
+
+	hub := bridge.NewHub()
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	backupOutbound := make(chan bridge.OutboundMessage, 1)
+	hub.Register(bridge.Session{
+		SessionId:    "session-unavailable",
+		ClientId:     "client-unavailable",
+		UserId:       1,
+		Capabilities: []string{BridgeCapabilityMCPProxy},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(2 * time.Minute),
+	})
+	hub.Register(bridge.Session{
+		SessionId:    "session-backup",
+		ClientId:     "client-backup",
+		UserId:       1,
+		Capabilities: []string{BridgeCapabilityMCPProxy},
+		ConnectedAt:  base,
+		LastSeenAt:   base.Add(time.Minute),
+		Send:         backupOutbound,
+	})
+
+	done := make(chan error, 1)
+	var result CallResult
+	go func() {
+		var err error
+		result, err = NewBridgeClient(hub).CallTool(context.Background(), model.MCPProxyServer{
+			Transport: model.MCPProxyTransportQidianBrowser,
+			Endpoint:  "bridge://*?target=http%3A%2F%2F127.0.0.1%3A8765%2Fmcp",
+		}, CallRequest{
+			ToolName:  "status",
+			Arguments: map[string]any{"verbose": true},
+			RequestId: "auto-failover",
+			UserId:    1,
+			TokenId:   2,
+		})
+		done <- err
+	}()
+
+	msg := <-backupOutbound
+	req := msg.Data.(dto.BridgeToolCallRequest)
+	require.Equal(t, BridgeToolMCPProxyCallTool, req.ToolName)
+	require.Equal(t, "status", req.Arguments["name"])
+	require.True(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{
+		Content:    []dto.MCPContentBlock{{Type: "text", Text: "ok"}},
+		Summary:    "ok",
+		ResultSize: 2,
+	}))
+	require.NoError(t, <-done)
+	require.Equal(t, "ok", result.Summary)
+	require.Equal(t, "session-backup", result.BridgeSessionId)
+	require.Equal(t, "client-backup", result.TargetClient)
 }
 
 func TestBridgeClientRequiresMCPProxyCapability(t *testing.T) {

@@ -62,7 +62,7 @@
 
 - [x] Add MCP tool call idempotency and replay protection.
   - Acceptance: repeated client request IDs do not double-charge or double-settle a tool call.
-- [ ] Add Bridge multi-client selection and failover.
+- [x] Add Bridge multi-client selection and failover.
   - Acceptance: Bridge MCP Proxy can choose by latest activity/capability and fail over to another eligible online client.
 - [ ] Add MCP operations review queue.
   - Acceptance: health check, heartbeat, stale Bridge clients, and high-error tools produce actionable review reasons in dashboard summaries.
