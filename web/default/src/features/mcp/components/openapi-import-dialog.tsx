@@ -55,6 +55,10 @@ import type {
   MCPOpenAPIPreviewOperation,
   MCPOpenAPIPreviewResponse,
 } from '../types'
+import {
+  normalizeOpenAPISchemaMetrics,
+  summarizeOpenAPIImportResult,
+} from '../lib/openapi-import-summary'
 
 type OpenAPIImportDialogProps = {
   open: boolean
@@ -173,11 +177,56 @@ function OperationRow(props: {
   )
 }
 
+function MetricCell(props: { label: string; value: number }) {
+  return (
+    <div className='bg-muted/30 min-w-0 rounded-md px-3 py-2'>
+      <div className='text-muted-foreground truncate text-xs'>
+        {props.label}
+      </div>
+      <div className='truncate text-sm font-semibold'>
+        {props.value.toLocaleString()}
+      </div>
+    </div>
+  )
+}
+
+function OpenAPIPreviewMetrics(props: {
+  preview: MCPOpenAPIPreviewResponse
+  selectedCount: number
+}) {
+  const { t } = useTranslation()
+  const metrics = normalizeOpenAPISchemaMetrics(props.preview.schema_metrics)
+
+  return (
+    <div className='grid gap-2 sm:grid-cols-3 lg:grid-cols-6'>
+      <MetricCell label={t('Selected Operations')} value={props.selectedCount} />
+      <MetricCell
+        label={t('Operation Count')}
+        value={metrics.operation_count}
+      />
+      <MetricCell
+        label={t('Importable Tools')}
+        value={metrics.imported_tool_count}
+      />
+      <MetricCell label={t('Schema Count')} value={metrics.schema_count} />
+      <MetricCell
+        label={t('Unique Schemas')}
+        value={metrics.unique_schema_count}
+      />
+      <MetricCell
+        label={t('Reused Schemas')}
+        value={metrics.reused_schema_count}
+      />
+    </div>
+  )
+}
+
 function ImportResultSummary(props: {
   result: MCPOpenAPIImportResponse
   title?: string
 }) {
   const { t } = useTranslation()
+  const summary = summarizeOpenAPIImportResult(props.result)
   const changedItems = props.result.updated.filter(
     (item) => (item.changes?.length ?? 0) > 0
   )
@@ -191,19 +240,35 @@ function ImportResultSummary(props: {
       )}
       <div className='flex flex-wrap items-center gap-2'>
         <StatusBadge
-          label={`${t('Imported')}: ${props.result.imported_count}`}
+          label={`${t('Imported')}: ${summary.importedCount}`}
           variant='success'
           copyable={false}
         />
         <StatusBadge
-          label={`${t('Updated')}: ${props.result.updated_count}`}
+          label={`${t('Updated')}: ${summary.updatedCount}`}
           variant='info'
           copyable={false}
         />
         <StatusBadge
-          label={`${t('Skipped')}: ${props.result.skipped_count}`}
-          variant={props.result.skipped_count > 0 ? 'warning' : 'neutral'}
+          label={`${t('Skipped')}: ${summary.skippedCount}`}
+          variant={summary.skippedCount > 0 ? 'warning' : 'neutral'}
           copyable={false}
+        />
+      </div>
+
+      <div className='grid gap-2 sm:grid-cols-4'>
+        <MetricCell
+          label={t('Affected Tools')}
+          value={summary.affectedToolCount}
+        />
+        <MetricCell label={t('Changed Tools')} value={summary.changedToolCount} />
+        <MetricCell
+          label={t('Changed Fields')}
+          value={summary.changedFieldCount}
+        />
+        <MetricCell
+          label={t('Skipped Reasons')}
+          value={summary.skippedReasons.length}
         />
       </div>
 
@@ -241,12 +306,12 @@ function ImportResultSummary(props: {
         </div>
       )}
 
-      {props.result.skipped.length > 0 && (
+      {summary.skippedReasons.length > 0 && (
         <div className='space-y-1'>
           <div className='text-muted-foreground text-xs font-medium'>
-            {t('Skipped')}
+            {t('Skipped Reasons')}
           </div>
-          {props.result.skipped.slice(0, 6).map((item) => (
+          {summary.skippedReasons.slice(0, 6).map((item) => (
             <div key={item} className='text-muted-foreground text-xs'>
               {item}
             </div>
@@ -574,6 +639,11 @@ export function OpenAPIImportDialog(props: OpenAPIImportDialogProps) {
                   </Button>
                 </div>
               </div>
+
+              <OpenAPIPreviewMetrics
+                preview={preview}
+                selectedCount={selectedOperations.length}
+              />
 
               <div className='grid gap-2'>
                 {preview.operations.map((operation) => (

@@ -95,6 +95,14 @@ export type MCPOpenAPIPreviewPayload = Partial<{
   category: string
 }>
 
+export type MCPOpenAPISchemaMetrics = {
+  operation_count: number
+  imported_tool_count: number
+  schema_count: number
+  unique_schema_count: number
+  reused_schema_count: number
+}
+
 export type MCPOpenAPIPreviewResponse = {
   openapi_url: string
   title: string
@@ -102,6 +110,7 @@ export type MCPOpenAPIPreviewResponse = {
   server_url: string
   namespace: string
   category: string
+  schema_metrics: MCPOpenAPISchemaMetrics
   operations: MCPOpenAPIPreviewOperation[]
 }
 

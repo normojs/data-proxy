@@ -16,6 +16,7 @@
     "copyright": "node scripts/add-copyright.mjs",
     "i18n:sync": "node scripts/sync-i18n.mjs",
     "knip": "knip",
+    "smoke:mcp-openapi-import": "node --experimental-strip-types scripts/check-mcp-openapi-import-summary.mjs",
     "smoke:mcp-routes": "node scripts/check-mcp-routes.mjs",
     "smoke:mcp-trends": "node --experimental-strip-types scripts/check-mcp-trends.mjs"
   },

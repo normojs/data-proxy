@@ -125,6 +125,7 @@ mcp-dashboard-check:
 	@echo "Running MCP Dashboard regression checks..."
 	@cd $(FRONTEND_DIR) && $(NODE) scripts/check-mcp-routes.mjs
 	@cd $(FRONTEND_DIR) && $(NODE) --experimental-strip-types scripts/check-mcp-trends.mjs
+	@cd $(FRONTEND_DIR) && $(NODE) --experimental-strip-types scripts/check-mcp-openapi-import-summary.mjs
 	@cd $(FRONTEND_DIR) && $(NODE) $(TSC) -b
 
 mcp-migration-sqlite:
