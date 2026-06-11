@@ -411,6 +411,7 @@ func SetApiRouter(router *gin.Engine) {
 			billingEventsRoute.GET("/source-matrix", middleware.AdminAuth(), controller.GetBillingEventSourceMatrix)
 			billingEventsRoute.GET("/relation-health", middleware.AdminAuth(), controller.GetBillingEventRelationHealth)
 			billingEventsRoute.POST("/relation-backfill", middleware.AdminAuth(), controller.BackfillBillingEventRelations)
+			billingEventsRoute.POST("/relation-repair", middleware.AdminAuth(), controller.RepairBillingEventRelations)
 			billingEventsRoute.POST("/relation-orphans/cleanup", middleware.AdminAuth(), controller.CleanupBillingEventRelationOrphans)
 			billingEventsRoute.GET("/relation-inspection", middleware.AdminAuth(), controller.GetBillingEventRelationInspection)
 			billingEventsRoute.GET("/relation-inspection/runs", middleware.AdminAuth(), controller.GetBillingEventRelationInspectionRuns)

@@ -232,6 +232,25 @@ type BillingEventRelationBackfillResponse struct {
 	Errors []string                              `json:"errors"`
 }
 
+type BillingEventRelationRepairRequest struct {
+	DryRun bool                                  `json:"dry_run"`
+	Items  []BillingEventRelationMaintenanceItem `json:"items"`
+}
+
+type BillingEventRelationRepairResponse struct {
+	DryRun   bool `json:"dry_run"`
+	Selected int  `json:"selected"`
+
+	Created         int `json:"created"`
+	WouldCreate     int `json:"would_create"`
+	SkippedExisting int `json:"skipped_existing"`
+	SkippedInvalid  int `json:"skipped_invalid"`
+	ErrorCount      int `json:"error_count"`
+
+	Items  []BillingEventRelationMaintenanceItem `json:"items"`
+	Errors []string                              `json:"errors"`
+}
+
 type BillingEventRelationOrphanCleanupRequest struct {
 	DryRun bool `json:"dry_run"`
 }

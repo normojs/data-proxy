@@ -33,6 +33,8 @@ import type {
   BillingEventRelationInspectionStatus,
   BillingEventRelationOrphanCleanupRequest,
   BillingEventRelationOrphanCleanupResponse,
+  BillingEventRelationRepairRequest,
+  BillingEventRelationRepairResponse,
   BillingEventReconciliationBackfillMissingRequest,
   BillingEventReconciliationBackfillMissingResponse,
   BillingEventReconciliationMissingRequest,
@@ -284,10 +286,7 @@ export async function deleteMCPOpenAPI(
 export function listMCPOpenAPIBinaryObjects(
   params: MCPOpenAPIBinaryObjectListParams
 ) {
-  return getPaginated<MCPOpenAPIBinaryObject>(
-    '/api/mcp/openapi/binary',
-    params
-  )
+  return getPaginated<MCPOpenAPIBinaryObject>('/api/mcp/openapi/binary', params)
 }
 
 export async function getMCPOpenAPIBinaryObjectSummary(
@@ -597,6 +596,13 @@ export async function backfillBillingEventRelations(
   payload: BillingEventRelationBackfillRequest
 ): Promise<ApiResponse<BillingEventRelationBackfillResponse>> {
   const res = await api.post('/api/billing/events/relation-backfill', payload)
+  return res.data
+}
+
+export async function repairBillingEventRelations(
+  payload: BillingEventRelationRepairRequest
+): Promise<ApiResponse<BillingEventRelationRepairResponse>> {
+  const res = await api.post('/api/billing/events/relation-repair', payload)
   return res.data
 }
 

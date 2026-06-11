@@ -80,11 +80,14 @@
   - Done: `/api/mcp/summary` includes `operations_trends` with Bridge online/session buckets, OpenAPI binary object storage buckets, Proxy error TopN, and MCP billing anomaly counters.
   - Done: MCP Overview shows storage/Bridge mini trends plus Proxy error and billing anomaly panels with drilldown links.
   - Done: `service/mcp_overview_trends_test.go` and `scripts/check-mcp-trends.mjs` cover empty/partial payloads and aggregate signals.
-- [ ] Improve billing relation repair UX.
+- [x] Improve billing relation repair UX.
   - Acceptance: admins can preview relation diffs and repair selected items without running a broad backfill.
   - Backend: expose selected-item repair payloads for missing/orphan MCP billing relations and keep broad backfill as a fallback.
   - Frontend: add preview rows with per-item selection, summary counters, and repair action feedback.
   - Validation: cover dry-run, selected repair, idempotent repair, and no-op repair paths.
+  - Done: added `POST /api/billing/events/relation-repair` for selected audit relation repair with dry-run, stale payload validation, idempotent existing-link handling, and no-op empty selection behavior.
+  - Done: Billing Events Audit Relations panel now stores preview rows, supports per-row/select-all repair selection, and shows created/skipped/invalid repair feedback while keeping broad backfill as fallback.
+  - Validation: targeted service/controller/router tests, `npm run typecheck --silent`, `make mcp-dashboard-check`, and `make mcp-regression`.
 - [ ] Publish MCP/Bridge/OpenAPI runbook.
   - Acceptance: docs cover local daemon, production policies, common error codes, smoke commands, and rollback/cleanup guidance.
   - Docs: include local daemon setup, policy defaults, Bridge failover, OpenAPI binary storage, review queue, billing repair, smoke/regression commands, and rollback cleanup.

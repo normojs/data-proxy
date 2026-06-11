@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -9,11 +10,17 @@ import (
 )
 
 const maxBillingEventRelationMaintenanceSamples = 20
+const maxBillingEventRelationSelectedRepairItems = 100
 
 type BillingEventRelationMaintenanceParams struct {
 	Limit  int
 	Cursor int64
 	DryRun bool
+}
+
+type BillingEventRelationSelectedRepairParams struct {
+	DryRun bool
+	Items  []dto.BillingEventRelationMaintenanceItem
 }
 
 type billingEventRelationCandidate struct {
@@ -165,6 +172,79 @@ func BackfillBillingEventRelations(params BillingEventRelationMaintenanceParams)
 	return response, nil
 }
 
+func RepairSelectedBillingEventRelations(params BillingEventRelationSelectedRepairParams) (dto.BillingEventRelationRepairResponse, error) {
+	if len(params.Items) > maxBillingEventRelationSelectedRepairItems {
+		return dto.BillingEventRelationRepairResponse{}, fmt.Errorf("too many selected relation items: max %d", maxBillingEventRelationSelectedRepairItems)
+	}
+	response := dto.BillingEventRelationRepairResponse{
+		DryRun:   params.DryRun,
+		Selected: len(params.Items),
+		Items:    []dto.BillingEventRelationMaintenanceItem{},
+		Errors:   []string{},
+	}
+	if len(params.Items) == 0 {
+		return response, nil
+	}
+
+	for _, item := range params.Items {
+		candidate, err := billingEventRelationRepairCandidate(item)
+		if err != nil {
+			response.SkippedInvalid++
+			appendBillingEventRelationRepairError(&response, err.Error(), item.AuditEvent)
+			continue
+		}
+		if candidate.Error != "" {
+			response.SkippedInvalid++
+			appendBillingEventRelationRepairError(&response, candidate.Error, candidate.Audit.EventId)
+			continue
+		}
+
+		existingRelations, existingTargets, err := loadBillingEventRelationState([]billingEventRelationCandidate{candidate})
+		if err != nil {
+			response.ErrorCount++
+			appendBillingEventRelationRepairError(&response, err.Error(), candidate.Audit.EventId)
+			continue
+		}
+		if !existingTargets[candidate.TargetEventId] {
+			response.SkippedInvalid++
+			appendBillingEventRelationRepairError(&response, "target event not found", candidate.Audit.EventId)
+			continue
+		}
+		if _, ok := existingRelations[billingEventRelationCandidateKey(candidate)]; ok {
+			response.SkippedExisting++
+			continue
+		}
+
+		repairedItem := billingEventRelationMaintenanceItem(candidate)
+		if params.DryRun {
+			response.WouldCreate++
+			appendBillingEventRelationMaintenanceSample(&response.Items, repairedItem)
+			continue
+		}
+		created, err := model.CreateBillingEventRelationIfNotExists(nil, &model.BillingEventRelation{
+			SourceEventId: candidate.Audit.Id,
+			TargetEventId: candidate.TargetEventId,
+			RelationType:  candidate.RelationType,
+			Reason:        billingEventRelationReason(candidate.Metadata.Reason),
+			Label:         billingEventRelationLabel(candidate.Metadata.Label),
+			AdminId:       candidate.Metadata.AdminId,
+		})
+		if err != nil {
+			response.ErrorCount++
+			appendBillingEventRelationRepairError(&response, err.Error(), candidate.Audit.EventId)
+			continue
+		}
+		if !created {
+			response.SkippedExisting++
+			continue
+		}
+		response.Created++
+		appendBillingEventRelationMaintenanceSample(&response.Items, repairedItem)
+	}
+
+	return response, nil
+}
+
 func CleanupBillingEventRelationOrphans(params BillingEventRelationMaintenanceParams) (dto.BillingEventRelationOrphanCleanupResponse, error) {
 	orphanIds, sourceOrphans, targetOrphans, err := listBillingEventRelationOrphanIds()
 	if err != nil {
@@ -185,6 +265,44 @@ func CleanupBillingEventRelationOrphans(params BillingEventRelationMaintenancePa
 	}
 	response.Deleted = int(deleted)
 	return response, nil
+}
+
+func billingEventRelationRepairCandidate(item dto.BillingEventRelationMaintenanceItem) (billingEventRelationCandidate, error) {
+	if item.AuditEventId <= 0 {
+		return billingEventRelationCandidate{}, fmt.Errorf("audit_event_id is required")
+	}
+	var audit model.BillingEvent
+	if err := model.DB.Where("id = ?", item.AuditEventId).First(&audit).Error; err != nil {
+		return billingEventRelationCandidate{}, err
+	}
+	if audit.Source != model.BillingEventSourceLedgerRepair || audit.EventType != model.BillingEventTypeAudit {
+		return billingEventRelationCandidate{}, fmt.Errorf("audit event is not a billing repair audit")
+	}
+	candidates := billingEventRelationCandidates([]model.BillingEvent{audit})
+	if len(candidates) != 1 {
+		return billingEventRelationCandidate{}, fmt.Errorf("audit event could not be parsed")
+	}
+	candidate := candidates[0]
+	if err := validateBillingEventRelationRepairItem(item, candidate); err != nil {
+		return billingEventRelationCandidate{}, err
+	}
+	return candidate, nil
+}
+
+func validateBillingEventRelationRepairItem(item dto.BillingEventRelationMaintenanceItem, candidate billingEventRelationCandidate) error {
+	if strings.TrimSpace(item.Error) != "" {
+		return fmt.Errorf("selected relation item is invalid: %s", item.Error)
+	}
+	if strings.TrimSpace(item.AuditEvent) != "" && item.AuditEvent != candidate.Audit.EventId {
+		return fmt.Errorf("audit event mismatch")
+	}
+	if item.TargetEventId > 0 && item.TargetEventId != candidate.TargetEventId {
+		return fmt.Errorf("target event mismatch")
+	}
+	if strings.TrimSpace(item.RelationType) != "" && item.RelationType != candidate.RelationType {
+		return fmt.Errorf("relation type mismatch")
+	}
+	return nil
 }
 
 func listBillingEventRelationAuditEvents(limit int, cursor int64) ([]model.BillingEvent, bool, int64, int64, error) {
@@ -372,6 +490,16 @@ func appendBillingEventRelationMaintenanceSample(items *[]dto.BillingEventRelati
 }
 
 func appendBillingEventRelationBackfillError(response *dto.BillingEventRelationBackfillResponse, message string, eventId string) {
+	if len(response.Errors) >= maxBillingEventBackfillErrors {
+		return
+	}
+	if eventId != "" {
+		message = fmt.Sprintf("%s: %s", eventId, message)
+	}
+	response.Errors = append(response.Errors, message)
+}
+
+func appendBillingEventRelationRepairError(response *dto.BillingEventRelationRepairResponse, message string, eventId string) {
 	if len(response.Errors) >= maxBillingEventBackfillErrors {
 		return
 	}

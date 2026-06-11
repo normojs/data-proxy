@@ -156,6 +156,23 @@ func BackfillBillingEventRelations(c *gin.Context) {
 	common.ApiSuccess(c, result)
 }
 
+func RepairBillingEventRelations(c *gin.Context) {
+	var req dto.BillingEventRelationRepairRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	result, err := service.RepairSelectedBillingEventRelations(service.BillingEventRelationSelectedRepairParams{
+		DryRun: req.DryRun,
+		Items:  req.Items,
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
 func CleanupBillingEventRelationOrphans(c *gin.Context) {
 	var req dto.BillingEventRelationOrphanCleanupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

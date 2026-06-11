@@ -1180,6 +1180,70 @@ func TestBackfillBillingEventRelationsCreatesRelationsForLegacyAudits(t *testing
 	require.Equal(t, 1, repeated.SkippedExisting)
 }
 
+func TestRepairSelectedBillingEventRelations(t *testing.T) {
+	truncate(t)
+	withServiceTestQuotaPerUnit(t, 100)
+
+	target := seedLegacyRelationAudit(t, "legacy-relation-selected", "reconciliation_repair", "target_event_pk")
+	health, err := GetBillingEventRelationHealth(BillingEventRelationMaintenanceParams{Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, 1, health.MissingRelations)
+	require.Len(t, health.SampleMissingRelations, 1)
+	item := health.SampleMissingRelations[0]
+	require.Equal(t, target.Id, item.TargetEventId)
+
+	noop, err := RepairSelectedBillingEventRelations(BillingEventRelationSelectedRepairParams{})
+	require.NoError(t, err)
+	require.False(t, noop.DryRun)
+	require.Zero(t, noop.Selected)
+	require.Zero(t, noop.Created)
+
+	preview, err := RepairSelectedBillingEventRelations(BillingEventRelationSelectedRepairParams{
+		DryRun: true,
+		Items:  []dto.BillingEventRelationMaintenanceItem{item},
+	})
+	require.NoError(t, err)
+	require.True(t, preview.DryRun)
+	require.Equal(t, 1, preview.Selected)
+	require.Equal(t, 1, preview.WouldCreate)
+	require.Zero(t, preview.Created)
+	require.Zero(t, preview.SkippedExisting)
+	require.Len(t, preview.Items, 1)
+
+	var relationCount int64
+	require.NoError(t, model.DB.Model(&model.BillingEventRelation{}).Count(&relationCount).Error)
+	require.Zero(t, relationCount)
+
+	repaired, err := RepairSelectedBillingEventRelations(BillingEventRelationSelectedRepairParams{
+		Items: []dto.BillingEventRelationMaintenanceItem{item},
+	})
+	require.NoError(t, err)
+	require.False(t, repaired.DryRun)
+	require.Equal(t, 1, repaired.Selected)
+	require.Equal(t, 1, repaired.Created)
+	require.Zero(t, repaired.WouldCreate)
+	require.Zero(t, repaired.SkippedExisting)
+	require.Len(t, repaired.Items, 1)
+	requireBillingEventRelation(t, repaired.Items[0].AuditEventId, target.Id, model.BillingEventRelationTypeReconciliationRepair, "legacy relation backfill", "wallet_topup:legacy-relation-selected:success", 18)
+
+	repeated, err := RepairSelectedBillingEventRelations(BillingEventRelationSelectedRepairParams{
+		Items: []dto.BillingEventRelationMaintenanceItem{item},
+	})
+	require.NoError(t, err)
+	require.Zero(t, repeated.Created)
+	require.Equal(t, 1, repeated.SkippedExisting)
+
+	stale := item
+	stale.TargetEventId = target.Id + 1000
+	invalid, err := RepairSelectedBillingEventRelations(BillingEventRelationSelectedRepairParams{
+		Items: []dto.BillingEventRelationMaintenanceItem{stale},
+	})
+	require.NoError(t, err)
+	require.Zero(t, invalid.Created)
+	require.Equal(t, 1, invalid.SkippedInvalid)
+	require.NotEmpty(t, invalid.Errors)
+}
+
 func TestBillingEventRelationMaintenanceUsesCursor(t *testing.T) {
 	truncate(t)
 	withServiceTestQuotaPerUnit(t, 100)

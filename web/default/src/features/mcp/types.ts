@@ -946,6 +946,23 @@ export type BillingEventRelationBackfillResponse = {
   errors: string[]
 }
 
+export type BillingEventRelationRepairRequest = {
+  dry_run: boolean
+  items: BillingEventRelationMaintenanceItem[]
+}
+
+export type BillingEventRelationRepairResponse = {
+  dry_run: boolean
+  selected: number
+  created: number
+  would_create: number
+  skipped_existing: number
+  skipped_invalid: number
+  error_count: number
+  items: BillingEventRelationMaintenanceItem[]
+  errors: string[]
+}
+
 export type BillingEventRelationOrphanCleanupRequest = {
   dry_run: boolean
 }

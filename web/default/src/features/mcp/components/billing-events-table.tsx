@@ -38,6 +38,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Wrench,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -46,9 +47,15 @@ import { cn } from '@/lib/utils'
 import { useIsAdmin } from '@/hooks/use-admin'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -57,15 +64,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { DataTableColumnHeader, DataTablePage } from '@/components/data-table'
 import { LongText } from '@/components/long-text'
-import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge, type StatusVariant } from '@/components/status-badge'
 import {
   backfillBillingEventRelations,
@@ -78,6 +80,7 @@ import {
   listBillingEventRelationInspectionRuns,
   listBillingEvents,
   mcpQueryKeys,
+  repairBillingEventRelations,
   runBillingEventRelationInspection,
   updateBillingEventRelationInspection,
 } from '../api'
@@ -85,20 +88,23 @@ import { positiveIntFilterValue } from '../lib/filter-values'
 import { mcpQueryError, mcpQueryErrorMessage } from '../lib/query-errors'
 import type {
   BillingEvent,
+  BillingEventRelationBackfillResponse,
   BillingEventHealth,
   BillingEventRelationHealth,
   BillingEventRelationInspectionRunItem,
   BillingEventRelationInspectionStatus,
+  BillingEventRelationMaintenanceItem,
+  BillingEventRelationRepairResponse,
   BillingEventSourceMatrix,
   BillingEventSummary,
   PaginatedData,
 } from '../types'
+import { BillingEventBackfillDialog } from './billing-event-backfill-dialog'
+import { BillingEventRelationDialog } from './billing-event-relation-dialog'
 import { FilterInput } from './filter-input'
 import { JsonDetailDialog } from './json-detail-dialog'
 import { IdCell, LongTextCell, TimestampCell, TraceCell } from './table-cells'
 import { TimeRangeFilter, timestampMsToSeconds } from './time-range-filter'
-import { BillingEventBackfillDialog } from './billing-event-backfill-dialog'
-import { BillingEventRelationDialog } from './billing-event-relation-dialog'
 
 const route = getRouteApi('/_authenticated/mcp/$section')
 
@@ -152,6 +158,10 @@ function relationInspectionFormFromStatus(
 function normalizePositiveInteger(value: number, fallback: number) {
   if (!Number.isFinite(value) || value <= 0) return fallback
   return Math.floor(value)
+}
+
+function relationMaintenanceItemKey(item: BillingEventRelationMaintenanceItem) {
+  return `${item.audit_event_id}:${item.target_event_id}:${item.relation_type}`
 }
 
 function relationInspectionStatusVariant(status: string): StatusVariant {
@@ -215,7 +225,9 @@ function getBillingEventTypeLabel(type: string) {
   )
 }
 
-function parseMetadataValue(metadata: string | undefined): Record<string, unknown> {
+function parseMetadataValue(
+  metadata: string | undefined
+): Record<string, unknown> {
   if (!metadata) return {}
   try {
     const parsed = JSON.parse(metadata)
@@ -227,7 +239,9 @@ function parseMetadataValue(metadata: string | undefined): Record<string, unknow
   }
 }
 
-function parseBillingEventMetadata(event: BillingEvent): Record<string, unknown> {
+function parseBillingEventMetadata(
+  event: BillingEvent
+): Record<string, unknown> {
   return parseMetadataValue(event.metadata)
 }
 
@@ -303,7 +317,9 @@ function BillingEventActionsCell(props: {
               <FileText className='size-4' />
               {t('MCP Tool Call')}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => props.onOpenToolCall(props.event)}>
+            <DropdownMenuItem
+              onSelect={() => props.onOpenToolCall(props.event)}
+            >
               <History className='size-4' />
               {t('Open Tool Calls')}
             </DropdownMenuItem>
@@ -494,7 +510,10 @@ function BillingSummaryPanel(props: {
       <div className='mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.9fr)]'>
         <div className='grid gap-2 sm:grid-cols-2'>
           {topSources.map((item) => (
-            <div key={item.key} className='bg-muted/20 rounded-lg border px-3 py-2'>
+            <div
+              key={item.key}
+              className='bg-muted/20 rounded-lg border px-3 py-2'
+            >
               <div className='flex min-w-0 items-center justify-between gap-2'>
                 <span className='min-w-0 truncate text-xs font-medium'>
                   {t(getBillingEventSourceLabel(item.key))}
@@ -505,13 +524,17 @@ function BillingSummaryPanel(props: {
               </div>
               <div className='text-muted-foreground mt-1 text-xs tabular-nums'>
                 {formatSignedQuota(item.net_quota_delta)}
-                {item.total_cost > 0 ? ` · ${formatBillingCost(item.total_cost)}` : ''}
+                {item.total_cost > 0
+                  ? ` · ${formatBillingCost(item.total_cost)}`
+                  : ''}
               </div>
             </div>
           ))}
         </div>
         <div className='bg-muted/20 rounded-lg border px-3 py-2'>
-          <div className='text-muted-foreground text-xs'>{t('Daily Trend')}</div>
+          <div className='text-muted-foreground text-xs'>
+            {t('Daily Trend')}
+          </div>
           <div className='mt-2 flex h-12 items-end gap-1'>
             {trend.length > 0 ? (
               trend.map((bucket) => (
@@ -842,12 +865,193 @@ function RelationInspectionRunsList(props: {
   )
 }
 
+function RelationRepairPanel(props: {
+  preview?: BillingEventRelationBackfillResponse | null
+  result?: BillingEventRelationRepairResponse | null
+  selectedKeys: string[]
+  isRepairing: boolean
+  onToggleAll: (checked: boolean) => void
+  onToggleItem: (
+    item: BillingEventRelationMaintenanceItem,
+    checked: boolean
+  ) => void
+  onRepairSelected: () => void
+}) {
+  const { t } = useTranslation()
+  const preview = props.preview
+  const result = props.result
+  if (!preview && !result) return null
+
+  const items = preview?.items ?? []
+  const selectableCount = items.length
+  const selectedCount = props.selectedKeys.length
+  const allSelected = selectableCount > 0 && selectedCount === selectableCount
+
+  return (
+    <div className='mt-3 rounded-lg border p-3'>
+      <div className='flex flex-wrap items-start justify-between gap-2'>
+        <div className='min-w-0'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <span className='text-xs font-medium'>
+              {t('Selected Relation Repair')}
+            </span>
+            {preview && (
+              <>
+                <StatusBadge
+                  label={t('Would Create {{count}}', {
+                    count: preview.would_create,
+                  })}
+                  variant={preview.would_create > 0 ? 'warning' : 'success'}
+                  copyable={false}
+                />
+                <StatusBadge
+                  label={t('Invalid {{count}}', {
+                    count: preview.skipped_invalid,
+                  })}
+                  variant={preview.skipped_invalid > 0 ? 'warning' : 'success'}
+                  copyable={false}
+                />
+              </>
+            )}
+          </div>
+          {preview && (
+            <div className='text-muted-foreground mt-1 text-xs tabular-nums'>
+              {t('Scanned')}: {formatNumber(preview.scanned_audit_events)}
+              {' · '}
+              {t('Selected')}: {formatNumber(selectedCount)}
+            </div>
+          )}
+        </div>
+        {preview && selectableCount > 0 && (
+          <div className='flex flex-wrap items-center gap-2'>
+            <Label className='border-input min-h-8 rounded-lg border px-2.5 py-1.5 text-xs font-normal'>
+              <Checkbox
+                checked={allSelected}
+                disabled={props.isRepairing}
+                onCheckedChange={(checked) =>
+                  props.onToggleAll(checked === true)
+                }
+              />
+              <span>{t('Select All')}</span>
+            </Label>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              disabled={props.isRepairing || selectedCount === 0}
+              onClick={props.onRepairSelected}
+            >
+              {props.isRepairing ? (
+                <RefreshCw className='size-3.5 animate-spin' />
+              ) : (
+                <Wrench className='size-3.5' />
+              )}
+              {t('Repair Selected')}
+            </Button>
+          </div>
+        )}
+      </div>
+      {preview && (
+        <div className='mt-3 space-y-2'>
+          {items.length === 0 ? (
+            <div className='text-muted-foreground rounded-lg border px-3 py-2 text-xs'>
+              {t('No selectable relation diffs')}
+            </div>
+          ) : (
+            <div className='max-h-[260px] space-y-2 overflow-y-auto pr-1'>
+              {items.map((item) => {
+                const key = relationMaintenanceItemKey(item)
+                const checked = props.selectedKeys.includes(key)
+                return (
+                  <label
+                    key={key}
+                    className='border-input flex items-start gap-2 rounded-lg border px-3 py-2 text-xs'
+                  >
+                    <Checkbox
+                      checked={checked}
+                      disabled={props.isRepairing}
+                      onCheckedChange={(value) =>
+                        props.onToggleItem(item, value === true)
+                      }
+                    />
+                    <span className='min-w-0 flex-1'>
+                      <span className='flex flex-wrap items-center gap-1.5'>
+                        <StatusBadge
+                          label={`${t('Audit')} #${item.audit_event_id}`}
+                          variant='neutral'
+                          copyable={false}
+                        />
+                        <StatusBadge
+                          label={`${t('Target')} #${item.target_event_id}`}
+                          variant='purple'
+                          copyable={false}
+                        />
+                        <span className='font-medium break-all'>
+                          {item.label || item.audit_event}
+                        </span>
+                      </span>
+                      <span className='text-muted-foreground mt-1 block font-mono break-all'>
+                        {item.relation_type}
+                        {item.reason ? ` · ${item.reason}` : ''}
+                      </span>
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+          {(preview.errors?.length ?? 0) > 0 && (
+            <div className='text-muted-foreground space-y-1 text-xs'>
+              {preview.errors.slice(0, 3).map((error) => (
+                <div key={error} className='break-all'>
+                  {error}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {result && (
+        <div className='mt-3 flex flex-wrap gap-1.5 border-t pt-3'>
+          <StatusBadge
+            label={t('Created {{count}}', { count: result.created })}
+            variant={result.created > 0 ? 'success' : 'neutral'}
+            copyable={false}
+          />
+          <StatusBadge
+            label={t('Skipped {{count}}', {
+              count: result.skipped_existing,
+            })}
+            variant='neutral'
+            copyable={false}
+          />
+          <StatusBadge
+            label={t('Invalid {{count}}', { count: result.skipped_invalid })}
+            variant={result.skipped_invalid > 0 ? 'warning' : 'success'}
+            copyable={false}
+          />
+          {result.error_count > 0 && (
+            <StatusBadge
+              label={t('Errors {{count}}', { count: result.error_count })}
+              variant='warning'
+              copyable={false}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BillingHealthPanel(props: {
   health?: BillingEventHealth
   sourceMatrix?: BillingEventSourceMatrix
   relationHealth?: BillingEventRelationHealth
   relationInspection?: BillingEventRelationInspectionStatus
   relationInspectionRuns?: PaginatedData<BillingEventRelationInspectionRunItem>
+  relationRepairPreview?: BillingEventRelationBackfillResponse | null
+  relationRepairResult?: BillingEventRelationRepairResponse | null
+  selectedRelationItemKeys: string[]
   relationInspectionForm: RelationInspectionFormState
   isLoading: boolean
   isFetching: boolean
@@ -860,6 +1064,7 @@ function BillingHealthPanel(props: {
   isPreviewingRelations: boolean
   isBackfillingRelations: boolean
   isCleaningRelationOrphans: boolean
+  isRepairingSelectedRelations: boolean
   inspectionRunsPage: number
   inspectionRunsPageSize: number
   onInspectionFormChange: (form: RelationInspectionFormState) => void
@@ -868,6 +1073,12 @@ function BillingHealthPanel(props: {
   onRefresh: () => void
   onPreviewRelationBackfill: () => void
   onBackfillRelations: () => void
+  onToggleRelationRepairItem: (
+    item: BillingEventRelationMaintenanceItem,
+    checked: boolean
+  ) => void
+  onToggleAllRelationRepairItems: (checked: boolean) => void
+  onRepairSelectedRelations: () => void
   onCleanRelationOrphans: () => void
   onSaveInspection: () => void
   onRunInspection: () => void
@@ -893,7 +1104,8 @@ function BillingHealthPanel(props: {
     ? formatTimestampToDate(relationHealth.checked_at)
     : '-'
   const relationOrphans = relationHealth
-    ? relationHealth.orphan_source_relations + relationHealth.orphan_target_relations
+    ? relationHealth.orphan_source_relations +
+      relationHealth.orphan_target_relations
     : 0
   const inspection = props.relationInspection
   const inspectionSettings = inspection?.settings
@@ -912,7 +1124,8 @@ function BillingHealthPanel(props: {
     props.isSavingInspection ||
     props.isRunningInspection ||
     !!inspection?.running
-  const inspectionRuns = props.relationInspectionRuns?.items ?? inspection?.recent_runs ?? []
+  const inspectionRuns =
+    props.relationInspectionRuns?.items ?? inspection?.recent_runs ?? []
   const inspectionRunsTotal =
     props.relationInspectionRuns?.total ?? inspection?.recent_runs?.length ?? 0
   const inspectionRunsPage =
@@ -1057,7 +1270,9 @@ function BillingHealthPanel(props: {
                 variant='outline'
                 size='sm'
                 disabled={
-                  props.isPreviewingRelations || props.isBackfillingRelations
+                  props.isPreviewingRelations ||
+                  props.isBackfillingRelations ||
+                  props.isRepairingSelectedRelations
                 }
                 onClick={props.onPreviewRelationBackfill}
               >
@@ -1073,7 +1288,8 @@ function BillingHealthPanel(props: {
                 disabled={
                   !relationNeedsReview ||
                   props.isPreviewingRelations ||
-                  props.isBackfillingRelations
+                  props.isBackfillingRelations ||
+                  props.isRepairingSelectedRelations
                 }
                 onClick={props.onBackfillRelations}
               >
@@ -1092,7 +1308,8 @@ function BillingHealthPanel(props: {
                   relationOrphans <= 0 ||
                   props.isPreviewingRelations ||
                   props.isBackfillingRelations ||
-                  props.isCleaningRelationOrphans
+                  props.isCleaningRelationOrphans ||
+                  props.isRepairingSelectedRelations
                 }
                 onClick={props.onCleanRelationOrphans}
               >
@@ -1130,7 +1347,9 @@ function BillingHealthPanel(props: {
             <BillingHealthMetric
               label={t('Missing Links')}
               value={relationHealth.missing_relations}
-              tone={relationHealth.missing_relations > 0 ? 'warning' : 'success'}
+              tone={
+                relationHealth.missing_relations > 0 ? 'warning' : 'success'
+              }
             />
             <BillingHealthMetric
               label={t('Invalid Audits')}
@@ -1154,6 +1373,15 @@ function BillingHealthPanel(props: {
               }
             />
           </div>
+          <RelationRepairPanel
+            preview={props.relationRepairPreview}
+            result={props.relationRepairResult}
+            selectedKeys={props.selectedRelationItemKeys}
+            isRepairing={props.isRepairingSelectedRelations}
+            onToggleAll={props.onToggleAllRelationRepairItems}
+            onToggleItem={props.onToggleRelationRepairItem}
+            onRepairSelected={props.onRepairSelectedRelations}
+          />
           {inspection && (
             <div
               className={cn(
@@ -1260,7 +1488,9 @@ function BillingHealthPanel(props: {
                     />
                   </Label>
                   <Label className='flex-col items-start gap-1 text-xs font-normal'>
-                    <span className='text-muted-foreground'>{t('Batch Size')}</span>
+                    <span className='text-muted-foreground'>
+                      {t('Batch Size')}
+                    </span>
                     <Input
                       type='number'
                       min={1}
@@ -1318,13 +1548,17 @@ function BillingHealthPanel(props: {
                   </div>
                 </div>
                 <div className='bg-muted/20 rounded-lg border px-3 py-2 text-xs'>
-                  <div className='text-muted-foreground'>{t('Last Created')}</div>
+                  <div className='text-muted-foreground'>
+                    {t('Last Created')}
+                  </div>
                   <div className='mt-1 font-mono tabular-nums'>
                     {formatNumber(inspection.last_backfill?.created ?? 0)}
                   </div>
                 </div>
                 <div className='bg-muted/20 rounded-lg border px-3 py-2 text-xs'>
-                  <div className='text-muted-foreground'>{t('Last Cleaned')}</div>
+                  <div className='text-muted-foreground'>
+                    {t('Last Cleaned')}
+                  </div>
                   <div className='mt-1 font-mono tabular-nums'>
                     {formatNumber(inspection.last_cleanup?.deleted ?? 0)}
                   </div>
@@ -1654,6 +1888,13 @@ export function BillingEventsTable() {
     useState<RelationDetailState | null>(null)
   const [backfillOpen, setBackfillOpen] = useState(false)
   const [relationCursor, setRelationCursor] = useState(0)
+  const [relationRepairPreview, setRelationRepairPreview] =
+    useState<BillingEventRelationBackfillResponse | null>(null)
+  const [selectedRelationItemKeys, setSelectedRelationItemKeys] = useState<
+    string[]
+  >([])
+  const [relationRepairResult, setRelationRepairResult] =
+    useState<BillingEventRelationRepairResponse | null>(null)
   const [inspectionRunsPage, setInspectionRunsPage] = useState(1)
   const [inspectionRunsPageSize, setInspectionRunsPageSize] = useState(10)
   const [relationInspectionForm, setRelationInspectionForm] = useState(
@@ -1986,10 +2227,7 @@ export function BillingEventsTable() {
         relationInspectionRunsParams
       )
       if (!result.success) {
-        throw mcpQueryError(
-          result.message,
-          'Failed to load inspection history'
-        )
+        throw mcpQueryError(result.message, 'Failed to load inspection history')
       }
       return result.data
     },
@@ -2028,7 +2266,41 @@ export function BillingEventsTable() {
   }, [inspectionRunsPage, relationInspectionRunPageCount])
 
   const refreshBillingEventState = () => {
-    void queryClient.invalidateQueries({ queryKey: mcpQueryKeys.billingEvents() })
+    void queryClient.invalidateQueries({
+      queryKey: mcpQueryKeys.billingEvents(),
+    })
+  }
+
+  const selectedRelationItems = useMemo(() => {
+    const selected = new Set(selectedRelationItemKeys)
+    return (relationRepairPreview?.items ?? []).filter((item) =>
+      selected.has(relationMaintenanceItemKey(item))
+    )
+  }, [relationRepairPreview, selectedRelationItemKeys])
+
+  useEffect(() => {
+    setRelationRepairPreview(null)
+    setSelectedRelationItemKeys([])
+    setRelationRepairResult(null)
+  }, [relationCursor])
+
+  const toggleRelationRepairItem = (
+    item: BillingEventRelationMaintenanceItem,
+    checked: boolean
+  ) => {
+    const key = relationMaintenanceItemKey(item)
+    setSelectedRelationItemKeys((current) => {
+      if (checked) return Array.from(new Set([...current, key]))
+      return current.filter((itemKey) => itemKey !== key)
+    })
+  }
+
+  const toggleAllRelationRepairItems = (checked: boolean) => {
+    setSelectedRelationItemKeys(
+      checked
+        ? (relationRepairPreview?.items ?? []).map(relationMaintenanceItemKey)
+        : []
+    )
   }
 
   const saveRelationInspectionSettings = (cursor?: number) =>
@@ -2060,9 +2332,7 @@ export function BillingEventsTable() {
         return
       }
       setRelationInspectionDirty(false)
-      setRelationInspectionForm(
-        relationInspectionFormFromStatus(result.data)
-      )
+      setRelationInspectionForm(relationInspectionFormFromStatus(result.data))
       toast.success(t('Scheduled inspection settings saved'))
       refreshBillingEventState()
     },
@@ -2103,11 +2373,40 @@ export function BillingEventsTable() {
         return
       }
       const preview = result.data
+      setRelationRepairPreview(preview ?? null)
+      setRelationRepairResult(null)
+      setSelectedRelationItemKeys(
+        (preview?.items ?? []).map(relationMaintenanceItemKey)
+      )
       toast.success(
         t('Audit relation preview completed: {{count}} would create', {
           count: formatNumber(preview?.would_create ?? 0),
         })
       )
+    },
+  })
+
+  const relationSelectedRepairMutation = useMutation({
+    mutationFn: () =>
+      repairBillingEventRelations({
+        dry_run: false,
+        items: selectedRelationItems,
+      }),
+    onSuccess: (result) => {
+      if (!result.success) {
+        toast.error(result.message || t('Failed to repair selected relations'))
+        return
+      }
+      const repair = result.data
+      setRelationRepairResult(repair ?? null)
+      setRelationRepairPreview(null)
+      setSelectedRelationItemKeys([])
+      toast.success(
+        t('Selected audit relations repaired: {{count}} created', {
+          count: formatNumber(repair?.created ?? 0),
+        })
+      )
+      refreshBillingEventState()
     },
   })
 
@@ -2129,6 +2428,9 @@ export function BillingEventsTable() {
           count: formatNumber(backfill?.created ?? 0),
         })
       )
+      setRelationRepairPreview(null)
+      setSelectedRelationItemKeys([])
+      setRelationRepairResult(null)
       refreshBillingEventState()
     },
   })
@@ -2137,7 +2439,9 @@ export function BillingEventsTable() {
     mutationFn: () => cleanupBillingEventRelationOrphans({ dry_run: false }),
     onSuccess: (result) => {
       if (!result.success) {
-        toast.error(result.message || t('Failed to clean audit relation orphans'))
+        toast.error(
+          result.message || t('Failed to clean audit relation orphans')
+        )
         return
       }
       const cleanup = result.data
@@ -2146,6 +2450,9 @@ export function BillingEventsTable() {
           count: formatNumber(cleanup?.deleted ?? 0),
         })
       )
+      setRelationRepairPreview(null)
+      setSelectedRelationItemKeys([])
+      setRelationRepairResult(null)
       refreshBillingEventState()
     },
   })
@@ -2216,6 +2523,9 @@ export function BillingEventsTable() {
             relationHealth={relationHealth}
             relationInspection={relationInspection}
             relationInspectionRuns={relationInspectionRuns}
+            relationRepairPreview={relationRepairPreview}
+            relationRepairResult={relationRepairResult}
+            selectedRelationItemKeys={selectedRelationItemKeys}
             relationInspectionForm={relationInspectionForm}
             isLoading={isHealthLoading}
             isFetching={isHealthFetching}
@@ -2228,6 +2538,9 @@ export function BillingEventsTable() {
             isPreviewingRelations={relationBackfillPreviewMutation.isPending}
             isBackfillingRelations={relationBackfillMutation.isPending}
             isCleaningRelationOrphans={relationOrphanCleanupMutation.isPending}
+            isRepairingSelectedRelations={
+              relationSelectedRepairMutation.isPending
+            }
             inspectionRunsPage={inspectionRunsPage}
             inspectionRunsPageSize={inspectionRunsPageSize}
             onInspectionFormChange={(form) => {
@@ -2250,8 +2563,17 @@ export function BillingEventsTable() {
               relationBackfillPreviewMutation.mutate()
             }
             onBackfillRelations={() => relationBackfillMutation.mutate()}
-            onCleanRelationOrphans={() => relationOrphanCleanupMutation.mutate()}
-            onSaveInspection={() => relationInspectionSaveMutation.mutate(undefined)}
+            onToggleRelationRepairItem={toggleRelationRepairItem}
+            onToggleAllRelationRepairItems={toggleAllRelationRepairItems}
+            onRepairSelectedRelations={() =>
+              relationSelectedRepairMutation.mutate()
+            }
+            onCleanRelationOrphans={() =>
+              relationOrphanCleanupMutation.mutate()
+            }
+            onSaveInspection={() =>
+              relationInspectionSaveMutation.mutate(undefined)
+            }
             onRunInspection={() => relationInspectionRunMutation.mutate()}
             onResetInspectionCursor={() =>
               relationInspectionSaveMutation.mutate(0)
