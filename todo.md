@@ -50,7 +50,7 @@
 - [x] Add server-side Bridge client policy controls.
   - Acceptance: admins can configure allowed tools, write permission, max result size, scan limits, and MCP target allowlist per Bridge client.
   - Acceptance: daemon defaults remain conservative and server-side policy is enforced before tool forwarding.
-- [ ] Implement MCP Proxy OAuth authentication support.
+- [x] Implement MCP Proxy OAuth authentication support.
   - Acceptance: MCP Proxy supports OAuth token resolve/cache/refresh without regressing none/bearer/basic/header auth.
   - Acceptance: auth failures are observable in discovery events and health checks without leaking secrets.
 - [ ] Surface OpenAPI import schema metrics and diff summary in the MCP Dashboard.

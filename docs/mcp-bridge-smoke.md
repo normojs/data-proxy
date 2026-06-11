@@ -99,6 +99,38 @@ SQL_DSN="$SQL_DSN" \
 go test ./service -run 'TestMCP|TestBridge' -count=1 -v
 ```
 
+## MCP Proxy OAuth Auth
+
+MCP Proxy supports `auth_type=oauth` for HTTP, SSE, and streamable HTTP
+transports. `auth_ref` still uses the existing secret-reference format and
+must point to an environment variable:
+
+```bash
+export MCP_PROXY_OAUTH_CONFIG='{
+  "access_token": "initial-access-token",
+  "token_type": "Bearer",
+  "refresh_token": "refresh-token",
+  "token_url": "https://auth.example.com/oauth/token",
+  "client_id": "client-id",
+  "client_secret": "client-secret",
+  "expires_at": 1760000000
+}'
+```
+
+Admin server config:
+
+```json
+{
+  "auth_type": "oauth",
+  "auth_ref": "env:MCP_PROXY_OAUTH_CONFIG"
+}
+```
+
+If the cached access token is expired, data-proxy refreshes it in memory with
+the refresh token and reuses the refreshed token for later proxy calls. Refresh
+failures are recorded in proxy discovery/health errors without echoing token
+values or the secret reference.
+
 ## End-to-End Smoke
 
 The E2E smoke starts `new-api`, starts the QidianBrowser mock bridge client,

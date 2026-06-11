@@ -165,6 +165,7 @@ func TestApplyHTTPAuthUsesEnvSecretReferences(t *testing.T) {
 	t.Setenv("MCP_PROXY_AUTH_BEARER", "bearer-token")
 	t.Setenv("MCP_PROXY_AUTH_HEADER", "X-API-Key=header-token")
 	t.Setenv("MCP_PROXY_AUTH_BASIC", "user:pass")
+	t.Setenv("MCP_PROXY_AUTH_OAUTH", `{"access_token":"oauth-token","token_type":"Bearer"}`)
 
 	bearerReq, err := http.NewRequest(http.MethodPost, "https://example.test/mcp", nil)
 	require.NoError(t, err)
@@ -192,6 +193,103 @@ func TestApplyHTTPAuthUsesEnvSecretReferences(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "user", username)
 	require.Equal(t, "pass", password)
+
+	oauthReq, err := http.NewRequest(http.MethodPost, "https://example.test/mcp", nil)
+	require.NoError(t, err)
+	require.NoError(t, applyHTTPAuth(oauthReq, model.MCPProxyServer{
+		AuthType: model.MCPProxyAuthTypeOAuth,
+		AuthRef:  "env:MCP_PROXY_AUTH_OAUTH",
+	}))
+	require.Equal(t, "Bearer oauth-token", oauthReq.Header.Get("Authorization"))
+}
+
+func TestHTTPClientOAuthRefreshesAndCachesToken(t *testing.T) {
+	var refreshCount atomic.Int32
+	var mcpAuthHeaders []string
+	var tokenURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			require.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
+			require.NoError(t, r.ParseForm())
+			require.Equal(t, "refresh_token", r.Form.Get("grant_type"))
+			require.Equal(t, "refresh-1", r.Form.Get("refresh_token"))
+			require.Equal(t, "client-1", r.Form.Get("client_id"))
+			require.Equal(t, "secret-1", r.Form.Get("client_secret"))
+			refreshCount.Add(1)
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  "refreshed-token",
+				"token_type":    "Bearer",
+				"refresh_token": "refresh-2",
+				"expires_in":    3600,
+			}))
+		case "/mcp":
+			mcpAuthHeaders = append(mcpAuthHeaders, r.Header.Get("Authorization"))
+			var req struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+			}
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+			require.Equal(t, dto.MCPMethodToolsList, req.Method)
+			writeJSONRPCResult(t, w, req.ID, map[string]any{
+				"tools": []map[string]any{},
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	tokenURL = server.URL + "/token"
+
+	t.Setenv("MCP_PROXY_AUTH_OAUTH_REFRESH", fmt.Sprintf(`{
+		"access_token": "expired-token",
+		"token_type": "Bearer",
+		"refresh_token": "refresh-1",
+		"token_url": %q,
+		"client_id": "client-1",
+		"client_secret": "secret-1",
+		"expires_at": %d
+	}`, tokenURL, time.Now().Add(-time.Hour).Unix()))
+
+	client := NewHTTPClient(server.Client())
+	proxyServer := model.MCPProxyServer{
+		Endpoint: server.URL + "/mcp",
+		AuthType: model.MCPProxyAuthTypeOAuth,
+		AuthRef:  "env:MCP_PROXY_AUTH_OAUTH_REFRESH",
+	}
+	tools, err := client.ListTools(context.Background(), proxyServer)
+	require.NoError(t, err)
+	require.Empty(t, tools)
+	tools, err = client.ListTools(context.Background(), proxyServer)
+	require.NoError(t, err)
+	require.Empty(t, tools)
+	require.EqualValues(t, 1, refreshCount.Load())
+	require.Equal(t, []string{"Bearer refreshed-token", "Bearer refreshed-token"}, mcpAuthHeaders)
+}
+
+func TestHTTPClientOAuthRefreshFailureDoesNotLeakResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "secret=do-not-leak", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	t.Setenv("MCP_PROXY_AUTH_OAUTH_REFRESH_FAIL", fmt.Sprintf(`{
+		"access_token": "expired-token",
+		"refresh_token": "refresh-1",
+		"token_url": %q,
+		"expires_at": %d
+	}`, server.URL, time.Now().Add(-time.Hour).Unix()))
+
+	client := NewHTTPClient(server.Client())
+	_, err := client.ListTools(context.Background(), model.MCPProxyServer{
+		Endpoint: "https://example.test/mcp",
+		AuthType: model.MCPProxyAuthTypeOAuth,
+		AuthRef:  "env:MCP_PROXY_AUTH_OAUTH_REFRESH_FAIL",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "status 401")
+	require.NotContains(t, err.Error(), "do-not-leak")
+	require.NotContains(t, err.Error(), "refresh-1")
 }
 
 func TestApplyHTTPAuthRejectsNonEnvSecretReference(t *testing.T) {

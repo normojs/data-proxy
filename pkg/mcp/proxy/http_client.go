@@ -20,7 +20,6 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/mcp/secretref"
 )
 
 const (
@@ -45,6 +44,8 @@ type HTTPClient struct {
 	streamableLastActive  map[string]int64
 	sseSessions           map[string]*sseSession
 	initLocks             map[string]*sync.Mutex
+	oauthMu               sync.Mutex
+	oauthTokens           map[string]oauthCachedToken
 }
 
 func NewHTTPClient(client *http.Client) *HTTPClient {
@@ -58,6 +59,7 @@ func NewHTTPClient(client *http.Client) *HTTPClient {
 		streamableLastActive:  map[string]int64{},
 		sseSessions:           map[string]*sseSession{},
 		initLocks:             map[string]*sync.Mutex{},
+		oauthTokens:           map[string]oauthCachedToken{},
 	}
 }
 
@@ -477,7 +479,7 @@ func (c *HTTPClient) rpcHTTPPost(ctx context.Context, server model.MCPProxyServe
 	if sentSession != "" {
 		req.Header.Set("Mcp-Session-Id", sentSession)
 	}
-	if err := applyHTTPAuth(req, server); err != nil {
+	if err := c.applyHTTPAuth(ctx, req, server); err != nil {
 		return err
 	}
 	resp, err := c.Client.Do(req)
@@ -532,7 +534,7 @@ func (c *HTTPClient) rpcHTTPPostNotification(ctx context.Context, server model.M
 	if sentSession != "" {
 		req.Header.Set("Mcp-Session-Id", sentSession)
 	}
-	if err := applyHTTPAuth(req, server); err != nil {
+	if err := c.applyHTTPAuth(ctx, req, server); err != nil {
 		return err
 	}
 	resp, err := c.Client.Do(req)
@@ -783,7 +785,7 @@ func (c *HTTPClient) rpcSSE(ctx context.Context, server model.MCPProxyServer, me
 	if err != nil {
 		return err
 	}
-	body, err := session.call(ctx, c.Client, server, requestBody, id)
+	body, err := session.call(ctx, c, server, requestBody, id)
 	if err != nil {
 		if session.isClosed() {
 			c.clearSSESession(sessionKey, session)
@@ -802,7 +804,7 @@ func (c *HTTPClient) rpcSSENotification(ctx context.Context, server model.MCPPro
 	if err != nil {
 		return err
 	}
-	if err := session.notify(ctx, c.Client, server, requestBody); err != nil {
+	if err := session.notify(ctx, c, server, requestBody); err != nil {
 		if session.isClosed() {
 			c.clearSSESession(sessionKey, session)
 		}
@@ -854,7 +856,7 @@ func (c *HTTPClient) openSSESession(ctx context.Context, server model.MCPProxySe
 		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	if err := applyHTTPAuth(req, server); err != nil {
+	if err := c.applyHTTPAuth(ctx, req, server); err != nil {
 		return nil, err
 	}
 	resp, err := c.Client.Do(req)
@@ -969,7 +971,7 @@ func (s *sseSession) snapshot(transport string) SessionSnapshot {
 	return snapshot
 }
 
-func (s *sseSession) call(ctx context.Context, client *http.Client, server model.MCPProxyServer, requestBody []byte, id json.RawMessage) ([]byte, error) {
+func (s *sseSession) call(ctx context.Context, client *HTTPClient, server model.MCPProxyServer, requestBody []byte, id json.RawMessage) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -989,10 +991,10 @@ func (s *sseSession) call(ctx context.Context, client *http.Client, server model
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if err := applyHTTPAuth(req, server); err != nil {
+	if err := client.applyHTTPAuth(ctx, req, server); err != nil {
 		return nil, err
 	}
-	resp, err := client.Do(req)
+	resp, err := client.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1021,7 +1023,7 @@ func (s *sseSession) call(ctx context.Context, client *http.Client, server model
 	}
 }
 
-func (s *sseSession) notify(ctx context.Context, client *http.Client, server model.MCPProxyServer, requestBody []byte) error {
+func (s *sseSession) notify(ctx context.Context, client *HTTPClient, server model.MCPProxyServer, requestBody []byte) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1034,10 +1036,10 @@ func (s *sseSession) notify(ctx context.Context, client *http.Client, server mod
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if err := applyHTTPAuth(req, server); err != nil {
+	if err := client.applyHTTPAuth(ctx, req, server); err != nil {
 		return err
 	}
-	resp, err := client.Do(req)
+	resp, err := client.Client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -1408,38 +1410,6 @@ type toolsListResult struct {
 		Description string         `json:"description"`
 		InputSchema map[string]any `json:"inputSchema"`
 	} `json:"tools"`
-}
-
-func applyHTTPAuth(req *http.Request, server model.MCPProxyServer) error {
-	authRef := strings.TrimSpace(server.AuthRef)
-	if authRef == "" || server.AuthType == model.MCPProxyAuthTypeNone {
-		return nil
-	}
-	secret, err := secretref.ResolveEnv(authRef, "mcp proxy auth")
-	if err != nil {
-		return err
-	}
-	switch server.AuthType {
-	case model.MCPProxyAuthTypeBearer:
-		req.Header.Set("Authorization", "Bearer "+secret)
-	case model.MCPProxyAuthTypeHeader:
-		name, value, ok := strings.Cut(secret, "=")
-		if !ok || strings.TrimSpace(name) == "" {
-			return errors.New("header auth secret must use Header-Name=value")
-		}
-		req.Header.Set(strings.TrimSpace(name), strings.TrimSpace(value))
-	case model.MCPProxyAuthTypeBasic:
-		username, password, ok := strings.Cut(secret, ":")
-		if !ok {
-			return errors.New("basic auth secret must use username:password")
-		}
-		req.SetBasicAuth(username, password)
-	case model.MCPProxyAuthTypeOAuth:
-		return errors.New("oauth auth for mcp proxy is not implemented yet")
-	default:
-		return fmt.Errorf("unsupported mcp proxy auth_type: %s", server.AuthType)
-	}
-	return nil
 }
 
 func summarizeHTTPCallResult(content []dto.MCPContentBlock) string {

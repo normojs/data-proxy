@@ -152,6 +152,21 @@ func TestMCPProxyServerAdminValidation(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "env:NAME")
 
+	oauthServer, err := CreateMCPProxyServerForAdmin(dto.MCPProxyServerCreateRequest{
+		Name:      "OAuth MCP",
+		Namespace: "oauth_mcp",
+		Transport: model.MCPProxyTransportHTTP,
+		Endpoint:  "https://mcp.example.com/oauth",
+		AuthType:  model.MCPProxyAuthTypeOAuth,
+		AuthRef:   "env:MCP_PROXY_OAUTH_CONFIG",
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.MCPProxyAuthTypeOAuth, oauthServer.AuthType)
+	require.Equal(t, "configured", oauthServer.AuthRef)
+	var oauthStored model.MCPProxyServer
+	require.NoError(t, model.DB.Where("id = ?", oauthServer.Id).First(&oauthStored).Error)
+	require.Equal(t, "env:MCP_PROXY_OAUTH_CONFIG", oauthStored.AuthRef)
+
 	created, err := CreateMCPProxyServerForAdmin(dto.MCPProxyServerCreateRequest{
 		Name:      "Valid MCP",
 		Namespace: "valid_mcp",

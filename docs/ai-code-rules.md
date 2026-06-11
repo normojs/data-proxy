@@ -142,7 +142,16 @@ go test ./pkg/mcp/openapi ./service \
   relation inspection。
 - 失败路径测试要覆盖 refund，不只覆盖错误响应。
 
-## 8. 前端 Dashboard 规则
+## 8. MCP Proxy Auth 规则
+
+- MCP Proxy `auth_ref` 必须继续使用 `env:NAME` secret reference，不把 bearer、
+  basic、header、OAuth token 或 client secret 写入数据库。
+- `auth_type=oauth` 的 env 值是 JSON 凭据；刷新后的 access token 只允许内存
+  缓存，不回写 model，也不写入 discovery event、health、call metadata 或日志。
+- OAuth refresh 失败可以暴露状态码和稳定错误，但不能包含 token endpoint 响应
+  body、secret ref 名称、refresh token、access token 或 client secret。
+
+## 9. 前端 Dashboard 规则
 
 - 默认前端是 `web/default`；使用 Bun，组件遵循 `web/default/AGENTS.md`。
 - 所有用户可见文案使用 `useTranslation()` 和 `t('English key')`。
@@ -168,7 +177,7 @@ cd web/default
 bun run i18n:sync
 ```
 
-## 9. 测试策略
+## 10. 测试策略
 
 - 小改动跑精准测试；跨模块改动跑相关包测试。
 - MCP / Bridge / OpenAPI / Dashboard 综合回归优先跑：
@@ -208,7 +217,7 @@ git diff --check
 git status --short --branch
 ```
 
-## 10. 提交与 TODO
+## 11. 提交与 TODO
 
 - `todo.md` 是当前 data-proxy 开发清单。完成一项就把对应 checkbox 标为 `[x]`。
 - 每个可验证功能点单独提交，提交信息用简洁英文：
@@ -216,9 +225,11 @@ git status --short --branch
 - 不要把无关格式化、生成文件、用户 dirty 改动混进同一个提交。
 - 提交前必须说明并实际跑过相关测试；无法跑的测试要在回复里说明原因。
 
-## 11. 安全红线
+## 12. 安全红线
 
 - 不提交 token、secret、真实 cookie、生产 DSN。
+- 不在 MCP Proxy OAuth 错误、日志、审计、health 或 discovery event 中暴露
+  token、secret ref 名称、token endpoint 响应 body。
 - 不默认开放非 loopback MCP target。
 - 不移除 workspace 边界和路径穿越防护。
 - 不绕过 binary download owner/admin/expiry 校验。

@@ -126,6 +126,9 @@ export const MCP_PROXY_AUTH_TYPES = {
   header: {
     labelKey: 'Header',
   },
+  oauth: {
+    labelKey: 'OAuth',
+  },
 } as const
 
 export const MCP_PROXY_VISIBILITIES = {

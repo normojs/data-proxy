@@ -1613,9 +1613,6 @@ func validateMCPProxyAuthRef(authType string, authRef string) error {
 	if authType == "" || authType == model.MCPProxyAuthTypeNone {
 		return nil
 	}
-	if authType == model.MCPProxyAuthTypeOAuth {
-		return errors.New("oauth auth for mcp proxy is not implemented yet")
-	}
 	if authRef == "" {
 		return errors.New("auth_ref is required when auth_type is not none")
 	}
@@ -1627,9 +1624,6 @@ func normalizeMCPProxyAuthRef(authType string, authRef string) (string, error) {
 	authRef = strings.TrimSpace(authRef)
 	if authType == "" || authType == model.MCPProxyAuthTypeNone {
 		return "", nil
-	}
-	if authType == model.MCPProxyAuthTypeOAuth {
-		return "", errors.New("oauth auth for mcp proxy is not implemented yet")
 	}
 	if authRef == "" {
 		return "", errors.New("auth_ref is required when auth_type is not none")
