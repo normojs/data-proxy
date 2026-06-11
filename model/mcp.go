@@ -116,8 +116,37 @@ func (MCPToolCall) TableName() string {
 	return "mcp_tool_calls"
 }
 
+type MCPToolCallIdempotencyKey struct {
+	Id                int64  `json:"id"`
+	IdempotencyKey    string `json:"idempotency_key" gorm:"type:varchar(64);not null;uniqueIndex"`
+	UserId            int    `json:"user_id" gorm:"not null;index"`
+	TokenId           int    `json:"token_id" gorm:"index"`
+	RequestId         string `json:"request_id" gorm:"type:varchar(128);not null;index"`
+	ToolName          string `json:"tool_name" gorm:"type:varchar(128);not null;index"`
+	RequestParamsHash string `json:"request_params_hash" gorm:"type:varchar(64);not null;default:''"`
+	CallId            int64  `json:"call_id" gorm:"not null;default:0;index"`
+	CreatedAt         int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt         int64  `json:"updated_at" gorm:"bigint"`
+}
+
+func (MCPToolCallIdempotencyKey) TableName() string {
+	return "mcp_tool_call_idempotency_keys"
+}
+
 func (call *MCPToolCall) BeforeCreate(tx *gorm.DB) error {
 	call.CreatedAt = common.GetTimestamp()
+	return nil
+}
+
+func (key *MCPToolCallIdempotencyKey) BeforeCreate(tx *gorm.DB) error {
+	now := common.GetTimestamp()
+	key.CreatedAt = now
+	key.UpdatedAt = now
+	return nil
+}
+
+func (key *MCPToolCallIdempotencyKey) BeforeUpdate(tx *gorm.DB) error {
+	key.UpdatedAt = common.GetTimestamp()
 	return nil
 }
 
@@ -232,6 +261,38 @@ func ListMCPToolsByIds(ids []int) (map[int]MCPTool, error) {
 
 func CreateMCPToolCall(call *MCPToolCall) error {
 	return DB.Create(call).Error
+}
+
+func CreateMCPToolCallIdempotencyKey(key *MCPToolCallIdempotencyKey) (*MCPToolCallIdempotencyKey, bool, error) {
+	if key == nil || strings.TrimSpace(key.IdempotencyKey) == "" {
+		return nil, false, errors.New("mcp tool call idempotency key is required")
+	}
+	result := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(key)
+	if result.Error != nil {
+		return nil, false, result.Error
+	}
+	if result.RowsAffected > 0 {
+		return key, true, nil
+	}
+	var existing MCPToolCallIdempotencyKey
+	err := DB.Where("idempotency_key = ?", strings.TrimSpace(key.IdempotencyKey)).First(&existing).Error
+	return &existing, false, err
+}
+
+func AttachMCPToolCallIdempotencyKey(id int64, callId int64) error {
+	if id <= 0 || callId <= 0 {
+		return nil
+	}
+	return DB.Model(&MCPToolCallIdempotencyKey{}).
+		Where("id = ? AND call_id = 0", id).
+		Update("call_id", callId).Error
+}
+
+func DeleteMCPToolCallIdempotencyKey(id int64) error {
+	if id <= 0 {
+		return nil
+	}
+	return DB.Delete(&MCPToolCallIdempotencyKey{}, id).Error
 }
 
 func UpdateMCPToolCallStatus(id int64, status string, updates map[string]any) error {

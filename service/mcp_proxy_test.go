@@ -1645,6 +1645,7 @@ func setupMCPProxyServiceTestDB(t *testing.T) {
 		&model.BillingEvent{},
 		&model.MCPTool{},
 		&model.MCPToolCall{},
+		&model.MCPToolCallIdempotencyKey{},
 		&model.MCPUserDailyQuota{},
 		&model.MCPOpenAPITool{},
 		&model.MCPOpenAPIBinaryObject{},

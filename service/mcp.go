@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math"
@@ -132,6 +133,13 @@ func CallMCPTool(req MCPToolCallRequest) (*MCPToolCallResponse, error) {
 			requestParams = string(bytes)
 		}
 	}
+	idempotencyKey, replayResp, err := acquireMCPToolCallIdempotency(req, *tool, requestParams)
+	if err != nil {
+		return nil, err
+	}
+	if replayResp != nil {
+		return replayResp, nil
+	}
 
 	call := &model.MCPToolCall{
 		UserId:        req.UserId,
@@ -144,7 +152,15 @@ func CallMCPTool(req MCPToolCallRequest) (*MCPToolCallResponse, error) {
 		Status:        model.MCPToolCallStatusPending,
 	}
 	if err := model.CreateMCPToolCall(call); err != nil {
+		if idempotencyKey != nil {
+			_ = model.DeleteMCPToolCallIdempotencyKey(idempotencyKey.Id)
+		}
 		return nil, err
+	}
+	if idempotencyKey != nil {
+		if err := model.AttachMCPToolCallIdempotencyKey(idempotencyKey.Id, call.Id); err != nil {
+			return nil, err
+		}
 	}
 	freeQuotaActive, err := model.ReserveMCPToolCallFreeQuota(call.Id, req.UserId, tool.Id, tool.FreeQuota)
 	if err != nil {
@@ -263,6 +279,75 @@ func CallMCPTool(req MCPToolCallRequest) (*MCPToolCallResponse, error) {
 	}
 
 	return updateMCPToolCallWithExecutorResult(call, result, billingResult, req, startedAt)
+}
+
+func acquireMCPToolCallIdempotency(req MCPToolCallRequest, tool model.MCPTool, requestParams string) (*model.MCPToolCallIdempotencyKey, *MCPToolCallResponse, error) {
+	requestId := strings.TrimSpace(req.RequestId)
+	if requestId == "" {
+		return nil, nil, nil
+	}
+	paramsHash := mcpToolCallRequestParamsHash(requestParams)
+	record, created, err := model.CreateMCPToolCallIdempotencyKey(&model.MCPToolCallIdempotencyKey{
+		IdempotencyKey:    mcpToolCallIdempotencyKey(req.UserId, req.TokenId, requestId),
+		UserId:            req.UserId,
+		TokenId:           req.TokenId,
+		RequestId:         requestId,
+		ToolName:          tool.Name,
+		RequestParamsHash: paramsHash,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if created {
+		return record, nil, nil
+	}
+	replayResp, err := mcpToolCallReplayResponse(record, tool, paramsHash)
+	return nil, replayResp, err
+}
+
+func mcpToolCallIdempotencyKey(userId int, tokenId int, requestId string) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("mcp_tool_call:v1:%d:%d:%s", userId, tokenId, requestId)))
+	return fmt.Sprintf("%x", sum)
+}
+
+func mcpToolCallRequestParamsHash(requestParams string) string {
+	sum := sha256.Sum256([]byte(requestParams))
+	return fmt.Sprintf("%x", sum)
+}
+
+func mcpToolCallReplayResponse(record *model.MCPToolCallIdempotencyKey, tool model.MCPTool, paramsHash string) (*MCPToolCallResponse, error) {
+	reason := "request is already reserved"
+	callId := int64(0)
+	if record != nil {
+		callId = record.CallId
+		if record.ToolName != tool.Name || record.RequestParamsHash != paramsHash {
+			reason = "request id was already used for a different tool call"
+			return duplicateMCPToolCallResponse(tool.Name, callId, reason), nil
+		}
+	}
+	if callId <= 0 {
+		return duplicateMCPToolCallResponse(tool.Name, callId, reason), nil
+	}
+	call, found, err := model.GetMCPToolCallById(nil, callId)
+	if err != nil {
+		return nil, err
+	}
+	if !found || call.Status == model.MCPToolCallStatusPending {
+		return duplicateMCPToolCallResponse(tool.Name, callId, "request is already in progress"), nil
+	}
+	return duplicateMCPToolCallResponse(tool.Name, callId, "request has already been processed"), nil
+}
+
+func duplicateMCPToolCallResponse(toolName string, callId int64, reason string) *MCPToolCallResponse {
+	return &MCPToolCallResponse{
+		ErrorCode:    dto.MCPErrorCodeDuplicateRequest,
+		ErrorMessage: "Duplicate MCP tool call request",
+		ErrorData: dto.MCPToolCallErrorData{
+			ToolName: toolName,
+			CallId:   callId,
+			Reason:   reason,
+		},
+	}
 }
 
 func updateMCPToolCallWithExecutorResult(call *model.MCPToolCall, result mcpexecutor.Result, billingResult mcpbilling.PrecheckResult, req MCPToolCallRequest, startedAt time.Time) (*MCPToolCallResponse, error) {

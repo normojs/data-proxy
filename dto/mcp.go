@@ -24,6 +24,7 @@ const (
 	MCPErrorCodeExecutorFailed    = -32003
 	MCPErrorCodeExecutorTimeout   = -32004
 	MCPErrorCodeBridgeUnavailable = -32005
+	MCPErrorCodeDuplicateRequest  = -32006
 )
 
 type MCPRequest struct {

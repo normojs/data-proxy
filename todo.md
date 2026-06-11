@@ -60,7 +60,7 @@
 
 ## P1 - Reliability and observability
 
-- [ ] Add MCP tool call idempotency and replay protection.
+- [x] Add MCP tool call idempotency and replay protection.
   - Acceptance: repeated client request IDs do not double-charge or double-settle a tool call.
 - [ ] Add Bridge multi-client selection and failover.
   - Acceptance: Bridge MCP Proxy can choose by latest activity/capability and fail over to another eligible online client.

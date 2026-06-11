@@ -61,6 +61,7 @@ func TestMain(m *testing.M) {
 		&model.Option{},
 		&model.MCPTool{},
 		&model.MCPToolCall{},
+		&model.MCPToolCallIdempotencyKey{},
 		&model.MCPUserDailyQuota{},
 		&model.BridgeAuditLog{},
 	); err != nil {
@@ -100,6 +101,7 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM violation_fee_records")
 		model.DB.Exec("DELETE FROM options")
 		model.DB.Exec("DELETE FROM mcp_tool_calls")
+		model.DB.Exec("DELETE FROM mcp_tool_call_idempotency_keys")
 		model.DB.Exec("DELETE FROM mcp_user_daily_quota")
 		model.DB.Exec("DELETE FROM bridge_audit_logs")
 		common.OptionMapRWMutex.Lock()

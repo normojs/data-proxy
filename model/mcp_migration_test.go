@@ -37,6 +37,9 @@ func TestMCPMigrationSmoke(t *testing.T) {
 	if !DB.Migrator().HasTable(&MCPToolCall{}) {
 		t.Fatal("mcp_tool_calls table was not migrated")
 	}
+	if !DB.Migrator().HasTable(&MCPToolCallIdempotencyKey{}) {
+		t.Fatal("mcp_tool_call_idempotency_keys table was not migrated")
+	}
 	if !DB.Migrator().HasTable(&MCPUserDailyQuota{}) {
 		t.Fatal("mcp_user_daily_quota table was not migrated")
 	}

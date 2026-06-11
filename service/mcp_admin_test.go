@@ -433,6 +433,82 @@ func TestMCPToolCallExecutorSuccessSmoke(t *testing.T) {
 	}
 }
 
+func TestMCPToolCallIdempotencyRejectsReplayWithoutDoubleCharge(t *testing.T) {
+	setupMCPProxyServiceTestDB(t)
+	restoreExecutorRegistry := setMCPExecutorRegistryForTest(mcpexecutor.NewRegistry(successMCPExecutor{}))
+	t.Cleanup(restoreExecutorRegistry)
+
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+	tool := &model.MCPTool{
+		Name:         "remote_read",
+		DisplayName:  "Remote Read",
+		Description:  "idempotency smoke tool",
+		Category:     "bridge",
+		Source:       model.MCPToolSourceCustom,
+		InputSchema:  `{"type":"object","properties":{"file_path":{"type":"string"}}}`,
+		PriceUnit:    model.MCPToolPriceUnitPerCall,
+		PricePerCall: 0.001,
+		Status:       model.MCPToolStatusEnabled,
+	}
+	require.NoError(t, model.CreateMCPTool(tool))
+
+	req := MCPToolCallRequest{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: token.UnlimitedQuota,
+		TokenQuota:     token.RemainQuota,
+		UsingGroup:     "default",
+		RequestId:      "mcp-idempotent-replay",
+		RequestIP:      "127.0.0.1",
+		Params: dto.MCPToolCallParams{
+			Name:      "remote_read",
+			Arguments: map[string]any{"file_path": "README.md"},
+		},
+	}
+
+	first, err := CallMCPTool(req)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	require.NotNil(t, first.Result)
+
+	var call model.MCPToolCall
+	require.NoError(t, model.DB.Where("request_id = ?", req.RequestId).First(&call).Error)
+	require.Equal(t, model.MCPToolCallStatusSuccess, call.Status)
+	require.Equal(t, 500, call.Quota)
+
+	second, err := CallMCPTool(req)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	require.Equal(t, dto.MCPErrorCodeDuplicateRequest, second.ErrorCode)
+	secondData, ok := second.ErrorData.(dto.MCPToolCallErrorData)
+	require.True(t, ok)
+	require.Equal(t, call.Id, secondData.CallId)
+	require.Contains(t, secondData.Reason, "already been processed")
+
+	conflicting := req
+	conflicting.Params.Arguments = map[string]any{"file_path": "NOTICE"}
+	third, err := CallMCPTool(conflicting)
+	require.NoError(t, err)
+	require.NotNil(t, third)
+	require.Equal(t, dto.MCPErrorCodeDuplicateRequest, third.ErrorCode)
+	thirdData, ok := third.ErrorData.(dto.MCPToolCallErrorData)
+	require.True(t, ok)
+	require.Equal(t, call.Id, thirdData.CallId)
+	require.Contains(t, thirdData.Reason, "different tool call")
+
+	var callCount int64
+	require.NoError(t, model.DB.Model(&model.MCPToolCall{}).Where("request_id = ?", req.RequestId).Count(&callCount).Error)
+	require.Equal(t, int64(1), callCount)
+	var billingCount int64
+	require.NoError(t, model.DB.Model(&model.BillingEvent{}).Where("request_id = ?", req.RequestId).Count(&billingCount).Error)
+	require.Equal(t, int64(1), billingCount)
+	var keyCount int64
+	require.NoError(t, model.DB.Model(&model.MCPToolCallIdempotencyKey{}).Where("request_id = ?", req.RequestId).Count(&keyCount).Error)
+	require.Equal(t, int64(1), keyCount)
+	assertMCPQuotaSettled(t, user.Id, token.Id, 100000, 100000, 500, false)
+}
+
 func TestMCPToolCallRefundsPreSettlementOnExecutorError(t *testing.T) {
 	truncate(t)
 	withServiceTestQuotaPerUnit(t, 500000)
