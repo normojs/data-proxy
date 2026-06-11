@@ -42,7 +42,7 @@
 - [x] Add a unified MCP regression Make target.
   - Acceptance: `make mcp-regression` runs OpenAPI, MCP Proxy, Bridge daemon, and MCP Dashboard checks.
   - Acceptance: failing sections are split into reusable targets for quick diagnosis.
-- [ ] Add cross-database MCP migration regression documentation and opt-in targets.
+- [x] Add cross-database MCP migration regression documentation and opt-in targets.
   - Acceptance: SQLite default, MySQL opt-in, and PostgreSQL opt-in commands cover MCP, Bridge, billing event, and OpenAPI binary object tables.
 
 ## P1 - Core capability expansion

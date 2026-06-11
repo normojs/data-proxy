@@ -57,13 +57,26 @@ export GOTOOLCHAIN=auto
 
 ## Migration Smoke
 
-The migration smoke is opt-in because it touches the configured SQL database.
-It verifies MCP and Bridge tables plus built-in MCP tool seeding.
+The migration smoke is opt-in for real databases because it touches the
+configured SQL database. The SQLite target is safe for local/CI use because it
+creates a temporary database file. These targets verify MCP, MCP Proxy,
+OpenAPI binary object, Bridge, billing event, and billing relation tables plus
+built-in MCP tool seeding.
 
 ```bash
-MCP_MIGRATION_TEST=1 \
-SQL_DSN="$SQL_DSN" \
-go test ./model -run TestMCPMigrationSmoke -count=1 -v
+make mcp-migration-sqlite
+```
+
+Run MySQL or PostgreSQL explicitly when a local database is available:
+
+```bash
+make mcp-migration-mysql \
+  MCP_MIGRATION_MYSQL_DSN='root:my-secret-pw@tcp(127.0.0.1:3306)/data-proxy?charset=utf8mb4&parseTime=true&loc=Local'
+```
+
+```bash
+make mcp-migration-postgres \
+  MCP_MIGRATION_POSTGRES_DSN='postgres://root:password@127.0.0.1:5432/new-api?sslmode=disable'
 ```
 
 ## Service Smoke

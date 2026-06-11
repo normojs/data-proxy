@@ -2,6 +2,7 @@ package model
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -14,7 +15,7 @@ func TestMCPMigrationSmoke(t *testing.T) {
 		t.Skip("set MCP_MIGRATION_TEST=1 to run the MCP migration smoke test")
 	}
 	if os.Getenv("SQL_DSN") == "" {
-		t.Fatal("SQL_DSN is required")
+		t.Setenv("SQLITE_PATH", filepath.Join(t.TempDir(), "mcp-migration-smoke.db")+"?_busy_timeout=30000")
 	}
 
 	common.InitEnv()
@@ -47,6 +48,12 @@ func TestMCPMigrationSmoke(t *testing.T) {
 	}
 	if !DB.Migrator().HasTable(&MCPProxyDiscoveryEvent{}) {
 		t.Fatal("mcp_proxy_discovery_events table was not migrated")
+	}
+	if !DB.Migrator().HasTable(&MCPOpenAPITool{}) {
+		t.Fatal("mcp_openapi_tools table was not migrated")
+	}
+	if !DB.Migrator().HasTable(&MCPOpenAPIBinaryObject{}) {
+		t.Fatal("mcp_openapi_binary_objects table was not migrated")
 	}
 	if !DB.Migrator().HasTable(&BridgeClient{}) {
 		t.Fatal("bridge_clients table was not migrated")

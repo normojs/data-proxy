@@ -181,6 +181,19 @@ go test ./pkg/mcp/... ./model ./service ./controller ./router \
 
 - Bridge/daemon 改动至少跑 `make mcp-bridge-check`。
 - 真实并发或 reconnect 改动跑 `make mcp-bridge-smoke`。
+- MCP / Bridge / OpenAPI 相关 model 或 migration 改动至少跑：
+
+```bash
+make mcp-migration-sqlite
+```
+
+有本地数据库时加跑：
+
+```bash
+make mcp-migration-mysql MCP_MIGRATION_MYSQL_DSN='...'
+make mcp-migration-postgres MCP_MIGRATION_POSTGRES_DSN='...'
+```
+
 - 前端 TS/TSX 改动至少跑 `npm run typecheck --silent`，MCP Dashboard 改动加跑
   对应 smoke。
 - 提交前跑：

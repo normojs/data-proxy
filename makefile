@@ -24,8 +24,10 @@ MCP_BRIDGE_STRESS_TIMEOUT ?= 360000
 MCP_BRIDGE_STRESS_ARGS ?=
 MCP_OPENAPI_GO_TEST_PATTERN ?= TestPreviewMCPOpenAPIForAdmin|Test.*OpenAPI|TestDownloadMCPOpenAPIBinaryObject
 MCP_PROXY_GO_TEST_PATTERN ?= TestMCPProxy|TestBillingEventSourceMatrix
+MCP_MIGRATION_MYSQL_DSN ?=
+MCP_MIGRATION_POSTGRES_DSN ?=
 
-.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
+.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
 
 all: build-all-frontends start-backend
 
@@ -124,6 +126,20 @@ mcp-dashboard-check:
 	@cd $(FRONTEND_DIR) && $(NODE) scripts/check-mcp-routes.mjs
 	@cd $(FRONTEND_DIR) && $(NODE) --experimental-strip-types scripts/check-mcp-trends.mjs
 	@cd $(FRONTEND_DIR) && $(NODE) $(TSC) -b
+
+mcp-migration-sqlite:
+	@echo "Running MCP migration smoke against temporary SQLite..."
+	@MCP_MIGRATION_TEST=1 $(GO_TEST_ENV) $(GO) test ./model -run TestMCPMigrationSmoke -count=1 -timeout=120s
+
+mcp-migration-mysql:
+	@test -n "$(MCP_MIGRATION_MYSQL_DSN)" || { echo "Set MCP_MIGRATION_MYSQL_DSN to run MySQL migration smoke."; exit 1; }
+	@echo "Running MCP migration smoke against MySQL..."
+	@MCP_MIGRATION_TEST=1 SQL_DSN="$(MCP_MIGRATION_MYSQL_DSN)" $(GO_TEST_ENV) $(GO) test ./model -run TestMCPMigrationSmoke -count=1 -timeout=120s
+
+mcp-migration-postgres:
+	@test -n "$(MCP_MIGRATION_POSTGRES_DSN)" || { echo "Set MCP_MIGRATION_POSTGRES_DSN to run PostgreSQL migration smoke."; exit 1; }
+	@echo "Running MCP migration smoke against PostgreSQL..."
+	@MCP_MIGRATION_TEST=1 SQL_DSN="$(MCP_MIGRATION_POSTGRES_DSN)" $(GO_TEST_ENV) $(GO) test ./model -run TestMCPMigrationSmoke -count=1 -timeout=120s
 
 mcp-bridge-check:
 	@echo "Checking MCP Bridge daemon scripts..."
