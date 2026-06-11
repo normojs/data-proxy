@@ -23,6 +23,7 @@ import { BridgeClientsTable } from './components/bridge-clients-table'
 import { MCPMarket } from './components/mcp-market'
 import { MCPOverview } from './components/mcp-overview'
 import { MCPToolsTable } from './components/mcp-tools-table'
+import { OpenAPIBinaryObjectsTable } from './components/openapi-binary-objects-table'
 import { MCPProxyServersTable } from './components/proxy-servers-table'
 import { MCPProxyToolsTable } from './components/proxy-tools-table'
 import { ToolCallsTable } from './components/tool-calls-table'
@@ -42,6 +43,11 @@ export const MCP_SECTIONS = [
     id: 'tools',
     titleKey: 'MCP Tools',
     build: () => <MCPToolsTable />,
+  },
+  {
+    id: 'openapi-objects',
+    titleKey: 'OpenAPI Objects',
+    build: () => <OpenAPIBinaryObjectsTable />,
   },
   {
     id: 'proxy-servers',

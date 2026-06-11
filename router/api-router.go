@@ -359,6 +359,8 @@ func SetApiRouter(router *gin.Engine) {
 		}
 		mcpOpenAPIBinaryRoute := apiRouter.Group("/mcp/openapi/binary")
 		{
+			mcpOpenAPIBinaryRoute.GET("/", middleware.AdminAuth(), controller.GetMCPOpenAPIBinaryObjects)
+			mcpOpenAPIBinaryRoute.GET("/summary", middleware.AdminAuth(), controller.GetMCPOpenAPIBinaryObjectSummary)
 			mcpOpenAPIBinaryRoute.POST("/cleanup", middleware.AdminAuth(), controller.CleanupMCPOpenAPIBinaryObjects)
 			mcpOpenAPIBinaryRoute.GET("/:object_id/download", middleware.UserAuth(), controller.DownloadMCPOpenAPIBinaryObject)
 		}

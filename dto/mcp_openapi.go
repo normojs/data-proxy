@@ -35,6 +35,45 @@ type MCPOpenAPIBinaryCleanupRequest struct {
 	DryRun     bool  `json:"dry_run,omitempty"`
 }
 
+type MCPOpenAPIBinaryObjectListItem struct {
+	Id               int64  `json:"id"`
+	ObjectId         string `json:"object_id"`
+	Provider         string `json:"provider"`
+	ContentType      string `json:"content_type"`
+	ContentFamily    string `json:"content_family"`
+	SHA256           string `json:"sha256"`
+	Size             int    `json:"size"`
+	Filename         string `json:"filename"`
+	Disposition      string `json:"disposition"`
+	MCPToolCallId    int64  `json:"mcp_tool_call_id"`
+	MCPToolId        int    `json:"mcp_tool_id"`
+	OpenAPIToolId    int64  `json:"openapi_tool_id"`
+	UserId           int    `json:"user_id"`
+	TokenId          int    `json:"token_id"`
+	RequestId        string `json:"request_id"`
+	OperationKey     string `json:"operation_key"`
+	ExpiresAt        int64  `json:"expires_at"`
+	ExpiryStatus     string `json:"expiry_status"`
+	DownloadCount    int    `json:"download_count"`
+	LastDownloadedAt int64  `json:"last_downloaded_at"`
+	DownloadURL      string `json:"download_url"`
+	CreatedAt        int64  `json:"created_at"`
+	UpdatedAt        int64  `json:"updated_at"`
+}
+
+type MCPOpenAPIBinaryObjectSummary struct {
+	TotalCount          int64 `json:"total_count"`
+	TotalBytes          int64 `json:"total_bytes"`
+	ActiveCount         int64 `json:"active_count"`
+	ExpiredCount        int64 `json:"expired_count"`
+	NoExpiryCount       int64 `json:"no_expiry_count"`
+	DownloadedCount     int64 `json:"downloaded_count"`
+	DownloadCount       int64 `json:"download_count"`
+	DefaultTTLSeconds   int64 `json:"default_ttl_seconds"`
+	DefaultCleanupLimit int   `json:"default_cleanup_limit"`
+	CheckedAt           int64 `json:"checked_at"`
+}
+
 type MCPOpenAPIPreviewOperation struct {
 	Key            string         `json:"key"`
 	OperationId    string         `json:"operation_id"`
@@ -95,12 +134,14 @@ type MCPOpenAPILifecycleResponse struct {
 }
 
 type MCPOpenAPIBinaryCleanupResponse struct {
-	Provider     string   `json:"provider"`
-	TTLSeconds   int64    `json:"ttl_seconds"`
-	CutoffTime   int64    `json:"cutoff_time"`
-	DryRun       bool     `json:"dry_run"`
-	Scanned      int      `json:"scanned"`
-	Deleted      int      `json:"deleted"`
-	DeletedBytes int64    `json:"deleted_bytes"`
-	Errors       []string `json:"errors,omitempty"`
+	Provider         string   `json:"provider"`
+	TTLSeconds       int64    `json:"ttl_seconds"`
+	CutoffTime       int64    `json:"cutoff_time"`
+	DryRun           bool     `json:"dry_run"`
+	Scanned          int      `json:"scanned"`
+	Deleted          int      `json:"deleted"`
+	DeletedBytes     int64    `json:"deleted_bytes"`
+	DeletedObjectIds []string `json:"deleted_object_ids,omitempty"`
+	RegistryDeleted  int64    `json:"registry_deleted"`
+	Errors           []string `json:"errors,omitempty"`
 }

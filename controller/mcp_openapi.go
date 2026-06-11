@@ -83,6 +83,39 @@ func DeleteMCPOpenAPI(c *gin.Context) {
 	common.ApiSuccess(c, item)
 }
 
+func GetMCPOpenAPIBinaryObjects(c *gin.Context) {
+	params, err := mcpOpenAPIBinaryObjectListParams(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	params.Offset = pageInfo.GetStartIdx()
+	params.Limit = pageInfo.GetPageSize()
+	items, total, err := service.ListMCPOpenAPIBinaryObjectsForAdmin(params)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(items)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func GetMCPOpenAPIBinaryObjectSummary(c *gin.Context) {
+	params, err := mcpOpenAPIBinaryObjectListParams(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	summary, err := service.GetMCPOpenAPIBinaryObjectSummaryForAdmin(params)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, summary)
+}
+
 func CleanupMCPOpenAPIBinaryObjects(c *gin.Context) {
 	var req dto.MCPOpenAPIBinaryCleanupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -116,4 +149,33 @@ func DownloadMCPOpenAPIBinaryObject(c *gin.Context) {
 	}))
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Data(http.StatusOK, item.Object.ContentType, item.Content)
+}
+
+func mcpOpenAPIBinaryObjectListParams(c *gin.Context) (service.MCPOpenAPIBinaryObjectListParams, error) {
+	userId, err := parseOptionalIntQuery(c, "user_id")
+	if err != nil {
+		return service.MCPOpenAPIBinaryObjectListParams{}, err
+	}
+	mcpToolId, err := parseOptionalIntQuery(c, "mcp_tool_id")
+	if err != nil {
+		return service.MCPOpenAPIBinaryObjectListParams{}, err
+	}
+	startTime, err := parseOptionalInt64Query(c, "start_time")
+	if err != nil {
+		return service.MCPOpenAPIBinaryObjectListParams{}, err
+	}
+	endTime, err := parseOptionalInt64Query(c, "end_time")
+	if err != nil {
+		return service.MCPOpenAPIBinaryObjectListParams{}, err
+	}
+	return service.MCPOpenAPIBinaryObjectListParams{
+		Provider:      c.Query("provider"),
+		ContentFamily: c.Query("content_family"),
+		ExpiryStatus:  c.Query("expiry_status"),
+		Keyword:       c.Query("keyword"),
+		UserId:        userId,
+		MCPToolId:     mcpToolId,
+		StartTime:     startTime,
+		EndTime:       endTime,
+	}, nil
 }

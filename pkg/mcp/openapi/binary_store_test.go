@@ -38,6 +38,7 @@ func TestLocalBinaryObjectCleanupDeletesExpiredObjects(t *testing.T) {
 	require.Equal(t, 2, preview.Scanned)
 	require.Equal(t, 1, preview.Deleted)
 	require.Equal(t, int64(oldObject.Size), preview.DeletedBytes)
+	require.Equal(t, []string{oldObject.Id}, preview.DeletedObjectIds)
 
 	_, oldContent, err := LoadBinaryObject(oldObject.Id)
 	require.NoError(t, err)
@@ -49,6 +50,7 @@ func TestLocalBinaryObjectCleanupDeletesExpiredObjects(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, cleaned.Deleted)
+	require.Equal(t, []string{oldObject.Id}, cleaned.DeletedObjectIds)
 	_, _, err = LoadBinaryObject(oldObject.Id)
 	require.Error(t, err)
 	_, freshContent, err := LoadBinaryObject(freshObject.Id)
@@ -85,6 +87,7 @@ func TestS3BinaryObjectStoreSaveLoadCleanup(t *testing.T) {
 	require.Equal(t, "s3", preview.Provider)
 	require.Equal(t, 1, preview.Scanned)
 	require.Equal(t, 1, preview.Deleted)
+	require.Equal(t, []string{object.Id}, preview.DeletedObjectIds)
 	require.True(t, objects.exists(object.StorageKey+"/body.bin"))
 
 	cleaned, err := CleanupBinaryObjects(context.Background(), BinaryObjectCleanupOptions{
@@ -93,6 +96,7 @@ func TestS3BinaryObjectStoreSaveLoadCleanup(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, cleaned.Deleted)
+	require.Equal(t, []string{object.Id}, cleaned.DeletedObjectIds)
 	require.False(t, objects.exists(object.StorageKey+"/body.bin"))
 	require.False(t, objects.exists(object.StorageKey+"/metadata.json"))
 }

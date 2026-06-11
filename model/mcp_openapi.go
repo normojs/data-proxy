@@ -60,6 +60,28 @@ type MCPOpenAPIBinaryObject struct {
 	DeletedAt        gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
+type MCPOpenAPIBinaryObjectFilter struct {
+	Provider      string
+	ContentFamily string
+	ExpiryStatus  string
+	Keyword       string
+	UserId        int
+	MCPToolId     int
+	StartTime     int64
+	EndTime       int64
+	Now           int64
+}
+
+type MCPOpenAPIBinaryObjectSummary struct {
+	TotalCount      int64
+	TotalBytes      int64
+	ActiveCount     int64
+	ExpiredCount    int64
+	NoExpiryCount   int64
+	DownloadedCount int64
+	DownloadCount   int64
+}
+
 func (MCPOpenAPIBinaryObject) TableName() string {
 	return "mcp_openapi_binary_objects"
 }
@@ -216,6 +238,80 @@ func GetMCPOpenAPIBinaryObjectByObjectId(objectId string) (*MCPOpenAPIBinaryObje
 	return &object, err
 }
 
+func ListMCPOpenAPIBinaryObjects(filter MCPOpenAPIBinaryObjectFilter, offset int, limit int) ([]MCPOpenAPIBinaryObject, int64, error) {
+	query := applyMCPOpenAPIBinaryObjectFilter(DB.Model(&MCPOpenAPIBinaryObject{}), filter)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var objects []MCPOpenAPIBinaryObject
+	query = query.Order("created_at desc, id desc").Offset(offset)
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Find(&objects).Error
+	return objects, total, err
+}
+
+func SummarizeMCPOpenAPIBinaryObjects(filter MCPOpenAPIBinaryObjectFilter) (MCPOpenAPIBinaryObjectSummary, error) {
+	summary := MCPOpenAPIBinaryObjectSummary{}
+	query := applyMCPOpenAPIBinaryObjectFilter(DB.Model(&MCPOpenAPIBinaryObject{}), filter)
+	if err := query.Count(&summary.TotalCount).Error; err != nil {
+		return summary, err
+	}
+	if err := applyMCPOpenAPIBinaryObjectFilter(DB.Model(&MCPOpenAPIBinaryObject{}), filter).
+		Select("COALESCE(SUM(size), 0)").
+		Scan(&summary.TotalBytes).Error; err != nil {
+		return summary, err
+	}
+	if err := applyMCPOpenAPIBinaryObjectFilter(DB.Model(&MCPOpenAPIBinaryObject{}), filter).
+		Where("expires_at = 0").
+		Count(&summary.NoExpiryCount).Error; err != nil {
+		return summary, err
+	}
+	now := filter.Now
+	if now <= 0 {
+		now = common.GetTimestamp()
+	}
+	if err := applyMCPOpenAPIBinaryObjectFilter(DB.Model(&MCPOpenAPIBinaryObject{}), filter).
+		Where("expires_at > 0 AND expires_at < ?", now).
+		Count(&summary.ExpiredCount).Error; err != nil {
+		return summary, err
+	}
+	summary.ActiveCount = summary.TotalCount - summary.ExpiredCount
+	if err := applyMCPOpenAPIBinaryObjectFilter(DB.Model(&MCPOpenAPIBinaryObject{}), filter).
+		Where("download_count > 0").
+		Count(&summary.DownloadedCount).Error; err != nil {
+		return summary, err
+	}
+	if err := applyMCPOpenAPIBinaryObjectFilter(DB.Model(&MCPOpenAPIBinaryObject{}), filter).
+		Select("COALESCE(SUM(download_count), 0)").
+		Scan(&summary.DownloadCount).Error; err != nil {
+		return summary, err
+	}
+	return summary, nil
+}
+
+func DeleteMCPOpenAPIBinaryObjectsByObjectIds(objectIds []string) (int64, error) {
+	compacted := make([]string, 0, len(objectIds))
+	seen := map[string]bool{}
+	for _, objectId := range objectIds {
+		objectId = strings.TrimSpace(objectId)
+		if objectId == "" || seen[objectId] {
+			continue
+		}
+		seen[objectId] = true
+		compacted = append(compacted, objectId)
+	}
+	if len(compacted) == 0 {
+		return 0, nil
+	}
+	result := DB.Where("object_id IN ?", compacted).Delete(&MCPOpenAPIBinaryObject{})
+	return result.RowsAffected, result.Error
+}
+
 func TouchMCPOpenAPIBinaryObjectDownload(objectId string) error {
 	objectId = strings.TrimSpace(objectId)
 	if objectId == "" {
@@ -229,6 +325,52 @@ func TouchMCPOpenAPIBinaryObjectDownload(objectId string) error {
 			"last_downloaded_at": now,
 			"updated_at":         now,
 		}).Error
+}
+
+func applyMCPOpenAPIBinaryObjectFilter(query *gorm.DB, filter MCPOpenAPIBinaryObjectFilter) *gorm.DB {
+	if provider := strings.TrimSpace(filter.Provider); provider != "" {
+		query = query.Where("provider = ?", provider)
+	}
+	if contentFamily := strings.TrimSpace(filter.ContentFamily); contentFamily != "" {
+		query = query.Where("content_family = ?", contentFamily)
+	}
+	if filter.UserId > 0 {
+		query = query.Where("user_id = ?", filter.UserId)
+	}
+	if filter.MCPToolId > 0 {
+		query = query.Where("mcp_tool_id = ?", filter.MCPToolId)
+	}
+	if filter.StartTime > 0 {
+		query = query.Where("created_at >= ?", filter.StartTime)
+	}
+	if filter.EndTime > 0 {
+		query = query.Where("created_at <= ?", filter.EndTime)
+	}
+	now := filter.Now
+	if now <= 0 {
+		now = common.GetTimestamp()
+	}
+	switch strings.TrimSpace(filter.ExpiryStatus) {
+	case "active":
+		query = query.Where("expires_at = 0 OR expires_at >= ?", now)
+	case "expired":
+		query = query.Where("expires_at > 0 AND expires_at < ?", now)
+	case "no_expiry":
+		query = query.Where("expires_at = 0")
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where(
+			"object_id LIKE ? OR filename LIKE ? OR content_type LIKE ? OR sha256 LIKE ? OR request_id LIKE ? OR operation_key LIKE ?",
+			like,
+			like,
+			like,
+			like,
+			like,
+			like,
+		)
+	}
+	return query
 }
 
 func ListMCPToolsForOpenAPILifecycle(openAPIURL string, toolIds []int) ([]MCPTool, error) {

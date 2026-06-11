@@ -84,6 +84,11 @@ import type {
   MCPToolUpdatePayload,
   MCPOpenAPIImportPayload,
   MCPOpenAPIImportResponse,
+  MCPOpenAPIBinaryCleanupPayload,
+  MCPOpenAPIBinaryCleanupResponse,
+  MCPOpenAPIBinaryObject,
+  MCPOpenAPIBinaryObjectListParams,
+  MCPOpenAPIBinaryObjectSummary,
   MCPOpenAPILifecyclePayload,
   MCPOpenAPILifecycleResponse,
   MCPOpenAPIPreviewPayload,
@@ -125,6 +130,12 @@ export const mcpQueryKeys = {
     [...mcpQueryKeys.tools(), 'list', filters] as const,
   toolDetail: (id: number) => [...mcpQueryKeys.tools(), 'detail', id] as const,
   openAPI: () => [...mcpQueryKeys.all, 'openapi'] as const,
+  openAPIBinaryObjects: () =>
+    [...mcpQueryKeys.openAPI(), 'binary-objects'] as const,
+  openAPIBinaryObjectsList: (filters: MCPOpenAPIBinaryObjectListParams) =>
+    [...mcpQueryKeys.openAPIBinaryObjects(), 'list', filters] as const,
+  openAPIBinaryObjectsSummary: (filters: MCPOpenAPIBinaryObjectListParams) =>
+    [...mcpQueryKeys.openAPIBinaryObjects(), 'summary', filters] as const,
   proxyServers: () => [...mcpQueryKeys.all, 'proxy-servers'] as const,
   proxyServersList: (filters: MCPProxyServerListParams) =>
     [...mcpQueryKeys.proxyServers(), 'list', filters] as const,
@@ -267,6 +278,32 @@ export async function deleteMCPOpenAPI(
   payload: MCPOpenAPILifecyclePayload
 ): Promise<ApiResponse<MCPOpenAPILifecycleResponse>> {
   const res = await api.delete('/api/mcp/openapi/', { data: payload })
+  return res.data
+}
+
+export function listMCPOpenAPIBinaryObjects(
+  params: MCPOpenAPIBinaryObjectListParams
+) {
+  return getPaginated<MCPOpenAPIBinaryObject>(
+    '/api/mcp/openapi/binary',
+    params
+  )
+}
+
+export async function getMCPOpenAPIBinaryObjectSummary(
+  params: MCPOpenAPIBinaryObjectListParams
+): Promise<ApiResponse<MCPOpenAPIBinaryObjectSummary>> {
+  const query = buildQueryParams(params)
+  const res = await api.get(
+    `/api/mcp/openapi/binary/summary${query ? `?${query}` : ''}`
+  )
+  return res.data
+}
+
+export async function cleanupMCPOpenAPIBinaryObjects(
+  payload: MCPOpenAPIBinaryCleanupPayload
+): Promise<ApiResponse<MCPOpenAPIBinaryCleanupResponse>> {
+  const res = await api.post('/api/mcp/openapi/binary/cleanup', payload)
   return res.data
 }
 

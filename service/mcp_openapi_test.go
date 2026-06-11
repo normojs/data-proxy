@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -459,6 +461,175 @@ func TestDownloadMCPOpenAPIBinaryObjectEnforcesOwner(t *testing.T) {
 		IsAdmin:  true,
 	})
 	require.ErrorIs(t, err, ErrMCPOpenAPIBinaryObjectNotFound)
+}
+
+func TestListMCPOpenAPIBinaryObjectsForAdminReportsSummaryAndExpiry(t *testing.T) {
+	setupMCPProxyServiceTestDB(t)
+	now := common.GetTimestamp()
+	objects := []model.MCPOpenAPIBinaryObject{
+		{
+			ObjectId:         "binary-no-expiry",
+			Provider:         "local",
+			ContentType:      "application/octet-stream",
+			ContentFamily:    "binary",
+			SHA256:           "sha-no-expiry",
+			Size:             10,
+			Filename:         "binary-no-expiry.bin",
+			MCPToolCallId:    101,
+			MCPToolId:        201,
+			OpenAPIToolId:    301,
+			UserId:           401,
+			TokenId:          501,
+			RequestId:        "request-no-expiry",
+			OperationKey:     "GET /download/no-expiry",
+			DownloadCount:    2,
+			LastDownloadedAt: now - 5,
+		},
+		{
+			ObjectId:      "binary-active",
+			Provider:      "s3",
+			ContentType:   "image/png",
+			ContentFamily: "image",
+			SHA256:        "sha-active",
+			Size:          20,
+			Filename:      "binary-active.png",
+			MCPToolCallId: 102,
+			MCPToolId:     202,
+			OpenAPIToolId: 302,
+			UserId:        402,
+			TokenId:       502,
+			RequestId:     "request-active",
+			OperationKey:  "GET /download/active",
+			ExpiresAt:     now + 3600,
+		},
+		{
+			ObjectId:      "binary-expired",
+			Provider:      "local",
+			ContentType:   "application/pdf",
+			ContentFamily: "document",
+			SHA256:        "sha-expired",
+			Size:          30,
+			Filename:      "binary-expired.pdf",
+			MCPToolCallId: 103,
+			MCPToolId:     203,
+			OpenAPIToolId: 303,
+			UserId:        403,
+			TokenId:       503,
+			RequestId:     "request-expired",
+			OperationKey:  "GET /download/expired",
+			ExpiresAt:     now - 60,
+		},
+	}
+	for index := range objects {
+		require.NoError(t, model.CreateMCPOpenAPIBinaryObject(&objects[index]))
+	}
+
+	summary, err := GetMCPOpenAPIBinaryObjectSummaryForAdmin(MCPOpenAPIBinaryObjectListParams{})
+	require.NoError(t, err)
+	require.Equal(t, int64(3), summary.TotalCount)
+	require.Equal(t, int64(60), summary.TotalBytes)
+	require.Equal(t, int64(2), summary.ActiveCount)
+	require.Equal(t, int64(1), summary.ExpiredCount)
+	require.Equal(t, int64(1), summary.NoExpiryCount)
+	require.Equal(t, int64(1), summary.DownloadedCount)
+	require.Equal(t, int64(2), summary.DownloadCount)
+
+	items, total, err := ListMCPOpenAPIBinaryObjectsForAdmin(MCPOpenAPIBinaryObjectListParams{
+		Keyword: "request-active",
+		Limit:   10,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, items, 1)
+	require.Equal(t, "binary-active", items[0].ObjectId)
+	require.Equal(t, MCPOpenAPIBinaryExpiryActive, items[0].ExpiryStatus)
+	require.Equal(t, "/api/mcp/openapi/binary/binary-active/download", items[0].DownloadURL)
+	require.Equal(t, int64(102), items[0].MCPToolCallId)
+	require.Equal(t, 402, items[0].UserId)
+	require.Equal(t, "request-active", items[0].RequestId)
+
+	expired, expiredTotal, err := ListMCPOpenAPIBinaryObjectsForAdmin(MCPOpenAPIBinaryObjectListParams{
+		ExpiryStatus: MCPOpenAPIBinaryExpiryExpired,
+		Limit:        10,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), expiredTotal)
+	require.Equal(t, "binary-expired", expired[0].ObjectId)
+	require.Equal(t, MCPOpenAPIBinaryExpiryExpired, expired[0].ExpiryStatus)
+
+	noExpiry, noExpiryTotal, err := ListMCPOpenAPIBinaryObjectsForAdmin(MCPOpenAPIBinaryObjectListParams{
+		ExpiryStatus: MCPOpenAPIBinaryExpiryNoExpiry,
+		Limit:        10,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), noExpiryTotal)
+	require.Equal(t, "binary-no-expiry", noExpiry[0].ObjectId)
+	require.Equal(t, MCPOpenAPIBinaryExpiryNoExpiry, noExpiry[0].ExpiryStatus)
+}
+
+func TestCleanupMCPOpenAPIBinaryObjectsForAdminDeletesRegistryRows(t *testing.T) {
+	setupMCPProxyServiceTestDB(t)
+	t.Setenv("OPENAPI_BINARY_OBJECT_PROVIDER", "local")
+	t.Setenv("OPENAPI_BINARY_OBJECT_DIR", t.TempDir())
+
+	object, err := mcpopenapi.SaveBinaryObject([]byte("cleanup"), "application/octet-stream", "cleanup-sha")
+	require.NoError(t, err)
+	require.NoError(t, rewriteOpenAPIBinaryObjectCreatedAt(object.Id, common.GetTimestamp()-7200))
+	require.NoError(t, model.CreateMCPOpenAPIBinaryObject(&model.MCPOpenAPIBinaryObject{
+		ObjectId:      object.Id,
+		Provider:      object.Provider,
+		StorageKey:    object.StorageKey,
+		ContentType:   object.ContentType,
+		ContentFamily: "binary",
+		SHA256:        object.SHA256,
+		Size:          object.Size,
+		Filename:      object.Filename,
+		UserId:        101,
+		RequestId:     "request-cleanup",
+		OperationKey:  "GET /cleanup",
+		ExpiresAt:     common.GetTimestamp() - 60,
+	}))
+
+	preview, err := CleanupMCPOpenAPIBinaryObjectsForAdmin(dto.MCPOpenAPIBinaryCleanupRequest{
+		TTLSeconds: 3600,
+		Limit:      10,
+		DryRun:     true,
+	})
+	require.NoError(t, err)
+	require.True(t, preview.DryRun)
+	require.Equal(t, 1, preview.Deleted)
+	require.Equal(t, []string{object.Id}, preview.DeletedObjectIds)
+	require.Zero(t, preview.RegistryDeleted)
+	_, err = model.GetMCPOpenAPIBinaryObjectByObjectId(object.Id)
+	require.NoError(t, err)
+
+	cleaned, err := CleanupMCPOpenAPIBinaryObjectsForAdmin(dto.MCPOpenAPIBinaryCleanupRequest{
+		TTLSeconds: 3600,
+		Limit:      10,
+	})
+	require.NoError(t, err)
+	require.False(t, cleaned.DryRun)
+	require.Equal(t, 1, cleaned.Deleted)
+	require.Equal(t, int64(1), cleaned.RegistryDeleted)
+	_, err = model.GetMCPOpenAPIBinaryObjectByObjectId(object.Id)
+	require.Error(t, err)
+
+	summary, err := GetMCPOpenAPIBinaryObjectSummaryForAdmin(MCPOpenAPIBinaryObjectListParams{})
+	require.NoError(t, err)
+	require.Zero(t, summary.TotalCount)
+}
+
+func rewriteOpenAPIBinaryObjectCreatedAt(id string, createdAt int64) error {
+	object, _, err := mcpopenapi.LoadBinaryObject(id)
+	if err != nil {
+		return err
+	}
+	object.CreatedAt = createdAt
+	metaBytes, err := common.Marshal(object)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(os.Getenv("OPENAPI_BINARY_OBJECT_DIR"), id[:2], id, "metadata.json"), metaBytes, 0600)
 }
 
 func requireOpenAPIImportChange(t *testing.T, changes []dto.MCPOpenAPIImportChange, field string, previous string, current string) {

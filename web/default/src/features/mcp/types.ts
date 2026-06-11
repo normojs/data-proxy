@@ -155,6 +155,64 @@ export type MCPOpenAPIImportResponse = {
   skipped: string[]
 }
 
+export type MCPOpenAPIBinaryObject = {
+  id: number
+  object_id: string
+  provider: string
+  content_type: string
+  content_family: string
+  sha256: string
+  size: number
+  filename: string
+  disposition: string
+  mcp_tool_call_id: number
+  mcp_tool_id: number
+  openapi_tool_id: number
+  user_id: number
+  token_id: number
+  request_id: string
+  operation_key: string
+  expires_at: number
+  expiry_status: string
+  download_count: number
+  last_downloaded_at: number
+  download_url: string
+  created_at: number
+  updated_at: number
+}
+
+export type MCPOpenAPIBinaryObjectSummary = {
+  total_count: number
+  total_bytes: number
+  active_count: number
+  expired_count: number
+  no_expiry_count: number
+  downloaded_count: number
+  download_count: number
+  default_ttl_seconds: number
+  default_cleanup_limit: number
+  checked_at: number
+}
+
+export type MCPOpenAPIBinaryCleanupPayload = Partial<{
+  ttl_seconds: number
+  limit: number
+  dry_run: boolean
+}>
+
+export type MCPOpenAPIBinaryCleanupResponse = {
+  provider: string
+  ttl_seconds: number
+  cutoff_time: number
+  dry_run: boolean
+  scanned: number
+  deleted: number
+  deleted_bytes: number
+  deleted_object_ids?: string[]
+  registry_deleted: number
+  errors?: string[]
+}
+
 export type MCPOpenAPILifecycleResponse = {
   openapi_url: string
   affected_count: number
@@ -1215,6 +1273,19 @@ export type MCPToolListParams = Partial<{
   category: string
   source: string
   status: number | string
+}>
+
+export type MCPOpenAPIBinaryObjectListParams = Partial<{
+  p: number
+  page_size: number
+  keyword: string
+  provider: string
+  content_family: string
+  expiry_status: string
+  user_id: number
+  mcp_tool_id: number
+  start_time: number
+  end_time: number
 }>
 
 export type MCPProxyServerListParams = Partial<{

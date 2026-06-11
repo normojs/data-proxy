@@ -188,6 +188,7 @@ func (s *s3BinaryObjectStore) Cleanup(ctx context.Context, options BinaryObjectC
 			if options.DryRun {
 				result.Deleted++
 				result.DeletedBytes += int64(object.Size)
+				result.DeletedObjectIds = append(result.DeletedObjectIds, object.Id)
 				continue
 			}
 			if err := s.deleteObject(ctx, s.bodyKey(object.Id)); err != nil {
@@ -200,6 +201,7 @@ func (s *s3BinaryObjectStore) Cleanup(ctx context.Context, options BinaryObjectC
 			}
 			result.Deleted++
 			result.DeletedBytes += int64(object.Size)
+			result.DeletedObjectIds = append(result.DeletedObjectIds, object.Id)
 		}
 		if !page.IsTruncated || strings.TrimSpace(page.NextContinuationToken) == "" {
 			break

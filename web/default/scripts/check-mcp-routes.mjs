@@ -91,6 +91,7 @@ const expectedCoreSections = [
   'market',
   'overview',
   'tools',
+  'openapi-objects',
   'proxy-servers',
   'proxy-tools',
   'bridge-clients',

@@ -46,13 +46,14 @@ type BinaryObjectCleanupOptions struct {
 }
 
 type BinaryObjectCleanupResult struct {
-	Provider     string   `json:"provider"`
-	CutoffUnix   int64    `json:"cutoff_unix"`
-	DryRun       bool     `json:"dry_run"`
-	Scanned      int      `json:"scanned"`
-	Deleted      int      `json:"deleted"`
-	DeletedBytes int64    `json:"deleted_bytes"`
-	Errors       []string `json:"errors,omitempty"`
+	Provider         string   `json:"provider"`
+	CutoffUnix       int64    `json:"cutoff_unix"`
+	DryRun           bool     `json:"dry_run"`
+	Scanned          int      `json:"scanned"`
+	Deleted          int      `json:"deleted"`
+	DeletedBytes     int64    `json:"deleted_bytes"`
+	DeletedObjectIds []string `json:"deleted_object_ids,omitempty"`
+	Errors           []string `json:"errors,omitempty"`
 }
 
 type BinaryObjectStore interface {
@@ -266,6 +267,7 @@ func (localBinaryObjectStore) Cleanup(ctx context.Context, options BinaryObjectC
 		if options.DryRun {
 			result.Deleted++
 			result.DeletedBytes += int64(object.Size)
+			result.DeletedObjectIds = append(result.DeletedObjectIds, object.Id)
 			return nil
 		}
 		if err := os.RemoveAll(filepath.Dir(path)); err != nil {
@@ -274,6 +276,7 @@ func (localBinaryObjectStore) Cleanup(ctx context.Context, options BinaryObjectC
 		}
 		result.Deleted++
 		result.DeletedBytes += int64(object.Size)
+		result.DeletedObjectIds = append(result.DeletedObjectIds, object.Id)
 		return nil
 	})
 	if errors.Is(err, errBinaryObjectCleanupLimitReached) {

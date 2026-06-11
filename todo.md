@@ -55,7 +55,7 @@
   - Acceptance: auth failures are observable in discovery events and health checks without leaking secrets.
 - [x] Surface OpenAPI import schema metrics and diff summary in the MCP Dashboard.
   - Acceptance: import preview displays importable tool count, schema count, reused schema count, skipped reasons, and diff summary.
-- [ ] Add OpenAPI binary object management to the MCP Dashboard.
+- [x] Add OpenAPI binary object management to the MCP Dashboard.
   - Acceptance: admins can view binary object counts, bytes, expiry state, cleanup dry-run, cleanup execute, and download audit context.
 
 ## P1 - Reliability and observability

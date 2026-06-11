@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	mcpopenapi "github.com/QuantumNous/new-api/pkg/mcp/openapi"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -96,14 +97,23 @@ func cleanupMCPOpenAPIBinaryObjects(ctx context.Context, ttlSeconds int64, limit
 	if err != nil {
 		return dto.MCPOpenAPIBinaryCleanupResponse{}, err
 	}
+	registryDeleted := int64(0)
+	if !result.DryRun && len(result.DeletedObjectIds) > 0 {
+		registryDeleted, err = model.DeleteMCPOpenAPIBinaryObjectsByObjectIds(result.DeletedObjectIds)
+		if err != nil {
+			return dto.MCPOpenAPIBinaryCleanupResponse{}, err
+		}
+	}
 	return dto.MCPOpenAPIBinaryCleanupResponse{
-		Provider:     result.Provider,
-		TTLSeconds:   ttlSeconds,
-		CutoffTime:   result.CutoffUnix,
-		DryRun:       result.DryRun,
-		Scanned:      result.Scanned,
-		Deleted:      result.Deleted,
-		DeletedBytes: result.DeletedBytes,
-		Errors:       result.Errors,
+		Provider:         result.Provider,
+		TTLSeconds:       ttlSeconds,
+		CutoffTime:       result.CutoffUnix,
+		DryRun:           result.DryRun,
+		Scanned:          result.Scanned,
+		Deleted:          result.Deleted,
+		DeletedBytes:     result.DeletedBytes,
+		DeletedObjectIds: result.DeletedObjectIds,
+		RegistryDeleted:  registryDeleted,
+		Errors:           result.Errors,
 	}, nil
 }
