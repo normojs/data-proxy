@@ -30,6 +30,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { getBridgeClientStatusOptions } from '../constants'
 import type { BridgeClient, BridgeClientUpdatePayload } from '../types'
@@ -49,6 +50,14 @@ type BridgeClientForm = {
   workspace: string
   capabilities: string
   status: string
+  allowedTools: string
+  allowWrite: boolean
+  maxResultBytes: string
+  maxScanFileBytes: string
+  maxResults: string
+  treeDepth: string
+  walkDepth: string
+  mcpAllowedTargets: string
 }
 
 function buildInitialForm(client: BridgeClient | null): BridgeClientForm {
@@ -59,6 +68,14 @@ function buildInitialForm(client: BridgeClient | null): BridgeClientForm {
     workspace: client?.workspace ?? '',
     capabilities: (client?.capabilities ?? []).join('\n'),
     status: String(client?.status ?? 0),
+    allowedTools: (client?.policy?.allowed_tools ?? []).join('\n'),
+    allowWrite: client?.policy?.allow_write ?? false,
+    maxResultBytes: String(client?.policy?.max_result_bytes ?? ''),
+    maxScanFileBytes: String(client?.policy?.max_scan_file_bytes ?? ''),
+    maxResults: String(client?.policy?.max_results ?? ''),
+    treeDepth: String(client?.policy?.tree_depth ?? ''),
+    walkDepth: String(client?.policy?.walk_depth ?? ''),
+    mcpAllowedTargets: (client?.policy?.mcp_allowed_targets ?? []).join('\n'),
   }
 }
 
@@ -69,6 +86,12 @@ function parseCapabilities(value: string): string[] {
     .filter(Boolean)
 }
 
+function parseOptionalNumber(value: string): number | undefined {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined
+  return Math.floor(parsed)
+}
+
 export function BridgeClientEditDialog(props: BridgeClientEditDialogProps) {
   const { t } = useTranslation()
   const [form, setForm] = useState<BridgeClientForm>(() =>
@@ -77,7 +100,7 @@ export function BridgeClientEditDialog(props: BridgeClientEditDialogProps) {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className='max-w-[calc(100%-2rem)] sm:max-w-xl'>
+      <DialogContent className='max-w-[calc(100%-2rem)] sm:max-w-2xl'>
         <DialogHeader>
           <DialogTitle>{t('Edit Bridge Client')}</DialogTitle>
         </DialogHeader>
@@ -168,6 +191,131 @@ export function BridgeClientEditDialog(props: BridgeClientEditDialogProps) {
               }
             />
           </div>
+          <div className='space-y-1.5 sm:col-span-2'>
+            <Label htmlFor='bridge-client-policy-tools'>
+              {t('Allowed tools')}
+            </Label>
+            <Textarea
+              id='bridge-client-policy-tools'
+              value={form.allowedTools}
+              rows={3}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  allowedTools: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className='flex items-center gap-2 sm:col-span-2'>
+            <Switch
+              id='bridge-client-policy-write'
+              size='sm'
+              checked={form.allowWrite}
+              onCheckedChange={(checked) =>
+                setForm((current) => ({ ...current, allowWrite: checked }))
+              }
+            />
+            <Label htmlFor='bridge-client-policy-write'>
+              {t('Allow write')}
+            </Label>
+          </div>
+          <div className='space-y-1.5'>
+            <Label htmlFor='bridge-client-policy-max-result-bytes'>
+              {t('Max result bytes')}
+            </Label>
+            <Input
+              id='bridge-client-policy-max-result-bytes'
+              inputMode='numeric'
+              value={form.maxResultBytes}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  maxResultBytes: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className='space-y-1.5'>
+            <Label htmlFor='bridge-client-policy-max-scan-file-bytes'>
+              {t('Max scan file bytes')}
+            </Label>
+            <Input
+              id='bridge-client-policy-max-scan-file-bytes'
+              inputMode='numeric'
+              value={form.maxScanFileBytes}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  maxScanFileBytes: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className='space-y-1.5'>
+            <Label htmlFor='bridge-client-policy-max-results'>
+              {t('Max results')}
+            </Label>
+            <Input
+              id='bridge-client-policy-max-results'
+              inputMode='numeric'
+              value={form.maxResults}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  maxResults: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className='space-y-1.5'>
+            <Label htmlFor='bridge-client-policy-tree-depth'>
+              {t('Tree depth')}
+            </Label>
+            <Input
+              id='bridge-client-policy-tree-depth'
+              inputMode='numeric'
+              value={form.treeDepth}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  treeDepth: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className='space-y-1.5'>
+            <Label htmlFor='bridge-client-policy-walk-depth'>
+              {t('Walk depth')}
+            </Label>
+            <Input
+              id='bridge-client-policy-walk-depth'
+              inputMode='numeric'
+              value={form.walkDepth}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  walkDepth: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className='space-y-1.5 sm:col-span-2'>
+            <Label htmlFor='bridge-client-policy-targets'>
+              {t('MCP target allowlist')}
+            </Label>
+            <Textarea
+              id='bridge-client-policy-targets'
+              value={form.mcpAllowedTargets}
+              rows={3}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  mcpAllowedTargets: event.target.value,
+                }))
+              }
+            />
+          </div>
         </div>
 
         <DialogFooter>
@@ -190,6 +338,20 @@ export function BridgeClientEditDialog(props: BridgeClientEditDialogProps) {
                 workspace: form.workspace.trim(),
                 capabilities: parseCapabilities(form.capabilities),
                 status: Number(form.status),
+                policy: {
+                  allowed_tools: parseCapabilities(form.allowedTools),
+                  allow_write: form.allowWrite,
+                  max_result_bytes: parseOptionalNumber(form.maxResultBytes),
+                  max_scan_file_bytes: parseOptionalNumber(
+                    form.maxScanFileBytes
+                  ),
+                  max_results: parseOptionalNumber(form.maxResults),
+                  tree_depth: parseOptionalNumber(form.treeDepth),
+                  walk_depth: parseOptionalNumber(form.walkDepth),
+                  mcp_allowed_targets: parseCapabilities(
+                    form.mcpAllowedTargets
+                  ),
+                },
               })
             }
           >

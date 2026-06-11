@@ -77,6 +77,15 @@ function formatSize(value: number): string {
   return `${formatNumber(value / 1024 / 1024)} MB`
 }
 
+function formatPolicyLimit(value?: number): string {
+  return value && value > 0 ? formatNumber(value) : '-'
+}
+
+function formatPolicyList(values?: string[]): string {
+  if (!values || values.length === 0) return '-'
+  return values.join(', ')
+}
+
 function MetricCard(props: {
   label: string
   value: string
@@ -564,6 +573,39 @@ export function BridgeClientDetailPanel(props: BridgeClientDetailPanelProps) {
           </div>
         </div>
       )}
+
+      <div className='mt-4 rounded-md border px-3 py-2'>
+        <div className='text-sm font-medium'>{t('Server Policy')}</div>
+        <div className='text-muted-foreground mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4'>
+          <span className='min-w-0 truncate'>
+            {t('Allowed tools')}: {formatPolicyList(client.policy.allowed_tools)}
+          </span>
+          <span>
+            {t('Write')}: {client.policy.allow_write ? t('Allowed') : t('Denied')}
+          </span>
+          <span>
+            {t('Max results')}: {formatPolicyLimit(client.policy.max_results)}
+          </span>
+          <span>
+            {t('Tree depth')}: {formatPolicyLimit(client.policy.tree_depth)}
+          </span>
+          <span>
+            {t('Walk depth')}: {formatPolicyLimit(client.policy.walk_depth)}
+          </span>
+          <span>
+            {t('Max result bytes')}:{' '}
+            {formatPolicyLimit(client.policy.max_result_bytes)}
+          </span>
+          <span>
+            {t('Max scan file bytes')}:{' '}
+            {formatPolicyLimit(client.policy.max_scan_file_bytes)}
+          </span>
+          <span className='min-w-0 truncate'>
+            {t('MCP targets')}:{' '}
+            {formatPolicyList(client.policy.mcp_allowed_targets)}
+          </span>
+        </div>
+      </div>
 
       <div className='mt-4 grid gap-3 lg:grid-cols-2'>
         <div className='rounded-md border px-3 py-2'>

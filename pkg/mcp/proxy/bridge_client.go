@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/bridge"
+	"github.com/QuantumNous/new-api/pkg/bridgepolicy"
 )
 
 const (
@@ -82,11 +83,11 @@ func normalizeBridgeEndpointURL(raw string) string {
 }
 
 func (c *BridgeClient) Test(ctx context.Context, server model.MCPProxyServer) (TestResult, error) {
-	endpoint, session, err := c.selectSession(server, 0)
+	endpoint, session, policy, err := c.selectSession(server, 0)
 	if err != nil {
 		return TestResult{}, err
 	}
-	response, err := c.forward(ctx, session, BridgeToolMCPProxyTest, bridgeProxyBaseArguments(server, endpoint), "", 0, 0)
+	response, err := c.forward(ctx, session, BridgeToolMCPProxyTest, bridgeProxyBaseArguments(server, endpoint), "", 0, 0, policy)
 	if err != nil {
 		return TestResult{}, err
 	}
@@ -107,11 +108,11 @@ func (c *BridgeClient) Test(ctx context.Context, server model.MCPProxyServer) (T
 }
 
 func (c *BridgeClient) ListTools(ctx context.Context, server model.MCPProxyServer) ([]ToolDefinition, error) {
-	endpoint, session, err := c.selectSession(server, 0)
+	endpoint, session, policy, err := c.selectSession(server, 0)
 	if err != nil {
 		return nil, err
 	}
-	response, err := c.forward(ctx, session, BridgeToolMCPProxyListTools, bridgeProxyBaseArguments(server, endpoint), "", 0, 0)
+	response, err := c.forward(ctx, session, BridgeToolMCPProxyListTools, bridgeProxyBaseArguments(server, endpoint), "", 0, 0, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -124,14 +125,14 @@ func (c *BridgeClient) ListTools(ctx context.Context, server model.MCPProxyServe
 }
 
 func (c *BridgeClient) CallTool(ctx context.Context, server model.MCPProxyServer, req CallRequest) (CallResult, error) {
-	endpoint, session, err := c.selectSession(server, req.UserId)
+	endpoint, session, policy, err := c.selectSession(server, req.UserId)
 	if err != nil {
 		return CallResult{}, err
 	}
 	args := bridgeProxyBaseArguments(server, endpoint)
 	args["name"] = strings.TrimSpace(req.ToolName)
 	args["arguments"] = req.Arguments
-	response, err := c.forward(ctx, session, BridgeToolMCPProxyCallTool, args, req.RequestId, req.UserId, req.TokenId)
+	response, err := c.forward(ctx, session, BridgeToolMCPProxyCallTool, args, req.RequestId, req.UserId, req.TokenId, policy)
 	result := bridgeCallResultFromResponse(response)
 	if err != nil {
 		return result, err
@@ -157,16 +158,20 @@ func (c *BridgeClient) SessionSnapshot(server model.MCPProxyServer) SessionSnaps
 	return snapshot
 }
 
-func (c *BridgeClient) selectSession(server model.MCPProxyServer, userId int) (BridgeEndpoint, bridge.SessionSnapshot, error) {
+func (c *BridgeClient) selectSession(server model.MCPProxyServer, userId int) (BridgeEndpoint, bridge.SessionSnapshot, bridgepolicy.Policy, error) {
 	endpoint, err := ParseBridgeEndpoint(server.Endpoint)
 	if err != nil {
-		return BridgeEndpoint{}, bridge.SessionSnapshot{}, err
+		return BridgeEndpoint{}, bridge.SessionSnapshot{}, bridgepolicy.Policy{}, err
 	}
 	session, err := c.sessionByEndpoint(endpoint, userId)
 	if err != nil {
-		return BridgeEndpoint{}, bridge.SessionSnapshot{}, err
+		return BridgeEndpoint{}, bridge.SessionSnapshot{}, bridgepolicy.Policy{}, err
 	}
-	return endpoint, session, nil
+	policy, err := model.GetBridgeClientPolicyByClientId(session.ClientId)
+	if err != nil {
+		return BridgeEndpoint{}, bridge.SessionSnapshot{}, bridgepolicy.Policy{}, err
+	}
+	return endpoint, session, policy, nil
 }
 
 func (c *BridgeClient) sessionByEndpoint(endpoint BridgeEndpoint, userId int) (bridge.SessionSnapshot, error) {
@@ -186,7 +191,7 @@ func (c *BridgeClient) sessionByEndpoint(endpoint BridgeEndpoint, userId int) (b
 	return session, nil
 }
 
-func (c *BridgeClient) forward(ctx context.Context, session bridge.SessionSnapshot, toolName string, args map[string]any, requestId string, userId int, tokenId int) (bridge.ToolCallResponse, error) {
+func (c *BridgeClient) forward(ctx context.Context, session bridge.SessionSnapshot, toolName string, args map[string]any, requestId string, userId int, tokenId int, policy bridgepolicy.Policy) (bridge.ToolCallResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -196,10 +201,19 @@ func (c *BridgeClient) forward(ctx context.Context, session bridge.SessionSnapsh
 	}
 	startedAt := time.Now()
 	audit := createBridgeProxyAudit(id, session, toolName, args, userId, tokenId)
+	if err := bridgepolicy.ValidateTool(policy, toolName); err != nil {
+		updateBridgeProxyAuditError(audit, model.BridgeAuditStatusError, bridgeProxyErrorCode(err), err.Error(), int(time.Since(startedAt).Milliseconds()))
+		return bridge.ToolCallResponse{Session: session}, err
+	}
+	if err := bridgepolicy.ValidateMCPTarget(policy, bridgeProxyTargetFromArgs(args)); err != nil {
+		updateBridgeProxyAuditError(audit, model.BridgeAuditStatusError, bridgeProxyErrorCode(err), err.Error(), int(time.Since(startedAt).Milliseconds()))
+		return bridge.ToolCallResponse{Session: session}, err
+	}
+	arguments := bridgepolicy.ApplyArgumentLimits(policy, toolName, args)
 	response, err := c.Hub.ForwardToolCall(ctx, session.SessionId, bridge.ToolCallRequest{
 		Id:        id,
 		ToolName:  toolName,
-		Arguments: args,
+		Arguments: arguments,
 	})
 	durationMS := int(time.Since(startedAt).Milliseconds())
 	if err != nil {
@@ -211,6 +225,10 @@ func (c *BridgeClient) forward(ctx context.Context, session bridge.SessionSnapsh
 		if bytes, marshalErr := common.Marshal(response.Result); marshalErr == nil {
 			resultSize = len(bytes)
 		}
+	}
+	if err := bridgepolicy.ValidateResultSize(policy, resultSize); err != nil {
+		updateBridgeProxyAuditError(audit, model.BridgeAuditStatusError, bridgeProxyErrorCode(err), err.Error(), durationMS)
+		return response, err
 	}
 	updateBridgeProxyAuditSuccess(audit, durationMS, resultSize)
 	return response, nil
@@ -230,6 +248,21 @@ func bridgeProxyBaseArguments(server model.MCPProxyServer, endpoint BridgeEndpoi
 		args["target"] = endpoint.Target
 	}
 	return args
+}
+
+func bridgeProxyTargetFromArgs(args map[string]any) string {
+	if target := stringFromAny(args["target"]); target != "" {
+		return target
+	}
+	endpoint := stringFromAny(args["endpoint"])
+	if endpoint == "" {
+		return ""
+	}
+	parsed, err := ParseBridgeEndpoint(endpoint)
+	if err != nil {
+		return ""
+	}
+	return parsed.Target
 }
 
 func bridgeCallResultFromResponse(response bridge.ToolCallResponse) CallResult {
@@ -305,6 +338,9 @@ func bridgeProxyAuditStatus(err error) string {
 }
 
 func bridgeProxyErrorCode(err error) string {
+	if code := bridgepolicy.ErrorCode(err); code != "" {
+		return code
+	}
 	var clientErr *bridge.ClientError
 	if errors.As(err, &clientErr) && clientErr.Code != "" {
 		return clientErr.Code

@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/bridge"
+	"github.com/QuantumNous/new-api/pkg/bridgepolicy"
 
 	"gorm.io/gorm"
 )
@@ -372,6 +373,13 @@ func bridgeClientUpdateFields(req dto.BridgeClientUpdateRequest) (map[string]any
 			return nil, errors.New("invalid bridge client status")
 		}
 	}
+	if req.Policy != nil {
+		rawPolicy, err := bridgepolicy.Marshal(*req.Policy)
+		if err != nil {
+			return nil, err
+		}
+		updates["policy"] = rawPolicy
+	}
 	return updates, nil
 }
 
@@ -405,6 +413,10 @@ func bridgeClientToDTO(client model.BridgeClient) dto.BridgeClientItem {
 	if client.Capabilities != "" {
 		_ = common.UnmarshalJsonStr(client.Capabilities, &capabilities)
 	}
+	policy, err := bridgepolicy.Parse(client.Policy)
+	if err != nil {
+		policy = bridgepolicy.Policy{}
+	}
 	item := dto.BridgeClientItem{
 		Id:           client.Id,
 		ClientId:     client.ClientId,
@@ -415,6 +427,7 @@ func bridgeClientToDTO(client model.BridgeClient) dto.BridgeClientItem {
 		Platform:     client.Platform,
 		Workspace:    client.Workspace,
 		Capabilities: capabilities,
+		Policy:       policy,
 		Status:       client.Status,
 		LastSeenAt:   client.LastSeenAt,
 		CreatedAt:    client.CreatedAt,

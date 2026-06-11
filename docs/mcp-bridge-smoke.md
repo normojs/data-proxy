@@ -185,6 +185,11 @@ Default safety boundaries:
   for absolute paths outside the workspace.
 - MCP Proxy targets must be `localhost`, `127.0.0.1`, or `::1`;
   `--allow-non-loopback-mcp` is needed for other hosts.
+- data-proxy also enforces per-client server policy before forwarding Bridge
+  tool calls. The policy can restrict allowed tools, keep write tools disabled
+  even when a daemon advertises them, cap result/scan limits, and allowlist MCP
+  Proxy targets. Empty policy allows advertised read/proxy tools, denies
+  `remote_write`/`remote_edit`, and allows only loopback MCP targets.
 - Tool execution is limited by `--max-concurrency`.
 - Scan and result sizes are bounded by `--max-results`, `--tree-depth`,
   `--walk-depth`, `--max-result-bytes`, and `--max-scan-file-bytes`; these
@@ -192,15 +197,37 @@ Default safety boundaries:
 - The daemon heartbeats and reconnects with exponential backoff unless
   `--no-reconnect` is set.
 
+Admin policy update example:
+
+```bash
+curl -X PATCH "$DATA_PROXY_BASE_URL/api/bridge/clients/$BRIDGE_CLIENT_ID?scope=all" \
+  -H "Authorization: Bearer $DATA_PROXY_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "policy": {
+      "allowed_tools": ["remote_read", "remote_tree", "remote_glob", "remote_grep", "remote_env_info", "mcp_proxy"],
+      "allow_write": false,
+      "max_result_bytes": 524288,
+      "max_scan_file_bytes": 2097152,
+      "max_results": 200,
+      "tree_depth": 3,
+      "walk_depth": 8,
+      "mcp_allowed_targets": ["http://127.0.0.1:3001/mcp"]
+    }
+  }'
+```
+
 ## Local Daemon Concurrency Smoke
 
 The concurrency smoke starts a local `new-api` process unless `--base-url` is
 provided, creates a smoke user/token, starts a loopback MCP HTTP server, starts
 the local Bridge daemon, configures an MCP Proxy server with
-`transport=qidian_browser`, actively closes the first Bridge session to verify
-daemon reconnect, verifies that a write-disabled daemon rejects `remote_write`
-with `REMOTE_WRITE_DISABLED` and refunds billing, verifies that non-loopback
-MCP Proxy targets are rejected with `MCP_PROXY_FORBIDDEN_TARGET`, then
+`transport=qidian_browser`, explicitly opens the smoke client's server policy
+for write/proxy target tests, actively closes the first Bridge session to
+verify daemon reconnect, verifies that a write-disabled daemon rejects
+`remote_write` with `REMOTE_WRITE_DISABLED` and refunds billing, verifies that
+non-loopback MCP Proxy targets are rejected by the daemon with
+`MCP_PROXY_FORBIDDEN_TARGET`, then
 concurrently calls:
 
 - `remote_write`

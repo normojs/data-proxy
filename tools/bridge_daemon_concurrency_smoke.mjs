@@ -567,6 +567,15 @@ async function apiSend(method, url, headers, body) {
   return json;
 }
 
+async function updateBridgeClientPolicy(baseUrl, headers, clientId, policy) {
+  return apiSend(
+    'PATCH',
+    `${baseUrl}/api/bridge/clients/${encodeURIComponent(clientId)}?scope=all`,
+    headers,
+    { policy },
+  );
+}
+
 async function expectAPIError(method, url, headers, body, expectedText) {
   const response = await fetch(url, {
     method,
@@ -1152,6 +1161,10 @@ async function assertWriteDisabledDaemonScenario(baseUrl, apiToken, headers, suf
     if (!bridgeClient.capabilities?.includes('remote_write')) {
       throw new Error(`write-disabled daemon did not advertise remote_write: ${JSON.stringify(bridgeClient.capabilities)}`);
     }
+    await updateBridgeClientPolicy(baseUrl, headers, disabledClientId, {
+      allowed_tools: ['remote_write'],
+      allow_write: true,
+    });
     priceConfig = await runSmokeHelper('set_tool_price', {
       name: 'remote_write',
       price_per_call: WRITE_DISABLED_PRICE_PER_CALL,
@@ -1513,6 +1526,10 @@ async function main() {
       throw new Error(`bridge daemon did not advertise ${capability}: ${JSON.stringify(bridgeClient.capabilities)}`);
     }
   }
+  await updateBridgeClientPolicy(baseUrl, dashboardHeaders, clientId, {
+    allow_write: true,
+    mcp_allowed_targets: ['*'],
+  });
   const reconnectResult = await assertReconnectScenario(
     baseUrl,
     prepared.api_token,

@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/bridge"
+	"github.com/QuantumNous/new-api/pkg/bridgepolicy"
 	"github.com/stretchr/testify/require"
 )
 
@@ -248,4 +249,58 @@ func TestRegisterBridgeClientRejectsCrossUserClientId(t *testing.T) {
 	var archived model.BridgeClient
 	require.NoError(t, model.DB.Unscoped().Where("client_id = ?", "bridge-owner-lock").First(&archived).Error)
 	require.Equal(t, owner.Id, archived.UserId)
+}
+
+func TestUpdateBridgeClientPolicyAndPreserveOnReconnect(t *testing.T) {
+	setupMCPProxyServiceTestDB(t)
+
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+	registered, err := RegisterBridgeClient(BridgeRegisterInput{
+		UserId:       user.Id,
+		TokenId:      token.Id,
+		ClientId:     "bridge-policy-client",
+		Name:         "Policy Bridge",
+		Capabilities: []string{"remote_read", "remote_write", "mcp_proxy"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, registered.SessionId)
+
+	policy := bridgepolicy.Policy{
+		AllowedTools:      []string{"remote_read", "mcp_proxy"},
+		AllowWrite:        false,
+		MaxResultBytes:    1024,
+		MaxScanFileBytes:  2048,
+		MaxResults:        20,
+		TreeDepth:         3,
+		WalkDepth:         4,
+		MCPAllowedTargets: []string{"https://mcp.example.com/rpc"},
+	}
+	detail, err := UpdateBridgeClient(BridgeClientUpdateParams{
+		UserId:   user.Id,
+		ClientId: "bridge-policy-client",
+		Request: dto.BridgeClientUpdateRequest{
+			Policy: &policy,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"remote_read", "mcp_proxy"}, detail.Client.Policy.AllowedTools)
+	require.Equal(t, 1024, detail.Client.Policy.MaxResultBytes)
+	require.Equal(t, []string{"https://mcp.example.com/rpc"}, detail.Client.Policy.MCPAllowedTargets)
+
+	_, err = RegisterBridgeClient(BridgeRegisterInput{
+		UserId:       user.Id,
+		TokenId:      token.Id,
+		ClientId:     "bridge-policy-client",
+		Name:         "Policy Bridge Reconnected",
+		Capabilities: []string{"remote_read", "remote_write", "mcp_proxy"},
+	})
+	require.NoError(t, err)
+
+	preserved, err := GetBridgeClientDetail(BridgeClientDetailParams{
+		UserId:   user.Id,
+		ClientId: "bridge-policy-client",
+	})
+	require.NoError(t, err)
+	require.Equal(t, policy.MaxScanFileBytes, preserved.Client.Policy.MaxScanFileBytes)
+	require.False(t, preserved.Client.Policy.AllowWrite)
 }

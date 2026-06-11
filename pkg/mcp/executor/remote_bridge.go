@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/bridge"
+	"github.com/QuantumNous/new-api/pkg/bridgepolicy"
 )
 
 const defaultRemoteBridgeTimeout = 60 * time.Second
@@ -56,6 +57,14 @@ func (e *RemoteBridgeExecutor) Execute(ctx context.Context, req Request) (Result
 			Err:     bridge.ErrClientNotFound,
 		}
 	}
+	policy, err := model.GetBridgeClientPolicyByClientId(session.ClientId)
+	if err != nil {
+		return Result{}, &ExecutionError{
+			Code:    ErrorCodeFailed,
+			Message: "failed to load bridge client policy",
+			Err:     err,
+		}
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -84,11 +93,27 @@ func (e *RemoteBridgeExecutor) Execute(ctx context.Context, req Request) (Result
 	if err := model.CreateBridgeAuditLog(audit); err != nil {
 		return Result{}, err
 	}
+	if err := bridgepolicy.ValidateTool(policy, req.Tool.Name); err != nil {
+		_ = model.UpdateBridgeAuditLogStatus(audit.Id, model.BridgeAuditStatusError, map[string]any{
+			"error_code":    bridgePolicyErrorCode(err),
+			"error_message": err.Error(),
+			"duration_ms":   int(time.Since(startedAt).Milliseconds()),
+		})
+		return Result{
+				BridgeSessionId: session.SessionId,
+				TargetClient:    session.ClientId,
+			}, &ExecutionError{
+				Code:    bridgePolicyErrorCode(err),
+				Message: err.Error(),
+				Err:     err,
+			}
+	}
 
+	arguments := bridgepolicy.ApplyArgumentLimits(policy, req.Tool.Name, req.Arguments)
 	response, err := e.Hub.ForwardToolCall(callCtx, session.SessionId, bridge.ToolCallRequest{
 		Id:        req.RequestId,
 		ToolName:  req.Tool.Name,
-		Arguments: req.Arguments,
+		Arguments: arguments,
 	})
 	durationMS := int(time.Since(startedAt).Milliseconds())
 	if err != nil {
@@ -123,6 +148,24 @@ func (e *RemoteBridgeExecutor) Execute(ctx context.Context, req Request) (Result
 			resultSize = len(bytes)
 		}
 	}
+	if err := bridgepolicy.ValidateResultSize(policy, resultSize); err != nil {
+		_ = model.UpdateBridgeAuditLogStatus(audit.Id, model.BridgeAuditStatusError, map[string]any{
+			"error_code":    bridgePolicyErrorCode(err),
+			"error_message": err.Error(),
+			"duration_ms":   durationMS,
+			"result_size":   resultSize,
+		})
+		return Result{
+				DurationMS:      durationMS,
+				ResultSize:      resultSize,
+				BridgeSessionId: response.Session.SessionId,
+				TargetClient:    response.Session.ClientId,
+			}, &ExecutionError{
+				Code:    bridgePolicyErrorCode(err),
+				Message: err.Error(),
+				Err:     err,
+			}
+	}
 	_ = model.UpdateBridgeAuditLogStatus(audit.Id, model.BridgeAuditStatusSuccess, map[string]any{
 		"duration_ms": durationMS,
 		"result_size": resultSize,
@@ -140,4 +183,11 @@ func (e *RemoteBridgeExecutor) Execute(ctx context.Context, req Request) (Result
 		BridgeSessionId: response.Session.SessionId,
 		TargetClient:    response.Session.ClientId,
 	}, nil
+}
+
+func bridgePolicyErrorCode(err error) string {
+	if code := bridgepolicy.ErrorCode(err); code != "" {
+		return code
+	}
+	return ErrorCodeFailed
 }

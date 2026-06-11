@@ -47,7 +47,7 @@
 
 ## P1 - Core capability expansion
 
-- [ ] Add server-side Bridge client policy controls.
+- [x] Add server-side Bridge client policy controls.
   - Acceptance: admins can configure allowed tools, write permission, max result size, scan limits, and MCP target allowlist per Bridge client.
   - Acceptance: daemon defaults remain conservative and server-side policy is enforced before tool forwarding.
 - [ ] Implement MCP Proxy OAuth authentication support.

@@ -1,5 +1,7 @@
 package dto
 
+import "github.com/QuantumNous/new-api/pkg/bridgepolicy"
+
 type BridgeClientRegisterRequest struct {
 	ClientId     string   `json:"client_id"`
 	Name         string   `json:"name,omitempty"`
@@ -35,12 +37,13 @@ type BridgeToolCallError struct {
 }
 
 type BridgeClientUpdateRequest struct {
-	Name         *string   `json:"name,omitempty"`
-	Version      *string   `json:"version,omitempty"`
-	Platform     *string   `json:"platform,omitempty"`
-	Workspace    *string   `json:"workspace,omitempty"`
-	Capabilities *[]string `json:"capabilities,omitempty"`
-	Status       *int      `json:"status,omitempty"`
+	Name         *string              `json:"name,omitempty"`
+	Version      *string              `json:"version,omitempty"`
+	Platform     *string              `json:"platform,omitempty"`
+	Workspace    *string              `json:"workspace,omitempty"`
+	Capabilities *[]string            `json:"capabilities,omitempty"`
+	Status       *int                 `json:"status,omitempty"`
+	Policy       *bridgepolicy.Policy `json:"policy,omitempty"`
 }
 
 type BridgeSessionCloseRequest struct {
@@ -48,21 +51,22 @@ type BridgeSessionCloseRequest struct {
 }
 
 type BridgeClientItem struct {
-	Id           int      `json:"id"`
-	ClientId     string   `json:"client_id"`
-	UserId       int      `json:"user_id"`
-	TokenId      int      `json:"token_id"`
-	Name         string   `json:"name"`
-	Version      string   `json:"version"`
-	Platform     string   `json:"platform"`
-	Workspace    string   `json:"workspace"`
-	Capabilities []string `json:"capabilities"`
-	Status       int      `json:"status"`
-	Online       bool     `json:"online"`
-	SessionId    string   `json:"session_id,omitempty"`
-	LastSeenAt   int64    `json:"last_seen_at"`
-	CreatedAt    int64    `json:"created_at"`
-	UpdatedAt    int64    `json:"updated_at"`
+	Id           int                 `json:"id"`
+	ClientId     string              `json:"client_id"`
+	UserId       int                 `json:"user_id"`
+	TokenId      int                 `json:"token_id"`
+	Name         string              `json:"name"`
+	Version      string              `json:"version"`
+	Platform     string              `json:"platform"`
+	Workspace    string              `json:"workspace"`
+	Capabilities []string            `json:"capabilities"`
+	Policy       bridgepolicy.Policy `json:"policy"`
+	Status       int                 `json:"status"`
+	Online       bool                `json:"online"`
+	SessionId    string              `json:"session_id,omitempty"`
+	LastSeenAt   int64               `json:"last_seen_at"`
+	CreatedAt    int64               `json:"created_at"`
+	UpdatedAt    int64               `json:"updated_at"`
 }
 
 type BridgeClientDetail struct {

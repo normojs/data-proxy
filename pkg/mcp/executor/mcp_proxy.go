@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/bridge"
+	"github.com/QuantumNous/new-api/pkg/bridgepolicy"
 	mcpproxy "github.com/QuantumNous/new-api/pkg/mcp/proxy"
 )
 
@@ -104,7 +105,9 @@ func (e *MCPProxyExecutor) Execute(ctx context.Context, req Request) (Result, er
 	if err != nil {
 		code := ErrorCodeFailed
 		var clientErr *bridge.ClientError
-		if errors.As(err, &clientErr) && clientErr.Code != "" {
+		if policyCode := bridgepolicy.ErrorCode(err); policyCode != "" {
+			code = policyCode
+		} else if errors.As(err, &clientErr) && clientErr.Code != "" {
 			code = clientErr.Code
 		} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
 			code = ErrorCodeTimeout

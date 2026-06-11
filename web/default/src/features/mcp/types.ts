@@ -539,12 +539,24 @@ export type BridgeClient = {
   platform: string
   workspace: string
   capabilities: string[]
+  policy: BridgeClientPolicy
   status: number
   online: boolean
   session_id?: string
   last_seen_at: number
   created_at: number
   updated_at: number
+}
+
+export type BridgeClientPolicy = {
+  allowed_tools?: string[]
+  allow_write: boolean
+  max_result_bytes?: number
+  max_scan_file_bytes?: number
+  max_results?: number
+  tree_depth?: number
+  walk_depth?: number
+  mcp_allowed_targets?: string[]
 }
 
 export type BridgeClientUpdatePayload = Partial<{
@@ -554,6 +566,7 @@ export type BridgeClientUpdatePayload = Partial<{
   workspace: string
   capabilities: string[]
   status: number
+  policy: BridgeClientPolicy
 }>
 
 export type BridgeSessionSnapshot = {

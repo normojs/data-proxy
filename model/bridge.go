@@ -1,9 +1,11 @@
 package model
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/bridgepolicy"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -33,6 +35,7 @@ type BridgeClient struct {
 	Platform     string         `json:"platform" gorm:"type:varchar(64);not null;default:''"`
 	Workspace    string         `json:"workspace" gorm:"type:varchar(512);not null;default:''"`
 	Capabilities string         `json:"capabilities" gorm:"type:text"`
+	Policy       string         `json:"policy" gorm:"type:text"`
 	Status       int            `json:"status" gorm:"not null;default:0;index"`
 	LastSeenAt   int64          `json:"last_seen_at" gorm:"bigint;index"`
 	CreatedAt    int64          `json:"created_at" gorm:"bigint"`
@@ -305,6 +308,24 @@ func GetBridgeClientByClientIdUnscoped(clientId string) (*BridgeClient, error) {
 	var client BridgeClient
 	err := DB.Unscoped().Where("client_id = ?", clientId).First(&client).Error
 	return &client, err
+}
+
+func GetBridgeClientPolicyByClientId(clientId string) (bridgepolicy.Policy, error) {
+	clientId = strings.TrimSpace(clientId)
+	if clientId == "" || DB == nil {
+		return bridgepolicy.Policy{}, nil
+	}
+	if !DB.Migrator().HasTable(&BridgeClient{}) {
+		return bridgepolicy.Policy{}, nil
+	}
+	client, err := GetBridgeClientByClientId(clientId)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return bridgepolicy.Policy{}, nil
+		}
+		return bridgepolicy.Policy{}, err
+	}
+	return bridgepolicy.Parse(client.Policy)
 }
 
 func ListBridgeClients(filter BridgeClientFilter, offset int, limit int) ([]BridgeClient, int64, error) {

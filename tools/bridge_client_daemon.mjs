@@ -299,6 +299,29 @@ function configuredLimit(config, key, fallback, hardMax) {
   return positiveInt(config?.[key], fallback, hardMax);
 }
 
+function policyLimit(config, args, key, fallback, hardMax) {
+  const configured = configuredLimit(config, key, fallback, hardMax);
+  const policy = args?._bridge_policy_limits;
+  if (!policy || typeof policy !== 'object') return configured;
+  const snakeKey = key.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
+  const requested = positiveInt(policy[snakeKey], configured, hardMax);
+  return Math.min(configured, requested);
+}
+
+function applyServerPolicyLimits(config, args) {
+  if (!args?._bridge_policy_limits || typeof args._bridge_policy_limits !== 'object') {
+    return config;
+  }
+  return {
+    ...config,
+    maxResults: policyLimit(config, args, 'maxResults', DEFAULT_MAX_RESULTS, 5000),
+    treeDepth: policyLimit(config, args, 'treeDepth', DEFAULT_TREE_DEPTH, 16),
+    walkDepth: policyLimit(config, args, 'walkDepth', DEFAULT_WALK_DEPTH, 32),
+    maxResultBytes: policyLimit(config, args, 'maxResultBytes', DEFAULT_MAX_RESULT_BYTES, 50 * 1024 * 1024),
+    maxScanFileBytes: policyLimit(config, args, 'maxScanFileBytes', DEFAULT_MAX_SCAN_FILE_BYTES, 100 * 1024 * 1024),
+  };
+}
+
 function cappedOption(value, fallback, cap) {
   return Math.min(positiveInt(value, fallback, cap), cap);
 }
@@ -890,6 +913,7 @@ async function handleToolCall(config, message) {
   if (args?.mock_error_code) {
     throw createToolError(String(args.mock_error_code), String(args.mock_error_message || args.mock_error_code));
   }
+  const callConfig = applyServerPolicyLimits(config, args);
   const delayMS = positiveInt(args?.mock_delay_ms, 0, 30_000);
   if (delayMS > 0) await sleep(delayMS);
 
@@ -903,13 +927,13 @@ async function handleToolCall(config, message) {
     remote_env_info: handleRemoteEnvInfo,
   };
   if (toolName?.startsWith('mcp_proxy.')) {
-    return handleMCPProxy(config, toolName, args);
+    return handleMCPProxy(callConfig, toolName, args);
   }
   const handler = handlers[toolName];
-  if (!handler || !config.capabilities.includes(toolName)) {
+  if (!handler || !callConfig.capabilities.includes(toolName)) {
     throw createToolError('TOOL_NOT_SUPPORTED', `tool is not supported by this daemon: ${toolName || '<empty>'}`);
   }
-  return handler(config, args);
+  return handler(callConfig, args);
 }
 
 function getRequestId(message) {

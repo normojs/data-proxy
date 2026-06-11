@@ -58,6 +58,9 @@ func TestMCPMigrationSmoke(t *testing.T) {
 	if !DB.Migrator().HasTable(&BridgeClient{}) {
 		t.Fatal("bridge_clients table was not migrated")
 	}
+	if !DB.Migrator().HasColumn(&BridgeClient{}, "policy") {
+		t.Fatal("bridge_clients.policy column was not migrated")
+	}
 	if !DB.Migrator().HasTable(&BridgeSession{}) {
 		t.Fatal("bridge_sessions table was not migrated")
 	}

@@ -84,9 +84,14 @@ MCP / Bridge 常用文件：
 - Bridge 审计日志、`mcp_tool_calls`、计费事件需要保持一致：成功、失败、超时、
   断开、退款路径都要能追踪。
 - 本地 daemon 默认禁止写入；启用写工具必须显式传 `--enable-write`。
+- 服务端 Bridge client policy 默认仍禁止 `remote_write` / `remote_edit`，
+  即使 daemon 已声明写能力；需要测试写路径时先通过 admin PATCH 明确设置
+  `policy.allow_write=true`。
 - 本地 daemon 的 MCP Proxy target 默认只允许 loopback：
   `localhost`, `127.0.0.1`, `::1`。只有测试或明确需求才允许
   `--allow-non-loopback-mcp`。
+- 服务端 `policy.mcp_allowed_targets` 为空时也只允许 loopback；只有受控测试
+  或明确生产配置才允许 `"*"` 或非 loopback host。
 - 文件工具必须保留 workspace 边界、路径穿越防护、结果大小限制、scan limit。
 - 心跳、重连、server close、clean close 都应进入本地 JSONL audit，便于 smoke
   诊断。
