@@ -132,16 +132,66 @@ type MCPSummaryRecentError struct {
 	CreatedAt    int64  `json:"created_at"`
 }
 
+type MCPSummaryBridgeTrendBucket struct {
+	BucketStart     int64 `json:"bucket_start"`
+	OnlineClients   int64 `json:"online_clients"`
+	StartedSessions int64 `json:"started_sessions"`
+	ClosedSessions  int64 `json:"closed_sessions"`
+}
+
+type MCPSummaryOpenAPIStorageBucket struct {
+	BucketStart   int64 `json:"bucket_start"`
+	ObjectCount   int64 `json:"object_count"`
+	TotalBytes    int64 `json:"total_bytes"`
+	ExpiredCount  int64 `json:"expired_count"`
+	DownloadCount int64 `json:"download_count"`
+}
+
+type MCPSummaryProxyErrorTool struct {
+	ProxyServerId      int     `json:"proxy_server_id"`
+	ProxyToolId        int64   `json:"proxy_tool_id"`
+	ToolId             int     `json:"tool_id"`
+	ToolName           string  `json:"tool_name"`
+	DownstreamToolName string  `json:"downstream_tool_name"`
+	TotalCalls         int64   `json:"total_calls"`
+	SuccessCalls       int64   `json:"success_calls"`
+	ErrorCalls         int64   `json:"error_calls"`
+	TimeoutCalls       int64   `json:"timeout_calls"`
+	SuccessRate        float64 `json:"success_rate"`
+	AvgDurationMS      float64 `json:"avg_duration_ms"`
+}
+
+type MCPSummaryBillingAnomalies struct {
+	UnsettledSuccessCalls int64 `json:"unsettled_success_calls"`
+	FailedChargedCalls    int64 `json:"failed_charged_calls"`
+	MissingDebitEvents    int64 `json:"missing_debit_events"`
+	RefundEvents          int64 `json:"refund_events"`
+	RefundQuota           int64 `json:"refund_quota"`
+	NetMCPQuotaDelta      int64 `json:"net_mcp_quota_delta"`
+}
+
+type MCPSummaryOperationsTrends struct {
+	StartTime        int64                            `json:"start_time"`
+	EndTime          int64                            `json:"end_time"`
+	BucketSeconds    int64                            `json:"bucket_seconds"`
+	CheckedAt        int64                            `json:"checked_at"`
+	BridgeOnline     []MCPSummaryBridgeTrendBucket    `json:"bridge_online"`
+	OpenAPIStorage   []MCPSummaryOpenAPIStorageBucket `json:"openapi_storage"`
+	ProxyErrorTopN   []MCPSummaryProxyErrorTool       `json:"proxy_error_top_n"`
+	BillingAnomalies MCPSummaryBillingAnomalies       `json:"billing_anomalies"`
+}
+
 type MCPSummary struct {
-	WindowSeconds int64                   `json:"window_seconds"`
-	GeneratedAt   int64                   `json:"generated_at"`
-	Tools         MCPSummaryToolStats     `json:"tools"`
-	Bridge        MCPSummaryBridgeStats   `json:"bridge"`
-	Calls         MCPSummaryCallStats     `json:"calls"`
-	Audit         MCPSummaryAuditStats    `json:"audit"`
-	TopTools      []MCPSummaryTopTool     `json:"top_tools"`
-	RecentErrors  []MCPSummaryRecentError `json:"recent_errors"`
-	ReviewQueue   *MCPReviewQueue         `json:"review_queue,omitempty"`
+	WindowSeconds    int64                       `json:"window_seconds"`
+	GeneratedAt      int64                       `json:"generated_at"`
+	Tools            MCPSummaryToolStats         `json:"tools"`
+	Bridge           MCPSummaryBridgeStats       `json:"bridge"`
+	Calls            MCPSummaryCallStats         `json:"calls"`
+	Audit            MCPSummaryAuditStats        `json:"audit"`
+	TopTools         []MCPSummaryTopTool         `json:"top_tools"`
+	RecentErrors     []MCPSummaryRecentError     `json:"recent_errors"`
+	OperationsTrends *MCPSummaryOperationsTrends `json:"operations_trends,omitempty"`
+	ReviewQueue      *MCPReviewQueue             `json:"review_queue,omitempty"`
 }
 
 // MCPReviewItem is a single actionable operations item surfaced in the MCP

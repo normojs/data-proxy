@@ -15,6 +15,12 @@ type BridgeAuditLogStats struct {
 	AvgDurationMS float64 `gorm:"column:avg_duration_ms"`
 }
 
+type BridgeSessionTrendSource struct {
+	ClientId    string `gorm:"column:client_id"`
+	ConnectedAt int64  `gorm:"column:connected_at"`
+	ClosedAt    int64  `gorm:"column:closed_at"`
+}
+
 func GetBridgeClientStats(userId int, activeSince int64) (BridgeClientStats, error) {
 	query := DB.Model(&BridgeClient{})
 	if userId > 0 {
@@ -28,6 +34,28 @@ func GetBridgeClientStats(userId int, activeSince int64) (BridgeClientStats, err
 		activeSince,
 	).Scan(&stats).Error
 	return stats, err
+}
+
+func ListBridgeSessionTrendSources(userId int, startTime int64, endTime int64, limit int) ([]BridgeSessionTrendSource, error) {
+	if limit <= 0 {
+		limit = 10000
+	}
+	query := DB.Model(&BridgeSession{}).
+		Select("client_id, connected_at, closed_at")
+	if userId > 0 {
+		query = query.Where("user_id = ?", userId)
+	}
+	if endTime > 0 {
+		query = query.Where("connected_at <= ?", endTime)
+	}
+	if startTime > 0 {
+		query = query.Where("closed_at = 0 OR closed_at >= ?", startTime)
+	}
+	var sessions []BridgeSessionTrendSource
+	err := query.Order("connected_at asc, id asc").
+		Limit(limit).
+		Scan(&sessions).Error
+	return sessions, err
 }
 
 func GetBridgeAuditLogStats(filter BridgeAuditLogFilter) (BridgeAuditLogStats, error) {

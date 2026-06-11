@@ -26,8 +26,10 @@ import {
   CheckCircle2,
   Clock3,
   Coins,
+  HardDrive,
   RefreshCw,
   ShieldAlert,
+  TrendingUp,
   Wrench,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -45,6 +47,7 @@ import {
   getMCPReviewCategoryLabel,
   getMCPReviewReasonLabel,
 } from '../constants'
+import { normalizeMCPSummaryOperationsTrends } from '../lib/overview-trends'
 import { mcpQueryError, mcpQueryErrorMessage } from '../lib/query-errors'
 import type { MCPSectionId } from '../section-registry'
 import type {
@@ -463,6 +466,209 @@ function ReviewQueuePanel(props: {
   )
 }
 
+function MiniBars(props: {
+  values: number[]
+  tone?: 'teal' | 'warning'
+  title: string
+}) {
+  const maxValue = Math.max(1, ...props.values)
+  return (
+    <div>
+      <div className='text-muted-foreground mb-1 text-xs'>{props.title}</div>
+      <div className='flex h-16 items-end gap-1'>
+        {props.values.length > 0 ? (
+          props.values.map((value, index) => (
+            <div
+              key={`${props.title}-${index}`}
+              className={cn(
+                'min-w-1 flex-1 rounded-sm',
+                props.tone === 'warning' ? 'bg-warning/70' : 'bg-teal-500/70'
+              )}
+              style={{
+                height: `${Math.max(8, Math.round((value / maxValue) * 100))}%`,
+              }}
+            />
+          ))
+        ) : (
+          <div className='bg-muted h-2 w-full rounded-sm' />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function OperationsTrendsPanel(props: {
+  loading: boolean
+  summary?: MCPSummary
+  onOpen: (target: OverviewCardTarget) => void
+}) {
+  const { t } = useTranslation()
+  const trends = normalizeMCPSummaryOperationsTrends(
+    props.summary?.operations_trends
+  )
+  const latestBridge =
+    trends.bridge_online[trends.bridge_online.length - 1]?.online_clients ?? 0
+  const totalObjects = trends.openapi_storage.reduce(
+    (sum, bucket) => sum + bucket.object_count,
+    0
+  )
+  const totalBytes = trends.openapi_storage.reduce(
+    (sum, bucket) => sum + bucket.total_bytes,
+    0
+  )
+
+  return (
+    <PanelWrapper
+      title={t('Storage And Bridge Trends')}
+      description={t('Bridge online clients and OpenAPI binary objects')}
+      loading={props.loading}
+      empty={
+        !props.loading &&
+        trends.bridge_online.length === 0 &&
+        trends.openapi_storage.length === 0
+      }
+      emptyMessage={t('No trend data')}
+      height='h-72'
+    >
+      <div className='space-y-4'>
+        <div className='grid gap-3 sm:grid-cols-2'>
+          <button
+            type='button'
+            className='bg-muted/20 hover:bg-muted/40 focus-visible:ring-ring/50 rounded-lg border px-3 py-2 text-left transition-colors outline-none focus-visible:ring-3'
+            onClick={() =>
+              props.onOpen({
+                section: 'bridge-clients',
+                search: { clientStatus: ['online'] },
+              })
+            }
+          >
+            <div className='flex items-center gap-2 text-sm font-medium'>
+              <TrendingUp className='text-teal-500 size-4' />
+              {t('Bridge Online')}
+            </div>
+            <div className='mt-2 text-2xl font-semibold tabular-nums'>
+              {formatNumber(latestBridge)}
+            </div>
+          </button>
+          <button
+            type='button'
+            className='bg-muted/20 hover:bg-muted/40 focus-visible:ring-ring/50 rounded-lg border px-3 py-2 text-left transition-colors outline-none focus-visible:ring-3'
+            onClick={() => props.onOpen({ section: 'openapi-objects' })}
+          >
+            <div className='flex items-center gap-2 text-sm font-medium'>
+              <HardDrive className='text-muted-foreground size-4' />
+              {t('OpenAPI Storage')}
+            </div>
+            <div className='mt-2 text-2xl font-semibold tabular-nums'>
+              {formatSize(totalBytes)}
+            </div>
+            <div className='text-muted-foreground mt-1 text-xs'>
+              {formatNumber(totalObjects)} {t('Objects')}
+            </div>
+          </button>
+        </div>
+        <div className='grid gap-4 sm:grid-cols-2'>
+          <MiniBars
+            title={t('Online Clients')}
+            values={trends.bridge_online.map((bucket) => bucket.online_clients)}
+          />
+          <MiniBars
+            title={t('Binary Bytes')}
+            tone='warning'
+            values={trends.openapi_storage.map((bucket) => bucket.total_bytes)}
+          />
+        </div>
+      </div>
+    </PanelWrapper>
+  )
+}
+
+function ProxyErrorsAndBillingPanel(props: {
+  loading: boolean
+  summary?: MCPSummary
+  onOpen: (target: OverviewCardTarget) => void
+}) {
+  const { t } = useTranslation()
+  const trends = normalizeMCPSummaryOperationsTrends(
+    props.summary?.operations_trends
+  )
+  const anomalies = trends.billing_anomalies
+  const anomalyCount =
+    anomalies.unsettled_success_calls +
+    anomalies.failed_charged_calls +
+    anomalies.missing_debit_events
+
+  return (
+    <PanelWrapper
+      title={t('Proxy Errors And Billing')}
+      description={t('Top proxy failures and settlement anomalies')}
+      loading={props.loading}
+      empty={
+        !props.loading &&
+        trends.proxy_error_top_n.length === 0 &&
+        anomalyCount === 0 &&
+        anomalies.refund_events === 0
+      }
+      emptyMessage={t('No proxy or billing anomalies')}
+      height='h-72'
+    >
+      <div className='space-y-4'>
+        <div className='grid grid-cols-2 gap-3'>
+          <Metric
+            label={t('Unsettled Success')}
+            value={formatNumber(anomalies.unsettled_success_calls)}
+          />
+          <Metric
+            label={t('Failed Charged')}
+            value={formatNumber(anomalies.failed_charged_calls)}
+          />
+          <Metric
+            label={t('Missing Debits')}
+            value={formatNumber(anomalies.missing_debit_events)}
+          />
+          <Metric
+            label={t('Refund Quota')}
+            value={formatQuota(anomalies.refund_quota)}
+          />
+        </div>
+        <div className='space-y-2'>
+          {trends.proxy_error_top_n.slice(0, 4).map((tool) => (
+            <button
+              key={`${tool.proxy_tool_id}-${tool.tool_name}`}
+              type='button'
+              className='bg-muted/20 hover:bg-muted/40 focus-visible:ring-ring/50 grid w-full gap-2 rounded-lg border px-3 py-2 text-left transition-colors outline-none focus-visible:ring-3 sm:grid-cols-[minmax(0,1fr)_auto]'
+              onClick={() =>
+                props.onOpen({
+                  section: 'tool-calls',
+                  search: { toolName: tool.tool_name, callStatus: ['error'] },
+                })
+              }
+            >
+              <div className='min-w-0'>
+                <div className='truncate font-mono text-xs font-medium'>
+                  {tool.tool_name}
+                </div>
+                <div className='text-muted-foreground mt-1 truncate font-mono text-xs'>
+                  {tool.downstream_tool_name || '-'}
+                </div>
+              </div>
+              <div className='text-left text-xs tabular-nums sm:text-right'>
+                <div className='font-medium'>
+                  {t('Errors')}{' '}
+                  {formatNumber(tool.error_calls + tool.timeout_calls)}
+                </div>
+                <div className='text-muted-foreground'>
+                  {t('Success')} {formatRate(tool.success_rate)}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </PanelWrapper>
+  )
+}
+
 export function MCPOverview() {
   const { t } = useTranslation()
   const isAdmin = useIsAdmin()
@@ -616,6 +822,19 @@ export function MCPOverview() {
           onOpen={openSection}
         />
       ) : null}
+
+      <div className='grid gap-4 xl:grid-cols-2'>
+        <OperationsTrendsPanel
+          loading={isLoading}
+          summary={data}
+          onOpen={openSection}
+        />
+        <ProxyErrorsAndBillingPanel
+          loading={isLoading}
+          summary={data}
+          onOpen={openSection}
+        />
+      </div>
 
       <div className='grid gap-4 xl:grid-cols-2'>
         <TopToolsPanel loading={isLoading} summary={data} />

@@ -739,6 +739,16 @@ func GetMCPSummaryForAdmin(params MCPSummaryParams) (*dto.MCPSummary, error) {
 		})
 	}
 
+	operationsTrends, err := BuildMCPSummaryOperationsTrends(MCPSummaryOperationsTrendParams{
+		UserId:    params.UserId,
+		StartTime: startTime,
+		EndTime:   now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	summary.OperationsTrends = operationsTrends
+
 	// The review queue aggregates global operations signals (proxy servers,
 	// bridge clients, background tasks, high-error tools). It is only relevant
 	// for the admin-wide view (UserId == 0); per-user summaries omit it.

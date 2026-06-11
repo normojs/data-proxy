@@ -21,6 +21,7 @@ import {
   normalizeMCPProxyCallHealth,
   normalizeMCPProxyTrendResponse,
 } from '../src/features/mcp/lib/proxy-trends.ts'
+import { normalizeMCPSummaryOperationsTrends } from '../src/features/mcp/lib/overview-trends.ts'
 
 const emptyHealth = normalizeMCPProxyCallHealth(undefined)
 assert.deepEqual(emptyHealth, {
@@ -91,5 +92,54 @@ assert.equal(partialTrend.servers[0].success_rate, 0)
 assert.equal(partialTrend.tools.length, 1)
 assert.equal(partialTrend.tools[0].proxy_server_id, 0)
 assert.equal(partialTrend.tools[0].downstream_tool_name, '')
+
+const emptyOverviewTrends = normalizeMCPSummaryOperationsTrends(undefined)
+assert.deepEqual(emptyOverviewTrends.bridge_online, [])
+assert.deepEqual(emptyOverviewTrends.openapi_storage, [])
+assert.deepEqual(emptyOverviewTrends.proxy_error_top_n, [])
+assert.equal(emptyOverviewTrends.billing_anomalies.failed_charged_calls, 0)
+
+const partialOverviewTrends = normalizeMCPSummaryOperationsTrends({
+  start_time: 100,
+  end_time: 200,
+  bucket_seconds: 60,
+  bridge_online: [
+    null,
+    {
+      bucket_start: 120,
+      online_clients: 2,
+      started_sessions: 1,
+    },
+  ],
+  openapi_storage: [
+    {
+      bucket_start: 120,
+      object_count: 3,
+      total_bytes: 1024,
+      download_count: 4,
+    },
+  ],
+  proxy_error_top_n: [
+    {
+      tool_name: 'pet_api.getpet',
+      error_calls: 2,
+    },
+    {
+      error_calls: 99,
+    },
+  ],
+  billing_anomalies: {
+    unsettled_success_calls: 1,
+    refund_quota: 500,
+  },
+})
+assert.equal(partialOverviewTrends.start_time, 100)
+assert.equal(partialOverviewTrends.bridge_online.length, 1)
+assert.equal(partialOverviewTrends.bridge_online[0].closed_sessions, 0)
+assert.equal(partialOverviewTrends.openapi_storage[0].total_bytes, 1024)
+assert.equal(partialOverviewTrends.proxy_error_top_n.length, 1)
+assert.equal(partialOverviewTrends.proxy_error_top_n[0].timeout_calls, 0)
+assert.equal(partialOverviewTrends.billing_anomalies.unsettled_success_calls, 1)
+assert.equal(partialOverviewTrends.billing_anomalies.refund_quota, 500)
 
 console.log('MCP trend smoke passed: empty and partial responses normalize')

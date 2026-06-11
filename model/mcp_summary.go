@@ -49,6 +49,12 @@ type MCPToolCallToolStats struct {
 	AvgDurationMS float64 `gorm:"column:avg_duration_ms"`
 }
 
+type MCPBillingAnomalyStats struct {
+	UnsettledSuccessCalls int64 `gorm:"column:unsettled_success_calls"`
+	FailedChargedCalls    int64 `gorm:"column:failed_charged_calls"`
+	SettledChargedCalls   int64 `gorm:"column:settled_charged_calls"`
+}
+
 type MCPProxyServerCallStats struct {
 	ProxyServerId int     `gorm:"column:proxy_server_id"`
 	TotalCalls    int64   `gorm:"column:total_calls"`
@@ -80,6 +86,7 @@ type MCPProxyServerToolCallStats struct {
 }
 
 type MCPProxyTrendFilter struct {
+	UserId        int
 	ProxyServerId int
 	ProxyToolId   int64
 	Status        string
@@ -216,6 +223,9 @@ func mcpProxyTrendQuery(filter MCPProxyTrendFilter) *gorm.DB {
 		Joins("JOIN mcp_proxy_servers AS proxy_servers ON proxy_servers.id = proxy_tools.proxy_server_id").
 		Where("proxy_tools.deleted_at IS NULL").
 		Where("proxy_servers.deleted_at IS NULL")
+	if filter.UserId > 0 {
+		query = query.Where("calls.user_id = ?", filter.UserId)
+	}
 	if filter.ProxyServerId > 0 {
 		query = query.Where("proxy_tools.proxy_server_id = ?", filter.ProxyServerId)
 	}
@@ -339,6 +349,52 @@ func ListMCPToolCallToolStats(filter MCPToolCallFilter, limit int) ([]MCPToolCal
 	return stats, err
 }
 
+func ListMCPToolErrorStats(filter MCPToolCallFilter, limit int) ([]MCPToolCallToolStats, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	query := DB.Model(&MCPToolCall{})
+	query = applyMCPToolCallFilter(query, filter)
+
+	var stats []MCPToolCallToolStats
+	err := query.Select(
+		`tool_id,
+		tool_name,
+		COUNT(*) AS calls,
+		COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS success_calls,
+		COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS error_calls,
+		COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS timeout_calls,
+		COALESCE(SUM(quota), 0) AS quota,
+		COALESCE(SUM(cost), 0) AS cost,
+		COALESCE(AVG(duration_ms), 0) AS avg_duration_ms`,
+		MCPToolCallStatusSuccess,
+		MCPToolCallStatusError,
+		MCPToolCallStatusTimeout,
+	).
+		Group("tool_id, tool_name").
+		Having("COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) + COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) > 0", MCPToolCallStatusError, MCPToolCallStatusTimeout).
+		Order("error_calls DESC, timeout_calls DESC, calls DESC, tool_name ASC").
+		Limit(limit).
+		Scan(&stats).Error
+	return stats, err
+}
+
+func GetMCPBillingAnomalyStats(filter MCPToolCallFilter) (MCPBillingAnomalyStats, error) {
+	query := DB.Model(&MCPToolCall{})
+	query = applyMCPToolCallFilter(query, filter)
+
+	var stats MCPBillingAnomalyStats
+	err := query.Select(
+		`COALESCE(SUM(CASE WHEN status = ? AND quota > 0 AND settled_at = 0 THEN 1 ELSE 0 END), 0) AS unsettled_success_calls,
+		COALESCE(SUM(CASE WHEN status IN ? AND quota > 0 THEN 1 ELSE 0 END), 0) AS failed_charged_calls,
+		COALESCE(SUM(CASE WHEN status = ? AND quota > 0 AND settled_at > 0 THEN 1 ELSE 0 END), 0) AS settled_charged_calls`,
+		MCPToolCallStatusSuccess,
+		[]string{MCPToolCallStatusError, MCPToolCallStatusTimeout},
+		MCPToolCallStatusSuccess,
+	).Scan(&stats).Error
+	return stats, err
+}
+
 func ListRecentMCPToolCallErrors(filter MCPToolCallFilter, limit int) ([]MCPToolCall, error) {
 	if limit <= 0 {
 		limit = 5
@@ -428,6 +484,31 @@ func ListMCPProxyServerToolCallStats(proxyServerIds []int, startTime int64) ([]M
 	).
 		Group("proxy_tools.proxy_server_id, proxy_tools.id, calls.tool_id, calls.tool_name").
 		Order("calls DESC, error_calls DESC, quota DESC").
+		Scan(&stats).Error
+	return stats, err
+}
+
+func ListMCPProxyErrorToolStats(filter MCPProxyTrendFilter, limit int) ([]MCPProxyTrendToolStats, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	if limit > 20 {
+		limit = 20
+	}
+	var stats []MCPProxyTrendToolStats
+	err := mcpProxyTrendQuery(filter).
+		Select(
+			`proxy_tools.proxy_server_id AS proxy_server_id,
+			proxy_tools.id AS proxy_tool_id,
+			calls.tool_id AS tool_id,
+			proxy_tools.exposed_tool_name AS exposed_tool_name,
+			proxy_tools.downstream_tool_name AS downstream_tool_name, `+mcpProxyTrendAggregateSelect(),
+			mcpProxyTrendAggregateArgs()...,
+		).
+		Group("proxy_tools.proxy_server_id, proxy_tools.id, calls.tool_id, proxy_tools.exposed_tool_name, proxy_tools.downstream_tool_name").
+		Having("COALESCE(SUM(CASE WHEN calls.status = ? THEN 1 ELSE 0 END), 0) + COALESCE(SUM(CASE WHEN calls.status = ? THEN 1 ELSE 0 END), 0) > 0", MCPToolCallStatusError, MCPToolCallStatusTimeout).
+		Order("error_calls DESC, timeout_calls DESC, total_calls DESC, proxy_tools.id ASC").
+		Limit(limit).
 		Scan(&stats).Error
 	return stats, err
 }

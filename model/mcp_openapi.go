@@ -82,6 +82,14 @@ type MCPOpenAPIBinaryObjectSummary struct {
 	DownloadCount   int64
 }
 
+type MCPOpenAPIBinaryObjectTrendBucket struct {
+	BucketStart   int64 `gorm:"column:bucket_start"`
+	ObjectCount   int64 `gorm:"column:object_count"`
+	TotalBytes    int64 `gorm:"column:total_bytes"`
+	ExpiredCount  int64 `gorm:"column:expired_count"`
+	DownloadCount int64 `gorm:"column:download_count"`
+}
+
 func (MCPOpenAPIBinaryObject) TableName() string {
 	return "mcp_openapi_binary_objects"
 }
@@ -292,6 +300,32 @@ func SummarizeMCPOpenAPIBinaryObjects(filter MCPOpenAPIBinaryObjectFilter) (MCPO
 		return summary, err
 	}
 	return summary, nil
+}
+
+func ListMCPOpenAPIBinaryObjectTrend(filter MCPOpenAPIBinaryObjectFilter, bucketSeconds int64) ([]MCPOpenAPIBinaryObjectTrendBucket, error) {
+	if bucketSeconds <= 0 {
+		bucketSeconds = 3600
+	}
+	now := filter.Now
+	if now <= 0 {
+		now = common.GetTimestamp()
+	}
+	bucketExpression := "created_at - (created_at % ?)"
+	args := []any{bucketSeconds, now}
+	query := applyMCPOpenAPIBinaryObjectFilter(DB.Model(&MCPOpenAPIBinaryObject{}), filter)
+	var buckets []MCPOpenAPIBinaryObjectTrendBucket
+	err := query.Select(
+		bucketExpression+` AS bucket_start,
+		COUNT(*) AS object_count,
+		COALESCE(SUM(size), 0) AS total_bytes,
+		COALESCE(SUM(CASE WHEN expires_at > 0 AND expires_at < ? THEN 1 ELSE 0 END), 0) AS expired_count,
+		COALESCE(SUM(download_count), 0) AS download_count`,
+		args...,
+	).
+		Group("bucket_start").
+		Order("bucket_start ASC").
+		Scan(&buckets).Error
+	return buckets, err
 }
 
 func DeleteMCPOpenAPIBinaryObjectsByObjectIds(objectIds []string) (int64, error) {

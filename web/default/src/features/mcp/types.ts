@@ -1273,6 +1273,55 @@ export type MCPReviewQueue = {
   items: MCPReviewItem[]
 }
 
+export type MCPSummaryBridgeTrendBucket = {
+  bucket_start: number
+  online_clients: number
+  started_sessions: number
+  closed_sessions: number
+}
+
+export type MCPSummaryOpenAPIStorageBucket = {
+  bucket_start: number
+  object_count: number
+  total_bytes: number
+  expired_count: number
+  download_count: number
+}
+
+export type MCPSummaryProxyErrorTool = {
+  proxy_server_id: number
+  proxy_tool_id: number
+  tool_id: number
+  tool_name: string
+  downstream_tool_name: string
+  total_calls: number
+  success_calls: number
+  error_calls: number
+  timeout_calls: number
+  success_rate: number
+  avg_duration_ms: number
+}
+
+export type MCPSummaryBillingAnomalies = {
+  unsettled_success_calls: number
+  failed_charged_calls: number
+  missing_debit_events: number
+  refund_events: number
+  refund_quota: number
+  net_mcp_quota_delta: number
+}
+
+export type MCPSummaryOperationsTrends = {
+  start_time: number
+  end_time: number
+  bucket_seconds: number
+  checked_at: number
+  bridge_online: MCPSummaryBridgeTrendBucket[]
+  openapi_storage: MCPSummaryOpenAPIStorageBucket[]
+  proxy_error_top_n: MCPSummaryProxyErrorTool[]
+  billing_anomalies: MCPSummaryBillingAnomalies
+}
+
 export type MCPSummary = {
   window_seconds: number
   generated_at: number
@@ -1282,6 +1331,7 @@ export type MCPSummary = {
   audit: MCPSummaryAuditStats
   top_tools: MCPSummaryTopTool[]
   recent_errors: MCPSummaryRecentError[]
+  operations_trends?: MCPSummaryOperationsTrends
   review_queue?: MCPReviewQueue
 }
 
