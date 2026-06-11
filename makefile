@@ -9,6 +9,10 @@ DEV_BACKEND_SERVICE = new-api
 DEV_POSTGRES_DB = new-api
 DEV_POSTGRES_USER = root
 DEV_SQLITE_PATH ?= one-api.db
+GO ?= go
+GO_TEST_ENV ?= GOTOOLCHAIN=auto
+NODE ?= $(shell command -v node 2>/dev/null || { test -x "$(HOME)/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node" && printf '%s' "$(HOME)/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"; } || printf 'node')
+TSC ?= ./node_modules/typescript/bin/tsc
 MCP_BRIDGE_GO_TEST_PATTERN ?= TestParseBridgeEndpoint|TestBridgeClient|TestMCPProxy.*Bridge|TestBridge|TestRemoteBridge|TestMCP.*Bridge
 MCP_BRIDGE_SMOKE_CONCURRENCY ?= 12
 MCP_BRIDGE_SMOKE_ITERATIONS ?= 4
@@ -18,8 +22,10 @@ MCP_BRIDGE_STRESS_CONCURRENCY ?= 32
 MCP_BRIDGE_STRESS_ITERATIONS ?= 8
 MCP_BRIDGE_STRESS_TIMEOUT ?= 360000
 MCP_BRIDGE_STRESS_ARGS ?=
+MCP_OPENAPI_GO_TEST_PATTERN ?= TestPreviewMCPOpenAPIForAdmin|Test.*OpenAPI|TestDownloadMCPOpenAPIBinaryObject
+MCP_PROXY_GO_TEST_PATTERN ?= TestMCPProxy|TestBillingEventSourceMatrix
 
-.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress
+.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
 
 all: build-all-frontends start-backend
 
@@ -104,17 +110,32 @@ reset-setup:
 		exit 1; \
 	fi
 
+mcp-openapi-check:
+	@echo "Running MCP OpenAPI regression tests..."
+	@$(GO_TEST_ENV) $(GO) test ./pkg/mcp/openapi ./pkg/mcp/executor ./service -run '$(MCP_OPENAPI_GO_TEST_PATTERN)' -count=1 -timeout=120s
+
+mcp-proxy-check:
+	@echo "Running MCP Proxy regression tests..."
+	@$(GO_TEST_ENV) $(GO) test ./pkg/mcp/proxy -count=1 -timeout=120s
+	@$(GO_TEST_ENV) $(GO) test ./model ./service -run '$(MCP_PROXY_GO_TEST_PATTERN)' -count=1 -timeout=180s
+
+mcp-dashboard-check:
+	@echo "Running MCP Dashboard regression checks..."
+	@cd $(FRONTEND_DIR) && $(NODE) scripts/check-mcp-routes.mjs
+	@cd $(FRONTEND_DIR) && $(NODE) --experimental-strip-types scripts/check-mcp-trends.mjs
+	@cd $(FRONTEND_DIR) && $(NODE) $(TSC) -b
+
 mcp-bridge-check:
 	@echo "Checking MCP Bridge daemon scripts..."
-	@node --check tools/bridge_client_daemon.mjs
-	@node --check tools/bridge_daemon_concurrency_smoke.mjs
-	@tmp_dir=$$(mktemp -d); node tools/bridge_client_daemon.mjs --self-test --workspace="$$tmp_dir"; self_test_status=$$?; rm -rf "$$tmp_dir"; exit $$self_test_status
+	@$(NODE) --check tools/bridge_client_daemon.mjs
+	@$(NODE) --check tools/bridge_daemon_concurrency_smoke.mjs
+	@tmp_dir=$$(mktemp -d); $(NODE) tools/bridge_client_daemon.mjs --self-test --workspace="$$tmp_dir"; self_test_status=$$?; rm -rf "$$tmp_dir"; exit $$self_test_status
 	@echo "Running MCP Bridge Go tests..."
-	@go test ./pkg/mcp/proxy ./pkg/mcp/executor ./service -run '$(MCP_BRIDGE_GO_TEST_PATTERN)' -count=1 -timeout=120s
+	@$(GO_TEST_ENV) $(GO) test ./pkg/mcp/proxy ./pkg/mcp/executor ./service -run '$(MCP_BRIDGE_GO_TEST_PATTERN)' -count=1 -timeout=120s
 
 mcp-bridge-smoke:
 	@echo "Running MCP Bridge local daemon concurrency smoke..."
-	@node tools/bridge_daemon_concurrency_smoke.mjs \
+	@$(NODE) tools/bridge_daemon_concurrency_smoke.mjs \
 		--concurrency=$(MCP_BRIDGE_SMOKE_CONCURRENCY) \
 		--iterations=$(MCP_BRIDGE_SMOKE_ITERATIONS) \
 		--timeout=$(MCP_BRIDGE_SMOKE_TIMEOUT) \
@@ -126,3 +147,6 @@ mcp-bridge-stress:
 		MCP_BRIDGE_SMOKE_ITERATIONS=$(MCP_BRIDGE_STRESS_ITERATIONS) \
 		MCP_BRIDGE_SMOKE_TIMEOUT=$(MCP_BRIDGE_STRESS_TIMEOUT) \
 		MCP_BRIDGE_SMOKE_ARGS="$(MCP_BRIDGE_STRESS_ARGS)"
+
+mcp-regression: mcp-openapi-check mcp-proxy-check mcp-bridge-check mcp-dashboard-check
+	@echo "MCP regression passed."

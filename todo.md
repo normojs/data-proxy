@@ -37,6 +37,45 @@
 - [x] Add trend panel empty-state and partial-data handling tests.
   - Acceptance: no runtime error when trend endpoints return empty arrays.
 
+## P0 - Regression and release guardrails
+
+- [x] Add a unified MCP regression Make target.
+  - Acceptance: `make mcp-regression` runs OpenAPI, MCP Proxy, Bridge daemon, and MCP Dashboard checks.
+  - Acceptance: failing sections are split into reusable targets for quick diagnosis.
+- [ ] Add cross-database MCP migration regression documentation and opt-in targets.
+  - Acceptance: SQLite default, MySQL opt-in, and PostgreSQL opt-in commands cover MCP, Bridge, billing event, and OpenAPI binary object tables.
+
+## P1 - Core capability expansion
+
+- [ ] Add server-side Bridge client policy controls.
+  - Acceptance: admins can configure allowed tools, write permission, max result size, scan limits, and MCP target allowlist per Bridge client.
+  - Acceptance: daemon defaults remain conservative and server-side policy is enforced before tool forwarding.
+- [ ] Implement MCP Proxy OAuth authentication support.
+  - Acceptance: MCP Proxy supports OAuth token resolve/cache/refresh without regressing none/bearer/basic/header auth.
+  - Acceptance: auth failures are observable in discovery events and health checks without leaking secrets.
+- [ ] Surface OpenAPI import schema metrics and diff summary in the MCP Dashboard.
+  - Acceptance: import preview displays importable tool count, schema count, reused schema count, skipped reasons, and diff summary.
+- [ ] Add OpenAPI binary object management to the MCP Dashboard.
+  - Acceptance: admins can view binary object counts, bytes, expiry state, cleanup dry-run, cleanup execute, and download audit context.
+
+## P1 - Reliability and observability
+
+- [ ] Add MCP tool call idempotency and replay protection.
+  - Acceptance: repeated client request IDs do not double-charge or double-settle a tool call.
+- [ ] Add Bridge multi-client selection and failover.
+  - Acceptance: Bridge MCP Proxy can choose by latest activity/capability and fail over to another eligible online client.
+- [ ] Add MCP operations review queue.
+  - Acceptance: health check, heartbeat, stale Bridge clients, and high-error tools produce actionable review reasons in dashboard summaries.
+
+## P2 - Operations polish
+
+- [ ] Expand MCP Overview with Bridge and OpenAPI storage trends.
+  - Acceptance: overview shows Bridge online trend, Proxy error topN, OpenAPI binary storage trend, and refund/settlement anomaly summary.
+- [ ] Improve billing relation repair UX.
+  - Acceptance: admins can preview relation diffs and repair selected items without running a broad backfill.
+- [ ] Publish MCP/Bridge/OpenAPI runbook.
+  - Acceptance: docs cover local daemon, production policies, common error codes, smoke commands, and rollback/cleanup guidance.
+
 ## Done
 
 - [x] Commit MCP/Bridge, OpenAPI, billing events, wallet ledger, and operations dashboard checkpoint.

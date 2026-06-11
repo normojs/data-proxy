@@ -166,6 +166,12 @@ bun run i18n:sync
 ## 9. 测试策略
 
 - 小改动跑精准测试；跨模块改动跑相关包测试。
+- MCP / Bridge / OpenAPI / Dashboard 综合回归优先跑：
+
+```bash
+make mcp-regression
+```
+
 - 后端 MCP 相关基础回归：
 
 ```bash
