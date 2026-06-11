@@ -3,6 +3,10 @@
 This document records the local verification flow for MCP remote tools,
 Bridge clients, audit logs, and quota settlement.
 
+For the broader operations runbook covering production policy, OpenAPI binary
+objects, billing repair, review queue triage, rollback, and cleanup, see
+`docs/mcp-bridge-openapi-runbook.md`.
+
 ## Current Scope
 
 This repository owns the data-proxy side plus local test harnesses for the

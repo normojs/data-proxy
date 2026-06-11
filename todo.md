@@ -88,10 +88,13 @@
   - Done: added `POST /api/billing/events/relation-repair` for selected audit relation repair with dry-run, stale payload validation, idempotent existing-link handling, and no-op empty selection behavior.
   - Done: Billing Events Audit Relations panel now stores preview rows, supports per-row/select-all repair selection, and shows created/skipped/invalid repair feedback while keeping broad backfill as fallback.
   - Validation: targeted service/controller/router tests, `npm run typecheck --silent`, `make mcp-dashboard-check`, and `make mcp-regression`.
-- [ ] Publish MCP/Bridge/OpenAPI runbook.
+- [x] Publish MCP/Bridge/OpenAPI runbook.
   - Acceptance: docs cover local daemon, production policies, common error codes, smoke commands, and rollback/cleanup guidance.
   - Docs: include local daemon setup, policy defaults, Bridge failover, OpenAPI binary storage, review queue, billing repair, smoke/regression commands, and rollback cleanup.
   - Validation: link every documented command to an existing Make target or script.
+  - Done: added `docs/mcp-bridge-openapi-runbook.md` with operations map, command index, local daemon flow, production policy defaults, OpenAPI binary object handling, review queue triage, billing repair guidance, common error codes, rollback, and cleanup guidance.
+  - Done: linked `docs/mcp-bridge-smoke.md` to the new operations runbook.
+  - Validation: verified every runbook command maps to an existing Make target or Node script.
 
 ## Done
 
