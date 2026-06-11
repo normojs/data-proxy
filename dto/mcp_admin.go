@@ -141,4 +141,26 @@ type MCPSummary struct {
 	Audit         MCPSummaryAuditStats    `json:"audit"`
 	TopTools      []MCPSummaryTopTool     `json:"top_tools"`
 	RecentErrors  []MCPSummaryRecentError `json:"recent_errors"`
+	ReviewQueue   *MCPReviewQueue         `json:"review_queue,omitempty"`
+}
+
+// MCPReviewItem is a single actionable operations item surfaced in the MCP
+// dashboard review queue. It aggregates review signals from MCP proxy servers,
+// bridge clients, background tasks, and high-error tools into a uniform shape.
+type MCPReviewItem struct {
+	Category   string   `json:"category"`
+	Severity   string   `json:"severity"`
+	TargetType string   `json:"target_type"`
+	TargetId   string   `json:"target_id"`
+	TargetName string   `json:"target_name"`
+	Reasons    []string `json:"reasons"`
+	Detail     string   `json:"detail"`
+	CreatedAt  int64    `json:"created_at,omitempty"`
+}
+
+type MCPReviewQueue struct {
+	Total         int             `json:"total"`
+	CriticalCount int             `json:"critical_count"`
+	WarningCount  int             `json:"warning_count"`
+	Items         []MCPReviewItem `json:"items"`
 }

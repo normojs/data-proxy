@@ -27,6 +27,7 @@ import {
   Clock3,
   Coins,
   RefreshCw,
+  ShieldAlert,
   Wrench,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -40,9 +41,18 @@ import { StatusBadge } from '@/components/status-badge'
 import { PanelWrapper } from '@/features/dashboard/components/ui/panel-wrapper'
 import { StatCard } from '@/features/dashboard/components/ui/stat-card'
 import { getMCPSummary, mcpQueryKeys } from '../api'
+import {
+  getMCPReviewCategoryLabel,
+  getMCPReviewReasonLabel,
+} from '../constants'
 import { mcpQueryError, mcpQueryErrorMessage } from '../lib/query-errors'
 import type { MCPSectionId } from '../section-registry'
-import type { MCPSummary, MCPSummaryRecentError } from '../types'
+import type {
+  MCPReviewItem,
+  MCPReviewQueue,
+  MCPSummary,
+  MCPSummaryRecentError,
+} from '../types'
 
 const MCP_OVERVIEW_WINDOW_SECONDS = 24 * 60 * 60
 
@@ -339,6 +349,120 @@ function HealthStrip(props: { loading: boolean; summary?: MCPSummary }) {
   )
 }
 
+function reviewItemTarget(item: MCPReviewItem): OverviewCardTarget {
+  switch (item.category) {
+    case 'bridge_client':
+      return {
+        section: 'bridge-clients',
+        search: { clientId: item.target_id },
+      }
+    case 'tool':
+      return {
+        section: 'tool-calls',
+        search: { toolName: item.target_id, callStatus: ['error'] },
+      }
+    case 'proxy_server':
+      return {
+        section: 'proxy-servers',
+        search: item.target_name
+          ? { proxyServerFilter: item.target_name }
+          : undefined,
+      }
+    default:
+      return { section: 'proxy-servers' }
+  }
+}
+
+function ReviewQueueRow(props: {
+  item: MCPReviewItem
+  onOpen: (target: OverviewCardTarget) => void
+}) {
+  const { t } = useTranslation()
+  const item = props.item
+  const isCritical = item.severity === 'critical'
+  return (
+    <button
+      type='button'
+      className='bg-muted/20 hover:bg-muted/40 focus-visible:ring-ring/50 grid w-full gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors outline-none focus-visible:ring-3'
+      onClick={() => props.onOpen(reviewItemTarget(item))}
+    >
+      <div className='flex min-w-0 flex-wrap items-center gap-2'>
+        <span
+          className={cn(
+            'size-2 shrink-0 rounded-full',
+            isCritical ? 'bg-destructive' : 'bg-warning'
+          )}
+        />
+        <span className='text-muted-foreground text-xs'>
+          {t(getMCPReviewCategoryLabel(item.category))}
+        </span>
+        <span className='truncate text-sm font-medium'>
+          {item.target_name || item.target_id}
+        </span>
+      </div>
+      <div className='flex flex-wrap gap-1'>
+        {item.reasons.map((reason) => (
+          <span
+            key={reason}
+            className='text-muted-foreground rounded border px-1.5 py-0.5 text-xs'
+          >
+            {t(getMCPReviewReasonLabel(reason))}
+          </span>
+        ))}
+      </div>
+      {item.detail ? (
+        <div className='text-muted-foreground truncate font-mono text-xs'>
+          {item.detail}
+        </div>
+      ) : null}
+    </button>
+  )
+}
+
+function ReviewQueuePanel(props: {
+  loading: boolean
+  queue?: MCPReviewQueue
+  onOpen: (target: OverviewCardTarget) => void
+}) {
+  const { t } = useTranslation()
+  const items = props.queue?.items ?? []
+  const critical = props.queue?.critical_count ?? 0
+  const warning = props.queue?.warning_count ?? 0
+
+  return (
+    <PanelWrapper
+      title={t('Review Queue')}
+      description={t('MCP operations items that need attention')}
+      loading={props.loading}
+      empty={!props.loading && items.length === 0}
+      emptyMessage={t('No review items')}
+      height='h-72'
+    >
+      <div className='space-y-3'>
+        <div className='flex flex-wrap items-center gap-4 text-xs'>
+          <span className='flex items-center gap-1.5'>
+            <ShieldAlert className='text-destructive size-3.5' />
+            {t('Critical')} {formatNumber(critical)}
+          </span>
+          <span className='flex items-center gap-1.5'>
+            <AlertTriangle className='text-warning size-3.5' />
+            {t('Warning')} {formatNumber(warning)}
+          </span>
+        </div>
+        <div className='space-y-2'>
+          {items.map((item) => (
+            <ReviewQueueRow
+              key={`${item.category}-${item.target_id}-${item.reasons.join('-')}`}
+              item={item}
+              onOpen={props.onOpen}
+            />
+          ))}
+        </div>
+      </div>
+    </PanelWrapper>
+  )
+}
+
 export function MCPOverview() {
   const { t } = useTranslation()
   const isAdmin = useIsAdmin()
@@ -484,6 +608,14 @@ export function MCPOverview() {
       </div>
 
       <HealthStrip loading={isLoading} summary={data} />
+
+      {isAdmin ? (
+        <ReviewQueuePanel
+          loading={isLoading}
+          queue={data?.review_queue}
+          onOpen={openSection}
+        />
+      ) : null}
 
       <div className='grid gap-4 xl:grid-cols-2'>
         <TopToolsPanel loading={isLoading} summary={data} />

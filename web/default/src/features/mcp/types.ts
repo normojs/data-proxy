@@ -1255,6 +1255,24 @@ export type MCPSummaryRecentError = {
   created_at: number
 }
 
+export type MCPReviewItem = {
+  category: string
+  severity: string
+  target_type: string
+  target_id: string
+  target_name: string
+  reasons: string[]
+  detail: string
+  created_at?: number
+}
+
+export type MCPReviewQueue = {
+  total: number
+  critical_count: number
+  warning_count: number
+  items: MCPReviewItem[]
+}
+
 export type MCPSummary = {
   window_seconds: number
   generated_at: number
@@ -1264,6 +1282,7 @@ export type MCPSummary = {
   audit: MCPSummaryAuditStats
   top_tools: MCPSummaryTopTool[]
   recent_errors: MCPSummaryRecentError[]
+  review_queue?: MCPReviewQueue
 }
 
 export type MCPToolListParams = Partial<{

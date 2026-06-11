@@ -95,6 +95,39 @@ export const MCP_PROXY_REVIEW_REASONS = {
   },
 } as const
 
+export const MCP_REVIEW_REASONS = {
+  bridge_stale: {
+    labelKey: 'Stale Bridge Client',
+  },
+  health_check_failed: {
+    labelKey: 'Health Check Failed',
+  },
+  heartbeat_failed: {
+    labelKey: 'Heartbeat Failed',
+  },
+  high_error_rate_tool: {
+    labelKey: 'High Error Rate',
+  },
+} as const
+
+export const MCP_REVIEW_CATEGORIES = {
+  proxy_server: {
+    labelKey: 'Proxy Server',
+  },
+  bridge_client: {
+    labelKey: 'Bridge Client',
+  },
+  health_check: {
+    labelKey: 'Health Check',
+  },
+  heartbeat: {
+    labelKey: 'Heartbeat',
+  },
+  tool: {
+    labelKey: 'Tool',
+  },
+} as const
+
 export const MCP_PROXY_TRANSPORTS = {
   http: {
     labelKey: 'HTTP',
@@ -321,6 +354,22 @@ export function getProxyReviewReasonLabel(reason: string): string {
     MCP_PROXY_REVIEW_REASONS[
       reason as keyof typeof MCP_PROXY_REVIEW_REASONS
     ]?.labelKey ?? reason
+  )
+}
+
+export function getMCPReviewReasonLabel(reason: string): string {
+  const own =
+    MCP_REVIEW_REASONS[reason as keyof typeof MCP_REVIEW_REASONS]?.labelKey
+  if (own) {
+    return own
+  }
+  return getProxyReviewReasonLabel(reason)
+}
+
+export function getMCPReviewCategoryLabel(category: string): string {
+  return (
+    MCP_REVIEW_CATEGORIES[category as keyof typeof MCP_REVIEW_CATEGORIES]
+      ?.labelKey ?? category
   )
 }
 

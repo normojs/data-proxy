@@ -64,8 +64,11 @@
   - Acceptance: repeated client request IDs do not double-charge or double-settle a tool call.
 - [x] Add Bridge multi-client selection and failover.
   - Acceptance: Bridge MCP Proxy can choose by latest activity/capability and fail over to another eligible online client.
-- [ ] Add MCP operations review queue.
+- [x] Add MCP operations review queue.
   - Acceptance: health check, heartbeat, stale Bridge clients, and high-error tools produce actionable review reasons in dashboard summaries.
+  - Done: `service/mcp_review.go` aggregates proxy-server review state, stale bridge clients (online in DB but no live hub session), failed health-check/heartbeat runs, and high-error-rate tools into `MCPSummary.review_queue` (admin-wide scope only).
+  - Done: MCP Overview shows a Review Queue panel with critical/warning counts and per-item drilldown to proxy servers, bridge clients, and tool calls.
+  - Done: severity (`critical`/`warning`), reason codes (`bridge_stale`, `health_check_failed`, `heartbeat_failed`, `high_error_rate_tool`, plus existing proxy reasons) and tests in `service/mcp_review_test.go`.
 
 ## P2 - Operations polish
 

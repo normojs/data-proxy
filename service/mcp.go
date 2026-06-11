@@ -739,6 +739,20 @@ func GetMCPSummaryForAdmin(params MCPSummaryParams) (*dto.MCPSummary, error) {
 		})
 	}
 
+	// The review queue aggregates global operations signals (proxy servers,
+	// bridge clients, background tasks, high-error tools). It is only relevant
+	// for the admin-wide view (UserId == 0); per-user summaries omit it.
+	if params.UserId == 0 {
+		reviewQueue, err := BuildMCPReviewQueue(MCPReviewQueueParams{
+			WindowSeconds: windowSeconds,
+			StartTime:     startTime,
+		})
+		if err != nil {
+			return nil, err
+		}
+		summary.ReviewQueue = reviewQueue
+	}
+
 	return summary, nil
 }
 
