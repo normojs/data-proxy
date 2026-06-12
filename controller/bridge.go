@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -153,29 +152,29 @@ func readBridgeRegisterMessage(ws *websocket.Conn, register *dto.BridgeClientReg
 	if msg.Type != "register" {
 		return errors.New("first bridge message must be register")
 	}
-	bytes, err := json.Marshal(msg.Data)
+	bytes, err := common.Marshal(msg.Data)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(bytes, register)
+	return common.Unmarshal(bytes, register)
 }
 
 func decodeBridgeToolResult(data any) (dto.BridgeToolCallResult, error) {
 	var result dto.BridgeToolCallResult
-	bytes, err := json.Marshal(data)
+	bytes, err := common.Marshal(data)
 	if err != nil {
 		return result, err
 	}
-	return result, json.Unmarshal(bytes, &result)
+	return result, common.Unmarshal(bytes, &result)
 }
 
 func decodeBridgeToolError(data any) (dto.BridgeToolCallError, error) {
 	var result dto.BridgeToolCallError
-	bytes, err := json.Marshal(data)
+	bytes, err := common.Marshal(data)
 	if err != nil {
 		return result, err
 	}
-	return result, json.Unmarshal(bytes, &result)
+	return result, common.Unmarshal(bytes, &result)
 }
 
 func GetBridgeClients(c *gin.Context) {

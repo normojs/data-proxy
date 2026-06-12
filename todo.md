@@ -15,8 +15,9 @@
 - [x] Replace reachable provider adaptor `panic("implement me")` stubs with stable unsupported errors.
   - Acceptance: unsupported relay modes return errors instead of panicking.
   - Done: 11 provider `ConvertClaudeRequest` stubs now return stable `not implemented` errors; regression test covers no-panic behavior.
-- [ ] Align Bridge controller JSON decoding with project JSON wrapper rules.
+- [x] Align Bridge controller JSON decoding with project JSON wrapper rules.
   - Acceptance: Bridge controller no longer calls `encoding/json` marshal/unmarshal directly.
+  - Done: `controller/bridge.go` now uses `common.Marshal/common.Unmarshal`; controller tests cover bridge result/error payload decoding.
 
 ## P0 - Bridge daemon verification
 
