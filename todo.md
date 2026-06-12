@@ -24,8 +24,9 @@
 - [x] Record external database migration gate status.
   - Acceptance: MySQL/PostgreSQL migration commands are either executed with DSNs or documented as DSN-gated.
   - Done: MySQL/PostgreSQL migration gates are DSN-gated on this machine because `MCP_MIGRATION_MYSQL_DSN` and `MCP_MIGRATION_POSTGRES_DSN` are unset; run `make mcp-migration-mysql MCP_MIGRATION_MYSQL_DSN='...'` and `make mcp-migration-postgres MCP_MIGRATION_POSTGRES_DSN='...'` when external test databases are available.
-- [ ] Complete final release hygiene audit.
+- [x] Complete final release hygiene audit.
   - Acceptance: `git diff --check` passes, worktree is clean, and remaining TODO/unsupported scan findings are classified.
+  - Done: `git status --short --branch` showed a clean worktree, `git diff --check` passed, `make mcp-regression` passed, and the remaining scan hits are limited to `todo.md` documentation plus smoke-script fail-fast helper `panic` calls.
 
 ## P1 - MCP Proxy HTTP client architecture cleanup
 
