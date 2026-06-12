@@ -37,6 +37,9 @@ const (
 var (
 	ErrSubscriptionOrderNotFound      = errors.New("subscription order not found")
 	ErrSubscriptionOrderStatusInvalid = errors.New("subscription order status invalid")
+	ErrNoActiveSubscription           = errors.New("no active subscription")
+	ErrSubscriptionQuotaInsufficient  = errors.New("subscription quota insufficient")
+	ErrSubscriptionPreConsumeRefunded = errors.New("subscription pre-consume already refunded")
 )
 
 const (
@@ -1195,7 +1198,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 		}
 		if query.RowsAffected > 0 {
 			if existing.Status == "refunded" {
-				return errors.New("subscription pre-consume already refunded")
+				return ErrSubscriptionPreConsumeRefunded
 			}
 			var sub UserSubscription
 			if err := tx.Where("id = ?", existing.UserSubscriptionId).First(&sub).Error; err != nil {
@@ -1214,10 +1217,10 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
 			Order("end_time asc, id asc").
 			Find(&subs).Error; err != nil {
-			return errors.New("no active subscription")
+			return ErrNoActiveSubscription
 		}
 		if len(subs) == 0 {
-			return errors.New("no active subscription")
+			return ErrNoActiveSubscription
 		}
 		for _, candidate := range subs {
 			sub := candidate
@@ -1246,7 +1249,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				var dup SubscriptionPreConsumeRecord
 				if err2 := tx.Where("request_id = ?", requestId).First(&dup).Error; err2 == nil {
 					if dup.Status == "refunded" {
-						return errors.New("subscription pre-consume already refunded")
+						return ErrSubscriptionPreConsumeRefunded
 					}
 					returnValue.UserSubscriptionId = sub.Id
 					returnValue.PreConsumed = dup.PreConsumed
@@ -1268,7 +1271,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			returnValue.AmountUsedAfter = sub.AmountUsed
 			return nil
 		}
-		return fmt.Errorf("subscription quota insufficient, need=%d", amount)
+		return fmt.Errorf("%w, need=%d", ErrSubscriptionQuotaInsufficient, amount)
 	})
 	if err != nil {
 		return nil, err

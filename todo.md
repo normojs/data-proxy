@@ -1,5 +1,12 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Billing architecture cleanup
+
+- [x] Replace subscription pre-consume string matching with sentinel errors.
+  - Acceptance: model subscription pre-consume errors support `errors.Is`.
+  - Acceptance: billing session maps no-active/insufficient subscription errors to insufficient quota without string matching.
+  - Done: model now exposes subscription pre-consume sentinel errors; billing session uses `errors.Is` and tests cover model/service behavior.
+
 ## P1 - Relay regression cleanup
 
 - [x] Fix Claude relay OpenAI file-content conversion.

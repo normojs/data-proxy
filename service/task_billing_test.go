@@ -340,6 +340,47 @@ func TestPerCallBilling_RefundRestoresSubscriptionReservation(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestSubscriptionPreConsumeErrorsUseSentinelTypes(t *testing.T) {
+	truncate(t)
+
+	const userID = 132
+
+	seedUser(t, userID, 0)
+	_, err := model.PreConsumeUserSubscription("subscription-no-active", userID, "gpt-test", 0, 10)
+	require.ErrorIs(t, err, model.ErrNoActiveSubscription)
+
+	seedSubscription(t, 132, userID, 100, 90)
+	_, err = model.PreConsumeUserSubscription("subscription-insufficient", userID, "gpt-test", 0, 20)
+	require.ErrorIs(t, err, model.ErrSubscriptionQuotaInsufficient)
+	require.Contains(t, err.Error(), "need=20")
+}
+
+func TestPerCallBillingSubscriptionOnlyMapsSentinelErrorsToInsufficientQuota(t *testing.T) {
+	truncate(t)
+
+	const userID, tokenID = 133, 133
+
+	seedUser(t, userID, 0)
+	seedToken(t, tokenID, userID, "sk-subscription-no-active", 5000)
+
+	relayInfo := &relaycommon.RelayInfo{
+		RequestId:       "per-call-subscription-no-active",
+		UserId:          userID,
+		TokenId:         tokenID,
+		TokenKey:        "sk-subscription-no-active",
+		OriginModelName: "gpt-test",
+		IsPlayground:    true,
+		UserSetting: dto.UserSetting{
+			BillingPreference: "subscription_only",
+		},
+	}
+
+	apiErr := PreConsumePerCallBilling(&gin.Context{}, 10, relayInfo)
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
+	require.Contains(t, apiErr.Error(), "订阅额度不足或未配置订阅")
+}
+
 func TestRecordTaskInitialBillingEvent_Idempotent(t *testing.T) {
 	truncate(t)
 
