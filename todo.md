@@ -1,5 +1,12 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - MCP executor architecture cleanup
+
+- [x] Align built-in MCP executor JSON conversion with project wrappers.
+  - Acceptance: `pkg/mcp/executor/builtin.go` no longer imports `encoding/json`.
+  - Acceptance: built-in executor server time and JSON pretty tests still pass.
+  - Done: built-in executor server time and JSON pretty now use `common.Marshal/common.UnmarshalJsonStr/common.MarshalIndent`; executor tests passed.
+
 ## P1 - OpenAPI executor architecture cleanup
 
 - [x] Align OpenAPI MCP executor JSON conversion with project wrappers.

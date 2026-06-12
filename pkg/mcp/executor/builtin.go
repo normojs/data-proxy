@@ -3,11 +3,11 @@ package executor
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 )
@@ -71,11 +71,11 @@ func (BuiltinExecutor) serverTime(req Request, startedAt time.Time) (Result, err
 		"rfc3339":  now.Format(time.RFC3339Nano),
 		"timezone": now.Location().String(),
 	}
-	bytes, err := json.MarshalIndent(payload, "", "  ")
+	data, err := common.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return Result{}, err
 	}
-	text := string(bytes)
+	text := string(data)
 	return Result{
 		Content: []dto.MCPContentBlock{{Type: "text", Text: text}},
 		Metadata: map[string]any{
@@ -85,7 +85,7 @@ func (BuiltinExecutor) serverTime(req Request, startedAt time.Time) (Result, err
 		},
 		Summary:    now.Format(time.RFC3339),
 		DurationMS: int(time.Since(startedAt).Milliseconds()),
-		ResultSize: len(bytes),
+		ResultSize: len(data),
 	}, nil
 }
 
@@ -105,7 +105,7 @@ func (BuiltinExecutor) jsonPretty(req Request, startedAt time.Time) (Result, err
 		}
 	}
 	var value any
-	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+	if err := common.UnmarshalJsonStr(raw, &value); err != nil {
 		return Result{}, &ExecutionError{
 			Code:    ErrorCodeFailed,
 			Message: "invalid json",
@@ -115,9 +115,9 @@ func (BuiltinExecutor) jsonPretty(req Request, startedAt time.Time) (Result, err
 	var output []byte
 	var err error
 	if indent == 0 {
-		output, err = json.Marshal(value)
+		output, err = common.Marshal(value)
 	} else {
-		output, err = json.MarshalIndent(value, "", strings.Repeat(" ", indent))
+		output, err = common.MarshalIndent(value, "", strings.Repeat(" ", indent))
 	}
 	if err != nil {
 		return Result{}, err
@@ -167,7 +167,7 @@ func intArg(args map[string]any, key string, fallback int) int {
 		return int(typed)
 	case float64:
 		return int(typed)
-	case json.Number:
+	case interface{ Int64() (int64, error) }:
 		parsed, err := typed.Int64()
 		if err == nil {
 			return int(parsed)
