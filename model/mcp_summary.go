@@ -349,6 +349,16 @@ func ListMCPToolCallToolStats(filter MCPToolCallFilter, limit int) ([]MCPToolCal
 	return stats, err
 }
 
+func CountMCPToolCallToolStats(filter MCPToolCallFilter) (int64, error) {
+	query := DB.Model(&MCPToolCall{})
+	query = applyMCPToolCallFilter(query, filter)
+	subQuery := query.Select("tool_id, tool_name").Group("tool_id, tool_name")
+
+	var total int64
+	err := DB.Table("(?) AS tool_stats", subQuery).Count(&total).Error
+	return total, err
+}
+
 func ListMCPToolErrorStats(filter MCPToolCallFilter, limit int) ([]MCPToolCallToolStats, error) {
 	if limit <= 0 {
 		limit = 5

@@ -53,6 +53,7 @@ import type { MCPSectionId } from '../section-registry'
 import type {
   MCPReviewItem,
   MCPReviewQueue,
+  MCPReviewScanScope,
   MCPSummary,
   MCPSummaryRecentError,
 } from '../types'
@@ -422,6 +423,10 @@ function ReviewQueueRow(props: {
   )
 }
 
+function formatReviewScanScope(scope: MCPReviewScanScope): string {
+  return `${formatNumber(scope.scanned)}/${formatNumber(scope.total)}`
+}
+
 function ReviewQueuePanel(props: {
   loading: boolean
   queue?: MCPReviewQueue
@@ -431,6 +436,35 @@ function ReviewQueuePanel(props: {
   const items = props.queue?.items ?? []
   const critical = props.queue?.critical_count ?? 0
   const warning = props.queue?.warning_count ?? 0
+  const total = props.queue?.total ?? items.length
+  const visible = props.queue?.visible_count ?? items.length
+  const scanLimits = props.queue?.scan_limits
+  const scanScopes = scanLimits
+    ? [
+        {
+          key: 'proxy_servers',
+          label: 'Proxy Servers',
+          scope: scanLimits.proxy_servers,
+        },
+        {
+          key: 'bridge_clients',
+          label: 'Bridge Clients',
+          scope: scanLimits.bridge_clients,
+        },
+        { key: 'tools', label: 'Tools', scope: scanLimits.tools },
+      ].filter(
+        (
+          entry
+        ): entry is {
+          key: string
+          label: string
+          scope: MCPReviewScanScope
+        } => Boolean(entry.scope)
+      )
+    : []
+  const queueTruncated = props.queue?.truncated ?? visible < total
+  const scanCapped = scanScopes.some(({ scope }) => scope.capped)
+  const attentionNeeded = queueTruncated || scanCapped
 
   return (
     <PanelWrapper
@@ -451,7 +485,44 @@ function ReviewQueuePanel(props: {
             <AlertTriangle className='text-warning size-3.5' />
             {t('Warning')} {formatNumber(warning)}
           </span>
+          <span className='flex items-center gap-1.5'>
+            <CheckCircle2 className='text-success size-3.5' />
+            {t('Visible')} {formatNumber(visible)}/{formatNumber(total)}
+          </span>
+          <StatusBadge
+            label={t(
+              attentionNeeded
+                ? queueTruncated
+                  ? 'More records'
+                  : 'Scan capped'
+                : 'Scan complete'
+            )}
+            variant={attentionNeeded ? 'warning' : 'success'}
+            copyable={false}
+          />
         </div>
+        {scanScopes.length > 0 && (
+          <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
+            {scanScopes.map(({ key, label, scope }) => (
+              <span
+                key={key}
+                className='bg-muted/30 inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1'
+              >
+                <span className='text-foreground font-medium'>
+                  {t(label)}
+                </span>
+                <span className='tabular-nums'>
+                  {formatReviewScanScope(scope)}
+                </span>
+                {scope.capped && (
+                  <span className='text-warning font-medium'>
+                    {t('Capped')}
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
         <div className='space-y-2'>
           {items.map((item) => (
             <ReviewQueueRow

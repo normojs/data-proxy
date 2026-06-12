@@ -1283,10 +1283,27 @@ export type MCPReviewItem = {
   created_at?: number
 }
 
+export type MCPReviewScanScope = {
+  scanned: number
+  total: number
+  limit: number
+  capped: boolean
+}
+
+export type MCPReviewScanLimits = {
+  proxy_servers?: MCPReviewScanScope
+  bridge_clients?: MCPReviewScanScope
+  tools?: MCPReviewScanScope
+}
+
 export type MCPReviewQueue = {
   total: number
   critical_count: number
   warning_count: number
+  visible_count?: number
+  max_items?: number
+  truncated?: boolean
+  scan_limits?: MCPReviewScanLimits
   items: MCPReviewItem[]
 }
 

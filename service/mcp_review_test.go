@@ -18,12 +18,24 @@ func TestAssembleMCPReviewQueueSortsAndCounts(t *testing.T) {
 		{Category: "c", Severity: MCPReviewSeverityWarning},
 		{Category: "d", Severity: MCPReviewSeverityCritical},
 	}
+	scanLimits := dto.MCPReviewScanLimits{
+		ProxyServers: dto.MCPReviewScanScope{
+			Scanned: 2,
+			Total:   4,
+			Limit:   10,
+			Capped:  true,
+		},
+	}
 
-	queue := assembleMCPReviewQueue(items)
+	queue := assembleMCPReviewQueue(items, scanLimits)
 
 	require.Equal(t, 4, queue.Total)
 	require.Equal(t, 2, queue.CriticalCount)
 	require.Equal(t, 2, queue.WarningCount)
+	require.Equal(t, 4, queue.VisibleCount)
+	require.Equal(t, mcpReviewMaxItems, queue.MaxItems)
+	require.False(t, queue.Truncated)
+	require.Equal(t, scanLimits, queue.ScanLimits)
 	require.Len(t, queue.Items, 4)
 	// Critical first, preserving collection order within each severity.
 	require.Equal(t, MCPReviewSeverityCritical, queue.Items[0].Severity)
@@ -41,10 +53,13 @@ func TestAssembleMCPReviewQueueCapsItems(t *testing.T) {
 		items = append(items, dto.MCPReviewItem{Severity: MCPReviewSeverityWarning})
 	}
 
-	queue := assembleMCPReviewQueue(items)
+	queue := assembleMCPReviewQueue(items, dto.MCPReviewScanLimits{})
 
 	require.Equal(t, total, queue.Total)
 	require.Equal(t, total, queue.WarningCount)
+	require.Equal(t, mcpReviewMaxItems, queue.VisibleCount)
+	require.Equal(t, mcpReviewMaxItems, queue.MaxItems)
+	require.True(t, queue.Truncated)
 	require.Len(t, queue.Items, mcpReviewMaxItems)
 }
 
@@ -160,4 +175,15 @@ func TestBuildMCPReviewQueueAggregatesSignals(t *testing.T) {
 	require.False(t, sawHealthy, "client with a live session must not be flagged stale")
 	require.GreaterOrEqual(t, queue.Total, 2)
 	require.GreaterOrEqual(t, queue.CriticalCount, 1)
+	require.Equal(t, queue.VisibleCount, len(queue.Items))
+	require.Equal(t, mcpReviewMaxItems, queue.MaxItems)
+	require.False(t, queue.Truncated)
+	require.Equal(t, mcpReviewBridgeClientScanLimit, queue.ScanLimits.BridgeClients.Limit)
+	require.Equal(t, 2, queue.ScanLimits.BridgeClients.Total)
+	require.Equal(t, 2, queue.ScanLimits.BridgeClients.Scanned)
+	require.False(t, queue.ScanLimits.BridgeClients.Capped)
+	require.Equal(t, mcpReviewToolScanLimit, queue.ScanLimits.Tools.Limit)
+	require.Equal(t, 1, queue.ScanLimits.Tools.Total)
+	require.Equal(t, 1, queue.ScanLimits.Tools.Scanned)
+	require.False(t, queue.ScanLimits.Tools.Capped)
 }

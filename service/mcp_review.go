@@ -48,31 +48,35 @@ type MCPReviewQueueParams struct {
 // high-error tools) into a single review queue for the admin dashboard.
 func BuildMCPReviewQueue(params MCPReviewQueueParams) (*dto.MCPReviewQueue, error) {
 	items := make([]dto.MCPReviewItem, 0)
+	scanLimits := dto.MCPReviewScanLimits{}
 
-	proxyItems, err := collectMCPProxyServerReviewItems()
+	proxyItems, proxyScope, err := collectMCPProxyServerReviewItems()
 	if err != nil {
 		return nil, err
 	}
+	scanLimits.ProxyServers = proxyScope
 	items = append(items, proxyItems...)
 
-	bridgeItems, err := collectStaleBridgeClientReviewItems()
+	bridgeItems, bridgeScope, err := collectStaleBridgeClientReviewItems()
 	if err != nil {
 		return nil, err
 	}
+	scanLimits.BridgeClients = bridgeScope
 	items = append(items, bridgeItems...)
 
 	items = append(items, collectMCPProxyTaskReviewItems()...)
 
-	toolItems, err := collectHighErrorToolReviewItems(params.StartTime)
+	toolItems, toolScope, err := collectHighErrorToolReviewItems(params.StartTime)
 	if err != nil {
 		return nil, err
 	}
+	scanLimits.Tools = toolScope
 	items = append(items, toolItems...)
 
-	return assembleMCPReviewQueue(items), nil
+	return assembleMCPReviewQueue(items, scanLimits), nil
 }
 
-func assembleMCPReviewQueue(items []dto.MCPReviewItem) *dto.MCPReviewQueue {
+func assembleMCPReviewQueue(items []dto.MCPReviewItem, scanLimits dto.MCPReviewScanLimits) *dto.MCPReviewQueue {
 	critical := 0
 	warning := 0
 	for _, item := range items {
@@ -94,6 +98,10 @@ func assembleMCPReviewQueue(items []dto.MCPReviewItem) *dto.MCPReviewQueue {
 		Total:         total,
 		CriticalCount: critical,
 		WarningCount:  warning,
+		VisibleCount:  len(items),
+		MaxItems:      mcpReviewMaxItems,
+		Truncated:     total > len(items),
+		ScanLimits:    scanLimits,
 		Items:         items,
 	}
 }
@@ -105,12 +113,13 @@ func mcpReviewSeverityRank(severity string) int {
 	return 1
 }
 
-func collectMCPProxyServerReviewItems() ([]dto.MCPReviewItem, error) {
-	servers, _, err := ListMCPProxyServersForAdmin(MCPProxyServerListParams{
+func collectMCPProxyServerReviewItems() ([]dto.MCPReviewItem, dto.MCPReviewScanScope, error) {
+	servers, total, err := ListMCPProxyServersForAdmin(MCPProxyServerListParams{
 		Limit: mcpReviewProxyServerScanLimit,
 	})
+	scope := mcpReviewScanScope(len(servers), total, mcpReviewProxyServerScanLimit)
 	if err != nil {
-		return nil, err
+		return nil, scope, err
 	}
 	items := make([]dto.MCPReviewItem, 0)
 	for _, server := range servers {
@@ -140,7 +149,7 @@ func collectMCPProxyServerReviewItems() ([]dto.MCPReviewItem, error) {
 			CreatedAt:  server.Health.GeneratedAt,
 		})
 	}
-	return items, nil
+	return items, scope, nil
 }
 
 func mcpProxyServerReviewDetail(server dto.MCPProxyServerAdminItem) string {
@@ -155,13 +164,14 @@ func mcpProxyServerReviewDetail(server dto.MCPProxyServerAdminItem) string {
 	return strings.Join(parts, " | ")
 }
 
-func collectStaleBridgeClientReviewItems() ([]dto.MCPReviewItem, error) {
+func collectStaleBridgeClientReviewItems() ([]dto.MCPReviewItem, dto.MCPReviewScanScope, error) {
 	online := model.BridgeClientStatusOnline
-	clients, _, err := model.ListBridgeClients(model.BridgeClientFilter{
+	clients, total, err := model.ListBridgeClients(model.BridgeClientFilter{
 		Status: &online,
 	}, 0, mcpReviewBridgeClientScanLimit)
+	scope := mcpReviewScanScope(len(clients), total, mcpReviewBridgeClientScanLimit)
 	if err != nil {
-		return nil, err
+		return nil, scope, err
 	}
 	items := make([]dto.MCPReviewItem, 0)
 	for _, client := range clients {
@@ -183,7 +193,7 @@ func collectStaleBridgeClientReviewItems() ([]dto.MCPReviewItem, error) {
 			CreatedAt:  client.LastSeenAt,
 		})
 	}
-	return items, nil
+	return items, scope, nil
 }
 
 func collectMCPProxyTaskReviewItems() []dto.MCPReviewItem {
@@ -220,12 +230,18 @@ func collectMCPProxyTaskReviewItems() []dto.MCPReviewItem {
 	return items
 }
 
-func collectHighErrorToolReviewItems(startTime int64) ([]dto.MCPReviewItem, error) {
-	stats, err := model.ListMCPToolCallToolStats(model.MCPToolCallFilter{
+func collectHighErrorToolReviewItems(startTime int64) ([]dto.MCPReviewItem, dto.MCPReviewScanScope, error) {
+	filter := model.MCPToolCallFilter{
 		StartTime: startTime,
-	}, mcpReviewToolScanLimit)
+	}
+	total, err := model.CountMCPToolCallToolStats(filter)
 	if err != nil {
-		return nil, err
+		return nil, dto.MCPReviewScanScope{}, err
+	}
+	stats, err := model.ListMCPToolCallToolStats(filter, mcpReviewToolScanLimit)
+	scope := mcpReviewScanScope(len(stats), total, mcpReviewToolScanLimit)
+	if err != nil {
+		return nil, scope, err
 	}
 	items := make([]dto.MCPReviewItem, 0)
 	for _, stat := range stats {
@@ -249,7 +265,17 @@ func collectHighErrorToolReviewItems(startTime int64) ([]dto.MCPReviewItem, erro
 				successRate, stat.Calls, stat.ErrorCalls, stat.TimeoutCalls),
 		})
 	}
-	return items, nil
+	return items, scope, nil
+}
+
+func mcpReviewScanScope(scanned int, total int64, limit int) dto.MCPReviewScanScope {
+	totalInt := int(total)
+	return dto.MCPReviewScanScope{
+		Scanned: scanned,
+		Total:   totalInt,
+		Limit:   limit,
+		Capped:  total > int64(scanned),
+	}
 }
 
 // mcpToolReviewSeverity decides whether a tool's call stats warrant a review

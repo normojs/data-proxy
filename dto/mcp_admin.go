@@ -209,8 +209,25 @@ type MCPReviewItem struct {
 }
 
 type MCPReviewQueue struct {
-	Total         int             `json:"total"`
-	CriticalCount int             `json:"critical_count"`
-	WarningCount  int             `json:"warning_count"`
-	Items         []MCPReviewItem `json:"items"`
+	Total         int                 `json:"total"`
+	CriticalCount int                 `json:"critical_count"`
+	WarningCount  int                 `json:"warning_count"`
+	VisibleCount  int                 `json:"visible_count"`
+	MaxItems      int                 `json:"max_items"`
+	Truncated     bool                `json:"truncated"`
+	ScanLimits    MCPReviewScanLimits `json:"scan_limits"`
+	Items         []MCPReviewItem     `json:"items"`
+}
+
+type MCPReviewScanLimits struct {
+	ProxyServers  MCPReviewScanScope `json:"proxy_servers"`
+	BridgeClients MCPReviewScanScope `json:"bridge_clients"`
+	Tools         MCPReviewScanScope `json:"tools"`
+}
+
+type MCPReviewScanScope struct {
+	Scanned int  `json:"scanned"`
+	Total   int  `json:"total"`
+	Limit   int  `json:"limit"`
+	Capped  bool `json:"capped"`
 }

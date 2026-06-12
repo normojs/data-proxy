@@ -8,9 +8,10 @@
 - [x] Make MCP Overview Bridge online trends accurate beyond the fixed 10k session cap.
   - Acceptance: recent buckets are not undercounted when many sessions overlap the window.
   - Acceptance: tests cover overflow-like session counts without relying on production-size fixtures.
-- [ ] Make MCP Review Queue large-installation behavior explicit and harder to miss.
+- [x] Make MCP Review Queue large-installation behavior explicit and harder to miss.
   - Acceptance: queue summaries expose capped scan/visible counts or overflow metadata.
   - Acceptance: dashboard can distinguish “no issues” from “scan capped”.
+  - Done: Review Queue responses now expose `visible_count`, `max_items`, `truncated`, and per-source `scan_limits`; MCP Overview shows visible/total counts and capped scan state.
 - [ ] Replace reachable provider adaptor `panic("implement me")` stubs with stable unsupported errors.
   - Acceptance: unsupported relay modes return errors instead of panicking.
 - [ ] Align Bridge controller JSON decoding with project JSON wrapper rules.
