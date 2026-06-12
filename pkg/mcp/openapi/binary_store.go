@@ -2,7 +2,6 @@ package openapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/google/uuid"
 )
 
@@ -181,7 +181,7 @@ func (localBinaryObjectStore) Save(ctx context.Context, object BinaryObject, con
 	if err := os.WriteFile(dataPath, content, 0600); err != nil {
 		return BinaryObject{}, fmt.Errorf("failed to write openapi binary object: %w", err)
 	}
-	metaBytes, err := json.Marshal(object)
+	metaBytes, err := common.Marshal(object)
 	if err != nil {
 		_ = os.Remove(dataPath)
 		return BinaryObject{}, err
@@ -206,7 +206,7 @@ func (localBinaryObjectStore) Load(ctx context.Context, id string) (BinaryObject
 		return BinaryObject{}, nil, err
 	}
 	var object BinaryObject
-	if err := json.Unmarshal(metaBytes, &object); err != nil {
+	if err := common.Unmarshal(metaBytes, &object); err != nil {
 		return BinaryObject{}, nil, err
 	}
 	if object.Id != id {
@@ -256,7 +256,7 @@ func (localBinaryObjectStore) Cleanup(ctx context.Context, options BinaryObjectC
 			return nil
 		}
 		var object BinaryObject
-		if err := json.Unmarshal(metaBytes, &object); err != nil {
+		if err := common.Unmarshal(metaBytes, &object); err != nil {
 			result.Errors = append(result.Errors, err.Error())
 			return nil
 		}

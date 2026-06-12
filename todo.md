@@ -1,5 +1,12 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - OpenAPI binary storage architecture cleanup
+
+- [x] Align OpenAPI binary object metadata JSON conversion with project wrappers.
+  - Acceptance: local and S3 binary object stores no longer import `encoding/json` for metadata serialization.
+  - Acceptance: binary object save/load/cleanup tests still pass for local and S3-compatible stores.
+  - Done: local and S3 metadata save/load/cleanup now use `common.Marshal/common.Unmarshal`; OpenAPI package binary object tests passed.
+
 ## P1 - MCP executor architecture cleanup
 
 - [x] Align built-in MCP executor JSON conversion with project wrappers.

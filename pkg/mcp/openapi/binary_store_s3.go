@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 )
@@ -95,7 +95,7 @@ func (s *s3BinaryObjectStore) Save(ctx context.Context, object BinaryObject, con
 	}
 	object.Provider = s.Provider()
 	object.StorageKey = s.objectPrefix(object.Id)
-	metaBytes, err := json.Marshal(object)
+	metaBytes, err := common.Marshal(object)
 	if err != nil {
 		return BinaryObject{}, err
 	}
@@ -122,7 +122,7 @@ func (s *s3BinaryObjectStore) Load(ctx context.Context, id string) (BinaryObject
 		return BinaryObject{}, nil, err
 	}
 	var object BinaryObject
-	if err := json.Unmarshal(metaBytes, &object); err != nil {
+	if err := common.Unmarshal(metaBytes, &object); err != nil {
 		return BinaryObject{}, nil, err
 	}
 	if object.Id != id {
@@ -177,7 +177,7 @@ func (s *s3BinaryObjectStore) Cleanup(ctx context.Context, options BinaryObjectC
 				continue
 			}
 			var object BinaryObject
-			if err := json.Unmarshal(metaBytes, &object); err != nil {
+			if err := common.Unmarshal(metaBytes, &object); err != nil {
 				result.Errors = append(result.Errors, err.Error())
 				continue
 			}
