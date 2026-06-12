@@ -12,8 +12,9 @@
   - Acceptance: queue summaries expose capped scan/visible counts or overflow metadata.
   - Acceptance: dashboard can distinguish “no issues” from “scan capped”.
   - Done: Review Queue responses now expose `visible_count`, `max_items`, `truncated`, and per-source `scan_limits`; MCP Overview shows visible/total counts and capped scan state.
-- [ ] Replace reachable provider adaptor `panic("implement me")` stubs with stable unsupported errors.
+- [x] Replace reachable provider adaptor `panic("implement me")` stubs with stable unsupported errors.
   - Acceptance: unsupported relay modes return errors instead of panicking.
+  - Done: 11 provider `ConvertClaudeRequest` stubs now return stable `not implemented` errors; regression test covers no-panic behavior.
 - [ ] Align Bridge controller JSON decoding with project JSON wrapper rules.
   - Acceptance: Bridge controller no longer calls `encoding/json` marshal/unmarshal directly.
 
