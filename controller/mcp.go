@@ -2,7 +2,6 @@ package controller
 
 import (
 	"bytes"
-	"encoding/json"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -96,7 +95,7 @@ func handleMCPToolCall(c *gin.Context, req dto.MCPRequest) {
 		c.JSON(http.StatusOK, mcpErrorResponse(req.ID, dto.MCPErrorCodeInvalidParams, "Invalid params", "tool name is required"))
 		return
 	}
-	requestId := common.JsonRawMessageToString(json.RawMessage(req.ID))
+	requestId := common.JsonRawMessageToString(req.ID)
 	callResp, err := service.CallMCPTool(service.MCPToolCallRequest{
 		Context:        c.Request.Context(),
 		UserId:         c.GetInt("id"),

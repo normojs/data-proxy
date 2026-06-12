@@ -1,5 +1,12 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - MCP controller architecture cleanup
+
+- [x] Remove unnecessary direct JSON dependency from MCP controller.
+  - Acceptance: `controller/mcp.go` no longer imports `encoding/json`.
+  - Acceptance: MCP initialize and invalid request controller tests still pass.
+  - Done: MCP controller now passes `req.ID` directly to `common.JsonRawMessageToString`; MCP controller tests passed.
+
 ## P1 - OpenAPI parser architecture cleanup
 
 - [x] Align OpenAPI parser JSON conversion with project wrappers.
