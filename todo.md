@@ -1,5 +1,19 @@
 # data-proxy MCP / Bridge TODO
 
+## P0 - Release readiness
+
+- [x] Run unified MCP regression after final architecture cleanup.
+  - Acceptance: `make mcp-regression` passes after the latest MCP/OpenAPI/Proxy cleanup commits.
+  - Done: `make mcp-regression` passed, covering OpenAPI, Proxy, Bridge lightweight checks, Dashboard smoke, and TypeScript build.
+- [ ] Run SQLite MCP migration smoke.
+  - Acceptance: `make mcp-migration-sqlite` passes against a temporary SQLite database.
+- [ ] Run real Bridge daemon concurrency smoke.
+  - Acceptance: `make mcp-bridge-smoke` passes with local daemon read/write/edit/glob/proxy coverage.
+- [ ] Record external database migration gate status.
+  - Acceptance: MySQL/PostgreSQL migration commands are either executed with DSNs or documented as DSN-gated.
+- [ ] Complete final release hygiene audit.
+  - Acceptance: `git diff --check` passes, worktree is clean, and remaining TODO/unsupported scan findings are classified.
+
 ## P1 - MCP Proxy HTTP client architecture cleanup
 
 - [x] Align MCP Proxy HTTP JSON-RPC serialization with project wrappers.
