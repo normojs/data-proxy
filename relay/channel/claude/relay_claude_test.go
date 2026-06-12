@@ -375,9 +375,9 @@ func TestRequestOpenAI2ClaudeMessage_SupportsPDFFileContent(t *testing.T) {
 				Content: []any{
 					dto.MediaContent{
 						Type: dto.ContentTypeFile,
-						File: &dto.MessageFile{
-							FileName: "spec.pdf",
-							FileData: "JVBERi0xLjQK",
+						File: map[string]any{
+							"filename":  "spec.pdf",
+							"file_data": "JVBERi0xLjQK",
 						},
 					},
 					dto.MediaContent{

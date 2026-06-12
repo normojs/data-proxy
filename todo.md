@@ -1,5 +1,13 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Relay regression cleanup
+
+- [x] Fix Claude relay OpenAI file-content conversion.
+  - Acceptance: unsupported OpenAI `file` content is skipped instead of being sent as an image.
+  - Acceptance: PDF files become Claude `document` blocks and text files become Claude `text` blocks.
+  - Acceptance: `go test ./relay/channel/claude` and `go test ./relay/channel/...` pass.
+  - Done: Claude relay now infers OpenAI file mime type from filename when needed, accepts map payload `filename`, emits PDF/document and text blocks explicitly, and ignores unsupported files.
+
 ## P1 - Audit remediation
 
 - [x] Fix Bridge reconnect/offline race so an old session close cannot mark a replaced live client offline.

@@ -347,8 +347,12 @@ func (m *MediaContent) GetFile() *MessageFile {
 			return m.File.(*MessageFile)
 		}
 		if itemMap, ok := m.File.(map[string]any); ok {
+			fileName := common.Interface2String(itemMap["filename"])
+			if fileName == "" {
+				fileName = common.Interface2String(itemMap["file_name"])
+			}
 			out := &MessageFile{
-				FileName: common.Interface2String(itemMap["file_name"]),
+				FileName: fileName,
 				FileData: common.Interface2String(itemMap["file_data"]),
 				FileId:   common.Interface2String(itemMap["file_id"]),
 			}
