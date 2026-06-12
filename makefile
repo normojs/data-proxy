@@ -26,8 +26,11 @@ MCP_OPENAPI_GO_TEST_PATTERN ?= TestPreviewMCPOpenAPIForAdmin|Test.*OpenAPI|TestD
 MCP_PROXY_GO_TEST_PATTERN ?= TestMCPProxy|TestBillingEventSourceMatrix
 MCP_MIGRATION_MYSQL_DSN ?=
 MCP_MIGRATION_POSTGRES_DSN ?=
+MCP_MIGRATION_COMPOSE_FILE ?= docker-compose.migration.yml
+MCP_MIGRATION_POSTGRES_PORT ?= 15432
+MCP_MIGRATION_KEEP_DOCKER ?= 0
 
-.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
+.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-migration-postgres-docker mcp-migration-docker-clean mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
 
 all: build-all-frontends start-backend
 
@@ -141,6 +144,25 @@ mcp-migration-postgres:
 	@test -n "$(MCP_MIGRATION_POSTGRES_DSN)" || { echo "Set MCP_MIGRATION_POSTGRES_DSN to run PostgreSQL migration smoke."; exit 1; }
 	@echo "Running MCP migration smoke against PostgreSQL..."
 	@MCP_MIGRATION_TEST=1 SQL_DSN="$(MCP_MIGRATION_POSTGRES_DSN)" $(GO_TEST_ENV) $(GO) test ./model -run TestMCPMigrationSmoke -count=1 -timeout=120s
+
+mcp-migration-postgres-docker:
+	@set -eu; \
+	compose_file="$(MCP_MIGRATION_COMPOSE_FILE)"; \
+	service="migration-postgres"; \
+	port="$(MCP_MIGRATION_POSTGRES_PORT)"; \
+	cleanup() { \
+		if [ "$(MCP_MIGRATION_KEEP_DOCKER)" != "1" ]; then \
+			docker compose -f "$$compose_file" rm -sfv "$$service" >/dev/null 2>&1 || true; \
+		fi; \
+	}; \
+	docker compose -f "$$compose_file" rm -sfv "$$service" >/dev/null 2>&1 || true; \
+	trap cleanup EXIT; \
+	echo "Starting disposable PostgreSQL migration database on 127.0.0.1:$$port..."; \
+	MCP_MIGRATION_POSTGRES_PORT="$$port" docker compose -f "$$compose_file" up -d --wait --wait-timeout 120 "$$service"; \
+	$(MAKE) mcp-migration-postgres MCP_MIGRATION_POSTGRES_DSN="postgres://root:123456@127.0.0.1:$$port/new_api_migration?sslmode=disable"
+
+mcp-migration-docker-clean:
+	@docker compose -f $(MCP_MIGRATION_COMPOSE_FILE) down -v --remove-orphans
 
 mcp-bridge-check:
 	@echo "Checking MCP Bridge daemon scripts..."
