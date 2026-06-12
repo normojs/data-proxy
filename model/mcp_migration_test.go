@@ -15,7 +15,7 @@ func TestMCPMigrationSmoke(t *testing.T) {
 		t.Skip("set MCP_MIGRATION_TEST=1 to run the MCP migration smoke test")
 	}
 	if os.Getenv("SQL_DSN") == "" {
-		t.Setenv("SQLITE_PATH", filepath.Join(t.TempDir(), "mcp-migration-smoke.db")+"?_busy_timeout=30000")
+		t.Setenv("SQLITE_PATH", "file:"+filepath.Join(t.TempDir(), "mcp-migration-smoke.db")+"?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)")
 	}
 
 	common.InitEnv()
@@ -27,10 +27,27 @@ func TestMCPMigrationSmoke(t *testing.T) {
 	if err := InitLogDB(); err != nil {
 		t.Fatalf("InitLogDB failed: %v", err)
 	}
+	assertMCPMigrationSmokeState(t)
+	assertNoSQLiteDecimalDDL(t)
+	if err := CloseDB(); err != nil {
+		t.Fatalf("CloseDB after first migration failed: %v", err)
+	}
+
+	if err := InitDB(); err != nil {
+		t.Fatalf("second InitDB failed: %v", err)
+	}
+	if err := InitLogDB(); err != nil {
+		t.Fatalf("second InitLogDB failed: %v", err)
+	}
 	t.Cleanup(func() {
 		_ = CloseDB()
 	})
+	assertMCPMigrationSmokeState(t)
+	assertNoSQLiteDecimalDDL(t)
+}
 
+func assertMCPMigrationSmokeState(t *testing.T) {
+	t.Helper()
 	if !DB.Migrator().HasTable(&MCPTool{}) {
 		t.Fatal("mcp_tools table was not migrated")
 	}
@@ -86,5 +103,19 @@ func TestMCPMigrationSmoke(t *testing.T) {
 	}
 	if toolCount != int64(len(catalog.BuiltinTools())) {
 		t.Fatalf("builtin MCP tool count mismatch, got %d want %d", toolCount, len(catalog.BuiltinTools()))
+	}
+}
+
+func assertNoSQLiteDecimalDDL(t *testing.T) {
+	t.Helper()
+	if !common.UsingSQLite {
+		return
+	}
+	var count int64
+	if err := DB.Raw(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND LOWER(sql) LIKE '%decimal%'`).Scan(&count).Error; err != nil {
+		t.Fatalf("inspect sqlite decimal DDL failed: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("sqlite schema still contains decimal DDL entries: %d", count)
 	}
 }

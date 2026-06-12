@@ -7,9 +7,20 @@
   - Done: `make mcp-regression` passed, covering OpenAPI, Proxy, Bridge lightweight checks, Dashboard smoke, and TypeScript build.
 - [x] Run SQLite MCP migration smoke.
   - Acceptance: `make mcp-migration-sqlite` passes against a temporary SQLite database.
-  - Done: `make mcp-migration-sqlite` passed against the temporary SQLite migration smoke.
-- [ ] Run real Bridge daemon concurrency smoke.
+  - Done: `make mcp-migration-sqlite` passed against the temporary SQLite migration smoke, including repeated `InitDB` / `InitLogDB` startup on the same database.
+- [x] Run real Bridge daemon concurrency smoke.
   - Acceptance: `make mcp-bridge-smoke` passes with local daemon read/write/edit/glob/proxy coverage.
+  - Done: `make mcp-bridge-smoke` passed with `MCP_BRIDGE_SMOKE_CONCURRENCY=4`, `MCP_BRIDGE_SMOKE_ITERATIONS=1`, `MCP_BRIDGE_SMOKE_TIMEOUT=120000`, temp SQLite WAL/busy-timeout pragmas, and single SQLite connection.
+- [x] Fix SQLite repeated migration for Bridge daemon smoke.
+  - Acceptance: SQLite startup migration can run twice against the same database without `invalid DDL, unbalanced brackets`.
+  - Acceptance: `make mcp-migration-sqlite` covers the repeated-start regression.
+  - Done: SQLite migration now normalizes legacy `decimal(p,s)` table DDL to `numeric` before repeated AutoMigrate parsing.
+- [x] Harden Bridge daemon smoke against performance monitor guard.
+  - Acceptance: smoke setup avoids CPU/memory/disk monitor 503 responses caused by local test machine load.
+  - Done: Bridge smoke prepare raises CPU, memory, and disk monitor thresholds to 100 for local release-gate runs.
+- [x] Align Bridge daemon smoke with server-side write policy.
+  - Acceptance: write/edit smoke calls explicitly enable server-side Bridge policy allowlist before expecting success.
+  - Done: smoke policy setup now sets `allowed_tools: ["*"]`, `allow_write: true`, and `mcp_allowed_targets: ["*"]` for the writable daemon client.
 - [ ] Record external database migration gate status.
   - Acceptance: MySQL/PostgreSQL migration commands are either executed with DSNs or documented as DSN-gated.
 - [ ] Complete final release hygiene audit.

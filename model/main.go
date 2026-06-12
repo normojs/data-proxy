@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,8 @@ var commonFalseVal string
 
 var logKeyCol string
 var logGroupCol string
+
+var sqliteDecimalDDLPattern = regexp.MustCompile(`(?i)decimal\s*\(\s*\d+\s*,\s*\d+\s*\)`)
 
 func initCol() {
 	// init common column names
@@ -259,6 +262,9 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
+	if err := normalizeSQLiteDecimalDDL(); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -321,6 +327,9 @@ func migrateDB() error {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
 		}
+		if err := normalizeSQLiteDecimalDDL(); err != nil {
+			return err
+		}
 	} else {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
 			return err
@@ -330,6 +339,9 @@ func migrateDB() error {
 }
 
 func migrateDBFast() error {
+	if err := normalizeSQLiteDecimalDDL(); err != nil {
+		return err
+	}
 
 	var wg sync.WaitGroup
 
@@ -417,6 +429,9 @@ func migrateDBFast() error {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
 		}
+		if err := normalizeSQLiteDecimalDDL(); err != nil {
+			return err
+		}
 	} else {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
 			return err
@@ -449,7 +464,7 @@ func ensureSubscriptionPlanTableSQLite() error {
 ` + "`id`" + ` integer,
 ` + "`title`" + ` varchar(128) NOT NULL,
 ` + "`subtitle`" + ` varchar(255) DEFAULT '',
-` + "`price_amount`" + ` decimal(10,6) NOT NULL,
+` + "`price_amount`" + ` numeric NOT NULL,
 ` + "`currency`" + ` varchar(8) NOT NULL DEFAULT 'USD',
 ` + "`duration_unit`" + ` varchar(16) NOT NULL DEFAULT 'month',
 ` + "`duration_value`" + ` integer NOT NULL DEFAULT 1,
@@ -484,7 +499,7 @@ PRIMARY KEY (` + "`id`" + `)
 	required := []sqliteColumnDef{
 		{Name: "title", DDL: "`title` varchar(128) NOT NULL"},
 		{Name: "subtitle", DDL: "`subtitle` varchar(255) DEFAULT ''"},
-		{Name: "price_amount", DDL: "`price_amount` decimal(10,6) NOT NULL"},
+		{Name: "price_amount", DDL: "`price_amount` numeric NOT NULL"},
 		{Name: "currency", DDL: "`currency` varchar(8) NOT NULL DEFAULT 'USD'"},
 		{Name: "duration_unit", DDL: "`duration_unit` varchar(16) NOT NULL DEFAULT 'month'"},
 		{Name: "duration_value", DDL: "`duration_value` integer NOT NULL DEFAULT 1"},
@@ -625,6 +640,64 @@ func migrateSubscriptionPlanPriceAmount() {
 			common.SysLog(fmt.Sprintf("Successfully migrated %s.%s to decimal(10,6)", tableName, columnName))
 		}
 	}
+}
+
+func normalizeSQLiteDecimalDDL() error {
+	if !common.UsingSQLite || DB == nil {
+		return nil
+	}
+	type sqliteSchemaRow struct {
+		Type string `gorm:"column:type"`
+		Name string `gorm:"column:name"`
+		SQL  string `gorm:"column:sql"`
+	}
+	var rows []sqliteSchemaRow
+	if err := DB.Raw(`SELECT type, name, sql FROM sqlite_master WHERE type = 'table' AND LOWER(sql) LIKE '%decimal%'`).Scan(&rows).Error; err != nil {
+		return fmt.Errorf("failed to inspect sqlite schema decimal DDL: %w", err)
+	}
+	updated := 0
+	writable := false
+	disableWritableSchema := func() error {
+		if !writable {
+			return nil
+		}
+		writable = false
+		return DB.Exec("PRAGMA writable_schema = OFF").Error
+	}
+	for _, row := range rows {
+		if strings.TrimSpace(row.SQL) == "" {
+			continue
+		}
+		normalized := sqliteDecimalDDLPattern.ReplaceAllString(row.SQL, "numeric")
+		if normalized == row.SQL {
+			continue
+		}
+		if !writable {
+			if err := DB.Exec("PRAGMA writable_schema = ON").Error; err != nil {
+				return fmt.Errorf("failed to enable sqlite writable_schema: %w", err)
+			}
+			writable = true
+		}
+		if err := DB.Exec("UPDATE sqlite_master SET sql = ? WHERE type = ? AND name = ?", normalized, row.Type, row.Name).Error; err != nil {
+			_ = disableWritableSchema()
+			return fmt.Errorf("failed to normalize sqlite schema for %s %s: %w", row.Type, row.Name, err)
+		}
+		updated++
+	}
+	if err := disableWritableSchema(); err != nil {
+		return fmt.Errorf("failed to disable sqlite writable_schema: %w", err)
+	}
+	if updated == 0 {
+		return nil
+	}
+	var schemaVersion int
+	if err := DB.Raw("PRAGMA schema_version").Scan(&schemaVersion).Error; err == nil {
+		if err := DB.Exec(fmt.Sprintf("PRAGMA schema_version = %d", schemaVersion+1)).Error; err != nil {
+			return fmt.Errorf("failed to bump sqlite schema_version: %w", err)
+		}
+	}
+	common.SysLog(fmt.Sprintf("normalized %d SQLite decimal schema definitions", updated))
+	return nil
 }
 
 func closeDB(db *gorm.DB) error {

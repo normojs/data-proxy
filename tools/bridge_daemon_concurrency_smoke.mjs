@@ -353,8 +353,14 @@ func prepare(p preparePayload) (map[string]any, error) {
 	if err := resetRemoteToolPricing(); err != nil {
 		return nil, err
 	}
-	if err := model.UpdateOption("performance_setting.monitor_disk_threshold", "100"); err != nil {
-		return nil, err
+	for _, key := range []string{
+		"performance_setting.monitor_cpu_threshold",
+		"performance_setting.monitor_memory_threshold",
+		"performance_setting.monitor_disk_threshold",
+	} {
+		if err := model.UpdateOption(key, "100"); err != nil {
+			return nil, err
+		}
 	}
 
 	accessToken := "bdsmoke" + p.Suffix + "access000000000000"
@@ -1527,6 +1533,7 @@ async function main() {
     }
   }
   await updateBridgeClientPolicy(baseUrl, dashboardHeaders, clientId, {
+    allowed_tools: ['*'],
     allow_write: true,
     mcp_allowed_targets: ['*'],
   });
