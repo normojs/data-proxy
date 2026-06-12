@@ -1,5 +1,29 @@
 # data-proxy MCP / Bridge TODO
 
+## P0 - Current development plan
+
+- [ ] Add a repeatable Docker-backed PostgreSQL migration gate.
+  - Acceptance: local developers can run a documented command or Make target that starts/uses project-owned PostgreSQL and executes `make mcp-migration-postgres` with a known test DSN.
+  - Acceptance: the gate does not depend on unrelated host containers or production databases.
+- [ ] Add a repeatable Docker-backed MySQL migration gate.
+  - Acceptance: local developers can run a documented command or Make target that starts/uses project-owned MySQL and executes `make mcp-migration-mysql` with a known test DSN.
+  - Acceptance: the gate handles existing host port conflicts such as a global `mysql8` container on port `3306`.
+- [ ] Run and record external database migration gates.
+  - Acceptance: PostgreSQL and MySQL migration smoke results are recorded in `todo.md` after the Docker-backed gates run.
+  - Acceptance: failures are fixed or explicitly documented with reproduction commands.
+- [ ] Harden external migration gate documentation and cleanup.
+  - Acceptance: docs explain startup, DSN, reset, cleanup, and how the gates relate to `make mcp-regression`.
+  - Acceptance: no secrets or host-specific credentials are committed beyond disposable local test defaults.
+- [ ] Audit non-MCP backlog and pick the next backend batch.
+  - Acceptance: remaining `TODO` / `unsupported` / `not implemented` findings outside the completed MCP scope are classified as product backlog, intentional unsupported behavior, or bug-fix candidates.
+
+## Deferred - Long-term UI v2 plan
+
+- [ ] Revisit shadcn-based UI v2 redesign after current backend and migration work.
+  - Status: deferred; do not start implementation now.
+  - Plan: `docs/ui-v2-long-term-plan.md`.
+  - Direction: keep `web/classic` as legacy, keep `web/default` as the current shadcn frontend, and later evolve `web/default` with a v2 product UI shell/pilot instead of creating a third frontend app.
+
 ## P0 - Release readiness
 
 - [x] Run unified MCP regression after final architecture cleanup.
