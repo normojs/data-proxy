@@ -1,5 +1,13 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - MCP Proxy HTTP client architecture cleanup
+
+- [x] Align MCP Proxy HTTP JSON-RPC serialization with project wrappers.
+  - Acceptance: `pkg/mcp/proxy/http_client.go` no longer calls `json.Marshal` or `json.Unmarshal` directly.
+  - Acceptance: `encoding/json` remains only for JSON-RPC `json.RawMessage` DTO types.
+  - Acceptance: MCP Proxy HTTP/SSE/Streamable tests still pass.
+  - Done: MCP Proxy HTTP client marshal/unmarshal paths now use `common.Marshal/common.Unmarshal`; proxy package tests and `make mcp-proxy-check` passed.
+
 ## P1 - MCP controller architecture cleanup
 
 - [x] Remove unnecessary direct JSON dependency from MCP controller.

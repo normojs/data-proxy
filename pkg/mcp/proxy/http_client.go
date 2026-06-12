@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 )
@@ -233,7 +234,7 @@ func (c *HTTPClient) CallTool(ctx context.Context, server model.MCPProxyServer, 
 		return CallResult{DurationMS: int(time.Since(startedAt).Milliseconds())}, err
 	}
 	resultSize := 0
-	if bytes, err := json.Marshal(result); err == nil {
+	if bytes, err := common.Marshal(result); err == nil {
 		resultSize = len(bytes)
 	}
 	return CallResult{
@@ -348,12 +349,12 @@ func (c *HTTPClient) waitBeforeRetry(ctx context.Context, attempt int) error {
 }
 
 func (c *HTTPClient) buildJSONRPCRequest(method string, params any) ([]byte, json.RawMessage, error) {
-	paramsBytes, err := json.Marshal(params)
+	paramsBytes, err := common.Marshal(params)
 	if err != nil {
 		return nil, nil, err
 	}
 	id := c.nextId.Add(1)
-	requestBody, err := json.Marshal(dto.MCPRequest{
+	requestBody, err := common.Marshal(dto.MCPRequest{
 		JSONRPC: dto.MCPJSONRPCVersion,
 		ID:      json.RawMessage(fmt.Sprintf("%d", id)),
 		Method:  method,
@@ -368,7 +369,7 @@ func (c *HTTPClient) buildJSONRPCRequest(method string, params any) ([]byte, jso
 func (c *HTTPClient) buildJSONRPCNotification(method string, params any) ([]byte, error) {
 	var paramsBytes json.RawMessage
 	if params != nil {
-		bytes, err := json.Marshal(params)
+		bytes, err := common.Marshal(params)
 		if err != nil {
 			return nil, err
 		}
@@ -379,7 +380,7 @@ func (c *HTTPClient) buildJSONRPCNotification(method string, params any) ([]byte
 		Method:  method,
 		Params:  paramsBytes,
 	}
-	return json.Marshal(request)
+	return common.Marshal(request)
 }
 
 func (c *HTTPClient) sendInitializedNotification(ctx context.Context, server model.MCPProxyServer) error {
@@ -573,7 +574,7 @@ func (c *HTTPClient) rpcHTTPPostNotification(ctx context.Context, server model.M
 		return nil
 	}
 	var rpcResp jsonRPCResponse
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
+	if err := common.Unmarshal(body, &rpcResp); err != nil {
 		return nil
 	}
 	if rpcResp.Error != nil {
@@ -588,7 +589,7 @@ func decodeJSONRPCResponse(body []byte, out any) error {
 		return errors.New("mcp proxy upstream returned an empty json-rpc response")
 	}
 	var rpcResp jsonRPCResponse
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
+	if err := common.Unmarshal(body, &rpcResp); err != nil {
 		return err
 	}
 	if rpcResp.Error != nil {
@@ -600,7 +601,7 @@ func decodeJSONRPCResponse(body []byte, out any) error {
 	if len(rpcResp.Result) == 0 || string(rpcResp.Result) == "null" {
 		return nil
 	}
-	return json.Unmarshal(rpcResp.Result, out)
+	return common.Unmarshal(rpcResp.Result, out)
 }
 
 func (c *HTTPClient) ensureStreamableInitialized(ctx context.Context, server model.MCPProxyServer) error {
@@ -1061,7 +1062,7 @@ func (s *sseSession) notify(ctx context.Context, client *HTTPClient, server mode
 		return nil
 	}
 	var rpcResp jsonRPCResponse
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
+	if err := common.Unmarshal(body, &rpcResp); err != nil {
 		return nil
 	}
 	if rpcResp.Error != nil {
@@ -1134,7 +1135,7 @@ func (s *sseSession) readLoop(scanner *bufio.Scanner) {
 			continue
 		}
 		var response jsonRPCResponse
-		if err := json.Unmarshal(data, &response); err != nil {
+		if err := common.Unmarshal(data, &response); err != nil {
 			continue
 		}
 		s.dispatch(data, response.ID)
@@ -1322,7 +1323,7 @@ func responseMatchesJSONRPCID(body []byte, id json.RawMessage) bool {
 		return true
 	}
 	var resp jsonRPCResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
+	if err := common.Unmarshal(body, &resp); err != nil {
 		return false
 	}
 	return rawJSONEqual(resp.ID, id)
@@ -1336,7 +1337,7 @@ func rawJSONEqual(a json.RawMessage, b json.RawMessage) bool {
 	}
 	var av any
 	var bv any
-	if json.Unmarshal(a, &av) != nil || json.Unmarshal(b, &bv) != nil {
+	if common.Unmarshal(a, &av) != nil || common.Unmarshal(b, &bv) != nil {
 		return false
 	}
 	return fmt.Sprintf("%v", av) == fmt.Sprintf("%v", bv)
@@ -1348,7 +1349,7 @@ func jsonRPCIDKey(id json.RawMessage) string {
 		return ""
 	}
 	var value any
-	if err := json.Unmarshal(id, &value); err == nil {
+	if err := common.Unmarshal(id, &value); err == nil {
 		switch typed := value.(type) {
 		case string:
 			return "s:" + typed
