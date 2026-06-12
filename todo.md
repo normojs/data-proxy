@@ -5,7 +5,7 @@
 - [x] Fix Bridge reconnect/offline race so an old session close cannot mark a replaced live client offline.
   - Acceptance: closing an old session while a replacement session is online keeps `bridge_clients.status=online`.
   - Acceptance: normal last-session close still marks the client offline.
-- [ ] Make MCP Overview Bridge online trends accurate beyond the fixed 10k session cap.
+- [x] Make MCP Overview Bridge online trends accurate beyond the fixed 10k session cap.
   - Acceptance: recent buckets are not undercounted when many sessions overlap the window.
   - Acceptance: tests cover overflow-like session counts without relying on production-size fixtures.
 - [ ] Make MCP Review Queue large-installation behavior explicit and harder to miss.

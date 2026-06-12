@@ -9,7 +9,6 @@ import (
 const (
 	defaultMCPSummaryTrendBucketSeconds = 60 * 60
 	maxMCPSummaryTrendBuckets           = 48
-	mcpSummaryTrendBridgeSessionLimit   = 10000
 	mcpSummaryProxyErrorTopLimit        = 5
 )
 
@@ -63,31 +62,22 @@ func BuildMCPSummaryOperationsTrends(params MCPSummaryOperationsTrendParams) (*d
 }
 
 func buildMCPSummaryBridgeOnlineTrend(userId int, startTime int64, endTime int64, bucketSeconds int64, bucketStarts []int64) ([]dto.MCPSummaryBridgeTrendBucket, error) {
-	sessions, err := model.ListBridgeSessionTrendSources(userId, startTime, endTime, mcpSummaryTrendBridgeSessionLimit)
-	if err != nil {
-		return nil, err
-	}
 	buckets := make([]dto.MCPSummaryBridgeTrendBucket, 0, len(bucketStarts))
 	for _, bucketStart := range bucketStarts {
 		bucketEnd := bucketStart + bucketSeconds - 1
 		if bucketEnd > endTime {
 			bucketEnd = endTime
 		}
-		onlineClients := map[string]bool{}
-		bucket := dto.MCPSummaryBridgeTrendBucket{BucketStart: bucketStart}
-		for _, session := range sessions {
-			if session.ConnectedAt >= bucketStart && session.ConnectedAt <= bucketEnd {
-				bucket.StartedSessions++
-			}
-			if session.ClosedAt > 0 && session.ClosedAt >= bucketStart && session.ClosedAt <= bucketEnd {
-				bucket.ClosedSessions++
-			}
-			if session.ConnectedAt <= bucketEnd && (session.ClosedAt == 0 || session.ClosedAt >= bucketStart) {
-				onlineClients[session.ClientId] = true
-			}
+		stats, err := model.GetBridgeSessionTrendBucketStats(userId, bucketStart, bucketEnd)
+		if err != nil {
+			return nil, err
 		}
-		bucket.OnlineClients = int64(len(onlineClients))
-		buckets = append(buckets, bucket)
+		buckets = append(buckets, dto.MCPSummaryBridgeTrendBucket{
+			BucketStart:     bucketStart,
+			OnlineClients:   stats.OnlineClients,
+			StartedSessions: stats.StartedSessions,
+			ClosedSessions:  stats.ClosedSessions,
+		})
 	}
 	return buckets, nil
 }

@@ -111,6 +111,44 @@ func TestBuildMCPSummaryOperationsTrendsAggregatesOverviewSignals(t *testing.T) 
 	require.EqualValues(t, 50, trends.BillingAnomalies.NetMCPQuotaDelta)
 }
 
+func TestBuildMCPSummaryOperationsTrendsCountsBridgeSessionsBeyondLegacyCap(t *testing.T) {
+	setupMCPProxyServiceTestDB(t)
+
+	now := common.GetTimestamp()
+	start := now - 60*60
+	userId := 7
+	sessionCount := 10005
+	sessions := make([]model.BridgeSession, 0, sessionCount)
+	for i := 0; i < sessionCount; i++ {
+		sessions = append(sessions, model.BridgeSession{
+			SessionId:   fmt.Sprintf("overview-overflow-session-%d", i),
+			ClientId:    fmt.Sprintf("overview-overflow-client-%d", i),
+			UserId:      userId,
+			Status:      model.BridgeSessionStatusOnline,
+			ConnectedAt: start + 60,
+			LastPingAt:  now,
+		})
+	}
+	require.NoError(t, model.DB.CreateInBatches(sessions, 500).Error)
+
+	trends, err := BuildMCPSummaryOperationsTrends(MCPSummaryOperationsTrendParams{
+		UserId:        userId,
+		StartTime:     start,
+		EndTime:       now,
+		BucketSeconds: 60 * 60,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, trends)
+
+	var maxOnline int64
+	for _, bucket := range trends.BridgeOnline {
+		if bucket.OnlineClients > maxOnline {
+			maxOnline = bucket.OnlineClients
+		}
+	}
+	require.EqualValues(t, sessionCount, maxOnline)
+}
+
 func createOpenAPITrendObject(t *testing.T, objectId string, userId int, size int, downloadCount int, expiresAt int64, createdAt int64) {
 	t.Helper()
 	object := &model.MCPOpenAPIBinaryObject{

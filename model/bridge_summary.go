@@ -21,6 +21,12 @@ type BridgeSessionTrendSource struct {
 	ClosedAt    int64  `gorm:"column:closed_at"`
 }
 
+type BridgeSessionTrendBucketStats struct {
+	StartedSessions int64 `gorm:"column:started_sessions"`
+	ClosedSessions  int64 `gorm:"column:closed_sessions"`
+	OnlineClients   int64 `gorm:"column:online_clients"`
+}
+
 func GetBridgeClientStats(userId int, activeSince int64) (BridgeClientStats, error) {
 	query := DB.Model(&BridgeClient{})
 	if userId > 0 {
@@ -56,6 +62,32 @@ func ListBridgeSessionTrendSources(userId int, startTime int64, endTime int64, l
 		Limit(limit).
 		Scan(&sessions).Error
 	return sessions, err
+}
+
+func GetBridgeSessionTrendBucketStats(userId int, bucketStart int64, bucketEnd int64) (BridgeSessionTrendBucketStats, error) {
+	query := DB.Model(&BridgeSession{})
+	if userId > 0 {
+		query = query.Where("user_id = ?", userId)
+	}
+	if bucketEnd > 0 {
+		query = query.Where("connected_at <= ?", bucketEnd)
+	}
+	if bucketStart > 0 {
+		query = query.Where("closed_at = 0 OR closed_at >= ?", bucketStart)
+	}
+	var stats BridgeSessionTrendBucketStats
+	err := query.Select(
+		`COALESCE(SUM(CASE WHEN connected_at >= ? AND connected_at <= ? THEN 1 ELSE 0 END), 0) AS started_sessions,
+		COALESCE(SUM(CASE WHEN closed_at > 0 AND closed_at >= ? AND closed_at <= ? THEN 1 ELSE 0 END), 0) AS closed_sessions,
+		COUNT(DISTINCT CASE WHEN connected_at <= ? AND (closed_at = 0 OR closed_at >= ?) THEN client_id ELSE NULL END) AS online_clients`,
+		bucketStart,
+		bucketEnd,
+		bucketStart,
+		bucketEnd,
+		bucketEnd,
+		bucketStart,
+	).Scan(&stats).Error
+	return stats, err
 }
 
 func GetBridgeAuditLogStats(filter BridgeAuditLogFilter) (BridgeAuditLogStats, error) {
