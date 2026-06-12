@@ -5,8 +5,9 @@
 - [x] Run unified MCP regression after final architecture cleanup.
   - Acceptance: `make mcp-regression` passes after the latest MCP/OpenAPI/Proxy cleanup commits.
   - Done: `make mcp-regression` passed, covering OpenAPI, Proxy, Bridge lightweight checks, Dashboard smoke, and TypeScript build.
-- [ ] Run SQLite MCP migration smoke.
+- [x] Run SQLite MCP migration smoke.
   - Acceptance: `make mcp-migration-sqlite` passes against a temporary SQLite database.
+  - Done: `make mcp-migration-sqlite` passed against the temporary SQLite migration smoke.
 - [ ] Run real Bridge daemon concurrency smoke.
   - Acceptance: `make mcp-bridge-smoke` passes with local daemon read/write/edit/glob/proxy coverage.
 - [ ] Record external database migration gate status.
