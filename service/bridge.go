@@ -83,6 +83,9 @@ func RegisterBridgeClient(input BridgeRegisterInput) (*BridgeRegisterResult, err
 		_ = model.MarkBridgeClientOffline(clientId)
 		return nil, err
 	}
+	if err := model.MarkBridgeClientOnline(clientId); err != nil {
+		return nil, err
+	}
 
 	return &BridgeRegisterResult{
 		SessionId: sessionId,
@@ -99,10 +102,13 @@ func TouchBridgeClientSession(sessionId string) error {
 
 func CloseBridgeClientSession(sessionId string, reason string) error {
 	snapshot, ok := bridge.DefaultHub.CloseSession(sessionId, bridge.CloseSessionOptions{Reason: reason})
-	if ok {
-		_ = model.MarkBridgeClientOffline(snapshot.ClientId)
+	if err := model.CloseBridgeSession(sessionId, model.BridgeSessionStatusClosed, reason); err != nil {
+		return err
 	}
-	return model.CloseBridgeSession(sessionId, model.BridgeSessionStatusClosed, reason)
+	if ok {
+		_, _ = model.MarkBridgeClientOfflineIfNoOnlineSession(snapshot.ClientId)
+	}
+	return nil
 }
 
 type BridgeClientListParams struct {
@@ -293,7 +299,9 @@ func CloseBridgeSessionForAdmin(params BridgeSessionCloseParams) (dto.BridgeSess
 		Notify: true,
 	})
 	if ok {
-		_ = model.MarkBridgeClientOffline(snapshot.ClientId)
+		defer func() {
+			_, _ = model.MarkBridgeClientOfflineIfNoOnlineSession(snapshot.ClientId)
+		}()
 	}
 	if err := model.CloseBridgeSession(sessionId, model.BridgeSessionStatusClosed, reason); err != nil {
 		return dto.BridgeSessionItem{}, err

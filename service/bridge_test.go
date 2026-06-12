@@ -251,6 +251,72 @@ func TestRegisterBridgeClientRejectsCrossUserClientId(t *testing.T) {
 	require.Equal(t, owner.Id, archived.UserId)
 }
 
+func TestCloseOldBridgeSessionKeepsReconnectedClientOnline(t *testing.T) {
+	setupMCPProxyServiceTestDB(t)
+
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+	clientId := "bridge-reconnect-race"
+	var firstSessionId, secondSessionId string
+	t.Cleanup(func() {
+		if firstSessionId != "" {
+			_, _ = bridge.DefaultHub.Unregister(firstSessionId)
+		}
+		if secondSessionId != "" {
+			_, _ = bridge.DefaultHub.Unregister(secondSessionId)
+		}
+	})
+
+	first, err := RegisterBridgeClient(BridgeRegisterInput{
+		UserId:       user.Id,
+		TokenId:      token.Id,
+		ClientId:     clientId,
+		Name:         "Reconnect Bridge",
+		Capabilities: []string{"remote_read"},
+	})
+	require.NoError(t, err)
+	firstSessionId = first.SessionId
+	bridge.DefaultHub.Register(bridge.Session{
+		SessionId:    first.SessionId,
+		ClientId:     clientId,
+		UserId:       user.Id,
+		TokenId:      token.Id,
+		Name:         "Reconnect Bridge",
+		Capabilities: []string{"remote_read"},
+	})
+
+	second, err := RegisterBridgeClient(BridgeRegisterInput{
+		UserId:       user.Id,
+		TokenId:      token.Id,
+		ClientId:     clientId,
+		Name:         "Reconnect Bridge New",
+		Capabilities: []string{"remote_read"},
+	})
+	require.NoError(t, err)
+	secondSessionId = second.SessionId
+	require.NotEqual(t, first.SessionId, second.SessionId)
+
+	require.NoError(t, CloseBridgeClientSession(first.SessionId, "old websocket closed after reconnect"))
+	var client model.BridgeClient
+	require.NoError(t, model.DB.Where("client_id = ?", clientId).First(&client).Error)
+	require.Equal(t, model.BridgeClientStatusOnline, client.Status)
+
+	var oldSession model.BridgeSession
+	require.NoError(t, model.DB.Where("session_id = ?", first.SessionId).First(&oldSession).Error)
+	require.Equal(t, model.BridgeSessionStatusClosed, oldSession.Status)
+
+	bridge.DefaultHub.Register(bridge.Session{
+		SessionId:    second.SessionId,
+		ClientId:     clientId,
+		UserId:       user.Id,
+		TokenId:      token.Id,
+		Name:         "Reconnect Bridge New",
+		Capabilities: []string{"remote_read"},
+	})
+	require.NoError(t, CloseBridgeClientSession(second.SessionId, "new websocket closed"))
+	require.NoError(t, model.DB.Where("client_id = ?", clientId).First(&client).Error)
+	require.Equal(t, model.BridgeClientStatusOffline, client.Status)
+}
+
 func TestUpdateBridgeClientPolicyAndPreserveOnReconnect(t *testing.T) {
 	setupMCPProxyServiceTestDB(t)
 

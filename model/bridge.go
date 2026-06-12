@@ -201,6 +201,29 @@ func MarkBridgeClientOffline(clientId string) error {
 	}).Error
 }
 
+func MarkBridgeClientOfflineIfNoOnlineSession(clientId string) (bool, error) {
+	clientId = strings.TrimSpace(clientId)
+	if clientId == "" {
+		return false, nil
+	}
+	now := common.GetTimestamp()
+	result := DB.Model(&BridgeClient{}).
+		Where("client_id = ?", clientId).
+		Where(
+			`NOT EXISTS (
+				SELECT 1 FROM bridge_sessions
+				WHERE bridge_sessions.client_id = bridge_clients.client_id
+				AND bridge_sessions.status = ?
+			)`,
+			BridgeSessionStatusOnline,
+		).
+		Updates(map[string]any{
+			"status":     BridgeClientStatusOffline,
+			"updated_at": now,
+		})
+	return result.RowsAffected > 0, result.Error
+}
+
 func UpdateBridgeClientFields(clientId string, updates map[string]any) (*BridgeClient, error) {
 	clientId = strings.TrimSpace(clientId)
 	if clientId == "" || len(updates) == 0 {
