@@ -1,5 +1,12 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - OpenAPI parser architecture cleanup
+
+- [x] Align OpenAPI parser JSON conversion with project wrappers.
+  - Acceptance: `pkg/mcp/openapi/parser.go` no longer imports `encoding/json`.
+  - Acceptance: OpenAPI parser tests still cover refs, schema merges, form/multipart, and binary request bodies.
+  - Done: OpenAPI parser now uses `common.Unmarshal/common.Marshal` for JSON parsing and schema cloning; parser and OpenAPI package tests passed.
+
 ## P1 - OpenAPI binary storage architecture cleanup
 
 - [x] Align OpenAPI binary object metadata JSON conversion with project wrappers.

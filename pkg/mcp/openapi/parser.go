@@ -1,7 +1,6 @@
 package openapi
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"path"
@@ -10,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,7 +49,7 @@ const maxRefResolveDepth = 32
 
 func ParseSpec(data []byte, sourceURL string) (*Spec, error) {
 	var doc map[string]any
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := common.Unmarshal(data, &doc); err != nil {
 		if yamlErr := yaml.Unmarshal(data, &doc); yamlErr != nil {
 			return nil, fmt.Errorf("invalid OpenAPI JSON/YAML document: %w", err)
 		}
@@ -740,12 +740,12 @@ func cloneMap(input map[string]any) map[string]any {
 	if input == nil {
 		return map[string]any{}
 	}
-	bytes, err := json.Marshal(input)
+	bytes, err := common.Marshal(input)
 	if err != nil {
 		return input
 	}
 	var output map[string]any
-	if err := json.Unmarshal(bytes, &output); err != nil {
+	if err := common.Unmarshal(bytes, &output); err != nil {
 		return input
 	}
 	return output
