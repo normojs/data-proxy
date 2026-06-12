@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	mcpopenapi "github.com/QuantumNous/new-api/pkg/mcp/openapi"
@@ -212,7 +212,7 @@ func buildOpenAPIRequestBody(contentType string, requestBodySchema string, value
 	mediaType := openAPIMediaType(contentType)
 	switch {
 	case isOpenAPIJSONMediaType(mediaType):
-		bodyBytes, err := json.Marshal(value)
+		bodyBytes, err := common.Marshal(value)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to marshal openapi body: %w", err)
 		}
@@ -242,7 +242,7 @@ func buildOpenAPIRequestBody(contentType string, requestBodySchema string, value
 		}
 		return bytes.NewReader(bodyBytes), binaryContentType, nil
 	default:
-		bodyBytes, err := json.Marshal(value)
+		bodyBytes, err := common.Marshal(value)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to marshal openapi body: %w", err)
 		}
@@ -293,7 +293,7 @@ func openAPITextRequestBody(value any) ([]byte, error) {
 	case string:
 		return []byte(typed), nil
 	default:
-		bodyBytes, err := json.Marshal(value)
+		bodyBytes, err := common.Marshal(value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal openapi text body: %w", err)
 		}
@@ -340,7 +340,7 @@ func appendOpenAPIFormValue(values url.Values, key string, value any) {
 			values.Add(key, fmt.Sprint(item))
 		}
 	case map[string]any:
-		encoded, err := json.Marshal(typed)
+		encoded, err := common.Marshal(typed)
 		if err != nil {
 			values.Add(key, fmt.Sprint(value))
 			return
@@ -536,7 +536,7 @@ func openAPIRequestBodySchema(value string) (map[string]any, error) {
 		return map[string]any{}, nil
 	}
 	var schema map[string]any
-	if err := json.Unmarshal([]byte(value), &schema); err != nil {
+	if err := common.Unmarshal(common.StringToByteSlice(value), &schema); err != nil {
 		return nil, fmt.Errorf("invalid openapi request body schema: %w", err)
 	}
 	return schema, nil
@@ -593,7 +593,7 @@ func openAPIFieldString(value any) string {
 	case string:
 		return typed
 	case []any, []string, map[string]any:
-		encoded, err := json.Marshal(typed)
+		encoded, err := common.Marshal(typed)
 		if err == nil {
 			return string(encoded)
 		}
@@ -694,7 +694,7 @@ func openAPIParameters(value string) ([]mcpopenapi.Parameter, error) {
 		return []mcpopenapi.Parameter{}, nil
 	}
 	var parameters []mcpopenapi.Parameter
-	if err := json.Unmarshal([]byte(value), &parameters); err != nil {
+	if err := common.Unmarshal(common.StringToByteSlice(value), &parameters); err != nil {
 		return nil, err
 	}
 	return parameters, nil
@@ -718,8 +718,8 @@ func formatOpenAPIResponseText(body []byte, contentType string) string {
 		return ""
 	}
 	var parsed any
-	if err := json.Unmarshal(trimmed, &parsed); err == nil {
-		if pretty, marshalErr := json.MarshalIndent(parsed, "", "  "); marshalErr == nil {
+	if err := common.Unmarshal(trimmed, &parsed); err == nil {
+		if pretty, marshalErr := common.MarshalIndent(parsed, "", "  "); marshalErr == nil {
 			return string(pretty)
 		}
 	}

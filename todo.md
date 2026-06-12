@@ -1,5 +1,12 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - OpenAPI executor architecture cleanup
+
+- [x] Align OpenAPI MCP executor JSON conversion with project wrappers.
+  - Acceptance: `pkg/mcp/executor/openapi.go` no longer imports `encoding/json`.
+  - Acceptance: OpenAPI executor request/response formatting tests still pass.
+  - Done: OpenAPI executor now uses `common.Marshal/common.Unmarshal/common.MarshalIndent`; MCP OpenAPI regression passed.
+
 ## P1 - MCP Proxy architecture cleanup
 
 - [x] Align MCP Proxy Bridge client JSON conversion with project wrappers.
