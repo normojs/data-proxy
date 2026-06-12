@@ -3,7 +3,6 @@ package proxy
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -416,11 +415,11 @@ func bridgeResultObject(result dto.BridgeToolCallResult) map[string]any {
 	}
 	for _, block := range result.Content {
 		text := strings.TrimSpace(block.Text)
-		if text == "" || !json.Valid([]byte(text)) {
+		if text == "" {
 			continue
 		}
 		var object map[string]any
-		if err := json.Unmarshal([]byte(text), &object); err == nil {
+		if err := common.Unmarshal(common.StringToByteSlice(text), &object); err == nil {
 			return object
 		}
 	}
@@ -481,12 +480,12 @@ func mapFromAny(value any) map[string]any {
 	if object, ok := value.(map[string]any); ok {
 		return object
 	}
-	raw, err := json.Marshal(value)
+	raw, err := common.Marshal(value)
 	if err != nil || !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
 		return map[string]any{}
 	}
 	var object map[string]any
-	if err := json.Unmarshal(raw, &object); err != nil {
+	if err := common.Unmarshal(raw, &object); err != nil {
 		return map[string]any{}
 	}
 	return object
@@ -499,12 +498,12 @@ func sliceFromAny(value any) []any {
 	if items, ok := value.([]any); ok {
 		return items
 	}
-	raw, err := json.Marshal(value)
+	raw, err := common.Marshal(value)
 	if err != nil || !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
 		return nil
 	}
 	var items []any
-	if err := json.Unmarshal(raw, &items); err != nil {
+	if err := common.Unmarshal(raw, &items); err != nil {
 		return nil
 	}
 	return items

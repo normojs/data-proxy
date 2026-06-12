@@ -1,5 +1,12 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - MCP Proxy architecture cleanup
+
+- [x] Align MCP Proxy Bridge client JSON conversion with project wrappers.
+  - Acceptance: `pkg/mcp/proxy/bridge_client.go` no longer imports `encoding/json`.
+  - Acceptance: Bridge proxy list/call/test behavior remains covered by existing tests.
+  - Done: Bridge client result/object helpers now use `common.Marshal/common.Unmarshal`; MCP Proxy regression passed.
+
 ## P1 - Billing architecture cleanup
 
 - [x] Replace subscription pre-consume string matching with sentinel errors.
