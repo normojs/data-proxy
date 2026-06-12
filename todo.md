@@ -21,8 +21,9 @@
 - [x] Align Bridge daemon smoke with server-side write policy.
   - Acceptance: write/edit smoke calls explicitly enable server-side Bridge policy allowlist before expecting success.
   - Done: smoke policy setup now sets `allowed_tools: ["*"]`, `allow_write: true`, and `mcp_allowed_targets: ["*"]` for the writable daemon client.
-- [ ] Record external database migration gate status.
+- [x] Record external database migration gate status.
   - Acceptance: MySQL/PostgreSQL migration commands are either executed with DSNs or documented as DSN-gated.
+  - Done: MySQL/PostgreSQL migration gates are DSN-gated on this machine because `MCP_MIGRATION_MYSQL_DSN` and `MCP_MIGRATION_POSTGRES_DSN` are unset; run `make mcp-migration-mysql MCP_MIGRATION_MYSQL_DSN='...'` and `make mcp-migration-postgres MCP_MIGRATION_POSTGRES_DSN='...'` when external test databases are available.
 - [ ] Complete final release hygiene audit.
   - Acceptance: `git diff --check` passes, worktree is clean, and remaining TODO/unsupported scan findings are classified.
 
