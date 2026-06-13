@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { useLocation, useNavigate } from '@tanstack/react-router'
 import { LogOut, MonitorCog, Settings, User, Wallet } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
@@ -37,25 +37,44 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Switch } from '@/components/ui/switch'
 import { SignOutDialog } from '@/components/sign-out-dialog'
+import { UI_V2_HOME_ROUTE } from '@/features/ui-v2/constants'
 
 const avatarFallbackClassName = 'font-semibold text-white'
 
 export function ProfileDropdown() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const [open, setOpen] = useDialogState()
   const user = useAuthStore((state) => state.auth.user)
   const uiVersion = useUIVersionStore((state) => state.version)
   const setUIVersion = useUIVersionStore((state) => state.setVersion)
   const { displayName, roleLabel } = useUserDisplay(user)
+  const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
   const isSuperAdmin = user?.role === ROLE.SUPER_ADMIN
   const isUIV2 = uiVersion === 'v2'
+  const isInUIV2 = location.pathname.startsWith(UI_V2_HOME_ROUTE)
   const avatarName = user?.username || displayName
   const avatarFallback = getUserAvatarFallback(avatarName)
   const avatarFallbackStyle = useMemo(
     () => getUserAvatarStyle(avatarName),
     [avatarName]
   )
+  const handleUIVersionChange = (checked: boolean) => {
+    setUIVersion(checked ? 'v2' : 'current')
+
+    if (checked) {
+      void navigate({ to: UI_V2_HOME_ROUTE })
+      return
+    }
+
+    if (isInUIV2) {
+      void navigate({
+        to: '/mcp/$section',
+        params: { section: 'overview' },
+      })
+    }
+  }
 
   return (
     <>
@@ -114,29 +133,29 @@ export function ProfileDropdown() {
             {t('Wallet')}
           </DropdownMenuItem>
 
-          <div className='hover:bg-accent/60 focus-within:bg-accent flex items-center gap-2 rounded-md px-1.5 py-1.5 transition-colors'>
-            <MonitorCog className='text-muted-foreground size-4 shrink-0' />
-            <label
-              htmlFor='ui-version-switch'
-              className='flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5'
-            >
-              <span className='text-foreground truncate text-sm'>
-                {t('UI v2 pilot')}
-              </span>
-              <span className='text-muted-foreground truncate text-xs'>
-                {isUIV2 ? t('Pilot UI enabled') : t('Current UI enabled')}
-              </span>
-            </label>
-            <Switch
-              id='ui-version-switch'
-              size='sm'
-              checked={isUIV2}
-              aria-label={t('Toggle UI v2 pilot')}
-              onCheckedChange={(checked) =>
-                setUIVersion(checked ? 'v2' : 'current')
-              }
-            />
-          </div>
+          {isAdmin && (
+            <div className='hover:bg-accent/60 focus-within:bg-accent flex items-center gap-2 rounded-md px-1.5 py-1.5 transition-colors'>
+              <MonitorCog className='text-muted-foreground size-4 shrink-0' />
+              <label
+                htmlFor='ui-version-switch'
+                className='flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5'
+              >
+                <span className='text-foreground truncate text-sm'>
+                  {t('UI v2 pilot')}
+                </span>
+                <span className='text-muted-foreground truncate text-xs'>
+                  {isUIV2 ? t('Pilot UI enabled') : t('Current UI enabled')}
+                </span>
+              </label>
+              <Switch
+                id='ui-version-switch'
+                size='sm'
+                checked={isUIV2}
+                aria-label={t('Toggle UI v2 pilot')}
+                onCheckedChange={handleUIVersionChange}
+              />
+            </div>
+          )}
 
           {isSuperAdmin && (
             <DropdownMenuItem

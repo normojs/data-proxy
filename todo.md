@@ -80,9 +80,10 @@
   - Acceptance: operators can switch between current UI and v2 pilot without losing the existing routes.
   - Acceptance: the choice is stored locally first and can be promoted to backend preference later.
   - Done: added a localStorage-backed UI version store and a profile-menu switch that preserves the current UI while enabling the v2 pilot preference.
-- [ ] Add the v2 authenticated pilot shell.
+- [x] Add the v2 authenticated pilot shell.
   - Acceptance: the v2 shell is mounted under a low-risk authenticated route and uses existing auth, router, i18n, and shadcn primitives.
   - Acceptance: the shell includes navigation, page header, breadcrumbs or context, density rules, and mobile-safe layout.
+  - Done: added the admin-guarded `/ui-lab/*` shell, profile switch navigation, route tree entries, compact v2 navigation, breadcrumb context, and a placeholder MCP pilot route ready for data wiring.
 - [ ] Build the MCP operations v2 pilot surface.
   - Acceptance: the pilot reuses existing MCP APIs/query keys and covers overview, health/risk state, recent activity, and navigation into existing detailed sections.
   - Acceptance: loading, empty, partial, error, and permission states are represented.
