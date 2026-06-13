@@ -18,9 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { User, Wallet, LogOut, Settings } from 'lucide-react'
+import { LogOut, MonitorCog, Settings, User, Wallet } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
+import { useUIVersionStore } from '@/stores/ui-version-store'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { ROLE } from '@/lib/roles'
 import useDialogState from '@/hooks/use-dialog'
@@ -34,6 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Switch } from '@/components/ui/switch'
 import { SignOutDialog } from '@/components/sign-out-dialog'
 
 const avatarFallbackClassName = 'font-semibold text-white'
@@ -43,8 +45,11 @@ export function ProfileDropdown() {
   const navigate = useNavigate()
   const [open, setOpen] = useDialogState()
   const user = useAuthStore((state) => state.auth.user)
+  const uiVersion = useUIVersionStore((state) => state.version)
+  const setUIVersion = useUIVersionStore((state) => state.setVersion)
   const { displayName, roleLabel } = useUserDisplay(user)
   const isSuperAdmin = user?.role === ROLE.SUPER_ADMIN
+  const isUIV2 = uiVersion === 'v2'
   const avatarName = user?.username || displayName
   const avatarFallback = getUserAvatarFallback(avatarName)
   const avatarFallbackStyle = useMemo(
@@ -108,6 +113,30 @@ export function ProfileDropdown() {
             <Wallet className='size-4' />
             {t('Wallet')}
           </DropdownMenuItem>
+
+          <div className='hover:bg-accent/60 focus-within:bg-accent flex items-center gap-2 rounded-md px-1.5 py-1.5 transition-colors'>
+            <MonitorCog className='text-muted-foreground size-4 shrink-0' />
+            <label
+              htmlFor='ui-version-switch'
+              className='flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5'
+            >
+              <span className='text-foreground truncate text-sm'>
+                {t('UI v2 pilot')}
+              </span>
+              <span className='text-muted-foreground truncate text-xs'>
+                {isUIV2 ? t('Pilot UI enabled') : t('Current UI enabled')}
+              </span>
+            </label>
+            <Switch
+              id='ui-version-switch'
+              size='sm'
+              checked={isUIV2}
+              aria-label={t('Toggle UI v2 pilot')}
+              onCheckedChange={(checked) =>
+                setUIVersion(checked ? 'v2' : 'current')
+              }
+            />
+          </div>
 
           {isSuperAdmin && (
             <DropdownMenuItem

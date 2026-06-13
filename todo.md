@@ -76,9 +76,10 @@
   - Acceptance: `PRODUCT.md`, `DESIGN.md`, a UI v2 design brief, and Impeccable live/design config exist before implementation.
   - Acceptance: the design direction keeps `web/classic` unchanged and evolves `web/default` as the shadcn-based pilot home.
   - Done: added product/design context, `.impeccable` live/design files, and `docs/ui-v2-design-brief.md` for the active pilot.
-- [ ] Add a UI version switcher and persisted preference.
+- [x] Add a UI version switcher and persisted preference.
   - Acceptance: operators can switch between current UI and v2 pilot without losing the existing routes.
   - Acceptance: the choice is stored locally first and can be promoted to backend preference later.
+  - Done: added a localStorage-backed UI version store and a profile-menu switch that preserves the current UI while enabling the v2 pilot preference.
 - [ ] Add the v2 authenticated pilot shell.
   - Acceptance: the v2 shell is mounted under a low-risk authenticated route and uses existing auth, router, i18n, and shadcn primitives.
   - Acceptance: the shell includes navigation, page header, breadcrumbs or context, density rules, and mobile-safe layout.
