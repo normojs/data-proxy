@@ -45,6 +45,14 @@
   - Acceptance: tests cover accepted protocol negotiation and unsupported protocol behavior without requiring upstream connectivity.
   - Done: Realtime WebSocket negotiation now explicitly supports `realtime` and `openai-beta.realtime-v1`, keeps `openai-insecure-api-key.*` out of the selectable subprotocol list, and has handshake-level tests for accepted and unsupported protocols.
 
+## P2 - Task lifecycle hygiene
+
+- [x] Make task polling context and resource handling explicit.
+  - Acceptance: long-running task pollers no longer use `context.TODO()` for production loops.
+  - Acceptance: Midjourney polling HTTP requests cancel their timeout context and close response bodies on every response/error path.
+  - Acceptance: touched JSON serialization paths use the project `common` wrappers and tests cover the extracted polling request helper.
+  - Done: task polling loops now use explicit background contexts; Midjourney polling uses an extracted timeout-aware request helper with deferred cancel/body close, project JSON wrappers, and tests for success, status errors, parse errors, and missing base URL.
+
 ## Deferred - Long-term UI v2 plan
 
 - [ ] Revisit shadcn-based UI v2 redesign after current backend and migration work.

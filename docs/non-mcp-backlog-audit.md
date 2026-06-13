@@ -118,8 +118,9 @@ audit and should not be reopened unless a new capability is requested.
   architecture review.
 - `dto/audio.go` and `dto/gemini.go`: request-shape TODOs need provider-specific
   compatibility tests.
-- `controller/midjourney.go` and `service/task_polling.go`: `context.TODO()`
-  can be replaced during a broader task lifecycle cleanup.
+- Task polling `context.TODO()` usage was resolved by the follow-up task
+  lifecycle cleanup; future work should focus on product-level task polling
+  behavior rather than placeholder contexts.
 - `model/*_test.go`, `service/*_test.go`, and smoke helper `panic` calls are
   test-only fail-fast behavior, not production panic paths.
 

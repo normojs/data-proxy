@@ -3,7 +3,6 @@ package controller
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,9 +19,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const midjourneyTaskPollTimeout = 15 * time.Second
+
 func UpdateMidjourneyTaskBulk() {
 	//imageModel := "midjourney"
-	ctx := context.TODO()
+	ctx := context.Background()
 	for {
 		time.Sleep(time.Duration(15) * time.Second)
 
@@ -77,46 +78,12 @@ func UpdateMidjourneyTaskBulk() {
 				}
 				continue
 			}
-			requestUrl := fmt.Sprintf("%s/mj/task/list-by-condition", *midjourneyChannel.BaseURL)
 
-			body, _ := json.Marshal(map[string]any{
-				"ids": taskIds,
-			})
-			req, err := http.NewRequest("POST", requestUrl, bytes.NewBuffer(body))
+			responseItems, err := fetchMidjourneyTaskList(ctx, midjourneyChannel, taskIds)
 			if err != nil {
 				logger.LogError(ctx, fmt.Sprintf("Get Task error: %v", err))
 				continue
 			}
-			// 设置超时时间
-			timeout := time.Second * 15
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			// 使用带有超时的 context 创建新的请求
-			req = req.WithContext(ctx)
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("mj-api-secret", midjourneyChannel.Key)
-			resp, err := service.GetHttpClient().Do(req)
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf("Get Task Do req error: %v", err))
-				continue
-			}
-			if resp.StatusCode != http.StatusOK {
-				logger.LogError(ctx, fmt.Sprintf("Get Task status code: %d", resp.StatusCode))
-				continue
-			}
-			responseBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf("Get Mjp Task parse body error: %v", err))
-				continue
-			}
-			var responseItems []dto.MidjourneyDto
-			err = json.Unmarshal(responseBody, &responseItems)
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf("Get Mjp Task parse body error2: %v, body: %s", err, string(responseBody)))
-				continue
-			}
-			resp.Body.Close()
-			req.Body.Close()
-			cancel()
 
 			for _, responseItem := range responseItems {
 				task := taskM[responseItem.MjId]
@@ -142,11 +109,11 @@ func UpdateMidjourneyTaskBulk() {
 				task.Status = responseItem.Status
 				task.FailReason = responseItem.FailReason
 				if responseItem.Properties != nil {
-					propertiesStr, _ := json.Marshal(responseItem.Properties)
+					propertiesStr, _ := common.Marshal(responseItem.Properties)
 					task.Properties = string(propertiesStr)
 				}
 				if responseItem.Buttons != nil {
-					buttonStr, _ := json.Marshal(responseItem.Buttons)
+					buttonStr, _ := common.Marshal(responseItem.Buttons)
 					task.Buttons = string(buttonStr)
 				}
 				// 映射 VideoUrl
@@ -154,7 +121,7 @@ func UpdateMidjourneyTaskBulk() {
 
 				// 映射 VideoUrls - 将数组序列化为 JSON 字符串
 				if responseItem.VideoUrls != nil && len(responseItem.VideoUrls) > 0 {
-					videoUrlsStr, err := json.Marshal(responseItem.VideoUrls)
+					videoUrlsStr, err := common.Marshal(responseItem.VideoUrls)
 					if err != nil {
 						logger.LogError(ctx, fmt.Sprintf("序列化 VideoUrls 失败: %v", err))
 						task.VideoUrls = "[]" // 失败时设置为空数组
@@ -182,6 +149,54 @@ func UpdateMidjourneyTaskBulk() {
 			}
 		}
 	}
+}
+
+func fetchMidjourneyTaskList(ctx context.Context, midjourneyChannel *model.Channel, taskIds []string) ([]dto.MidjourneyDto, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if midjourneyChannel == nil || midjourneyChannel.BaseURL == nil || *midjourneyChannel.BaseURL == "" {
+		return nil, fmt.Errorf("midjourney channel base_url is empty")
+	}
+
+	body, err := common.Marshal(map[string]any{
+		"ids": taskIds,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal task list request: %w", err)
+	}
+
+	requestURL := fmt.Sprintf("%s/mj/task/list-by-condition", *midjourneyChannel.BaseURL)
+	timeoutCtx, cancel := context.WithTimeout(ctx, midjourneyTaskPollTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(timeoutCtx, http.MethodPost, requestURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create task list request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("mj-api-secret", midjourneyChannel.Key)
+
+	resp, err := service.GetHttpClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do task list request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("task list status code: %d", resp.StatusCode)
+	}
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read task list response body: %w", err)
+	}
+
+	var responseItems []dto.MidjourneyDto
+	if err := common.Unmarshal(responseBody, &responseItems); err != nil {
+		return nil, fmt.Errorf("parse task list response body: %w, body: %s", err, string(responseBody))
+	}
+	return responseItems, nil
 }
 
 func checkMjTaskNeedUpdate(oldTask *model.Midjourney, newTask dto.MidjourneyDto) bool {
@@ -227,7 +242,7 @@ func checkMjTaskNeedUpdate(oldTask *model.Midjourney, newTask dto.MidjourneyDto)
 	}
 	// 检查 VideoUrls 是否需要更新
 	if newTask.VideoUrls != nil && len(newTask.VideoUrls) > 0 {
-		newVideoUrlsStr, _ := json.Marshal(newTask.VideoUrls)
+		newVideoUrlsStr, _ := common.Marshal(newTask.VideoUrls)
 		if oldTask.VideoUrls != string(newVideoUrlsStr) {
 			return true
 		}
