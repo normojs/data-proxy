@@ -53,6 +53,15 @@
   - Acceptance: touched JSON serialization paths use the project `common` wrappers and tests cover the extracted polling request helper.
   - Done: task polling loops now use explicit background contexts; Midjourney polling uses an extracted timeout-aware request helper with deferred cancel/body close, project JSON wrappers, and tests for success, status errors, parse errors, and missing base URL.
 
+## P2 - Veo advanced image inputs
+
+- [x] Add Veo last-frame and reference-image request support.
+  - Acceptance: Gemini and Vertex Veo request builders can map metadata `lastFrame` / `last_frame` into the request instance when a primary image is present.
+  - Acceptance: metadata `referenceImages` / `reference_images` supports up to 3 safely parsed image inputs with optional `referenceType` / `reference_type`, defaults to `asset`, and is limited to Veo 3.1 models.
+  - Acceptance: reference-image requests default duration to 8 seconds when not provided and reject non-8 second durations before calling upstream.
+  - Acceptance: tests cover payload shape, validation failures, and Gemini/Vertex shared behavior.
+  - Done: Gemini/Vertex Veo builders now share advanced image parsing for `lastFrame` and `referenceImages`, reuse safe image parsing for base64/data URI/HTTP inputs, enforce Veo 3.1 and reference duration constraints, and cover helper plus both request builders in tests.
+
 ## Deferred - Long-term UI v2 plan
 
 - [ ] Revisit shadcn-based UI v2 redesign after current backend and migration work.

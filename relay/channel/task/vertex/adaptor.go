@@ -172,6 +172,9 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	}
 	params.Resolution = strings.ToLower(params.Resolution)
 	params.SampleCount = 1
+	if err := geminitask.ApplyVeoAdvancedImageInputs(&instance, params, req.Metadata, info.UpstreamModelName); err != nil {
+		return nil, err
+	}
 
 	body := geminitask.VeoRequestPayload{
 		Instances:  []geminitask.VeoInstance{instance},
