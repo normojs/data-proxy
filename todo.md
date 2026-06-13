@@ -18,8 +18,21 @@
   - Acceptance: docs explain startup, DSN, reset, cleanup, and how the gates relate to `make mcp-regression`.
   - Acceptance: no secrets or host-specific credentials are committed beyond disposable local test defaults.
   - Done: documented Docker-backed startup, default DSNs, port overrides, debug retention, cleanup, and the relationship between `make mcp-migration-docker` and `make mcp-regression`.
-- [ ] Audit non-MCP backlog and pick the next backend batch.
+- [x] Audit non-MCP backlog and pick the next backend batch.
   - Acceptance: remaining `TODO` / `unsupported` / `not implemented` findings outside the completed MCP scope are classified as product backlog, intentional unsupported behavior, or bug-fix candidates.
+  - Done: classified non-MCP findings in `docs/non-mcp-backlog-audit.md`; selected asynchronous channel balance refresh, conservative image URL sensitive checks, and SSRF-safe Gemini/Veo HTTP image input support as the next backend batch.
+
+## P1 - Selected next backend batch
+
+- [ ] Make admin-triggered all-channel balance refresh asynchronous.
+  - Acceptance: `UpdateAllChannelsBalance` returns promptly, prevents overlapping runs, and exposes enough status/log context to know whether a refresh is already running or has started.
+  - Acceptance: the existing single-channel balance query remains synchronous.
+- [ ] Add conservative sensitive checks for image URL payloads.
+  - Acceptance: `CheckSensitiveMessages` scans text-bearing image URL fields already present in request payloads without fetching remote images.
+  - Acceptance: tests cover text-only, image-only, mixed content, and no-sensitive-word paths.
+- [ ] Add SSRF-safe HTTP image input support for Gemini/Veo task images.
+  - Acceptance: HTTP image URLs are downloaded only through safe request helpers with size and MIME limits, then converted to existing base64 image input.
+  - Acceptance: tests cover allowed URLs, rejected hosts, oversized content, unsupported MIME, data URI, and raw base64 behavior.
 
 ## Deferred - Long-term UI v2 plan
 
