@@ -1,7 +1,7 @@
 # UI V2 Long-Term Plan
 
-Status: Deferred. Do not start implementation until the user explicitly
-reactivates this plan.
+Status: Activated as an incremental pilot. The user reactivated this plan after
+the backend and migration tasks were completed.
 
 ## Decision
 
@@ -110,6 +110,7 @@ Before implementation starts:
 
 ## Activation Gate
 
-Do not start UI v2 while backend release gates or database migration verification
-are still active. Revisit after current Docker-backed migration tasks and any
-near-term backend hardening are complete.
+Activated on 2026-06-13 after the Docker-backed migration gates and near-term
+backend hardening work were completed. Implementation should continue through
+the task list in `todo.md`, keeping the current UI available until the v2 pilot
+passes validation.

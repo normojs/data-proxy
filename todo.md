@@ -70,12 +70,24 @@
   - Acceptance: single-channel Azure balance queries return a typed unsupported error and tests cover the helper/error behavior.
   - Done: Azure balance querying now returns a typed unsupported error, all-channel refresh skips Azure before provider requests, and controller tests cover the capability helper and unsupported error.
 
-## Deferred - Long-term UI v2 plan
+## P2 - UI v2 pilot
 
-- [ ] Revisit shadcn-based UI v2 redesign after current backend and migration work.
-  - Status: deferred; do not start implementation now.
-  - Plan: `docs/ui-v2-long-term-plan.md`.
-  - Direction: keep `web/classic` as legacy, keep `web/default` as the current shadcn frontend, and later evolve `web/default` with a v2 product UI shell/pilot instead of creating a third frontend app.
+- [x] Activate UI v2 design context.
+  - Acceptance: `PRODUCT.md`, `DESIGN.md`, a UI v2 design brief, and Impeccable live/design config exist before implementation.
+  - Acceptance: the design direction keeps `web/classic` unchanged and evolves `web/default` as the shadcn-based pilot home.
+  - Done: added product/design context, `.impeccable` live/design files, and `docs/ui-v2-design-brief.md` for the active pilot.
+- [ ] Add a UI version switcher and persisted preference.
+  - Acceptance: operators can switch between current UI and v2 pilot without losing the existing routes.
+  - Acceptance: the choice is stored locally first and can be promoted to backend preference later.
+- [ ] Add the v2 authenticated pilot shell.
+  - Acceptance: the v2 shell is mounted under a low-risk authenticated route and uses existing auth, router, i18n, and shadcn primitives.
+  - Acceptance: the shell includes navigation, page header, breadcrumbs or context, density rules, and mobile-safe layout.
+- [ ] Build the MCP operations v2 pilot surface.
+  - Acceptance: the pilot reuses existing MCP APIs/query keys and covers overview, health/risk state, recent activity, and navigation into existing detailed sections.
+  - Acceptance: loading, empty, partial, error, and permission states are represented.
+- [ ] Validate UI v2 pilot and decide rollout status.
+  - Acceptance: route smoke, typecheck/build, and browser screenshots pass.
+  - Acceptance: TODO records whether v2 remains a pilot or is ready for a broader rollout.
 
 ## P0 - Release readiness
 
