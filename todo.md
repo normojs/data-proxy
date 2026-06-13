@@ -91,6 +91,8 @@
 - [ ] Validate UI v2 pilot and decide rollout status.
   - Acceptance: route smoke, typecheck/build, and browser screenshots pass.
   - Acceptance: TODO records whether v2 remains a pilot or is ready for a broader rollout.
+  - Progress: `bun run smoke:mcp-routes`, `bun run smoke:mcp-trends`, `bun run typecheck`, and `bun run build` passed on 2026-06-13.
+  - Blocked: browser screenshot validation still needs a local preview server. The sandbox denied `rsbuild preview` local listen, and the required non-sandbox approval could not be obtained because the auto-review endpoint returned 503. Keep v2 in pilot until desktop/mobile screenshots pass.
 
 ## P0 - Release readiness
 
