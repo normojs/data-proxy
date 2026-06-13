@@ -24,9 +24,10 @@
 
 ## P1 - Selected next backend batch
 
-- [ ] Make admin-triggered all-channel balance refresh asynchronous.
+- [x] Make admin-triggered all-channel balance refresh asynchronous.
   - Acceptance: `UpdateAllChannelsBalance` returns promptly, prevents overlapping runs, and exposes enough status/log context to know whether a refresh is already running or has started.
   - Acceptance: the existing single-channel balance query remains synchronous.
+  - Done: admin all-channel balance refresh now starts a background job, returns `started` and `refresh` state, rejects overlapping refreshes with the current running snapshot, and the automatic refresher shares the same lock.
 - [ ] Add conservative sensitive checks for image URL payloads.
   - Acceptance: `CheckSensitiveMessages` scans text-bearing image URL fields already present in request payloads without fetching remote images.
   - Acceptance: tests cover text-only, image-only, mixed content, and no-sensitive-word paths.

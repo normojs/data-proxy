@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -119,6 +120,73 @@ type OpenRouterCreditResponse struct {
 		TotalCredits float64 `json:"total_credits"`
 		TotalUsage   float64 `json:"total_usage"`
 	} `json:"data"`
+}
+
+type channelBalanceRefreshSnapshot struct {
+	Running    bool   `json:"running"`
+	Source     string `json:"source,omitempty"`
+	StartedAt  int64  `json:"started_at,omitempty"`
+	FinishedAt int64  `json:"finished_at,omitempty"`
+	LastError  string `json:"last_error,omitempty"`
+}
+
+var (
+	channelBalanceRefreshMu     sync.Mutex
+	channelBalanceRefreshState  channelBalanceRefreshSnapshot
+	channelBalanceRefreshRunner = updateAllChannelsBalance
+)
+
+func startChannelBalanceRefresh(source string) (channelBalanceRefreshSnapshot, bool) {
+	channelBalanceRefreshMu.Lock()
+	defer channelBalanceRefreshMu.Unlock()
+	if channelBalanceRefreshState.Running {
+		return channelBalanceRefreshState, false
+	}
+	channelBalanceRefreshState = channelBalanceRefreshSnapshot{
+		Running:   true,
+		Source:    source,
+		StartedAt: time.Now().Unix(),
+	}
+	return channelBalanceRefreshState, true
+}
+
+func finishChannelBalanceRefresh(source string, err error) channelBalanceRefreshSnapshot {
+	channelBalanceRefreshMu.Lock()
+	defer channelBalanceRefreshMu.Unlock()
+	channelBalanceRefreshState.Running = false
+	channelBalanceRefreshState.Source = source
+	channelBalanceRefreshState.FinishedAt = time.Now().Unix()
+	if err != nil {
+		channelBalanceRefreshState.LastError = err.Error()
+	} else {
+		channelBalanceRefreshState.LastError = ""
+	}
+	return channelBalanceRefreshState
+}
+
+func getChannelBalanceRefreshSnapshot() channelBalanceRefreshSnapshot {
+	channelBalanceRefreshMu.Lock()
+	defer channelBalanceRefreshMu.Unlock()
+	return channelBalanceRefreshState
+}
+
+func completeChannelBalanceRefresh(source string) {
+	err := channelBalanceRefreshRunner()
+	snapshot := finishChannelBalanceRefresh(source, err)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("channel balance refresh failed: source=%s started_at=%d error=%v", source, snapshot.StartedAt, err))
+		return
+	}
+	common.SysLog(fmt.Sprintf("channel balance refresh finished: source=%s started_at=%d finished_at=%d", source, snapshot.StartedAt, snapshot.FinishedAt))
+}
+
+func runChannelBalanceRefresh(source string) bool {
+	if _, started := startChannelBalanceRefresh(source); !started {
+		common.SysLog(fmt.Sprintf("channel balance refresh skipped: source=%s reason=already_running", source))
+		return false
+	}
+	completeChannelBalanceRefresh(source)
+	return true
 }
 
 // GetAuthHeader get auth header
@@ -482,15 +550,22 @@ func updateAllChannelsBalance() error {
 }
 
 func UpdateAllChannelsBalance(c *gin.Context) {
-	// TODO: make it async
-	err := updateAllChannelsBalance()
-	if err != nil {
-		common.ApiError(c, err)
+	snapshot, started := startChannelBalanceRefresh("admin")
+	if !started {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "渠道余额刷新任务正在运行",
+			"started": false,
+			"refresh": snapshot,
+		})
 		return
 	}
+	go completeChannelBalanceRefresh("admin")
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "",
+		"message": "渠道余额刷新任务已启动",
+		"started": true,
+		"refresh": snapshot,
 	})
 	return
 }
@@ -499,7 +574,7 @@ func AutomaticallyUpdateChannels(frequency int) {
 	for {
 		time.Sleep(time.Duration(frequency) * time.Minute)
 		common.SysLog("updating all channels")
-		_ = updateAllChannelsBalance()
+		_ = runChannelBalanceRefresh("automatic")
 		common.SysLog("channels update done")
 	}
 }
