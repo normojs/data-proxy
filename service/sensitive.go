@@ -16,20 +16,102 @@ func CheckSensitiveMessages(messages []dto.Message) ([]string, error) {
 	for _, message := range messages {
 		arrayContent := message.ParseContent()
 		for _, m := range arrayContent {
-			if m.Type == "image_url" {
-				// TODO: check image url
-				continue
-			}
-			// 检查 text 是否为空
-			if m.Text == "" {
-				continue
-			}
-			if ok, words := SensitiveWordContains(m.Text); ok {
-				return words, errors.New("sensitive words detected")
+			for _, text := range sensitiveTextsFromMediaContent(m) {
+				if ok, words := SensitiveWordContains(text); ok {
+					return words, errors.New("sensitive words detected")
+				}
 			}
 		}
 	}
 	return nil, nil
+}
+
+func sensitiveTextsFromMediaContent(content dto.MediaContent) []string {
+	switch content.Type {
+	case dto.ContentTypeText:
+		return nonEmptySensitiveTexts(content.Text)
+	case dto.ContentTypeImageURL:
+		texts := imageURLSensitiveTexts(content.ImageUrl)
+		if image := content.GetImageMedia(); image != nil {
+			texts = append(texts, imageURLSensitiveTexts(image)...)
+		}
+		return texts
+	default:
+		if content.Text == "" {
+			return nil
+		}
+		return nonEmptySensitiveTexts(content.Text)
+	}
+}
+
+func imageURLSensitiveTexts(imageURL any) []string {
+	switch v := imageURL.(type) {
+	case nil:
+		return nil
+	case string:
+		return nonEmptySensitiveTexts(v)
+	case *dto.MessageImageUrl:
+		if v == nil {
+			return nil
+		}
+		return nonEmptySensitiveTexts(v.Url, v.Detail, v.MimeType)
+	case dto.MessageImageUrl:
+		return nonEmptySensitiveTexts(v.Url, v.Detail, v.MimeType)
+	case map[string]any:
+		return collectSensitiveStringValues(v)
+	case map[string]string:
+		texts := make([]string, 0, len(v))
+		for _, value := range v {
+			texts = append(texts, nonEmptySensitiveTexts(value)...)
+		}
+		return texts
+	case []any:
+		return collectSensitiveStringValues(v)
+	case []string:
+		return nonEmptySensitiveTexts(v...)
+	default:
+		return nil
+	}
+}
+
+func collectSensitiveStringValues(value any) []string {
+	switch v := value.(type) {
+	case string:
+		return nonEmptySensitiveTexts(v)
+	case []string:
+		return nonEmptySensitiveTexts(v...)
+	case []any:
+		var texts []string
+		for _, item := range v {
+			texts = append(texts, collectSensitiveStringValues(item)...)
+		}
+		return texts
+	case map[string]string:
+		texts := make([]string, 0, len(v))
+		for _, item := range v {
+			texts = append(texts, nonEmptySensitiveTexts(item)...)
+		}
+		return texts
+	case map[string]any:
+		texts := make([]string, 0, len(v))
+		for _, item := range v {
+			texts = append(texts, collectSensitiveStringValues(item)...)
+		}
+		return texts
+	default:
+		return nil
+	}
+}
+
+func nonEmptySensitiveTexts(values ...string) []string {
+	texts := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			texts = append(texts, value)
+		}
+	}
+	return texts
 }
 
 func CheckSensitiveText(text string) (bool, []string) {

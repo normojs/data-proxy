@@ -28,9 +28,10 @@
   - Acceptance: `UpdateAllChannelsBalance` returns promptly, prevents overlapping runs, and exposes enough status/log context to know whether a refresh is already running or has started.
   - Acceptance: the existing single-channel balance query remains synchronous.
   - Done: admin all-channel balance refresh now starts a background job, returns `started` and `refresh` state, rejects overlapping refreshes with the current running snapshot, and the automatic refresher shares the same lock.
-- [ ] Add conservative sensitive checks for image URL payloads.
+- [x] Add conservative sensitive checks for image URL payloads.
   - Acceptance: `CheckSensitiveMessages` scans text-bearing image URL fields already present in request payloads without fetching remote images.
   - Acceptance: tests cover text-only, image-only, mixed content, and no-sensitive-word paths.
+  - Done: `CheckSensitiveMessages` now scans text, image URL strings, `MessageImageUrl` fields, and nested textual image metadata without fetching remote content; service tests cover text, image URL string/object, direct metadata, and clean mixed content.
 - [ ] Add SSRF-safe HTTP image input support for Gemini/Veo task images.
   - Acceptance: HTTP image URLs are downloaded only through safe request helpers with size and MIME limits, then converted to existing base64 image input.
   - Acceptance: tests cover allowed URLs, rejected hosts, oversized content, unsupported MIME, data URI, and raw base64 behavior.
