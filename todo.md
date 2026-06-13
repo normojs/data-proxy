@@ -37,6 +37,14 @@
   - Acceptance: tests cover allowed URLs, rejected hosts, oversized content, unsupported MIME, data URI, and raw base64 behavior.
   - Done: Gemini/Veo task image parsing now downloads HTTP(S) inputs through `service.DoDownloadRequest`, preserves SSRF redirect checks, enforces 20 MB and supported image MIME limits, and keeps data URI/raw base64 support covered by tests.
 
+## P2 - Realtime compatibility hardening
+
+- [x] Make Realtime WebSocket subprotocol compatibility explicit.
+  - Acceptance: the local WebSocket upgrader supports stable Realtime protocol names expected by known clients.
+  - Acceptance: credential-bearing `openai-insecure-api-key.*` values are not selected or echoed as WebSocket subprotocols.
+  - Acceptance: tests cover accepted protocol negotiation and unsupported protocol behavior without requiring upstream connectivity.
+  - Done: Realtime WebSocket negotiation now explicitly supports `realtime` and `openai-beta.realtime-v1`, keeps `openai-insecure-api-key.*` out of the selectable subprotocol list, and has handshake-level tests for accepted and unsupported protocols.
+
 ## Deferred - Long-term UI v2 plan
 
 - [ ] Revisit shadcn-based UI v2 redesign after current backend and migration work.
