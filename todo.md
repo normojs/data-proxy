@@ -32,9 +32,10 @@
   - Acceptance: `CheckSensitiveMessages` scans text-bearing image URL fields already present in request payloads without fetching remote images.
   - Acceptance: tests cover text-only, image-only, mixed content, and no-sensitive-word paths.
   - Done: `CheckSensitiveMessages` now scans text, image URL strings, `MessageImageUrl` fields, and nested textual image metadata without fetching remote content; service tests cover text, image URL string/object, direct metadata, and clean mixed content.
-- [ ] Add SSRF-safe HTTP image input support for Gemini/Veo task images.
+- [x] Add SSRF-safe HTTP image input support for Gemini/Veo task images.
   - Acceptance: HTTP image URLs are downloaded only through safe request helpers with size and MIME limits, then converted to existing base64 image input.
   - Acceptance: tests cover allowed URLs, rejected hosts, oversized content, unsupported MIME, data URI, and raw base64 behavior.
+  - Done: Gemini/Veo task image parsing now downloads HTTP(S) inputs through `service.DoDownloadRequest`, preserves SSRF redirect checks, enforces 20 MB and supported image MIME limits, and keeps data URI/raw base64 support covered by tests.
 
 ## Deferred - Long-term UI v2 plan
 
