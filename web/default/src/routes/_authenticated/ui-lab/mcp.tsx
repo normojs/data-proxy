@@ -17,8 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
-import { UIV2MCPOperationsPlaceholder } from '@/features/ui-v2'
+import { UIV2MCPOperations } from '@/features/ui-v2'
 
 export const Route = createFileRoute('/_authenticated/ui-lab/mcp')({
-  component: UIV2MCPOperationsPlaceholder,
+  component: UIV2MCPOperations,
 })

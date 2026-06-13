@@ -84,9 +84,10 @@
   - Acceptance: the v2 shell is mounted under a low-risk authenticated route and uses existing auth, router, i18n, and shadcn primitives.
   - Acceptance: the shell includes navigation, page header, breadcrumbs or context, density rules, and mobile-safe layout.
   - Done: added the admin-guarded `/ui-lab/*` shell, profile switch navigation, route tree entries, compact v2 navigation, breadcrumb context, and a placeholder MCP pilot route ready for data wiring.
-- [ ] Build the MCP operations v2 pilot surface.
+- [x] Build the MCP operations v2 pilot surface.
   - Acceptance: the pilot reuses existing MCP APIs/query keys and covers overview, health/risk state, recent activity, and navigation into existing detailed sections.
   - Acceptance: loading, empty, partial, error, and permission states are represented.
+  - Done: `/ui-lab/mcp` now uses the existing `getMCPSummary` API and `mcpQueryKeys.summary`, with KPI tiles, risk strip, operations trends, review queue, top tools, recent errors, detailed drill-ins, and explicit loading/empty/partial/error/admin states.
 - [ ] Validate UI v2 pilot and decide rollout status.
   - Acceptance: route smoke, typecheck/build, and browser screenshots pass.
   - Acceptance: TODO records whether v2 remains a pilot or is ready for a broader rollout.

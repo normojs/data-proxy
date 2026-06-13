@@ -32,11 +32,21 @@ function assertIncludes(text, needle, label) {
   assert.ok(text.includes(needle), `${label} is missing: ${needle}`)
 }
 
-const [routeTree, mcpIndexRoute, mcpSectionRoute, sectionRegistry] =
-  await Promise.all([
+const [
+  routeTree,
+  mcpIndexRoute,
+  mcpSectionRoute,
+  uiLabRoute,
+  uiLabIndexRoute,
+  uiLabMcpRoute,
+  sectionRegistry,
+] = await Promise.all([
     readProjectFile('src/routeTree.gen.ts'),
     readProjectFile('src/routes/_authenticated/mcp/index.tsx'),
     readProjectFile('src/routes/_authenticated/mcp/$section.tsx'),
+    readProjectFile('src/routes/_authenticated/ui-lab/route.tsx'),
+    readProjectFile('src/routes/_authenticated/ui-lab/index.tsx'),
+    readProjectFile('src/routes/_authenticated/ui-lab/mcp.tsx'),
     readProjectFile('src/features/mcp/section-registry.tsx'),
   ])
 
@@ -49,14 +59,30 @@ for (const [needle, label] of [
     "import { Route as AuthenticatedMcpSectionRouteImport } from './routes/_authenticated/mcp/$section'",
     'MCP section route import',
   ],
+  [
+    "import { Route as AuthenticatedUiLabRouteRouteImport } from './routes/_authenticated/ui-lab/route'",
+    'UI v2 shell route import',
+  ],
+  [
+    "import { Route as AuthenticatedUiLabMcpRouteImport } from './routes/_authenticated/ui-lab/mcp'",
+    'UI v2 MCP route import',
+  ],
   ["id: '/mcp/'", 'MCP index route id'],
   ["path: '/mcp/'", 'MCP index route path'],
   ["id: '/mcp/$section'", 'MCP section route id'],
   ["path: '/mcp/$section'", 'MCP section route path'],
+  ["id: '/ui-lab'", 'UI v2 shell route id'],
+  ["path: '/ui-lab'", 'UI v2 shell route path'],
+  ["id: '/mcp'", 'UI v2 MCP child route id'],
+  ["path: '/mcp'", 'UI v2 MCP child route path'],
   ["'/_authenticated/mcp/': {", 'MCP index generated route entry'],
   ["fullPath: '/mcp/'", 'MCP index generated full path'],
   ["'/_authenticated/mcp/$section': {", 'MCP section generated route entry'],
   ["fullPath: '/mcp/$section'", 'MCP section generated full path'],
+  ["'/_authenticated/ui-lab': {", 'UI v2 shell generated route entry'],
+  ["fullPath: '/ui-lab'", 'UI v2 shell generated full path'],
+  ["'/_authenticated/ui-lab/mcp': {", 'UI v2 MCP generated route entry'],
+  ["fullPath: '/ui-lab/mcp'", 'UI v2 MCP generated full path'],
 ]) {
   assertIncludes(routeTree, needle, label)
 }
@@ -70,6 +96,21 @@ assertIncludes(
   mcpSectionRoute,
   "createFileRoute('/_authenticated/mcp/$section')",
   'MCP section route file'
+)
+assertIncludes(
+  uiLabRoute,
+  "createFileRoute('/_authenticated/ui-lab')",
+  'UI v2 shell route file'
+)
+assertIncludes(
+  uiLabIndexRoute,
+  "createFileRoute('/_authenticated/ui-lab/')",
+  'UI v2 index redirect route file'
+)
+assertIncludes(
+  uiLabMcpRoute,
+  "createFileRoute('/_authenticated/ui-lab/mcp')",
+  'UI v2 MCP route file'
 )
 
 const sectionBlock = sectionRegistry.match(

@@ -17,4 +17,4 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 export { UIV2Shell } from './ui-v2-shell'
-export { UIV2MCPOperationsPlaceholder } from './ui-v2-mcp-operations'
+export { UIV2MCPOperations } from './ui-v2-mcp-operations'
