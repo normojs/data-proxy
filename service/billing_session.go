@@ -46,6 +46,12 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	}
 	delta := actualQuota - s.preConsumedQuota
 	if delta == 0 {
+		if !s.fundingSettled {
+			if err := s.funding.Settle(0); err != nil {
+				return err
+			}
+			s.fundingSettled = true
+		}
 		s.settled = true
 		return nil
 	}

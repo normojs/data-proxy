@@ -40,6 +40,8 @@ var (
 	ErrNoActiveSubscription           = errors.New("no active subscription")
 	ErrSubscriptionQuotaInsufficient  = errors.New("subscription quota insufficient")
 	ErrSubscriptionPreConsumeRefunded = errors.New("subscription pre-consume already refunded")
+	ErrSubscriptionPreConsumeSettled  = errors.New("subscription pre-consume already settled")
+	ErrSubscriptionSettlementConflict = errors.New("subscription settlement conflict")
 )
 
 const (
@@ -1122,6 +1124,8 @@ type SubscriptionPreConsumeRecord struct {
 	UserId             int    `json:"user_id" gorm:"index"`
 	UserSubscriptionId int    `json:"user_subscription_id" gorm:"index"`
 	PreConsumed        int64  `json:"pre_consumed" gorm:"type:bigint;not null;default:0"`
+	PostConsumedDelta  int64  `json:"post_consumed_delta" gorm:"type:bigint;not null;default:0"`
+	SettledAt          int64  `json:"settled_at" gorm:"bigint;not null;default:0;index"`
 	Status             string `json:"status" gorm:"type:varchar(32);index"` // consumed/refunded
 	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
 	UpdatedAt          int64  `json:"updated_at" gorm:"bigint;index"`
@@ -1293,6 +1297,9 @@ func RefundSubscriptionPreConsume(requestId string) error {
 		if record.Status == "refunded" {
 			return nil
 		}
+		if record.SettledAt > 0 {
+			return ErrSubscriptionPreConsumeSettled
+		}
 		if record.PreConsumed <= 0 {
 			record.Status = "refunded"
 			return tx.Save(&record).Error
@@ -1312,6 +1319,62 @@ func RefundSubscriptionPreConsume(requestId string) error {
 			return err
 		}
 		record.Status = "refunded"
+		return tx.Save(&record).Error
+	})
+}
+
+// SettleSubscriptionPreConsume applies the final post-consume delta for a
+// pre-consumed subscription request exactly once.
+func SettleSubscriptionPreConsume(requestId string, userSubscriptionId int, delta int64) error {
+	requestId = strings.TrimSpace(requestId)
+	if requestId == "" {
+		return errors.New("requestId is empty")
+	}
+	if userSubscriptionId <= 0 {
+		return errors.New("invalid userSubscriptionId")
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var record SubscriptionPreConsumeRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("request_id = ?", requestId).
+			First(&record).Error; err != nil {
+			return err
+		}
+		if record.UserSubscriptionId != userSubscriptionId {
+			return fmt.Errorf("%w, request_id=%s record_subscription_id=%d user_subscription_id=%d",
+				ErrSubscriptionSettlementConflict, requestId, record.UserSubscriptionId, userSubscriptionId)
+		}
+		if record.Status == "refunded" {
+			return ErrSubscriptionPreConsumeRefunded
+		}
+		if record.SettledAt > 0 {
+			if record.PostConsumedDelta != delta {
+				return fmt.Errorf("%w, request_id=%s existing_delta=%d delta=%d",
+					ErrSubscriptionSettlementConflict, requestId, record.PostConsumedDelta, delta)
+			}
+			return nil
+		}
+		if delta != 0 {
+			var sub UserSubscription
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("id = ?", userSubscriptionId).
+				First(&sub).Error; err != nil {
+				return err
+			}
+			newUsed := sub.AmountUsed + delta
+			if newUsed < 0 {
+				newUsed = 0
+			}
+			if sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
+				return fmt.Errorf("subscription used exceeds total, used=%d total=%d", newUsed, sub.AmountTotal)
+			}
+			sub.AmountUsed = newUsed
+			if err := tx.Save(&sub).Error; err != nil {
+				return err
+			}
+		}
+		record.PostConsumedDelta = delta
+		record.SettledAt = getDBTimestampTx(tx)
 		return tx.Save(&record).Error
 	})
 }

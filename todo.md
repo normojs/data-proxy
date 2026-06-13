@@ -176,6 +176,10 @@
   - Acceptance: model subscription pre-consume errors support `errors.Is`.
   - Acceptance: billing session maps no-active/insufficient subscription errors to insufficient quota without string matching.
   - Done: model now exposes subscription pre-consume sentinel errors; billing session uses `errors.Is` and tests cover model/service behavior.
+- [x] Make subscription post-consume settlement idempotent by request.
+  - Acceptance: subscription settlement/finalize retries for the same `request_id` do not apply the final delta more than once.
+  - Acceptance: conflicting replay deltas for an already-settled request return a typed error instead of silently mutating subscription usage.
+  - Done: subscription pre-consume records now persist `post_consumed_delta` and `settled_at`; subscription funding settlement uses a request-scoped idempotent model path, zero-delta settlements are marked final, and service tests cover replay plus conflict behavior.
 
 ## P1 - Relay regression cleanup
 

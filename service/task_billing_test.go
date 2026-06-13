@@ -306,6 +306,67 @@ func TestPerCallBilling_SubscriptionFirstUsesSubscriptionWhenWalletInsufficient(
 	require.Equal(t, 5000, getTokenRemainQuota(t, tokenID))
 }
 
+func TestPerCallBilling_SubscriptionSettlementReplayDoesNotDoubleCharge(t *testing.T) {
+	truncate(t)
+
+	const userID, tokenID, subID = 134, 134, 134
+	const preConsumedQuota = 1000
+	const actualQuota = 1600
+
+	seedUser(t, userID, 0)
+	seedToken(t, tokenID, userID, "sk-subscription-settle-replay", 5000)
+	seedSubscription(t, subID, userID, 10000, 3000)
+
+	newRelayInfo := func() *relaycommon.RelayInfo {
+		return &relaycommon.RelayInfo{
+			RequestId:       "per-call-subscription-settle-replay",
+			UserId:          userID,
+			TokenId:         tokenID,
+			TokenKey:        "sk-subscription-settle-replay",
+			OriginModelName: "mj_imagine",
+			IsPlayground:    true,
+			UserSetting: dto.UserSetting{
+				BillingPreference: "subscription_only",
+			},
+		}
+	}
+
+	first := newRelayInfo()
+	apiErr := PreConsumePerCallBilling(&gin.Context{}, preConsumedQuota, first)
+	require.Nil(t, apiErr)
+	require.Equal(t, int64(4000), getSubscriptionUsed(t, subID))
+	require.NoError(t, FinalizePerCallBilling(&gin.Context{}, actualQuota, first))
+	require.Equal(t, int64(4600), getSubscriptionUsed(t, subID))
+
+	replay := newRelayInfo()
+	apiErr = PreConsumePerCallBilling(&gin.Context{}, preConsumedQuota, replay)
+	require.Nil(t, apiErr)
+	require.NoError(t, FinalizePerCallBilling(&gin.Context{}, actualQuota, replay))
+	require.Equal(t, int64(4600), getSubscriptionUsed(t, subID))
+
+	var record model.SubscriptionPreConsumeRecord
+	require.NoError(t, model.DB.Where("request_id = ?", first.RequestId).First(&record).Error)
+	require.Equal(t, int64(actualQuota-preConsumedQuota), record.PostConsumedDelta)
+	require.NotZero(t, record.SettledAt)
+}
+
+func TestSubscriptionPreConsumeSettlementConflict(t *testing.T) {
+	truncate(t)
+
+	const userID, subID = 135, 135
+
+	seedUser(t, userID, 0)
+	seedSubscription(t, subID, userID, 10000, 3000)
+
+	_, err := model.PreConsumeUserSubscription("subscription-settle-conflict", userID, "gpt-test", 0, 1000)
+	require.NoError(t, err)
+	require.NoError(t, model.SettleSubscriptionPreConsume("subscription-settle-conflict", subID, 600))
+
+	err = model.SettleSubscriptionPreConsume("subscription-settle-conflict", subID, 700)
+	require.ErrorIs(t, err, model.ErrSubscriptionSettlementConflict)
+	require.Equal(t, int64(4600), getSubscriptionUsed(t, subID))
+}
+
 func TestPerCallBilling_RefundRestoresSubscriptionReservation(t *testing.T) {
 	truncate(t)
 
