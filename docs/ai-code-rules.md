@@ -204,6 +204,7 @@ make mcp-migration-sqlite
 有本地数据库时加跑：
 
 ```bash
+make mcp-migration-docker
 make mcp-migration-mysql MCP_MIGRATION_MYSQL_DSN='...'
 make mcp-migration-postgres MCP_MIGRATION_POSTGRES_DSN='...'
 ```

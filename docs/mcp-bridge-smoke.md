@@ -71,7 +71,34 @@ built-in MCP tool seeding.
 make mcp-migration-sqlite
 ```
 
-Run MySQL or PostgreSQL explicitly when a local database is available:
+Run disposable Docker-backed PostgreSQL and MySQL gates when local Docker is
+available:
+
+```bash
+make mcp-migration-docker
+```
+
+The Docker-backed gate starts project-owned temporary databases, uses
+PostgreSQL on `127.0.0.1:15432` and MySQL on `127.0.0.1:13306` by default, then
+cleans up the containers. The MySQL default intentionally avoids `3306` so it
+does not conflict with a developer's existing MySQL container.
+
+Use custom ports when needed:
+
+```bash
+MCP_MIGRATION_POSTGRES_PORT=25432 \
+MCP_MIGRATION_MYSQL_PORT=23306 \
+make mcp-migration-docker
+```
+
+Keep the containers for debugging with `MCP_MIGRATION_KEEP_DOCKER=1`, and clean
+them later with:
+
+```bash
+make mcp-migration-docker-clean
+```
+
+Run MySQL or PostgreSQL explicitly when a local database is already available:
 
 ```bash
 make mcp-migration-mysql \

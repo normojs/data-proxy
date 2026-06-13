@@ -14,9 +14,10 @@
   - Acceptance: PostgreSQL and MySQL migration smoke results are recorded in `todo.md` after the Docker-backed gates run.
   - Acceptance: failures are fixed or explicitly documented with reproduction commands.
   - Done: `make mcp-migration-docker` passed, running PostgreSQL on `127.0.0.1:15432` and MySQL on `127.0.0.1:13306` through disposable Docker services.
-- [ ] Harden external migration gate documentation and cleanup.
+- [x] Harden external migration gate documentation and cleanup.
   - Acceptance: docs explain startup, DSN, reset, cleanup, and how the gates relate to `make mcp-regression`.
   - Acceptance: no secrets or host-specific credentials are committed beyond disposable local test defaults.
+  - Done: documented Docker-backed startup, default DSNs, port overrides, debug retention, cleanup, and the relationship between `make mcp-migration-docker` and `make mcp-regression`.
 - [ ] Audit non-MCP backlog and pick the next backend batch.
   - Acceptance: remaining `TODO` / `unsupported` / `not implemented` findings outside the completed MCP scope are classified as product backlog, intentional unsupported behavior, or bug-fix candidates.
 

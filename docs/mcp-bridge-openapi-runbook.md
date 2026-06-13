@@ -46,6 +46,8 @@ Every command below is backed by an existing Make target or script.
 | `make mcp-migration-sqlite` | `Makefile:mcp-migration-sqlite` | Temporary SQLite migration smoke. |
 | `make mcp-migration-mysql` | `Makefile:mcp-migration-mysql` | Opt-in MySQL migration smoke using `MCP_MIGRATION_MYSQL_DSN`. |
 | `make mcp-migration-postgres` | `Makefile:mcp-migration-postgres` | Opt-in PostgreSQL migration smoke using `MCP_MIGRATION_POSTGRES_DSN`. |
+| `make mcp-migration-docker` | `Makefile:mcp-migration-docker`, `docker-compose.migration.yml` | Disposable PostgreSQL and MySQL migration smoke. |
+| `make mcp-migration-docker-clean` | `Makefile:mcp-migration-docker-clean`, `docker-compose.migration.yml` | Remove disposable migration containers and volumes. |
 | `make mcp-bridge-smoke` | `Makefile:mcp-bridge-smoke`, `tools/bridge_daemon_concurrency_smoke.mjs` | End-to-end local daemon concurrency smoke. |
 | `make mcp-bridge-stress` | `Makefile:mcp-bridge-stress`, `tools/bridge_daemon_concurrency_smoke.mjs` | Heavier local daemon pressure run. |
 | `node tools/bridge_client_daemon.mjs --self-test --workspace=<tmp>` | `tools/bridge_client_daemon.mjs` | Offline file-guard self-test without data-proxy. |
@@ -54,6 +56,54 @@ Every command below is backed by an existing Make target or script.
 
 Use `--help` on each Node script to inspect current flags before changing
 automation.
+
+## Migration Gates
+
+Use the Docker-backed migration gate before release work that touches MCP,
+Bridge, OpenAPI binary objects, billing events, billing relations, or shared
+model migrations:
+
+```bash
+make mcp-migration-docker
+```
+
+The target starts disposable databases from `docker-compose.migration.yml`,
+runs the existing DSN-based migration targets, and removes the containers by
+default:
+
+- PostgreSQL: `127.0.0.1:15432`, DSN
+  `postgres://root:123456@127.0.0.1:15432/new_api_migration?sslmode=disable`
+- MySQL: `127.0.0.1:13306`, DSN
+  `root:123456@tcp(127.0.0.1:13306)/new_api_migration?charset=utf8mb4&parseTime=true&loc=Local`
+
+The non-standard default ports avoid common host conflicts, including a
+developer machine that already has a global MySQL container on `3306`. Override
+ports only for local testing:
+
+```bash
+MCP_MIGRATION_POSTGRES_PORT=25432 \
+MCP_MIGRATION_MYSQL_PORT=23306 \
+make mcp-migration-docker
+```
+
+Keep containers for debugging failed migrations with
+`MCP_MIGRATION_KEEP_DOCKER=1`, then inspect logs or connect with a client:
+
+```bash
+MCP_MIGRATION_KEEP_DOCKER=1 make mcp-migration-docker
+docker compose -f docker-compose.migration.yml logs migration-postgres
+docker compose -f docker-compose.migration.yml logs migration-mysql
+```
+
+Clean up disposable containers and volumes when done:
+
+```bash
+make mcp-migration-docker-clean
+```
+
+`make mcp-regression` remains the CI-safe functional regression target. It does
+not start external databases. Pair it with `make mcp-migration-docker` for local
+release gates that need cross-database schema confidence.
 
 ## Local Bridge Daemon
 
@@ -287,5 +337,5 @@ Smoke data cleanup:
 - OpenAPI parser/binary changes: `make mcp-openapi-check`.
 - Proxy auth/discovery/heartbeat changes: `make mcp-proxy-check`.
 - Dashboard changes: `make mcp-dashboard-check`.
-- Migration/model changes: `make mcp-migration-sqlite`; add MySQL/PostgreSQL
-  targets when DSNs are available.
+- Migration/model changes: `make mcp-migration-sqlite`; add
+  `make mcp-migration-docker` before release when local Docker is available.
