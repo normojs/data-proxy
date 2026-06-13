@@ -10,9 +10,10 @@
   - Acceptance: local developers can run a documented command or Make target that starts/uses project-owned MySQL and executes `make mcp-migration-mysql` with a known test DSN.
   - Acceptance: the gate handles existing host port conflicts such as a global `mysql8` container on port `3306`.
   - Done: added disposable MySQL to `docker-compose.migration.yml` and `make mcp-migration-mysql-docker`; the target uses `127.0.0.1:13306` by default, runs `make mcp-migration-mysql`, and cleans up by default.
-- [ ] Run and record external database migration gates.
+- [x] Run and record external database migration gates.
   - Acceptance: PostgreSQL and MySQL migration smoke results are recorded in `todo.md` after the Docker-backed gates run.
   - Acceptance: failures are fixed or explicitly documented with reproduction commands.
+  - Done: `make mcp-migration-docker` passed, running PostgreSQL on `127.0.0.1:15432` and MySQL on `127.0.0.1:13306` through disposable Docker services.
 - [ ] Harden external migration gate documentation and cleanup.
   - Acceptance: docs explain startup, DSN, reset, cleanup, and how the gates relate to `make mcp-regression`.
   - Acceptance: no secrets or host-specific credentials are committed beyond disposable local test defaults.
