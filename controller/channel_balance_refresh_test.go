@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -59,6 +61,19 @@ func TestUpdateAllChannelsBalanceStartsAsyncAndPreventsOverlap(t *testing.T) {
 	require.Equal(t, "admin", finalSnapshot.Source)
 	require.NotZero(t, finalSnapshot.FinishedAt)
 	require.Empty(t, finalSnapshot.LastError)
+}
+
+func TestChannelSupportsBalanceQuerySkipsAzure(t *testing.T) {
+	require.False(t, channelSupportsBalanceQuery(nil))
+	require.False(t, channelSupportsBalanceQuery(&model.Channel{Type: constant.ChannelTypeAzure}))
+	require.True(t, channelSupportsBalanceQuery(&model.Channel{Type: constant.ChannelTypeOpenAI}))
+}
+
+func TestUpdateChannelBalanceReturnsUnsupportedForAzure(t *testing.T) {
+	_, err := updateChannelBalance(&model.Channel{Type: constant.ChannelTypeAzure})
+
+	require.ErrorIs(t, err, errChannelBalanceQueryUnsupported)
+	require.Contains(t, err.Error(), "Azure")
 }
 
 func resetChannelBalanceRefreshForTest(t *testing.T) {

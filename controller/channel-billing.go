@@ -122,6 +122,8 @@ type OpenRouterCreditResponse struct {
 	} `json:"data"`
 }
 
+var errChannelBalanceQueryUnsupported = errors.New("channel balance query unsupported")
+
 type channelBalanceRefreshSnapshot struct {
 	Running    bool   `json:"running"`
 	Source     string `json:"source,omitempty"`
@@ -435,7 +437,7 @@ func updateChannelBalance(channel *model.Channel) (float64, error) {
 			baseURL = channel.GetBaseURL()
 		}
 	case constant.ChannelTypeAzure:
-		return 0, errors.New("尚未实现")
+		return 0, channelBalanceQueryUnsupportedError(channel.Type)
 	case constant.ChannelTypeCustom:
 		baseURL = channel.GetBaseURL()
 	//case common.ChannelTypeOpenAISB:
@@ -489,6 +491,17 @@ func updateChannelBalance(channel *model.Channel) (float64, error) {
 	return balance, nil
 }
 
+func channelSupportsBalanceQuery(channel *model.Channel) bool {
+	if channel == nil {
+		return false
+	}
+	return channel.Type != constant.ChannelTypeAzure
+}
+
+func channelBalanceQueryUnsupportedError(channelType int) error {
+	return fmt.Errorf("%w: %s", errChannelBalanceQueryUnsupported, constant.GetChannelTypeName(channelType))
+}
+
 func UpdateChannelBalance(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -531,10 +544,9 @@ func updateAllChannelsBalance() error {
 		if channel.ChannelInfo.IsMultiKey {
 			continue // skip multi-key channels
 		}
-		// TODO: support Azure
-		//if channel.Type != common.ChannelTypeOpenAI && channel.Type != common.ChannelTypeCustom {
-		//	continue
-		//}
+		if !channelSupportsBalanceQuery(channel) {
+			continue
+		}
 		balance, err := updateChannelBalance(channel)
 		if err != nil {
 			continue

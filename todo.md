@@ -62,6 +62,14 @@
   - Acceptance: tests cover payload shape, validation failures, and Gemini/Vertex shared behavior.
   - Done: Gemini/Vertex Veo builders now share advanced image parsing for `lastFrame` and `referenceImages`, reuse safe image parsing for base64/data URI/HTTP inputs, enforce Veo 3.1 and reference duration constraints, and cover helper plus both request builders in tests.
 
+## P2 - Channel balance capability clarity
+
+- [x] Make Azure channel balance behavior explicit.
+  - Acceptance: Azure channels are explicitly classified as unsupported for API-key balance queries instead of being left as a generic TODO.
+  - Acceptance: all-channel background balance refresh skips Azure before invoking provider balance requests.
+  - Acceptance: single-channel Azure balance queries return a typed unsupported error and tests cover the helper/error behavior.
+  - Done: Azure balance querying now returns a typed unsupported error, all-channel refresh skips Azure before provider requests, and controller tests cover the capability helper and unsupported error.
+
 ## Deferred - Long-term UI v2 plan
 
 - [ ] Revisit shadcn-based UI v2 redesign after current backend and migration work.
