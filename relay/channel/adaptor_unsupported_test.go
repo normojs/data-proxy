@@ -8,12 +8,17 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ali"
+	"github.com/QuantumNous/new-api/relay/channel/aws"
 	"github.com/QuantumNous/new-api/relay/channel/baidu"
+	"github.com/QuantumNous/new-api/relay/channel/baidu_v2"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
 	"github.com/QuantumNous/new-api/relay/channel/cloudflare"
 	"github.com/QuantumNous/new-api/relay/channel/cohere"
+	"github.com/QuantumNous/new-api/relay/channel/coze"
 	"github.com/QuantumNous/new-api/relay/channel/deepseek"
 	"github.com/QuantumNous/new-api/relay/channel/dify"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
+	"github.com/QuantumNous/new-api/relay/channel/jimeng"
 	"github.com/QuantumNous/new-api/relay/channel/jina"
 	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	"github.com/QuantumNous/new-api/relay/channel/mistral"
@@ -22,11 +27,15 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
 	"github.com/QuantumNous/new-api/relay/channel/palm"
 	"github.com/QuantumNous/new-api/relay/channel/perplexity"
+	"github.com/QuantumNous/new-api/relay/channel/replicate"
 	"github.com/QuantumNous/new-api/relay/channel/siliconflow"
 	"github.com/QuantumNous/new-api/relay/channel/tencent"
+	"github.com/QuantumNous/new-api/relay/channel/vertex"
+	"github.com/QuantumNous/new-api/relay/channel/volcengine"
 	"github.com/QuantumNous/new-api/relay/channel/xai"
 	"github.com/QuantumNous/new-api/relay/channel/xunfei"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu"
+	"github.com/QuantumNous/new-api/relay/channel/zhipu_4v"
 )
 
 func TestUnsupportedClaudeAdaptorsReturnErrors(t *testing.T) {
@@ -194,6 +203,79 @@ func TestTypedUnsupportedAdaptorFeatures(t *testing.T) {
 				return (&siliconflow.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
 			},
 			provider: "siliconflow",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "aws gemini",
+			convert: func() (any, error) {
+				return (&aws.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "aws",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "baidu v2 gemini",
+			convert: func() (any, error) {
+				return (&baidu_v2.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "baidu_v2",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "claude gemini",
+			convert: func() (any, error) {
+				return (&claude.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "claude",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "coze gemini",
+			convert: func() (any, error) {
+				return (&coze.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "coze",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "jimeng header",
+			convert: func() (any, error) {
+				return nil, (&jimeng.Adaptor{}).SetupRequestHeader(nil, nil, nil)
+			},
+			provider: "jimeng",
+			feature:  "SetupRequestHeader",
+		},
+		{
+			name: "replicate gemini",
+			convert: func() (any, error) {
+				return (&replicate.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "replicate",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "vertex audio",
+			convert: func() (any, error) {
+				reader, err := (&vertex.Adaptor{}).ConvertAudioRequest(nil, nil, dto.AudioRequest{})
+				return reader, err
+			},
+			provider: "vertex",
+			feature:  "ConvertAudioRequest",
+		},
+		{
+			name: "volcengine gemini",
+			convert: func() (any, error) {
+				return (&volcengine.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "volcengine",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "zhipu 4v gemini",
+			convert: func() (any, error) {
+				return (&zhipu_4v.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "zhipu_4v",
 			feature:  "ConvertGeminiRequest",
 		},
 	}

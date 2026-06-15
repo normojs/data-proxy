@@ -295,12 +295,13 @@
   - Acceptance: provider adaptor stubs can return a typed unsupported-feature error with provider and feature context while preserving existing user-facing `not implemented` wording.
   - Acceptance: tests can assert typed unsupported errors without brittle string-only checks.
   - Done: added `channel.UnsupportedFeatureError` / `NewUnsupportedFeatureError` and typed unsupported adaptor tests.
-- [ ] Migrate generic provider adaptor stubs in small batches.
+- [x] Migrate generic provider adaptor stubs in small batches.
   - Acceptance: each batch removes generic `errors.New("not implemented")` returns from touched provider adaptors without implementing unsupported capabilities.
   - Acceptance: provider/channel tests pass after each batch.
   - Done first batch: Ali `ConvertGeminiRequest` / `ConvertAudioRequest` and XAI `ConvertGeminiRequest` now return typed unsupported-feature errors.
   - Done second batch: Baidu, Cloudflare, Cohere, Dify, Jina, Mistral, MokaAI, Palm, Tencent, Xunfei, and Zhipu generic unsupported adaptor methods now use typed unsupported-feature errors.
   - Done third batch: DeepSeek, Gemini, Minimax, Moonshot, Ollama, Perplexity, and SiliconFlow unsupported adaptor methods now use typed unsupported-feature errors.
+  - Done fourth batch: AWS, Baidu v2, Claude, Coze, Jimeng, Replicate, Vertex, Volcengine, and Zhipu 4V unsupported adaptor methods now use typed unsupported-feature errors; old provider `TODO implement me` / `errors.New("not implemented")` scan is clean.
 - [ ] Refresh non-MCP backlog audit after adaptor error hygiene.
   - Acceptance: remaining provider `TODO` / `not implemented` scan findings are either migrated, intentionally deferred, or documented with explicit rationale.
 

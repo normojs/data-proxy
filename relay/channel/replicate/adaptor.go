@@ -502,29 +502,29 @@ func uploadFileFromForm(c *gin.Context, info *relaycommon.RelayInfo, fieldCandid
 }
 
 func (a *Adaptor) ConvertOpenAIRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeneralOpenAIRequest) (any, error) {
-	return nil, errors.New("replicate adaptor: ConvertOpenAIRequest is not implemented")
+	return nil, channel.NewUnsupportedFeatureError("replicate", "ConvertOpenAIRequest")
 }
 
 func (a *Adaptor) ConvertRerankRequest(*gin.Context, int, dto.RerankRequest) (any, error) {
-	return nil, errors.New("replicate adaptor: ConvertRerankRequest is not implemented")
+	return nil, channel.NewUnsupportedFeatureError("replicate", "ConvertRerankRequest")
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(*gin.Context, *relaycommon.RelayInfo, dto.EmbeddingRequest) (any, error) {
-	return nil, errors.New("replicate adaptor: ConvertEmbeddingRequest is not implemented")
+	return nil, channel.NewUnsupportedFeatureError("replicate", "ConvertEmbeddingRequest")
 }
 
 func (a *Adaptor) ConvertAudioRequest(*gin.Context, *relaycommon.RelayInfo, dto.AudioRequest) (io.Reader, error) {
-	return nil, errors.New("replicate adaptor: ConvertAudioRequest is not implemented")
+	return nil, channel.NewUnsupportedFeatureError("replicate", "ConvertAudioRequest")
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(*gin.Context, *relaycommon.RelayInfo, dto.OpenAIResponsesRequest) (any, error) {
-	return nil, errors.New("replicate adaptor: ConvertOpenAIResponsesRequest is not implemented")
+	return nil, channel.NewUnsupportedFeatureError("replicate", "ConvertOpenAIResponsesRequest")
 }
 
 func (a *Adaptor) ConvertClaudeRequest(*gin.Context, *relaycommon.RelayInfo, *dto.ClaudeRequest) (any, error) {
-	return nil, errors.New("replicate adaptor: ConvertClaudeRequest is not implemented")
+	return nil, channel.NewUnsupportedFeatureError("replicate", "ConvertClaudeRequest")
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
-	return nil, errors.New("replicate adaptor: ConvertGeminiRequest is not implemented")
+	return nil, channel.NewUnsupportedFeatureError("replicate", "ConvertGeminiRequest")
 }

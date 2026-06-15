@@ -20,28 +20,27 @@ type Adaptor struct {
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *common.RelayInfo, *dto.GeminiChatRequest) (any, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("coze", "ConvertGeminiRequest")
 }
 
 // ConvertAudioRequest implements channel.Adaptor.
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *common.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("coze", "ConvertAudioRequest")
 }
 
 // ConvertClaudeRequest implements channel.Adaptor.
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *common.RelayInfo, request *dto.ClaudeRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("coze", "ConvertClaudeRequest")
 }
 
 // ConvertEmbeddingRequest implements channel.Adaptor.
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *common.RelayInfo, request dto.EmbeddingRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("coze", "ConvertEmbeddingRequest")
 }
 
 // ConvertImageRequest implements channel.Adaptor.
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *common.RelayInfo, request dto.ImageRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("coze", "ConvertImageRequest")
 }
 
 // ConvertOpenAIRequest implements channel.Adaptor.
@@ -54,12 +53,12 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *common.RelayInfo, r
 
 // ConvertOpenAIResponsesRequest implements channel.Adaptor.
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *common.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("coze", "ConvertOpenAIResponsesRequest")
 }
 
 // ConvertRerankRequest implements channel.Adaptor.
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("coze", "ConvertRerankRequest")
 }
 
 // DoRequest implements channel.Adaptor.
