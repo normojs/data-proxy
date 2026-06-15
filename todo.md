@@ -194,6 +194,9 @@
 - [x] Cover StreamScannerHandler per-call StreamStatus reset semantics.
   - Acceptance: pre-existing stream status state from a reused relay info object is not carried into the next stream scan.
   - Done: added a regression test asserting StreamScannerHandler replaces any pre-initialized StreamStatus and starts the new scan with a clean error count.
+- [x] Align Coze relay JSON conversion with project wrappers.
+  - Acceptance: Coze response decode and OpenAI response encode paths use `common.Unmarshal` / `common.Marshal` instead of direct `encoding/json` conversion calls.
+  - Done: Coze adaptor and relay handlers now keep `encoding/json` only for `json.RawMessage` type references while routing runtime JSON conversion through project wrappers.
 
 ## P1 - Audit remediation
 
