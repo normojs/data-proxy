@@ -251,6 +251,9 @@
 - [x] Align service notification/session JSON conversions with project wrappers.
   - Acceptance: user notification, webhook, worker download payload, Codex OAuth claim decode, and passkey session JSON conversion paths use project wrappers.
   - Done: those service paths now use `common.Marshal` / `common.Unmarshal` while preserving `json.RawMessage` DTO fields where required.
+- [x] Align Midjourney service JSON conversions with project wrappers.
+  - Acceptance: Midjourney request body rewrite and response parsing no longer call `encoding/json` directly.
+  - Done: `service/midjourney.go` now uses `common.DecodeJson`, `common.Marshal`, and `common.Unmarshal` for runtime JSON conversion.
 
 ## P1 - Audit remediation
 
