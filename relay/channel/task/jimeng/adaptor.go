@@ -68,6 +68,7 @@ type responseTask struct {
 }
 
 const (
+	jimengSuccessCode = 10000
 	// 即梦限制单个文件最大4.7MB https://www.volcengine.com/docs/85621/1747301
 	MaxFileSize int64 = 4*1024*1024 + 700*1024 // 4.7MB (4MB + 724KB)
 )
@@ -430,14 +431,15 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	if err := common.Unmarshal(respBody, &resTask); err != nil {
 		return nil, errors.Wrap(err, "unmarshal task result failed")
 	}
-	taskResult := relaycommon.TaskInfo{}
-	if resTask.Code == 10000 {
-		taskResult.Code = 0
-	} else {
-		taskResult.Code = resTask.Code // todo uni code
+	taskResult := relaycommon.TaskInfo{
+		Code: normalizeJimengTaskCode(resTask.Code),
+		Url:  resTask.Data.VideoUrl,
+	}
+	if !isJimengTaskSuccess(resTask.Code) {
 		taskResult.Reason = resTask.Message
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = "100%"
+		return &taskResult, nil
 	}
 	switch resTask.Data.Status {
 	case "in_queue":
@@ -447,8 +449,18 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusSuccess
 		taskResult.Progress = "100%"
 	}
-	taskResult.Url = resTask.Data.VideoUrl
 	return &taskResult, nil
+}
+
+func normalizeJimengTaskCode(code int) int {
+	if isJimengTaskSuccess(code) {
+		return 0
+	}
+	return code
+}
+
+func isJimengTaskSuccess(code int) bool {
+	return code == jimengSuccessCode
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error) {

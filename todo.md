@@ -10,9 +10,10 @@
   - Acceptance: `common.UnmarshalBodyReusable` behavior for unknown content types is covered by tests or documented as intentional no-op behavior.
   - Acceptance: distributor model extraction remains predictable for JSON, form, multipart, and unknown content types.
   - Done: replaced the vague non-JSON TODO with an explicit no-op contract for unknown content types; added `common` tests for JSON, form, multipart, body reset, repeated reads, and unknown content type no-op; added distributor model extraction tests for JSON, form, multipart, and unknown content type. Validation: `go test ./common ./middleware`.
-- [ ] Clarify Jimeng task result code normalization.
+- [x] Clarify Jimeng task result code normalization.
   - Acceptance: Jimeng task result parsing has tests for success, provider failure, queue, and done statuses.
   - Acceptance: provider codes are either normalized through a named helper or documented as intentionally preserved upstream codes.
+  - Done: added named Jimeng success-code helpers; success code `10000` maps to local `0`, provider failures preserve upstream code, and failure status can no longer be overwritten by `data.status=done`. Tests cover done, queue, provider failure, failure-with-done, and invalid JSON. Validation: `go test ./relay/channel/task/jimeng ./relay/channel/task/...`.
 - [ ] Refresh release regression after fresh audit batch.
   - Acceptance: selected Go package checks, `git diff --check`, and the relevant MCP regression target pass after the fresh audit fixes.
   - Acceptance: `todo.md` records the verification result and any intentionally skipped external dependency gates.
