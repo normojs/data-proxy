@@ -263,6 +263,9 @@
 - [x] Align common utility JSON conversions with project wrappers.
   - Acceptance: common utility helpers use the package JSON wrapper functions instead of direct standard-library calls, while `common/json.go` remains the wrapper implementation boundary.
   - Done: `common/utils.go`, `common/topup-ratio.go`, and `common/str.go` now call `Marshal` / `Unmarshal` directly.
+- [x] Align cache codec and Midjourney proxy JSON conversions with project wrappers.
+  - Acceptance: Redis JSON codec and Midjourney proxy task/response conversion paths no longer call `encoding/json` directly.
+  - Done: `pkg/cachex/codec.go` and `relay/mjproxy_handler.go` now use `common.Marshal` / `common.Unmarshal` for runtime JSON conversion.
 
 ## P1 - Audit remediation
 
