@@ -2,13 +2,16 @@
 
 ## P2 - Residual TODO comment cleanup
 
-- [ ] Replace ambiguous production TODO comments with explicit maintenance notes.
+- [x] Replace ambiguous production TODO comments with explicit maintenance notes.
   - Acceptance: remaining code TODO scan findings are limited to documentation/history, not active implementation ambiguity.
   - Acceptance: behavior stays unchanged.
-- [ ] Refresh backlog audit classification after cleanup.
+  - Done: replaced the legacy MySQL `model_mapping` migration TODO with an upgrade-floor maintenance note and replaced the model pricing TODO with an explicit pricing guardrail.
+- [x] Refresh backlog audit classification after cleanup.
   - Acceptance: `docs/non-mcp-backlog-audit.md` records the cleanup and still distinguishes intentional unsupported boundaries from real backlog.
-- [ ] Validate targeted packages and TODO scan.
+  - Done: refreshed the non-MCP backlog audit to record the maintenance-note cleanup while preserving intentional unsupported/backlog classifications.
+- [x] Validate targeted packages and TODO scan.
   - Acceptance: targeted Go tests pass for touched packages and `rg` confirms no active code `TODO:` comments remain outside documentation/TODO tracking files.
+  - Done: `go test ./model ./setting/ratio_setting`, `rg -n "TODO:" --glob '*.go' --glob '!web/**/dist/**' --glob '!vendor/**' .`, and `git diff --check` passed.
 
 ## P1 - Deployment preflight ergonomics
 

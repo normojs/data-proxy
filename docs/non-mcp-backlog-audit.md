@@ -147,8 +147,10 @@ Bridge smoke work.
 - `model/main.go`, `common/embed-file-system.go`, `common/pprof.go`: production
   startup fail-fast `panic` calls are intentional startup guards, not request
   path panics.
-- `model/main.go`: legacy migration comment can be removed only after an
-  upgrade-floor decision.
+- `model/main.go` and `setting/ratio_setting/model_ratio.go`: ambiguous TODO
+  comments were replaced with explicit maintenance notes; the disabled legacy
+  migration statement still waits for an upgrade-floor decision, and new
+  billable model APIs still require pricing table review before routing traffic.
 - `relay/claude_handler.go` and `relay/channel/claude/relay-claude.go`: temporary
   compatibility comments should be revisited with Claude payload tests.
 - `common/redis.go`, `relay/common/override.go`, `service/file_service.go`, and

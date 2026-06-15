@@ -207,7 +207,9 @@ func InitDB() (err error) {
 			return nil
 		}
 		if common.UsingMySQL {
-			//_, _ = sqlDB.Exec("ALTER TABLE channels MODIFY model_mapping TEXT;") // TODO: delete this line when most users have upgraded
+			// Legacy migration note: keep this disabled statement as upgrade
+			// history until the project declares an upgrade floor beyond the
+			// old model_mapping column shape.
 		}
 		common.SysLog("database migration started")
 		err = migrateDB()
