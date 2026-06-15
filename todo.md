@@ -242,6 +242,9 @@
 - [x] Align user controller runtime JSON conversions with project wrappers.
   - Acceptance: user login/register/update/admin request decode and sidebar/default-config JSON conversion use project wrappers while preserving `json.Number` type handling.
   - Done: `controller/user.go` now uses `common.DecodeJson`, `common.Marshal`, and `common.Unmarshal` for runtime conversions.
+- [x] Align remaining small controller JSON conversions with project wrappers.
+  - Acceptance: deployment, misc, Creem top-up, and model metadata controller JSON conversions use project wrappers.
+  - Done: `controller/deployment.go`, `controller/misc.go`, `controller/topup_creem.go`, and `controller/model_meta.go` now route runtime JSON conversion through `common` helpers.
 
 ## P1 - Audit remediation
 
