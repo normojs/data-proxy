@@ -218,6 +218,9 @@
 - [x] Align MokaAI, Tencent, Xunfei, and Zhipu provider JSON conversions with project wrappers.
   - Acceptance: simple response/signature JSON conversion paths in these providers no longer call `encoding/json` directly.
   - Done: MokaAI embedding, Tencent chat/signature payload, Xunfei websocket response, and Zhipu stream/non-stream response paths now use project JSON wrappers.
+- [x] Align Minimax and Volcengine TTS JSON conversions with project wrappers.
+  - Acceptance: TTS metadata request construction and provider response parsing no longer call `encoding/json` directly in Minimax and Volcengine paths.
+  - Done: Minimax and Volcengine TTS request/response conversion now uses `common.Unmarshal` / `common.Marshal` while preserving existing request payload shapes.
 
 ## P1 - Audit remediation
 
