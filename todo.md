@@ -14,9 +14,10 @@
   - Acceptance: Jimeng task result parsing has tests for success, provider failure, queue, and done statuses.
   - Acceptance: provider codes are either normalized through a named helper or documented as intentionally preserved upstream codes.
   - Done: added named Jimeng success-code helpers; success code `10000` maps to local `0`, provider failures preserve upstream code, and failure status can no longer be overwritten by `data.status=done`. Tests cover done, queue, provider failure, failure-with-done, and invalid JSON. Validation: `go test ./relay/channel/task/jimeng ./relay/channel/task/...`.
-- [ ] Refresh release regression after fresh audit batch.
+- [x] Refresh release regression after fresh audit batch.
   - Acceptance: selected Go package checks, `git diff --check`, and the relevant MCP regression target pass after the fresh audit fixes.
   - Acceptance: `todo.md` records the verification result and any intentionally skipped external dependency gates.
+  - Done: `go test ./common ./middleware ./dto ./relay ./relay/channel/... ./relay/channel/task/...`, `git diff --check`, and `make mcp-regression` passed after the fresh audit batch. External MySQL/PostgreSQL migration gates were not rerun in this step because this batch did not touch migrations and the MCP regression target was the relevant release guard.
 
 ## P0 - Current development plan
 
