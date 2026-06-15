@@ -239,6 +239,9 @@
 - [x] Align channel balance controller JSON response parsing with project wrappers.
   - Acceptance: provider balance response parsing in `controller/channel-billing.go` no longer calls `encoding/json` directly.
   - Done: OpenAI-compatible, AIProxy, API2GPT, AIGC2D, SiliconFlow, DeepSeek, OpenRouter, and Moonshot balance parsing now uses `common.Unmarshal`.
+- [x] Align user controller runtime JSON conversions with project wrappers.
+  - Acceptance: user login/register/update/admin request decode and sidebar/default-config JSON conversion use project wrappers while preserving `json.Number` type handling.
+  - Done: `controller/user.go` now uses `common.DecodeJson`, `common.Marshal`, and `common.Unmarshal` for runtime conversions.
 
 ## P1 - Audit remediation
 
