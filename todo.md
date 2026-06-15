@@ -260,6 +260,9 @@
 - [x] Align model runtime JSON conversions with project wrappers.
   - Acceptance: model-layer setting, pricing endpoint, passkey transport, channel metadata, and prefill JSON serialization paths use project wrappers while preserving `json.RawMessage` type references.
   - Done: `model/pricing.go`, `model/user.go`, `model/passkey.go`, `model/channel.go`, and `model/prefill_group.go` now route runtime conversion through `common` helpers where applicable.
+- [x] Align common utility JSON conversions with project wrappers.
+  - Acceptance: common utility helpers use the package JSON wrapper functions instead of direct standard-library calls, while `common/json.go` remains the wrapper implementation boundary.
+  - Done: `common/utils.go`, `common/topup-ratio.go`, and `common/str.go` now call `Marshal` / `Unmarshal` directly.
 
 ## P1 - Audit remediation
 
