@@ -230,6 +230,9 @@
 - [x] Align Gemini relay runtime JSON conversions with project wrappers.
   - Acceptance: Gemini function response/tool call parsing and OpenAI image response encoding use project JSON wrappers while preserving `json.RawMessage` thought-signature fields.
   - Done: Gemini relay now uses `common.Unmarshal` / `common.Marshal` for runtime conversion paths covered by provider package tests.
+- [x] Align Ollama relay runtime JSON conversions with project wrappers.
+  - Acceptance: Ollama request schema/tool argument parsing, version decode, stream chunk parsing, thinking decode, and tool-call argument encoding use project JSON wrappers while preserving `json.RawMessage` DTO fields.
+  - Done: Ollama relay and stream handlers now use `common.Unmarshal` / `common.Marshal` for runtime conversion paths.
 
 ## P1 - Audit remediation
 
