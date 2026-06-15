@@ -6,9 +6,10 @@
   - Acceptance: `go test ./...` passes or any intentional skips/failures are documented with exact commands and reasons.
   - Acceptance: the backend binary can be built with the current frontend assets expectation satisfied or explicitly covered by Docker/frontend build checks.
   - Done: `go test ./...` passed. Backend binary build is covered by the Docker multi-stage build and will use frontend assets produced by the frontend/Docker checks below.
-- [ ] Run production frontend build preflight for both UI versions.
+- [x] Run production frontend build preflight for both UI versions.
   - Acceptance: `make build-all-frontends` passes for `web/default` and `web/classic`.
   - Acceptance: generated artifacts remain uncommitted unless the repository already tracks them.
+  - Done: `make build-all-frontends` passed for default and classic UI. Generated `web/default/dist` and `web/classic/dist` are ignored by git and were not committed.
 - [ ] Validate Docker deployment configuration.
   - Acceptance: `docker compose config` passes for production and dev compose files.
   - Acceptance: Docker build prerequisites are verified without committing local build artifacts.
