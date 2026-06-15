@@ -203,6 +203,9 @@
 - [x] Stabilize StreamScannerHandler tests that mutate global streaming settings.
   - Acceptance: parallel stream scanner tests cannot restore `constant.StreamingTimeout` or ping interval settings while another stream scanner test is still running.
   - Done: stream scanner tests now serialize global streaming setting mutations through a package-level test lock while keeping the existing behavior coverage.
+- [x] Align simple rerank provider JSON conversions with project wrappers.
+  - Acceptance: Ali and SiliconFlow rerank response decode/encode paths no longer call `encoding/json` directly.
+  - Done: Ali and SiliconFlow rerank handlers now use `common.Unmarshal` / `common.Marshal` for runtime JSON conversion.
 
 ## P1 - Audit remediation
 
