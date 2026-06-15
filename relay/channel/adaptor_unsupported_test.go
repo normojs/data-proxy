@@ -11,11 +11,18 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/baidu"
 	"github.com/QuantumNous/new-api/relay/channel/cloudflare"
 	"github.com/QuantumNous/new-api/relay/channel/cohere"
+	"github.com/QuantumNous/new-api/relay/channel/deepseek"
 	"github.com/QuantumNous/new-api/relay/channel/dify"
+	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/jina"
+	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	"github.com/QuantumNous/new-api/relay/channel/mistral"
 	"github.com/QuantumNous/new-api/relay/channel/mokaai"
+	"github.com/QuantumNous/new-api/relay/channel/moonshot"
+	"github.com/QuantumNous/new-api/relay/channel/ollama"
 	"github.com/QuantumNous/new-api/relay/channel/palm"
+	"github.com/QuantumNous/new-api/relay/channel/perplexity"
+	"github.com/QuantumNous/new-api/relay/channel/siliconflow"
 	"github.com/QuantumNous/new-api/relay/channel/tencent"
 	"github.com/QuantumNous/new-api/relay/channel/xai"
 	"github.com/QuantumNous/new-api/relay/channel/xunfei"
@@ -130,6 +137,63 @@ func TestTypedUnsupportedAdaptorFeatures(t *testing.T) {
 			name:     "xai gemini",
 			convert:  func() (any, error) { return (&xai.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{}) },
 			provider: "xai",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "deepseek gemini",
+			convert: func() (any, error) {
+				return (&deepseek.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "deepseek",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "gemini audio",
+			convert: func() (any, error) {
+				reader, err := (&gemini.Adaptor{}).ConvertAudioRequest(nil, nil, dto.AudioRequest{})
+				return reader, err
+			},
+			provider: "gemini",
+			feature:  "ConvertAudioRequest",
+		},
+		{
+			name: "minimax gemini",
+			convert: func() (any, error) {
+				return (&minimax.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "minimax",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "moonshot gemini",
+			convert: func() (any, error) {
+				return (&moonshot.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "moonshot",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "ollama gemini",
+			convert: func() (any, error) {
+				return (&ollama.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "ollama",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "perplexity gemini",
+			convert: func() (any, error) {
+				return (&perplexity.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "perplexity",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "siliconflow gemini",
+			convert: func() (any, error) {
+				return (&siliconflow.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
+			},
+			provider: "siliconflow",
 			feature:  "ConvertGeminiRequest",
 		},
 	}

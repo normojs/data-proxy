@@ -300,6 +300,7 @@
   - Acceptance: provider/channel tests pass after each batch.
   - Done first batch: Ali `ConvertGeminiRequest` / `ConvertAudioRequest` and XAI `ConvertGeminiRequest` now return typed unsupported-feature errors.
   - Done second batch: Baidu, Cloudflare, Cohere, Dify, Jina, Mistral, MokaAI, Palm, Tencent, Xunfei, and Zhipu generic unsupported adaptor methods now use typed unsupported-feature errors.
+  - Done third batch: DeepSeek, Gemini, Minimax, Moonshot, Ollama, Perplexity, and SiliconFlow unsupported adaptor methods now use typed unsupported-feature errors.
 - [ ] Refresh non-MCP backlog audit after adaptor error hygiene.
   - Acceptance: remaining provider `TODO` / `not implemented` scan findings are either migrated, intentionally deferred, or documented with explicit rationale.
 
