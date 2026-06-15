@@ -227,6 +227,9 @@
 - [x] Align Claude relay runtime JSON conversions with project wrappers.
   - Acceptance: Claude tool-call argument parsing and OpenAI-format response encoding use project JSON wrappers while preserving `json.RawMessage` type references.
   - Done: Claude relay now uses `common.Unmarshal` / `common.Marshal` for runtime conversion paths covered by the provider package tests.
+- [x] Align Gemini relay runtime JSON conversions with project wrappers.
+  - Acceptance: Gemini function response/tool call parsing and OpenAI image response encoding use project JSON wrappers while preserving `json.RawMessage` thought-signature fields.
+  - Done: Gemini relay now uses `common.Unmarshal` / `common.Marshal` for runtime conversion paths covered by provider package tests.
 
 ## P1 - Audit remediation
 
