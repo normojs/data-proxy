@@ -631,19 +631,22 @@ func TestStreamScannerHandler_StreamStatus_InitializedIfNil(t *testing.T) {
 	assert.NotNil(t, info.StreamStatus)
 }
 
-func TestStreamScannerHandler_StreamStatus_PreInitialized(t *testing.T) {
+func TestStreamScannerHandler_StreamStatus_ReinitializedPerCall(t *testing.T) {
 	t.Parallel()
 
 	body := buildSSEBody(5)
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
 
-	info.StreamStatus = relaycommon.NewStreamStatus()
-	info.StreamStatus.RecordError("pre-existing error")
+	previousStatus := relaycommon.NewStreamStatus()
+	previousStatus.RecordError("pre-existing error")
+	info.StreamStatus = previousStatus
 
 	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
 
+	require.NotNil(t, info.StreamStatus)
+	assert.NotSame(t, previousStatus, info.StreamStatus)
 	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
-	assert.Equal(t, 1, info.StreamStatus.TotalErrorCount())
+	assert.Equal(t, 0, info.StreamStatus.TotalErrorCount())
 }
 
 func TestStreamScannerHandler_PingInterleavesWithSlowUpstream(t *testing.T) {

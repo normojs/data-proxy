@@ -191,6 +191,9 @@
   - Acceptance: PDF files become Claude `document` blocks and text files become Claude `text` blocks.
   - Acceptance: `go test ./relay/channel/claude` and `go test ./relay/channel/...` pass.
   - Done: Claude relay now infers OpenAI file mime type from filename when needed, accepts map payload `filename`, emits PDF/document and text blocks explicitly, and ignores unsupported files.
+- [x] Cover StreamScannerHandler per-call StreamStatus reset semantics.
+  - Acceptance: pre-existing stream status state from a reused relay info object is not carried into the next stream scan.
+  - Done: added a regression test asserting StreamScannerHandler replaces any pre-initialized StreamStatus and starts the new scan with a clean error count.
 
 ## P1 - Audit remediation
 
