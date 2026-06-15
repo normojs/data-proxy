@@ -302,8 +302,17 @@
   - Done second batch: Baidu, Cloudflare, Cohere, Dify, Jina, Mistral, MokaAI, Palm, Tencent, Xunfei, and Zhipu generic unsupported adaptor methods now use typed unsupported-feature errors.
   - Done third batch: DeepSeek, Gemini, Minimax, Moonshot, Ollama, Perplexity, and SiliconFlow unsupported adaptor methods now use typed unsupported-feature errors.
   - Done fourth batch: AWS, Baidu v2, Claude, Coze, Jimeng, Replicate, Vertex, Volcengine, and Zhipu 4V unsupported adaptor methods now use typed unsupported-feature errors; old provider `TODO implement me` / `errors.New("not implemented")` scan is clean.
-- [ ] Refresh non-MCP backlog audit after adaptor error hygiene.
+- [x] Refresh non-MCP backlog audit after adaptor error hygiene.
   - Acceptance: remaining provider `TODO` / `not implemented` scan findings are either migrated, intentionally deferred, or documented with explicit rationale.
+  - Done: `docs/non-mcp-backlog-audit.md` now reflects completed provider unsupported migration and identifies Coze content handling, Cohere stream usage, API version normalization, and DTO shape tests as the next non-MCP backlog.
+- [ ] Audit Coze non-text content handling.
+  - Acceptance: Coze response conversion has tests for known text, image/file or unknown content blocks, and behavior is deterministic for unsupported content.
+- [ ] Verify Cohere streaming usage behavior.
+  - Acceptance: Cohere stream usage fallback is tested and documented, or fixed if stream chunks expose usage metadata.
+- [ ] Review API version normalization.
+  - Acceptance: `middleware/distributor.go` API version behavior is traced with tests before any normalization logic changes.
+- [ ] Add DTO shape compatibility tests.
+  - Acceptance: audio stream lifecycle and Gemini thinking-budget conflict TODOs are covered by focused DTO/provider compatibility tests.
 
 ## P0 - Bridge daemon verification
 

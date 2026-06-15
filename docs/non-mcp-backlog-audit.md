@@ -1,6 +1,6 @@
 # Non-MCP Backlog Audit
 
-Date: 2026-06-13
+Date: 2026-06-16
 
 This audit classifies remaining `TODO`, `unsupported`, `not implemented`, and
 `panic` scan findings outside the completed MCP / Bridge / OpenAPI release
@@ -8,80 +8,81 @@ scope.
 
 ## Summary
 
-The remaining scan findings are not one category of work. They split into:
+The previous recommended backend batch is complete:
 
-- product backlog candidates that can improve reliability or user experience
-- intentionally unsupported API/provider paths
-- low-priority technical debt or test-only fail-fast code
+- admin all-channel balance refresh now runs asynchronously
+- image URL sensitive checks cover text-bearing image fields without fetching
+  remote images
+- Gemini/Veo task images support SSRF-safe HTTP(S) input with size and MIME
+  limits
+- Realtime WebSocket subprotocol compatibility is explicit and tested
+- generic provider adaptor `TODO implement me` / `errors.New("not implemented")`
+  stubs now return typed `channel.UnsupportedFeatureError` values
 
-The next backend batch should focus on small, testable improvements rather than
-attempting to implement every provider adaptor stub.
+The remaining scan findings are therefore smaller and mostly fall into:
+
+- intentionally unsupported product/API boundaries
+- provider-specific compatibility polish
+- startup fail-fast behavior
+- low-priority routing or DTO technical debt
 
 ## Recommended Next Backend Batch
 
-### P1 - Make channel balance refresh asynchronous
+### P1 - Audit Coze non-text content handling
 
-Source: `controller/channel-billing.go`
+Source: `relay/channel/coze/relay-coze.go`
 
-`UpdateAllChannelsBalance` currently runs synchronously and sleeps between
-channels. On installations with many channels, the admin HTTP request can block
-for a long time or hit proxy/client timeouts.
-
-Recommended work:
-
-- move the admin-triggered all-channel refresh into a background job
-- prevent overlapping refresh jobs
-- return an immediate accepted response with job state
-- expose recent job status in logs or an admin-readable response
-- keep the existing single-channel balance query synchronous
-
-### P1 - Add conservative sensitive checks for image URL payloads
-
-Source: `service/sensitive.go`
-
-`CheckSensitiveMessages` skips `image_url` content entirely. Full image
-moderation/OCR is a larger product decision, but the service can still scan
-obvious text-bearing fields such as URL strings and known metadata without
-downloading remote content.
+Coze response conversion still has a `TODO` for supporting more content types.
+This should be handled as provider compatibility work, not a generic cleanup.
 
 Recommended work:
 
-- scan URL string values and any textual image metadata already present in the
-  request payload
-- do not fetch remote images in this pass
-- keep behavior deterministic and cheap
-- add tests for mixed text/image content
+- inspect current Coze response DTOs and upstream payload shapes used by the
+  relay
+- add tests for known text, image/file, and unknown content blocks
+- keep unknown content deterministic instead of silently panicking or dropping
+  useful error context
 
-### P1 - Add SSRF-safe HTTP image input support for Gemini/Veo task images
+### P1 - Verify Cohere streaming usage behavior
 
-Source: `relay/channel/task/gemini/image.go`
+Source: `relay/channel/cohere/adaptor.go`
 
-Veo task image input currently supports data URIs/raw base64 but not HTTP image
-URLs. URL support should be implemented only with the project's existing SSRF
-protection and strict size/mime limits.
-
-Recommended work:
-
-- reuse existing safe HTTP client / SSRF protection helpers
-- cap downloaded bytes
-- accept only supported image MIME types
-- convert to base64 for the existing `VeoImageInput` path
-- add tests for data URI, raw base64, rejected hosts, oversized content, and
-  unsupported MIME
-
-### P2 - Review Realtime WebSocket subprotocol compatibility
-
-Source: `controller/relay.go`
-
-The WebSocket upgrader currently declares only the `realtime` subprotocol.
-Before adding more protocols, confirm actual client expectations and upstream
-behavior.
+The stream path still carries a `TODO: fix this` comment around stream usage
+handling. This is a narrow relay accounting/response-shape task.
 
 Recommended work:
 
-- collect expected subprotocol names from supported clients
-- add tests for accepted and rejected protocols
-- avoid broad wildcard behavior
+- compare non-stream and stream usage extraction
+- add regression tests for stream chunks with and without usage metadata
+- keep current behavior if upstream does not expose usage, but document the
+  fallback clearly
+
+### P2 - Review API version normalization
+
+Source: `middleware/distributor.go`
+
+The `api_version` normalization comment requires a routing-level review. It
+should not be changed opportunistically because it may affect channel selection,
+request URL mapping, and provider compatibility.
+
+Recommended work:
+
+- trace where `api_version` enters relay info and provider request URLs
+- add tests before changing normalization
+- decide whether normalization belongs in middleware, channel metadata, or
+  provider adaptors
+
+### P2 - Add DTO shape compatibility tests
+
+Source: `dto/audio.go`, `dto/gemini.go`
+
+Remaining DTO TODOs are request-shape concerns. They should be covered with
+provider-specific compatibility tests before changing request parsing.
+
+Recommended work:
+
+- add minimal parsing tests around audio stream lifecycle assumptions
+- add Gemini thinking-budget conflict tests before changing fields or defaults
 
 ## Intentional Unsupported / Do Not Batch-Implement
 
@@ -89,44 +90,46 @@ Recommended work:
 
 Source: `router/relay-router.go`, `controller/relay.go`
 
-Routes such as `/files`, `/fine-tunes`, `/images/variations`, and model delete
-currently use `RelayNotImplemented`. These should stay explicit 501 responses
-until the product decides to proxy or implement those APIs.
+Routes such as `/files`, `/fine-tunes`, `/images/variations`, model delete, and
+Responses compact currently use explicit not-implemented handling. These should
+stay explicit 501-style responses until product decides to proxy or implement
+those APIs.
 
-### Provider adaptor stubs
+### Provider adaptor unsupported feature errors
 
-Source: `relay/channel/*/adaptor.go`
+Source: `relay/channel/*/adaptor.go`, `relay/channel/unsupported.go`
 
-Many provider adaptors return `not implemented` for relay modes they do not
-support. This is expected in a multi-provider gateway. Implementing these should
-be driven by a provider-specific requirement and upstream API contract, not by a
-generic TODO cleanup pass.
+Provider adaptors now use `channel.UnsupportedFeatureError` for unsupported
+conversion methods. This preserves `not implemented` wording while making the
+error typed and testable. Do not implement these capabilities generically; each
+provider needs upstream API contract work first.
 
 ### MCP unsupported paths
 
 Source: `pkg/mcp/*`, `service/mcp*.go`, `tools/bridge_client_daemon.mjs`
 
 The MCP / Bridge unsupported paths are stable error handling or deliberately
-unsupported daemon tool requests. They were covered by the previous MCP release
-audit and should not be reopened unless a new capability is requested.
+unsupported daemon tool requests. They remain covered by the MCP release and
+Bridge smoke work.
 
-## Lower-Priority Technical Debt
+## Remaining Technical Debt
 
+- `common/gin.go`: non-JSON request model variation needs request parsing design
+  before implementation.
+- `model/main.go`, `common/embed-file-system.go`, `common/pprof.go`: production
+  startup fail-fast `panic` calls are intentional startup guards, not request
+  path panics.
 - `model/main.go`: legacy migration comment can be removed only after an
   upgrade-floor decision.
-- `middleware/distributor.go`: API version normalization requires a routing
-  architecture review.
-- `dto/audio.go` and `dto/gemini.go`: request-shape TODOs need provider-specific
-  compatibility tests.
-- Task polling `context.TODO()` usage was resolved by the follow-up task
-  lifecycle cleanup; future work should focus on product-level task polling
-  behavior rather than placeholder contexts.
-- `model/*_test.go`, `service/*_test.go`, and smoke helper `panic` calls are
-  test-only fail-fast behavior, not production panic paths.
+- `relay/claude_handler.go` and `relay/channel/claude/relay-claude.go`: temporary
+  compatibility comments should be revisited with Claude payload tests.
+- `common/redis.go`, `relay/common/override.go`, `service/file_service.go`, and
+  related `unsupported ...` errors are validation boundaries, not missing
+  implementation.
+- Smoke helper `panic` calls in `tools/*smoke*.mjs` are test fail-fast behavior.
 
 ## Next-Step Recommendation
 
-Start with asynchronous channel balance refresh. It is self-contained,
-admin-facing, and does not depend on external provider API research. Then do the
-conservative sensitive image URL scan. Leave provider adaptor work for explicit
-provider roadmap items.
+Start with Coze non-text content handling, then Cohere streaming usage behavior.
+Both are narrow, provider-specific tasks with clear test boundaries and no need
+to broaden the core MCP/OpenAPI release surface.
