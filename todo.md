@@ -1,5 +1,20 @@
 # data-proxy MCP / Bridge TODO
 
+## P0 - Deployment readiness preflight
+
+- [ ] Run full backend test and build preflight.
+  - Acceptance: `go test ./...` passes or any intentional skips/failures are documented with exact commands and reasons.
+  - Acceptance: the backend binary can be built with the current frontend assets expectation satisfied or explicitly covered by Docker/frontend build checks.
+- [ ] Run production frontend build preflight for both UI versions.
+  - Acceptance: `make build-all-frontends` passes for `web/default` and `web/classic`.
+  - Acceptance: generated artifacts remain uncommitted unless the repository already tracks them.
+- [ ] Validate Docker deployment configuration.
+  - Acceptance: `docker compose config` passes for production and dev compose files.
+  - Acceptance: Docker build prerequisites are verified without committing local build artifacts.
+- [ ] Record deployment readiness result.
+  - Acceptance: `todo.md` records exact commands run, pass/fail result, and remaining deployment caveats.
+  - Acceptance: final worktree is clean after any generated artifacts are cleaned or intentionally ignored.
+
 ## P1 - Fresh audit follow-up batch
 
 - [x] Clarify Claude extended-thinking sampling compatibility.
