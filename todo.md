@@ -248,6 +248,9 @@
 - [x] Finish controller runtime JSON conversion cleanup.
   - Acceptance: controller runtime JSON conversion scan has no direct `json.Marshal`, `json.Unmarshal`, `json.NewEncoder`, or `json.NewDecoder` calls outside intentional `json.RawMessage` type references.
   - Done: console migration, model sync, and channel controller JSON paths now use `common` helpers; `controller` package tests pass.
+- [x] Align service notification/session JSON conversions with project wrappers.
+  - Acceptance: user notification, webhook, worker download payload, Codex OAuth claim decode, and passkey session JSON conversion paths use project wrappers.
+  - Done: those service paths now use `common.Marshal` / `common.Unmarshal` while preserving `json.RawMessage` DTO fields where required.
 
 ## P1 - Audit remediation
 
