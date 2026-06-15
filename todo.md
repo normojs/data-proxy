@@ -6,9 +6,10 @@
   - Acceptance: duplicated temporary handling for Claude thinking sampling parameters is replaced with explicit helper logic or documented guardrails.
   - Acceptance: tests cover non-Opus extended thinking and Opus 4.7/4.8 adaptive thinking across the OpenAI-to-Claude conversion path.
   - Done: added explicit `dto.ClaudeRequest` helpers for adaptive thinking effort, sampling clearing, default extended-thinking temperature, and OpenAI conversion sampling compatibility; replaced duplicated temporary handling in native Claude and OpenAI-to-Claude paths. Tests now cover Opus 4.8 adaptive high-effort and non-Opus enabled-budget compatibility. Validation: `go test ./dto ./relay ./relay/channel/...`.
-- [ ] Classify non-JSON request model extraction behavior.
+- [x] Classify non-JSON request model extraction behavior.
   - Acceptance: `common.UnmarshalBodyReusable` behavior for unknown content types is covered by tests or documented as intentional no-op behavior.
   - Acceptance: distributor model extraction remains predictable for JSON, form, multipart, and unknown content types.
+  - Done: replaced the vague non-JSON TODO with an explicit no-op contract for unknown content types; added `common` tests for JSON, form, multipart, body reset, repeated reads, and unknown content type no-op; added distributor model extraction tests for JSON, form, multipart, and unknown content type. Validation: `go test ./common ./middleware`.
 - [ ] Clarify Jimeng task result code normalization.
   - Acceptance: Jimeng task result parsing has tests for success, provider failure, queue, and done statuses.
   - Acceptance: provider codes are either normalized through a named helper or documented as intentionally preserved upstream codes.

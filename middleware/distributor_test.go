@@ -1,8 +1,12 @@
 package middleware
 
 import (
+	"bytes"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -123,10 +127,102 @@ func TestSetupContextForSelectedChannelAppliesProviderMetadata(t *testing.T) {
 	require.Equal(t, "gpt-4o", c.GetString("original_model"))
 }
 
+func TestGetModelFromRequestSupportedContentTypes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		contentType string
+		body        string
+		wantModel   string
+		wantGroup   string
+	}{
+		{
+			name:        "json",
+			contentType: "application/json",
+			body:        `{"model":"json-model","group":"json-group"}`,
+			wantModel:   "json-model",
+			wantGroup:   "json-group",
+		},
+		{
+			name:        "form urlencoded",
+			contentType: gin.MIMEPOSTForm,
+			body: url.Values{
+				"model": []string{"form-model"},
+				"group": []string{"form-group"},
+			}.Encode(),
+			wantModel: "form-model",
+			wantGroup: "form-group",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newModelRequestTestContext(t, tt.contentType, tt.body)
+
+			req, err := getModelFromRequest(c)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.wantModel, req.Model)
+			require.Equal(t, tt.wantGroup, req.Group)
+		})
+	}
+}
+
+func TestGetModelFromRequestMultipartForm(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body, contentType := buildDistributorMultipartBody(t, map[string]string{
+		"model": "multipart-model",
+		"group": "multipart-group",
+	})
+	c := newModelRequestTestContext(t, contentType, body)
+
+	req, err := getModelFromRequest(c)
+
+	require.NoError(t, err)
+	require.Equal(t, "multipart-model", req.Model)
+	require.Equal(t, "multipart-group", req.Group)
+}
+
+func TestGetModelFromRequestUnknownContentTypeIsNoop(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	c := newModelRequestTestContext(t, "application/octet-stream", `{"model":"ignored-model","group":"ignored-group"}`)
+
+	req, err := getModelFromRequest(c)
+
+	require.NoError(t, err)
+	require.Empty(t, req.Model)
+	require.Empty(t, req.Group)
+}
+
 func newDistributorTestContext() *gin.Context {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return c
+}
+
+func newModelRequestTestContext(t *testing.T, contentType string, body string) *gin.Context {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", contentType)
+	return c
+}
+
+func buildDistributorMultipartBody(t *testing.T, fields map[string]string) (string, string) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	for key, value := range fields {
+		require.NoError(t, writer.WriteField(key, value))
+	}
+	require.NoError(t, writer.Close())
+	return buf.String(), writer.FormDataContentType()
 }

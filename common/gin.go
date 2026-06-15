@@ -140,8 +140,9 @@ func UnmarshalBodyReusable(c *gin.Context, v any) error {
 	} else if strings.Contains(contentType, gin.MIMEMultipartPOSTForm) {
 		err = parseMultipartFormData(c, requestBody, v)
 	} else {
-		// skip for now
-		// TODO: someday non json request have variant model, we will need to implementation this
+		// Unknown content types are intentionally ignored. Callers that require
+		// fields from non-JSON/non-form payloads should parse those formats
+		// explicitly before relying on this reusable helper.
 	}
 	if err != nil {
 		return err
