@@ -1,5 +1,20 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Fresh audit follow-up batch
+
+- [ ] Clarify Claude extended-thinking sampling compatibility.
+  - Acceptance: duplicated temporary handling for Claude thinking sampling parameters is replaced with explicit helper logic or documented guardrails.
+  - Acceptance: tests cover non-Opus extended thinking and Opus 4.7/4.8 adaptive thinking across the OpenAI-to-Claude conversion path.
+- [ ] Classify non-JSON request model extraction behavior.
+  - Acceptance: `common.UnmarshalBodyReusable` behavior for unknown content types is covered by tests or documented as intentional no-op behavior.
+  - Acceptance: distributor model extraction remains predictable for JSON, form, multipart, and unknown content types.
+- [ ] Clarify Jimeng task result code normalization.
+  - Acceptance: Jimeng task result parsing has tests for success, provider failure, queue, and done statuses.
+  - Acceptance: provider codes are either normalized through a named helper or documented as intentionally preserved upstream codes.
+- [ ] Refresh release regression after fresh audit batch.
+  - Acceptance: selected Go package checks, `git diff --check`, and the relevant MCP regression target pass after the fresh audit fixes.
+  - Acceptance: `todo.md` records the verification result and any intentionally skipped external dependency gates.
+
 ## P0 - Current development plan
 
 - [x] Add a repeatable Docker-backed PostgreSQL migration gate.
