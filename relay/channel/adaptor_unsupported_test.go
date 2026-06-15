@@ -90,6 +90,13 @@ func TestUnsupportedClaudeAdaptorsReturnErrors(t *testing.T) {
 			if result != nil {
 				t.Fatalf("expected nil result, got %T", result)
 			}
+			var unsupported *channel.UnsupportedFeatureError
+			if !errors.As(err, &unsupported) {
+				t.Fatalf("expected UnsupportedFeatureError, got %T: %v", err, err)
+			}
+			if unsupported.Provider != tt.name || unsupported.Feature != "ConvertClaudeRequest" {
+				t.Fatalf("unexpected unsupported feature context: provider=%q feature=%q", unsupported.Provider, unsupported.Feature)
+			}
 			if !strings.Contains(err.Error(), "not implemented") {
 				t.Fatalf("expected not implemented error, got %q", err.Error())
 			}

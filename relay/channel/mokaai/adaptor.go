@@ -20,26 +20,23 @@ type Adaptor struct {
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("mokaai", "ConvertGeminiRequest")
 }
 
 func (a *Adaptor) ConvertClaudeRequest(*gin.Context, *relaycommon.RelayInfo, *dto.ClaudeRequest) (any, error) {
-	return nil, errors.New("mokaai adaptor: ConvertClaudeRequest is not implemented")
+	return nil, channel.NewUnsupportedFeatureError("mokaai", "ConvertClaudeRequest")
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("mokaai", "ConvertAudioRequest")
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("mokaai", "ConvertImageRequest")
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
-	//TODO implement me
+	// MokaAI embeddings accept the OpenAI-compatible embedding payload.
 	return request, nil
 }
 
@@ -72,7 +69,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		baiduEmbeddingRequest := embeddingRequestOpenAI2Moka(*request)
 		return baiduEmbeddingRequest, nil
 	default:
-		return nil, errors.New("not implemented")
+		return nil, channel.NewUnsupportedFeatureError("mokaai", "ConvertOpenAIRequest")
 	}
 }
 
@@ -81,8 +78,7 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	// TODO implement me
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedFeatureError("mokaai", "ConvertOpenAIResponsesRequest")
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
