@@ -254,6 +254,9 @@
 - [x] Align Midjourney service JSON conversions with project wrappers.
   - Acceptance: Midjourney request body rewrite and response parsing no longer call `encoding/json` directly.
   - Done: `service/midjourney.go` now uses `common.DecodeJson`, `common.Marshal`, and `common.Unmarshal` for runtime JSON conversion.
+- [x] Align service conversion JSON helpers with project wrappers.
+  - Acceptance: Claude/OpenRouter and Gemini conversion helpers in `service/convert.go` no longer call `encoding/json` directly for runtime marshal/unmarshal paths.
+  - Done: `service/convert.go` now uses `common.Marshal` and `common.Unmarshal` for reasoning metadata, tool arguments, and generic helper serialization.
 
 ## P1 - Audit remediation
 
