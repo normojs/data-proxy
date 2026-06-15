@@ -88,11 +88,12 @@
   - Acceptance: the pilot reuses existing MCP APIs/query keys and covers overview, health/risk state, recent activity, and navigation into existing detailed sections.
   - Acceptance: loading, empty, partial, error, and permission states are represented.
   - Done: `/ui-lab/mcp` now uses the existing `getMCPSummary` API and `mcpQueryKeys.summary`, with KPI tiles, risk strip, operations trends, review queue, top tools, recent errors, detailed drill-ins, and explicit loading/empty/partial/error/admin states.
-- [ ] Validate UI v2 pilot and decide rollout status.
+- [x] Validate UI v2 pilot and decide rollout status.
   - Acceptance: route smoke, typecheck/build, and browser screenshots pass.
   - Acceptance: TODO records whether v2 remains a pilot or is ready for a broader rollout.
-  - Progress: `bun run smoke:mcp-routes`, `bun run smoke:mcp-trends`, `bun run typecheck`, and `bun run build` passed on 2026-06-13.
-  - Blocked: browser screenshot validation still needs a local preview server. The sandbox denied `rsbuild preview` local listen, and the required non-sandbox approval could not be obtained because the auto-review endpoint returned 503. Keep v2 in pilot until desktop/mobile screenshots pass.
+  - Done: `bun run smoke:mcp-routes`, `bun run smoke:mcp-trends`, `bun run typecheck`, and `bun run build` passed on 2026-06-13.
+  - Done: desktop (1440x1000) and mobile (390x844) browser screenshot validation passed against a mock-auth local preview with `/api/user/self`, `/api/status`, and `/api/mcp/summary`; no console errors were captured.
+  - Rollout: keep UI v2 as a pilot behind `/ui-lab/*` and the persisted version switcher; it is deploy-safe because the current UI remains available, but broader rollout should wait for real backend/auth staging validation.
 
 ## P0 - Release readiness
 
