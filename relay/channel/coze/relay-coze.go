@@ -25,12 +25,9 @@ func convertCozeChatRequest(c *gin.Context, request dto.GeneralOpenAIRequest) *C
 	// 将 request的messages的role为user的content转换为CozeMessage
 	for _, message := range request.Messages {
 		if message.Role == "user" {
-			messages = append(messages, CozeEnterMessage{
-				Role:    "user",
-				Content: message.Content,
-				// TODO: support more content type
-				ContentType: "text",
-			})
+			if cozeMessage, ok := convertOpenAIMessageToCozeEnterMessage(message); ok {
+				messages = append(messages, cozeMessage)
+			}
 		}
 	}
 	user := request.User
@@ -44,6 +41,127 @@ func convertCozeChatRequest(c *gin.Context, request dto.GeneralOpenAIRequest) *C
 		Stream:             lo.FromPtrOr(request.Stream, false),
 	}
 	return cozeRequest
+}
+
+type cozeObjectStringContent struct {
+	Type    string `json:"type"`
+	Text    string `json:"text,omitempty"`
+	FileURL string `json:"file_url,omitempty"`
+	FileID  string `json:"file_id,omitempty"`
+}
+
+func convertOpenAIMessageToCozeEnterMessage(message dto.Message) (CozeEnterMessage, bool) {
+	cozeMessage := CozeEnterMessage{
+		Role:        "user",
+		ContentType: "text",
+	}
+	if message.Content == nil {
+		cozeMessage.Content = ""
+		return cozeMessage, true
+	}
+	if message.IsStringContent() {
+		cozeMessage.Content = message.StringContent()
+		return cozeMessage, true
+	}
+
+	mediaContents := message.ParseContent()
+	if len(mediaContents) == 0 {
+		cozeMessage.Content = message.StringContent()
+		return cozeMessage, true
+	}
+
+	textParts := make([]string, 0)
+	objectParts := make([]cozeObjectStringContent, 0, len(mediaContents))
+	hasMediaObject := false
+	unsupportedParts := make([]string, 0)
+
+	for _, media := range mediaContents {
+		switch media.Type {
+		case dto.ContentTypeText:
+			if media.Text != "" {
+				textParts = append(textParts, media.Text)
+				objectParts = append(objectParts, cozeObjectStringContent{
+					Type: "text",
+					Text: media.Text,
+				})
+			}
+		case dto.ContentTypeImageURL:
+			if image := media.GetImageMedia(); image != nil && image.Url != "" {
+				objectParts = append(objectParts, cozeObjectStringContent{
+					Type:    "image",
+					FileURL: image.Url,
+				})
+				hasMediaObject = true
+			}
+		case dto.ContentTypeFile:
+			if file := media.GetFile(); file != nil {
+				switch {
+				case file.FileId != "":
+					objectParts = append(objectParts, cozeObjectStringContent{
+						Type:   "file",
+						FileID: file.FileId,
+					})
+					hasMediaObject = true
+				case isCozeRemoteFileURL(file.FileData):
+					objectParts = append(objectParts, cozeObjectStringContent{
+						Type:    "file",
+						FileURL: file.FileData,
+					})
+					hasMediaObject = true
+				default:
+					unsupportedParts = append(unsupportedParts, cozeUnsupportedContentPlaceholder(media.Type))
+				}
+			}
+		case dto.ContentTypeVideoUrl:
+			if video := media.GetVideoUrl(); video != nil && video.Url != "" {
+				objectParts = append(objectParts, cozeObjectStringContent{
+					Type:    "file",
+					FileURL: video.Url,
+				})
+				hasMediaObject = true
+			}
+		default:
+			unsupportedParts = append(unsupportedParts, cozeUnsupportedContentPlaceholder(media.Type))
+		}
+	}
+
+	if len(unsupportedParts) > 0 {
+		fallbackText := strings.Join(unsupportedParts, "\n")
+		if hasMediaObject {
+			objectParts = append(objectParts, cozeObjectStringContent{
+				Type: "text",
+				Text: fallbackText,
+			})
+		} else {
+			textParts = append(textParts, fallbackText)
+		}
+	}
+
+	if hasMediaObject {
+		contentBytes, err := common.Marshal(objectParts)
+		if err != nil {
+			cozeMessage.Content = strings.Join(textParts, "")
+			return cozeMessage, true
+		}
+		cozeMessage.ContentType = "object_string"
+		cozeMessage.Content = string(contentBytes)
+		return cozeMessage, true
+	}
+
+	cozeMessage.Content = strings.Join(textParts, "")
+	return cozeMessage, true
+}
+
+func isCozeRemoteFileURL(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+}
+
+func cozeUnsupportedContentPlaceholder(contentType string) string {
+	if contentType == "" {
+		contentType = "unknown"
+	}
+	return fmt.Sprintf("[unsupported %s content omitted]", contentType)
 }
 
 func cozeChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {

@@ -305,8 +305,9 @@
 - [x] Refresh non-MCP backlog audit after adaptor error hygiene.
   - Acceptance: remaining provider `TODO` / `not implemented` scan findings are either migrated, intentionally deferred, or documented with explicit rationale.
   - Done: `docs/non-mcp-backlog-audit.md` now reflects completed provider unsupported migration and identifies Coze content handling, Cohere stream usage, API version normalization, and DTO shape tests as the next non-MCP backlog.
-- [ ] Audit Coze non-text content handling.
+- [x] Audit Coze non-text content handling.
   - Acceptance: Coze response conversion has tests for known text, image/file or unknown content blocks, and behavior is deterministic for unsupported content.
+  - Done: Coze request conversion now maps OpenAI string/text content to Coze text, image/file/video content to `object_string` payloads, and unsupported media to deterministic text placeholders; tests cover text, image, file, video, and unsupported mixed-content paths.
 - [ ] Verify Cohere streaming usage behavior.
   - Acceptance: Cohere stream usage fallback is tested and documented, or fixed if stream chunks expose usage metadata.
 - [ ] Review API version normalization.
