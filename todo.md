@@ -269,6 +269,9 @@
 - [x] Align io.net client JSON conversions with project wrappers.
   - Acceptance: io.net request encoding, response/error decoding, flexible-time normalization, and query array encoding no longer call `encoding/json` directly.
   - Done: `pkg/ionet` now uses `common.Marshal` / `common.Unmarshal` across client, deployment, hardware, container, and JSON utility paths.
+- [x] Finish cross-module runtime JSON conversion cleanup.
+  - Acceptance: runtime `json.Marshal`, `json.Unmarshal`, `json.NewEncoder`, and `json.NewDecoder` scan across controller/service/model/pkg/relay/common is clean outside the `common/json.go` wrapper boundary and non-runtime comments.
+  - Done: global scan now reports only `common/json.go` wrapper implementation calls and one explanatory comment in `relay/channel/task/taskcommon/helpers.go`.
 
 ## P1 - Audit remediation
 
