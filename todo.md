@@ -2,13 +2,16 @@
 
 ## P1 - Deployment preflight ergonomics
 
-- [ ] Add a repeatable deployment preflight Make target.
+- [x] Add a repeatable deployment preflight Make target.
   - Acceptance: one Make target runs backend tests, both production frontend builds, production/dev compose config validation, Docker toolchain checks, and whitespace checks.
   - Acceptance: the full Docker image build is opt-in so local release checks do not hang indefinitely on external base image metadata pulls.
-- [ ] Document deployment readiness gates and caveats.
+  - Done: added `make deployment-preflight`, which runs `go test ./...`, both frontend production builds, production/dev Compose config validation, Docker engine/buildx checks, and `git diff --check`; full Docker image build is opt-in through `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1`.
+- [x] Document deployment readiness gates and caveats.
   - Acceptance: docs explain the default preflight, the optional Docker image build, generated frontend artifact handling, and the known Docker Hub metadata caveat.
-- [ ] Run and record deployment preflight ergonomics validation.
+  - Done: added `docs/deployment-readiness.md` with the default gate, optional Docker image build command, generated `dist` handling, and current Docker Hub metadata caveat.
+- [x] Run and record deployment preflight ergonomics validation.
   - Acceptance: Makefile syntax/command expansion is verified and the non-network parts of the new gate are exercised or mapped to the commands already run in this preflight batch.
+  - Done: `make -n deployment-preflight`, `git diff --check`, and default `make deployment-preflight` passed. The default gate intentionally skipped the full Docker image build and left `web/default/dist` / `web/classic/dist` as ignored generated artifacts.
 
 ## P0 - Deployment readiness preflight
 

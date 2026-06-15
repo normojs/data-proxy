@@ -30,8 +30,11 @@ MCP_MIGRATION_COMPOSE_FILE ?= docker-compose.migration.yml
 MCP_MIGRATION_POSTGRES_PORT ?= 15432
 MCP_MIGRATION_MYSQL_PORT ?= 13306
 MCP_MIGRATION_KEEP_DOCKER ?= 0
+DEPLOYMENT_PREFLIGHT_DOCKER_BUILD ?= 0
+DEPLOYMENT_PREFLIGHT_DOCKER_TARGET ?= builder2
+DEPLOYMENT_PREFLIGHT_IMAGE ?= new-api:preflight-builder
 
-.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-migration-postgres-docker mcp-migration-mysql-docker mcp-migration-docker mcp-migration-docker-clean mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
+.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup deployment-preflight mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-migration-postgres-docker mcp-migration-mysql-docker mcp-migration-docker mcp-migration-docker-clean mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
 
 all: build-all-frontends start-backend
 
@@ -115,6 +118,23 @@ reset-setup:
 		echo "Start the dev stack with 'make dev-api', or set SQLITE_PATH/DEV_SQLITE_PATH to your local SQLite database."; \
 		exit 1; \
 	fi
+
+deployment-preflight:
+	@echo "Running deployment preflight..."
+	@$(GO_TEST_ENV) $(GO) test ./...
+	@$(MAKE) build-all-frontends
+	@docker compose config >/dev/null
+	@docker compose -f $(DEV_COMPOSE_FILE) config >/dev/null
+	@docker version >/dev/null
+	@docker buildx version >/dev/null
+	@if [ "$(DEPLOYMENT_PREFLIGHT_DOCKER_BUILD)" = "1" ]; then \
+		echo "Running optional Docker image build target $(DEPLOYMENT_PREFLIGHT_DOCKER_TARGET)..."; \
+		docker build --target "$(DEPLOYMENT_PREFLIGHT_DOCKER_TARGET)" -t "$(DEPLOYMENT_PREFLIGHT_IMAGE)" .; \
+	else \
+		echo "Skipping full Docker image build. Set DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 to run it."; \
+	fi
+	@git diff --check
+	@echo "Deployment preflight passed."
 
 mcp-openapi-check:
 	@echo "Running MCP OpenAPI regression tests..."
