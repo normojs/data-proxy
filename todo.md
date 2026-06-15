@@ -212,6 +212,9 @@
 - [x] Align Cloudflare and Cohere provider JSON conversions with project wrappers.
   - Acceptance: Cloudflare and Cohere stream/non-stream response decode/encode paths no longer call `encoding/json` directly.
   - Done: Cloudflare completions/STT and Cohere chat/rerank handlers now use `common.Unmarshal` / `common.Marshal`.
+- [x] Align Baidu and Dify provider JSON conversions with project wrappers.
+  - Acceptance: Baidu response/token decode and Dify upload/chat response conversion paths use project JSON wrappers.
+  - Done: Baidu chat/embedding/token handling and Dify upload/user/stream/blocking response handling now use `common.DecodeJson`, `common.Unmarshal`, or `common.Marshal` as appropriate.
 
 ## P1 - Audit remediation
 
