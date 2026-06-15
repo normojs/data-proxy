@@ -197,6 +197,12 @@
 - [x] Align Coze relay JSON conversion with project wrappers.
   - Acceptance: Coze response decode and OpenAI response encode paths use `common.Unmarshal` / `common.Marshal` instead of direct `encoding/json` conversion calls.
   - Done: Coze adaptor and relay handlers now keep `encoding/json` only for `json.RawMessage` type references while routing runtime JSON conversion through project wrappers.
+- [x] Align relay model mapping JSON parsing with project wrappers.
+  - Acceptance: model mapping helper no longer imports `encoding/json` only to parse the channel mapping string.
+  - Done: `ModelMappedHelper` now uses `common.Unmarshal` for model mapping parsing while preserving the existing cycle-detection behavior.
+- [x] Stabilize StreamScannerHandler tests that mutate global streaming settings.
+  - Acceptance: parallel stream scanner tests cannot restore `constant.StreamingTimeout` or ping interval settings while another stream scanner test is still running.
+  - Done: stream scanner tests now serialize global streaming setting mutations through a package-level test lock while keeping the existing behavior coverage.
 
 ## P1 - Audit remediation
 

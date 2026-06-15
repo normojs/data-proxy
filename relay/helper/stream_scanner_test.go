@@ -24,14 +24,28 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-func setupStreamTest(t *testing.T, body io.Reader) (*gin.Context, *http.Response, *relaycommon.RelayInfo) {
-	t.Helper()
+var streamScannerGlobalMu sync.Mutex
 
+func lockStreamScannerGlobals(t *testing.T) {
+	t.Helper()
+	streamScannerGlobalMu.Lock()
+	t.Cleanup(streamScannerGlobalMu.Unlock)
+}
+
+func setStreamingTimeoutForTest(t *testing.T, timeout int) {
+	t.Helper()
 	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 30
+	constant.StreamingTimeout = timeout
 	t.Cleanup(func() {
 		constant.StreamingTimeout = oldTimeout
 	})
+}
+
+func setupStreamTest(t *testing.T, body io.Reader) (*gin.Context, *http.Response, *relaycommon.RelayInfo) {
+	t.Helper()
+
+	lockStreamScannerGlobals(t)
+	setStreamingTimeoutForTest(t, 30)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -247,6 +261,8 @@ func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
 
 func TestStreamScannerHandler_ScannerDecoupledFromSlowHandler(t *testing.T) {
 	t.Parallel()
+	lockStreamScannerGlobals(t)
+	setStreamingTimeoutForTest(t, 30)
 
 	const numChunks = 50
 	const upstreamDelay = 10 * time.Millisecond
@@ -265,10 +281,6 @@ func TestStreamScannerHandler_ScannerDecoupledFromSlowHandler(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 30
-	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
 
 	resp := &http.Response{Body: pr}
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
@@ -334,6 +346,8 @@ func TestStreamScannerHandler_SlowUpstreamFastHandler(t *testing.T) {
 
 func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 	t.Parallel()
+	lockStreamScannerGlobals(t)
+	setStreamingTimeoutForTest(t, 30)
 
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
@@ -358,12 +372,6 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 30
-	t.Cleanup(func() {
-		constant.StreamingTimeout = oldTimeout
-	})
 
 	resp := &http.Response{Body: pr}
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
@@ -394,6 +402,8 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 
 func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
 	t.Parallel()
+	lockStreamScannerGlobals(t)
+	setStreamingTimeoutForTest(t, 30)
 
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
@@ -418,12 +428,6 @@ func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 30
-	t.Cleanup(func() {
-		constant.StreamingTimeout = oldTimeout
-	})
 
 	resp := &http.Response{Body: pr}
 	info := &relaycommon.RelayInfo{
@@ -526,10 +530,8 @@ func TestStreamScannerHandler_StreamStatus_HandlerDone(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
-	// Not parallel: modifies global constant.StreamingTimeout
-	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 2
-	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	lockStreamScannerGlobals(t)
+	setStreamingTimeoutForTest(t, 2)
 
 	pr, pw := io.Pipe()
 	go func() {
@@ -651,6 +653,8 @@ func TestStreamScannerHandler_StreamStatus_ReinitializedPerCall(t *testing.T) {
 
 func TestStreamScannerHandler_PingInterleavesWithSlowUpstream(t *testing.T) {
 	t.Parallel()
+	lockStreamScannerGlobals(t)
+	setStreamingTimeoutForTest(t, 30)
 
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
@@ -675,12 +679,6 @@ func TestStreamScannerHandler_PingInterleavesWithSlowUpstream(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 30
-	t.Cleanup(func() {
-		constant.StreamingTimeout = oldTimeout
-	})
 
 	resp := &http.Response{Body: pr}
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
