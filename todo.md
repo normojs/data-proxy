@@ -221,6 +221,9 @@
 - [x] Align Minimax and Volcengine TTS JSON conversions with project wrappers.
   - Acceptance: TTS metadata request construction and provider response parsing no longer call `encoding/json` directly in Minimax and Volcengine paths.
   - Done: Minimax and Volcengine TTS request/response conversion now uses `common.Unmarshal` / `common.Marshal` while preserving existing request payload shapes.
+- [x] Align Vertex, Replicate, OpenAI, and AWS focused JSON conversions with project wrappers.
+  - Acceptance: single-purpose provider JSON conversion points use project wrappers while keeping `json.RawMessage` type references intact where needed.
+  - Done: Vertex extra-body/token decode, Replicate output format, OpenAI THINKING parsing, AWS anthropic beta/Nova response handling now use `common` JSON helpers.
 
 ## P1 - Audit remediation
 
