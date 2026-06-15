@@ -245,6 +245,9 @@
 - [x] Align remaining small controller JSON conversions with project wrappers.
   - Acceptance: deployment, misc, Creem top-up, and model metadata controller JSON conversions use project wrappers.
   - Done: `controller/deployment.go`, `controller/misc.go`, `controller/topup_creem.go`, and `controller/model_meta.go` now route runtime JSON conversion through `common` helpers.
+- [x] Finish controller runtime JSON conversion cleanup.
+  - Acceptance: controller runtime JSON conversion scan has no direct `json.Marshal`, `json.Unmarshal`, `json.NewEncoder`, or `json.NewDecoder` calls outside intentional `json.RawMessage` type references.
+  - Done: console migration, model sync, and channel controller JSON paths now use `common` helpers; `controller` package tests pass.
 
 ## P1 - Audit remediation
 
