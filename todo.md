@@ -314,8 +314,9 @@
 - [x] Review API version normalization.
   - Acceptance: `middleware/distributor.go` API version behavior is traced with tests before any normalization logic changes.
   - Done: provider metadata setup is now isolated in `setupProviderMetadataContext`; tests lock the current Azure/Xunfei/Gemini/Cloudflare/MokaAI `api_version`, Vertex `region`, Ali `plugin`, Coze `bot_id`, and OpenAI no-op behavior, plus `GetAPIVersion` query-over-context precedence. No provider behavior was changed.
-- [ ] Add DTO shape compatibility tests.
+- [x] Add DTO shape compatibility tests.
   - Acceptance: audio stream lifecycle and Gemini thinking-budget conflict TODOs are covered by focused DTO/provider compatibility tests.
+  - Done: audio request tests lock `stream_format=sse` as the only stream trigger and document that boolean `stream` is ignored; Gemini generation config tests lock budget+level coexistence, snake_case parsing, and snake-over-camel precedence. The DTO TODO comments were replaced with explicit compatibility notes.
 
 ## P0 - Bridge daemon verification
 

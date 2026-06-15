@@ -44,9 +44,9 @@ func (r *GeminiChatRequest) UnmarshalJSON(data []byte) error {
 }
 
 type ToolConfig struct {
-	FunctionCallingConfig *FunctionCallingConfig `json:"functionCallingConfig,omitempty"`
-	RetrievalConfig       *RetrievalConfig       `json:"retrievalConfig,omitempty"`
-	IncludeServerSideToolInvocations *bool       `json:"includeServerSideToolInvocations,omitempty"`
+	FunctionCallingConfig            *FunctionCallingConfig `json:"functionCallingConfig,omitempty"`
+	RetrievalConfig                  *RetrievalConfig       `json:"retrievalConfig,omitempty"`
+	IncludeServerSideToolInvocations *bool                  `json:"includeServerSideToolInvocations,omitempty"`
 }
 
 type FunctionCallingConfig struct {
@@ -162,7 +162,8 @@ func (r *GeminiChatRequest) SetTools(tools []GeminiChatTool) {
 type GeminiThinkingConfig struct {
 	IncludeThoughts bool `json:"includeThoughts,omitempty"`
 	ThinkingBudget  *int `json:"thinkingBudget,omitempty"`
-	// TODO Conflict with thinkingbudget.
+	// ThinkingLevel is preserved alongside ThinkingBudget for payload compatibility;
+	// provider adaptors decide whether to set one or both.
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
 }
 

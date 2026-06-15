@@ -93,13 +93,24 @@ Completed work:
 
 Source: `dto/audio.go`, `dto/gemini.go`
 
-Remaining DTO TODOs are request-shape concerns. They should be covered with
-provider-specific compatibility tests before changing request parsing.
+Status: completed on 2026-06-16.
 
-Recommended work:
+The remaining DTO request-shape TODOs are now covered by focused compatibility
+tests and replaced with explicit comments. Audio streaming remains keyed by
+`stream_format=sse`; a boolean `stream` field in audio JSON is ignored because
+audio streaming lifecycle is handled downstream after request conversion. Gemini
+thinking config preserves `thinkingBudget` and `thinkingLevel` together, accepts
+snake_case aliases inside `generationConfig`, and gives snake_case values
+precedence when both naming styles are present.
 
-- add minimal parsing tests around audio stream lifecycle assumptions
-- add Gemini thinking-budget conflict tests before changing fields or defaults
+Completed work:
+
+- added audio `IsStream` tests for `sse`, non-stream formats, case sensitivity,
+  and ignored boolean `stream`
+- added Gemini thinking config tests for camelCase, snake_case, and
+  snake-over-camel precedence
+- left DTO behavior unchanged; these tests are guardrails for any future field
+  normalization
 
 ## Intentional Unsupported / Do Not Batch-Implement
 
@@ -147,6 +158,5 @@ Bridge smoke work.
 
 ## Next-Step Recommendation
 
-Continue with DTO shape compatibility tests. Coze content handling, Cohere
-streaming usage, and API version behavior review are complete, so the remaining
-work should focus on request DTO compatibility before broader provider changes.
+This non-MCP provider compatibility batch is complete. Future provider work
+should start from a fresh audit rather than reopening this batch opportunistically.
