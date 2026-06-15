@@ -10,12 +10,14 @@
   - Acceptance: `make build-all-frontends` passes for `web/default` and `web/classic`.
   - Acceptance: generated artifacts remain uncommitted unless the repository already tracks them.
   - Done: `make build-all-frontends` passed for default and classic UI. Generated `web/default/dist` and `web/classic/dist` are ignored by git and were not committed.
-- [ ] Validate Docker deployment configuration.
+- [x] Validate Docker deployment configuration.
   - Acceptance: `docker compose config` passes for production and dev compose files.
   - Acceptance: Docker build prerequisites are verified without committing local build artifacts.
-- [ ] Record deployment readiness result.
+  - Done: `docker compose config` and `docker compose -f docker-compose.dev.yml config` passed after removing the obsolete top-level Compose `version` field from `docker-compose.yml`; Docker engine `29.2.0` and buildx `v0.31.1-desktop.1` are available. `docker build --target builder2 -t new-api:preflight-builder .` was attempted twice but canceled after stalling on Docker Hub base image metadata pulls for `golang:1.26.1-alpine` / `oven/bun:1`; no local build artifacts were committed.
+- [x] Record deployment readiness result.
   - Acceptance: `todo.md` records exact commands run, pass/fail result, and remaining deployment caveats.
   - Acceptance: final worktree is clean after any generated artifacts are cleaned or intentionally ignored.
+  - Done: deployment readiness preflight passed for backend tests (`go test ./...`), production frontend builds (`make build-all-frontends`), production compose config (`docker compose config`), dev compose config (`docker compose -f docker-compose.dev.yml config`), and whitespace checks (`git diff --check`). Remaining caveat: a full local Docker image build still depends on Docker Hub base image metadata/network availability; retry `docker build --target builder2 -t new-api:preflight-builder .` before tagging a release image.
 
 ## P1 - Fresh audit follow-up batch
 
