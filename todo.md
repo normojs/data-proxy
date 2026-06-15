@@ -266,6 +266,9 @@
 - [x] Align cache codec and Midjourney proxy JSON conversions with project wrappers.
   - Acceptance: Redis JSON codec and Midjourney proxy task/response conversion paths no longer call `encoding/json` directly.
   - Done: `pkg/cachex/codec.go` and `relay/mjproxy_handler.go` now use `common.Marshal` / `common.Unmarshal` for runtime JSON conversion.
+- [x] Align io.net client JSON conversions with project wrappers.
+  - Acceptance: io.net request encoding, response/error decoding, flexible-time normalization, and query array encoding no longer call `encoding/json` directly.
+  - Done: `pkg/ionet` now uses `common.Marshal` / `common.Unmarshal` across client, deployment, hardware, container, and JSON utility paths.
 
 ## P1 - Audit remediation
 
