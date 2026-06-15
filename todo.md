@@ -233,6 +233,9 @@
 - [x] Align Ollama relay runtime JSON conversions with project wrappers.
   - Acceptance: Ollama request schema/tool argument parsing, version decode, stream chunk parsing, thinking decode, and tool-call argument encoding use project JSON wrappers while preserving `json.RawMessage` DTO fields.
   - Done: Ollama relay and stream handlers now use `common.Unmarshal` / `common.Marshal` for runtime conversion paths.
+- [x] Align OAuth and external status controller JSON conversions with project wrappers.
+  - Acceptance: GitHub, Discord, OIDC, LinuxDO, WeChat, and Uptime Kuma controller JSON encode/decode paths no longer call `encoding/json` directly.
+  - Done: those controllers now use `common.Marshal` / `common.DecodeJson` for request payloads and HTTP JSON response decoding.
 
 ## P1 - Audit remediation
 
