@@ -1,5 +1,15 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Deployment preflight ergonomics
+
+- [ ] Add a repeatable deployment preflight Make target.
+  - Acceptance: one Make target runs backend tests, both production frontend builds, production/dev compose config validation, Docker toolchain checks, and whitespace checks.
+  - Acceptance: the full Docker image build is opt-in so local release checks do not hang indefinitely on external base image metadata pulls.
+- [ ] Document deployment readiness gates and caveats.
+  - Acceptance: docs explain the default preflight, the optional Docker image build, generated frontend artifact handling, and the known Docker Hub metadata caveat.
+- [ ] Run and record deployment preflight ergonomics validation.
+  - Acceptance: Makefile syntax/command expansion is verified and the non-network parts of the new gate are exercised or mapped to the commands already run in this preflight batch.
+
 ## P0 - Deployment readiness preflight
 
 - [x] Run full backend test and build preflight.
