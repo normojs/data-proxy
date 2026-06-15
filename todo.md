@@ -224,6 +224,9 @@
 - [x] Align Vertex, Replicate, OpenAI, and AWS focused JSON conversions with project wrappers.
   - Acceptance: single-purpose provider JSON conversion points use project wrappers while keeping `json.RawMessage` type references intact where needed.
   - Done: Vertex extra-body/token decode, Replicate output format, OpenAI THINKING parsing, AWS anthropic beta/Nova response handling now use `common` JSON helpers.
+- [x] Align Claude relay runtime JSON conversions with project wrappers.
+  - Acceptance: Claude tool-call argument parsing and OpenAI-format response encoding use project JSON wrappers while preserving `json.RawMessage` type references.
+  - Done: Claude relay now uses `common.Unmarshal` / `common.Marshal` for runtime conversion paths covered by the provider package tests.
 
 ## P1 - Audit remediation
 
