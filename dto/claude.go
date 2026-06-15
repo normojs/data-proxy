@@ -241,6 +241,32 @@ type OutputConfigForEffort struct {
 	Effort string `json:"effort,omitempty"`
 }
 
+func (c *ClaudeRequest) UseAdaptiveThinkingEffort(effort string) {
+	if effort == "" {
+		effort = "high"
+	}
+	c.Thinking = &Thinking{Type: "adaptive", Display: "summarized"}
+	if outputConfig, err := common.Marshal(map[string]string{"effort": effort}); err == nil {
+		c.OutputConfig = outputConfig
+	}
+	c.ClearSamplingControls()
+}
+
+func (c *ClaudeRequest) ClearSamplingControls() {
+	c.Temperature = nil
+	c.TopP = nil
+	c.TopK = nil
+}
+
+func (c *ClaudeRequest) UseExtendedThinkingTemperatureDefault() {
+	c.Temperature = common.GetPointer[float64](1.0)
+}
+
+func (c *ClaudeRequest) UseOpenAIExtendedThinkingSamplingCompatibility() {
+	c.TopP = nil
+	c.UseExtendedThinkingTemperatureDefault()
+}
+
 func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	maxTokens := 0
 	if c.MaxTokens != nil {
