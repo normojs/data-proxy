@@ -71,16 +71,23 @@ Completed work:
 
 Source: `middleware/distributor.go`
 
-The `api_version` normalization comment requires a routing-level review. It
-should not be changed opportunistically because it may affect channel selection,
-request URL mapping, and provider compatibility.
+Status: completed on 2026-06-16.
 
-Recommended work:
+The provider metadata setup is now isolated in `setupProviderMetadataContext`
+and covered by behavior tests before any normalization change. Current behavior
+is intentionally preserved: Azure/Xunfei/Gemini/Cloudflare/MokaAI populate
+`api_version`, Vertex populates `region`, Ali populates `plugin`, Coze
+populates `bot_id`, and OpenAI leaves provider metadata unset. `GetAPIVersion`
+also remains covered with query `api-version` taking precedence over context
+`api_version`.
 
-- trace where `api_version` enters relay info and provider request URLs
-- add tests before changing normalization
-- decide whether normalization belongs in middleware, channel metadata, or
-  provider adaptors
+Completed work:
+
+- removed the vague `api_version` TODO from the request path
+- added focused middleware tests for provider metadata mappings
+- added relay common tests for `GetAPIVersion` precedence
+- deferred any semantic normalization until a provider-by-provider migration is
+  explicitly planned
 
 ### P2 - Add DTO shape compatibility tests
 
@@ -140,7 +147,6 @@ Bridge smoke work.
 
 ## Next-Step Recommendation
 
-Continue with API version normalization, then DTO shape compatibility tests.
-Coze content handling and Cohere streaming usage are complete, so the remaining
-work should focus on routing/version behavior and request DTO compatibility
-before broader provider changes.
+Continue with DTO shape compatibility tests. Coze content handling, Cohere
+streaming usage, and API version behavior review are complete, so the remaining
+work should focus on request DTO compatibility before broader provider changes.

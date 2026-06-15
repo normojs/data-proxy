@@ -311,8 +311,9 @@
 - [x] Verify Cohere streaming usage behavior.
   - Acceptance: Cohere stream usage fallback is tested and documented, or fixed if stream chunks expose usage metadata.
   - Done: Cohere stream final responses now use upstream `response.meta.billed_units` when present, always compute `total_tokens`, fill missing prompt/completion fields from local estimates only when needed, and emit a final usage chunk before `[DONE]` when usage output is enabled; tests cover upstream usage, fallback usage, partial metadata, and emitted stream usage.
-- [ ] Review API version normalization.
+- [x] Review API version normalization.
   - Acceptance: `middleware/distributor.go` API version behavior is traced with tests before any normalization logic changes.
+  - Done: provider metadata setup is now isolated in `setupProviderMetadataContext`; tests lock the current Azure/Xunfei/Gemini/Cloudflare/MokaAI `api_version`, Vertex `region`, Ali `plugin`, Coze `bot_id`, and OpenAI no-op behavior, plus `GetAPIVersion` query-over-context precedence. No provider behavior was changed.
 - [ ] Add DTO shape compatibility tests.
   - Acceptance: audio stream lifecycle and Gemini thinking-budget conflict TODOs are covered by focused DTO/provider compatibility tests.
 
