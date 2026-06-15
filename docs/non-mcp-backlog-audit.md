@@ -32,30 +32,40 @@ The remaining scan findings are therefore smaller and mostly fall into:
 
 Source: `relay/channel/coze/relay-coze.go`
 
-Coze response conversion still has a `TODO` for supporting more content types.
-This should be handled as provider compatibility work, not a generic cleanup.
+Status: completed on 2026-06-16.
 
-Recommended work:
+Coze request conversion now handles OpenAI text, image, file, and video content
+deterministically. Supported media is sent as Coze `object_string` payloads;
+unsupported media is represented as stable text placeholders instead of being
+silently dropped.
 
-- inspect current Coze response DTOs and upstream payload shapes used by the
-  relay
-- add tests for known text, image/file, and unknown content blocks
-- keep unknown content deterministic instead of silently panicking or dropping
-  useful error context
+Completed work:
+
+- added focused conversion tests for string text, text-only media, image media,
+  file IDs, remote file/video URLs, unsupported audio, and mixed supported plus
+  unsupported content
+- kept the implementation scoped to request conversion; no remote fetching or
+  cross-provider refactor was introduced
 
 ### P1 - Verify Cohere streaming usage behavior
 
 Source: `relay/channel/cohere/adaptor.go`
 
-The stream path still carries a `TODO: fix this` comment around stream usage
-handling. This is a narrow relay accounting/response-shape task.
+Status: completed on 2026-06-16.
 
-Recommended work:
+Cohere v1 chat streaming exposes final usage through
+`response.meta.billed_units` when present. The stream path now copies those
+values into OpenAI-compatible usage, computes `total_tokens`, fills missing
+prompt/completion fields from local estimates only when necessary, and emits a
+final usage chunk before `[DONE]` when downstream usage output is enabled.
 
-- compare non-stream and stream usage extraction
-- add regression tests for stream chunks with and without usage metadata
-- keep current behavior if upstream does not expose usage, but document the
-  fallback clearly
+Completed work:
+
+- removed the stream-path `TODO: fix this`
+- added regression tests for final stream usage metadata, no-metadata fallback,
+  partial metadata fallback, and emitted usage chunks
+- kept API-version work separate from this fix; Cohere endpoint/version
+  normalization remains covered by the API version review item below
 
 ### P2 - Review API version normalization
 
@@ -130,6 +140,7 @@ Bridge smoke work.
 
 ## Next-Step Recommendation
 
-Start with Coze non-text content handling, then Cohere streaming usage behavior.
-Both are narrow, provider-specific tasks with clear test boundaries and no need
-to broaden the core MCP/OpenAPI release surface.
+Continue with API version normalization, then DTO shape compatibility tests.
+Coze content handling and Cohere streaming usage are complete, so the remaining
+work should focus on routing/version behavior and request DTO compatibility
+before broader provider changes.

@@ -75,7 +75,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		usage, err = cohereRerankHandler(c, resp, info)
 	} else {
 		if info.IsStream {
-			usage, err = cohereStreamHandler(c, info, resp) // TODO: fix this
+			usage, err = cohereStreamHandler(c, info, resp)
 		} else {
 			usage, err = cohereHandler(c, info, resp)
 		}

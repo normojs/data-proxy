@@ -308,8 +308,9 @@
 - [x] Audit Coze non-text content handling.
   - Acceptance: Coze response conversion has tests for known text, image/file or unknown content blocks, and behavior is deterministic for unsupported content.
   - Done: Coze request conversion now maps OpenAI string/text content to Coze text, image/file/video content to `object_string` payloads, and unsupported media to deterministic text placeholders; tests cover text, image, file, video, and unsupported mixed-content paths.
-- [ ] Verify Cohere streaming usage behavior.
+- [x] Verify Cohere streaming usage behavior.
   - Acceptance: Cohere stream usage fallback is tested and documented, or fixed if stream chunks expose usage metadata.
+  - Done: Cohere stream final responses now use upstream `response.meta.billed_units` when present, always compute `total_tokens`, fill missing prompt/completion fields from local estimates only when needed, and emit a final usage chunk before `[DONE]` when usage output is enabled; tests cover upstream usage, fallback usage, partial metadata, and emitted stream usage.
 - [ ] Review API version normalization.
   - Acceptance: `middleware/distributor.go` API version behavior is traced with tests before any normalization logic changes.
 - [ ] Add DTO shape compatibility tests.

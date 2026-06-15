@@ -140,8 +140,7 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 					},
 				}
 				if cohereResp.Response != nil {
-					usage.PromptTokens = cohereResp.Response.Meta.BilledUnits.InputTokens
-					usage.CompletionTokens = cohereResp.Response.Meta.BilledUnits.OutputTokens
+					applyCohereStreamUsage(usage, cohereResp.Response)
 				}
 			} else {
 				openaiResp.Choices = []dto.ChatCompletionsStreamResponseChoice{
@@ -163,14 +162,53 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonStr)})
 			return true
 		case <-stopChan:
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
 			return false
 		}
 	})
-	if usage.PromptTokens == 0 {
-		usage = service.ResponseText2Usage(c, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens())
+	usage = finalizeCohereStreamUsage(c, usage, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens())
+	if info.ShouldIncludeUsage {
+		response := helper.GenerateFinalUsageResponse(responseId, createdTime, info.UpstreamModelName, *usage)
+		if err := helper.ObjectData(c, response); err != nil {
+			common.SysLog("error rendering cohere final usage response: " + err.Error())
+		}
 	}
+	helper.Done(c)
 	return usage, nil
+}
+
+func applyCohereStreamUsage(usage *dto.Usage, response *CohereResponseResult) bool {
+	if usage == nil || response == nil {
+		return false
+	}
+	inputTokens := response.Meta.BilledUnits.InputTokens
+	outputTokens := response.Meta.BilledUnits.OutputTokens
+	if inputTokens == 0 && outputTokens == 0 {
+		return false
+	}
+	usage.PromptTokens = inputTokens
+	usage.CompletionTokens = outputTokens
+	usage.TotalTokens = inputTokens + outputTokens
+	return true
+}
+
+func finalizeCohereStreamUsage(c *gin.Context, usage *dto.Usage, responseText string, modelName string, promptTokens int) *dto.Usage {
+	if usage == nil {
+		usage = &dto.Usage{}
+	}
+	if !service.ValidUsage(usage) {
+		return service.ResponseText2Usage(c, responseText, modelName, promptTokens)
+	}
+	if usage.PromptTokens == 0 || usage.CompletionTokens == 0 {
+		fallback := service.ResponseText2Usage(c, responseText, modelName, promptTokens)
+		if usage.PromptTokens == 0 {
+			usage.PromptTokens = fallback.PromptTokens
+		}
+		if usage.CompletionTokens == 0 {
+			usage.CompletionTokens = fallback.CompletionTokens
+		}
+	}
+	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	return usage
 }
 
 func cohereHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
