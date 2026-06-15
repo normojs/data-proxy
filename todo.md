@@ -215,6 +215,9 @@
 - [x] Align Baidu and Dify provider JSON conversions with project wrappers.
   - Acceptance: Baidu response/token decode and Dify upload/chat response conversion paths use project JSON wrappers.
   - Done: Baidu chat/embedding/token handling and Dify upload/user/stream/blocking response handling now use `common.DecodeJson`, `common.Unmarshal`, or `common.Marshal` as appropriate.
+- [x] Align MokaAI, Tencent, Xunfei, and Zhipu provider JSON conversions with project wrappers.
+  - Acceptance: simple response/signature JSON conversion paths in these providers no longer call `encoding/json` directly.
+  - Done: MokaAI embedding, Tencent chat/signature payload, Xunfei websocket response, and Zhipu stream/non-stream response paths now use project JSON wrappers.
 
 ## P1 - Audit remediation
 
