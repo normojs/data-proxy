@@ -236,6 +236,9 @@
 - [x] Align OAuth and external status controller JSON conversions with project wrappers.
   - Acceptance: GitHub, Discord, OIDC, LinuxDO, WeChat, and Uptime Kuma controller JSON encode/decode paths no longer call `encoding/json` directly.
   - Done: those controllers now use `common.Marshal` / `common.DecodeJson` for request payloads and HTTP JSON response decoding.
+- [x] Align channel balance controller JSON response parsing with project wrappers.
+  - Acceptance: provider balance response parsing in `controller/channel-billing.go` no longer calls `encoding/json` directly.
+  - Done: OpenAI-compatible, AIProxy, API2GPT, AIGC2D, SiliconFlow, DeepSeek, OpenRouter, and Moonshot balance parsing now uses `common.Unmarshal`.
 
 ## P1 - Audit remediation
 
