@@ -257,6 +257,9 @@
 - [x] Align service conversion JSON helpers with project wrappers.
   - Acceptance: Claude/OpenRouter and Gemini conversion helpers in `service/convert.go` no longer call `encoding/json` directly for runtime marshal/unmarshal paths.
   - Done: `service/convert.go` now uses `common.Marshal` and `common.Unmarshal` for reasoning metadata, tool arguments, and generic helper serialization.
+- [x] Align model runtime JSON conversions with project wrappers.
+  - Acceptance: model-layer setting, pricing endpoint, passkey transport, channel metadata, and prefill JSON serialization paths use project wrappers while preserving `json.RawMessage` type references.
+  - Done: `model/pricing.go`, `model/user.go`, `model/passkey.go`, `model/channel.go`, and `model/prefill_group.go` now route runtime conversion through `common` helpers where applicable.
 
 ## P1 - Audit remediation
 
