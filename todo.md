@@ -1,5 +1,15 @@
 # data-proxy MCP / Bridge TODO
 
+## P2 - Residual TODO comment cleanup
+
+- [ ] Replace ambiguous production TODO comments with explicit maintenance notes.
+  - Acceptance: remaining code TODO scan findings are limited to documentation/history, not active implementation ambiguity.
+  - Acceptance: behavior stays unchanged.
+- [ ] Refresh backlog audit classification after cleanup.
+  - Acceptance: `docs/non-mcp-backlog-audit.md` records the cleanup and still distinguishes intentional unsupported boundaries from real backlog.
+- [ ] Validate targeted packages and TODO scan.
+  - Acceptance: targeted Go tests pass for touched packages and `rg` confirms no active code `TODO:` comments remain outside documentation/TODO tracking files.
+
 ## P1 - Deployment preflight ergonomics
 
 - [x] Add a repeatable deployment preflight Make target.
