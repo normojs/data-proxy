@@ -1,10 +1,13 @@
 package channel_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/ali"
 	"github.com/QuantumNous/new-api/relay/channel/baidu"
 	"github.com/QuantumNous/new-api/relay/channel/cloudflare"
 	"github.com/QuantumNous/new-api/relay/channel/cohere"
@@ -14,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/mokaai"
 	"github.com/QuantumNous/new-api/relay/channel/palm"
 	"github.com/QuantumNous/new-api/relay/channel/tencent"
+	"github.com/QuantumNous/new-api/relay/channel/xai"
 	"github.com/QuantumNous/new-api/relay/channel/xunfei"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu"
 )
@@ -88,6 +92,60 @@ func TestUnsupportedClaudeAdaptorsReturnErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "not implemented") {
 				t.Fatalf("expected not implemented error, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestTypedUnsupportedAdaptorFeatures(t *testing.T) {
+	tests := []struct {
+		name     string
+		convert  func() (any, error)
+		provider string
+		feature  string
+	}{
+		{
+			name:     "ali gemini",
+			convert:  func() (any, error) { return (&ali.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{}) },
+			provider: "ali",
+			feature:  "ConvertGeminiRequest",
+		},
+		{
+			name: "ali audio",
+			convert: func() (any, error) {
+				reader, err := (&ali.Adaptor{}).ConvertAudioRequest(nil, nil, dto.AudioRequest{})
+				return reader, err
+			},
+			provider: "ali",
+			feature:  "ConvertAudioRequest",
+		},
+		{
+			name:     "xai gemini",
+			convert:  func() (any, error) { return (&xai.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{}) },
+			provider: "xai",
+			feature:  "ConvertGeminiRequest",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := tt.convert()
+			if err == nil {
+				t.Fatal("expected unsupported feature error")
+			}
+			if result != nil {
+				t.Fatalf("expected nil result, got %T", result)
+			}
+
+			var unsupported *channel.UnsupportedFeatureError
+			if !errors.As(err, &unsupported) {
+				t.Fatalf("expected UnsupportedFeatureError, got %T: %v", err, err)
+			}
+			if unsupported.Provider != tt.provider || unsupported.Feature != tt.feature {
+				t.Fatalf("unexpected unsupported feature context: provider=%q feature=%q", unsupported.Provider, unsupported.Feature)
+			}
+			if !strings.Contains(err.Error(), "not implemented") {
+				t.Fatalf("expected not implemented wording, got %q", err.Error())
 			}
 		})
 	}

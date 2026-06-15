@@ -291,6 +291,16 @@
 - [x] Align Bridge controller JSON decoding with project JSON wrapper rules.
   - Acceptance: Bridge controller no longer calls `encoding/json` marshal/unmarshal directly.
   - Done: `controller/bridge.go` now uses `common.Marshal/common.Unmarshal`; controller tests cover bridge result/error payload decoding.
+- [x] Add shared unsupported adaptor error semantics.
+  - Acceptance: provider adaptor stubs can return a typed unsupported-feature error with provider and feature context while preserving existing user-facing `not implemented` wording.
+  - Acceptance: tests can assert typed unsupported errors without brittle string-only checks.
+  - Done: added `channel.UnsupportedFeatureError` / `NewUnsupportedFeatureError` and typed unsupported adaptor tests.
+- [ ] Migrate generic provider adaptor stubs in small batches.
+  - Acceptance: each batch removes generic `errors.New("not implemented")` returns from touched provider adaptors without implementing unsupported capabilities.
+  - Acceptance: provider/channel tests pass after each batch.
+  - Done first batch: Ali `ConvertGeminiRequest` / `ConvertAudioRequest` and XAI `ConvertGeminiRequest` now return typed unsupported-feature errors.
+- [ ] Refresh non-MCP backlog audit after adaptor error hygiene.
+  - Acceptance: remaining provider `TODO` / `not implemented` scan findings are either migrated, intentionally deferred, or documented with explicit rationale.
 
 ## P0 - Bridge daemon verification
 
