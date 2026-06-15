@@ -209,6 +209,9 @@
 - [x] Align Palm and Jimeng provider JSON conversions with project wrappers.
   - Acceptance: Palm response conversion and Jimeng image/signature helper JSON conversion no longer call `encoding/json` directly.
   - Done: Palm stream/non-stream response paths and Jimeng image response, payload hash, and image extra-field parsing now use project JSON wrappers.
+- [x] Align Cloudflare and Cohere provider JSON conversions with project wrappers.
+  - Acceptance: Cloudflare and Cohere stream/non-stream response decode/encode paths no longer call `encoding/json` directly.
+  - Done: Cloudflare completions/STT and Cohere chat/rerank handlers now use `common.Unmarshal` / `common.Marshal`.
 
 ## P1 - Audit remediation
 
