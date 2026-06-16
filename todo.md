@@ -18,6 +18,10 @@
   - Acceptance: default deployment preflight passes or any failure is documented with exact command and next fix.
   - Done: `make deployment-preflight` passed `go test ./...`, `make build-all-frontends`, production Compose config, and dev Compose config before being interrupted at the Docker daemon gate because `docker version >/dev/null` hung on Server response.
   - Done: follow-up checks passed for `gtimeout 20 docker compose config`, `gtimeout 20 docker compose -f docker-compose.dev.yml config`, `gtimeout 10 docker buildx version`, and `git diff --check`; `gtimeout 10 docker version` still timed out after printing Docker Client info only, so release image validation is blocked on local Docker daemon responsiveness.
+- [x] Run non-Docker release regression after the Docker blocker recheck.
+  - Acceptance: code-level checks that do not require Docker pass while the Docker daemon gate remains explicitly blocked.
+  - Done: `gtimeout 15 docker version` and `gtimeout 15 docker info` still timed out while reading Server information, and Docker's Unix socket still returned `Docker Desktop is unable to start`.
+  - Done: `go test ./...`, `cd web/default && bun run typecheck`, locale JSON parsing, `make build-all-frontends`, `make mcp-regression`, and `git diff --check -- . ':!tools/fusion-benchmark.mjs'` passed. Fusion benchmark dirty files were intentionally excluded from this current-session scope.
 - [ ] Restore Docker daemon responsiveness before tagging a release image.
   - Acceptance: `docker version`, `docker info`, default `make deployment-preflight`, and optional `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight` complete without hanging.
   - Current status: Docker Desktop remains a local environment blocker. `ps` shows long-running `com.docker.backend`, `com.docker.build`, and `docker-sandbox daemon start` processes; `gtimeout 10 docker version` prints client info then times out before server info; `curl --unix-socket /Users/fushilu/.docker/run/docker.sock http://localhost/_ping` returns `Docker Desktop is unable to start`.

@@ -65,6 +65,13 @@ Recheck on 2026-06-16: `gtimeout 15 docker version` and `gtimeout 15 docker
 info` still time out while reading Server information, and the Unix socket still
 returns `Docker Desktop is unable to start`.
 
+Follow-up non-Docker regression on 2026-06-16 passed: `go test ./...`,
+`cd web/default && bun run typecheck`, locale JSON parsing,
+`make build-all-frontends`, `make mcp-regression`, and a scoped whitespace check
+that excluded current-session Fusion benchmark dirty files. This keeps the
+code-level release signal green while Docker remains the only release-image
+blocker.
+
 Before publishing a release image, recover Docker Desktop on the release host,
 then rerun the default preflight and the opt-in Docker image build. A release
 tag should only be cut after both commands complete without hanging.
