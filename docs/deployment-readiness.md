@@ -44,7 +44,7 @@ DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight
 The default optional build command is equivalent to:
 
 ```bash
-docker build --target builder2 -t new-api:preflight-builder .
+docker build --target builder2 -t data-proxy:preflight-builder .
 ```
 
 Override the target or local tag when needed:
@@ -52,7 +52,7 @@ Override the target or local tag when needed:
 ```bash
 DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 \
 DEPLOYMENT_PREFLIGHT_DOCKER_TARGET=builder2 \
-DEPLOYMENT_PREFLIGHT_IMAGE=new-api:release-preflight \
+DEPLOYMENT_PREFLIGHT_IMAGE=data-proxy:release-preflight \
 make deployment-preflight
 ```
 
@@ -65,7 +65,7 @@ Validated commands:
 - `gtimeout 15 docker version`
 - `gtimeout 15 docker info`
 - `make deployment-preflight`
-- `docker build --target builder2 -t new-api:preflight-builder .`
+- `docker build --target builder2 -t data-proxy:preflight-builder .`
 - `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight`
 
 Historical caveat: Docker Desktop previously reported `Docker Desktop is unable

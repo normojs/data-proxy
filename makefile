@@ -3,8 +3,8 @@ BACKEND_DIR = .
 DEV_FRONTEND_DEFAULT_PORT ?= 5173
 DEV_COMPOSE_FILE = docker-compose.dev.yml
 DEV_POSTGRES_SERVICE = postgres
-DEV_BACKEND_SERVICE = new-api
-DEV_POSTGRES_DB = new-api
+DEV_BACKEND_SERVICE = data-proxy
+DEV_POSTGRES_DB = data_proxy
 DEV_POSTGRES_USER = root
 DEV_SQLITE_PATH ?= one-api.db
 GO ?= go
@@ -30,7 +30,7 @@ MCP_MIGRATION_MYSQL_PORT ?= 13306
 MCP_MIGRATION_KEEP_DOCKER ?= 0
 DEPLOYMENT_PREFLIGHT_DOCKER_BUILD ?= 0
 DEPLOYMENT_PREFLIGHT_DOCKER_TARGET ?= builder2
-DEPLOYMENT_PREFLIGHT_IMAGE ?= new-api:preflight-builder
+DEPLOYMENT_PREFLIGHT_IMAGE ?= data-proxy:preflight-builder
 
 .PHONY: all build-frontend build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web reset-setup deployment-preflight mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-migration-postgres-docker mcp-migration-mysql-docker mcp-migration-docker mcp-migration-docker-clean mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
 
@@ -148,7 +148,7 @@ mcp-migration-postgres-docker:
 	trap cleanup EXIT; \
 	echo "Starting disposable PostgreSQL migration database on 127.0.0.1:$$port..."; \
 	MCP_MIGRATION_POSTGRES_PORT="$$port" docker compose -f "$$compose_file" up -d --wait --wait-timeout 120 "$$service"; \
-	$(MAKE) mcp-migration-postgres MCP_MIGRATION_POSTGRES_DSN="postgres://root:123456@127.0.0.1:$$port/new_api_migration?sslmode=disable"
+	$(MAKE) mcp-migration-postgres MCP_MIGRATION_POSTGRES_DSN="postgres://root:123456@127.0.0.1:$$port/data_proxy_migration?sslmode=disable"
 
 mcp-migration-mysql-docker:
 	@set -eu; \
@@ -164,7 +164,7 @@ mcp-migration-mysql-docker:
 	trap cleanup EXIT; \
 	echo "Starting disposable MySQL migration database on 127.0.0.1:$$port..."; \
 	MCP_MIGRATION_MYSQL_PORT="$$port" docker compose -f "$$compose_file" up -d --wait --wait-timeout 180 "$$service"; \
-	$(MAKE) mcp-migration-mysql MCP_MIGRATION_MYSQL_DSN="root:123456@tcp(127.0.0.1:$$port)/new_api_migration?charset=utf8mb4&parseTime=true&loc=Local"
+	$(MAKE) mcp-migration-mysql MCP_MIGRATION_MYSQL_DSN="root:123456@tcp(127.0.0.1:$$port)/data_proxy_migration?charset=utf8mb4&parseTime=true&loc=Local"
 
 mcp-migration-docker: mcp-migration-postgres-docker mcp-migration-mysql-docker
 

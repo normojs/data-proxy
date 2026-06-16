@@ -1,5 +1,17 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Data Proxy release naming and dev targets
+
+- [x] Align Makefile dev service/database names with Data Proxy Compose files.
+  - Acceptance: `make dev-api-rebuild` targets the actual `data-proxy` service and `make reset-setup` uses the dev PostgreSQL database name from `docker-compose.dev.yml`.
+  - Done: `makefile` now uses `DEV_BACKEND_SERVICE=data-proxy` and `DEV_POSTGRES_DB=data_proxy`, matching `docker-compose.dev.yml`.
+- [x] Align release preflight image tags and disposable migration database names with Data Proxy.
+  - Acceptance: default preflight image tags and local migration smoke container/database names no longer use `new-api` unless the reference is source attribution.
+  - Done: the default preflight image is now `data-proxy:preflight-builder`, deployment readiness examples use Data Proxy tags, and disposable migration smoke containers/databases use `data-proxy` / `data_proxy_migration` names.
+- [x] Validate and commit the release naming batch.
+  - Acceptance: dry-run/service scans, Compose config checks, whitespace checks, and TODO updates pass without staging Fusion files.
+  - Done: `docker compose -f docker-compose.dev.yml config --services`, `docker compose -f docker-compose.migration.yml config`, `make -n dev-api-rebuild reset-setup deployment-preflight`, residual naming scan, and scoped `git diff --check` passed.
+
 ## P1 - Data Proxy operator handoff docs
 
 - [x] Publish a Data Proxy operator quick-start guide.
