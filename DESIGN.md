@@ -195,8 +195,8 @@ ordinary cards. If a surface needs separation, choose a ring or a tonal layer.
 - **Do** reserve semantic colors for health, risk, and state.
 - **Do** provide loading, empty, partial, error, and permission states for v2
   pilot surfaces.
-- **Do** keep current `web/classic` and current `web/default` routes reversible
-  while v2 is a pilot.
+- **Do** evolve `web/default` incrementally, with route-level rollback plans for
+  risky UI v2 pilot surfaces.
 
 ### Don't:
 - **Don't** use giant hero panels, marketing dashboard composition, or novelty

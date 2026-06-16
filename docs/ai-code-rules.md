@@ -50,8 +50,7 @@ sed -n '1,360p' docs/mcp-bridge-smoke.md
 - `pkg/mcp/`: MCP 执行器、OpenAPI parser/store、Proxy、Bridge 协议逻辑。
 - `tools/`: 本地 smoke、daemon、自检脚本。
 - `docs/`: 交接、协议、验证命令。
-- `web/default/`: 主要前端，React 19 + TypeScript + Rsbuild + Base UI。
-- `web/classic/`: 旧版前端；除非用户明确要求，不主动改这里。
+- `web/default/`: 唯一前端，React 19 + TypeScript + Rsbuild + Base UI。
 
 MCP / Bridge 常用文件：
 

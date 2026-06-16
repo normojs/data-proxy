@@ -41,11 +41,11 @@
 - [x] Make the backend runtime serve only the new UI by default.
   - Acceptance: server-side theme defaults to `default`, existing `classic` values are normalized away, and web routing serves `web/default` assets/index only.
   - Done: backend theme state now initializes and normalizes to `default`, Web routing serves only `web/default` assets/index, legacy theme-aware static serving was removed, and smoke/dev embed helpers only prepare `web/default/dist`.
-- [x] Remove the classic frontend switch from the new UI settings surface.
-  - Acceptance: system settings no longer show a selectable classic frontend option and form validation accepts only the new UI value.
+- [x] Remove the legacy frontend switch from the new UI settings surface.
+  - Acceptance: system settings no longer show a selectable legacy frontend option and form validation accepts only the new UI value.
   - Done: system settings now show a read-only new-frontend status instead of a classic/default selector, and validation accepts only the `default` frontend value.
 - [x] Align build/deployment defaults with new UI only.
-  - Acceptance: default frontend build and deployment preflight build only `web/default`; classic sources may remain in the repository but are not part of the normal runtime/deploy path.
+  - Acceptance: default frontend build and deployment preflight build only `web/default`; legacy UI sources are not part of the normal runtime/deploy path.
   - Done: `web` workspace, Dockerfile, Dockerfile.dev, `make build-all-frontends`, `make dev-web`, and deployment preflight now target the new frontend only.
 - [x] Validate new UI default behavior and update docs.
   - Acceptance: targeted Go tests, frontend type/build checks, and `git diff --check` pass; TODO/docs record that classic is no longer a runtime option.
@@ -99,7 +99,7 @@
   - Done: added `docs/deployment-readiness.md` with the default gate, optional Docker image build command, generated `dist` handling, and current Docker Hub metadata caveat.
 - [x] Run and record deployment preflight ergonomics validation.
   - Acceptance: Makefile syntax/command expansion is verified and the non-network parts of the new gate are exercised or mapped to the commands already run in this preflight batch.
-  - Done: `make -n deployment-preflight`, `git diff --check`, and default `make deployment-preflight` passed. The default gate intentionally skipped the full Docker image build and left `web/default/dist` / `web/classic/dist` as ignored generated artifacts.
+  - Done: `make -n deployment-preflight`, `git diff --check`, and default `make deployment-preflight` passed. The default gate intentionally skipped the full Docker image build and left `web/default/dist` as ignored generated artifact.
 
 ## P0 - Deployment readiness preflight
 
@@ -107,10 +107,10 @@
   - Acceptance: `go test ./...` passes or any intentional skips/failures are documented with exact commands and reasons.
   - Acceptance: the backend binary can be built with the current frontend assets expectation satisfied or explicitly covered by Docker/frontend build checks.
   - Done: `go test ./...` passed. Backend binary build is covered by the Docker multi-stage build and will use frontend assets produced by the frontend/Docker checks below.
-- [x] Run production frontend build preflight for both UI versions.
-  - Acceptance: `make build-all-frontends` passes for `web/default` and `web/classic`.
+- [x] Run production frontend build preflight for the active UI.
+  - Acceptance: `make build-all-frontends` passes for `web/default`.
   - Acceptance: generated artifacts remain uncommitted unless the repository already tracks them.
-  - Done: `make build-all-frontends` passed for default and classic UI. Generated `web/default/dist` and `web/classic/dist` are ignored by git and were not committed.
+  - Done: `make build-all-frontends` passed for the default UI. Generated `web/default/dist` is ignored by git and was not committed.
 - [x] Validate Docker deployment configuration.
   - Acceptance: `docker compose config` passes for production and dev compose files.
   - Acceptance: Docker build prerequisites are verified without committing local build artifacts.
@@ -213,7 +213,7 @@
 
 - [x] Activate UI v2 design context.
   - Acceptance: `PRODUCT.md`, `DESIGN.md`, a UI v2 design brief, and Impeccable live/design config exist before implementation.
-  - Acceptance: the design direction keeps `web/classic` unchanged and evolves `web/default` as the shadcn-based pilot home.
+  - Acceptance: the design direction evolves `web/default` as the shadcn-based pilot home.
   - Done: added product/design context, `.impeccable` live/design files, and `docs/ui-v2-design-brief.md` for the active pilot.
 - [x] Add a UI version switcher and persisted preference.
   - Acceptance: operators can switch between current UI and v2 pilot without losing the existing routes.
@@ -569,6 +569,13 @@
   - Done: `POST /api/setup/runtime-config` now reports restart support/scheduling metadata, schedules one delayed restart in container deployments, and supports `DATA_PROXY_SETUP_AUTO_RESTART=false` as an operations escape hatch.
   - Done: the setup wizard waits for the restarted service to report `runtime_config_restart_required=false`, shows an automatic restart progress state, and refreshes setup status before allowing the next step.
   - Validation: `go test ./controller -run 'TestPostSetupRuntimeConfig'`, `cd web/default && bun run typecheck`, targeted setup ESLint/prettier checks, and `git diff --check` passed.
+
+## P1 - Remove legacy frontend source
+
+- [x] Delete the old UI and keep only the newer frontend.
+  - Acceptance: the repository no longer contains the legacy frontend source directory; build, release, deployment, rules, UI plan, and license documentation all point only to `web/default`.
+  - Done: removed the old frontend directory, removed classic release workflow build steps, refreshed project rules/docs/license scope, and kept `web/package.json` as a single-workspace frontend root.
+  - Validation: `rg` found no remaining legacy UI directory references outside intentional compatibility comments, `cd web && bun install --frozen-lockfile`, `cd web/default && bun run typecheck`, `make build-all-frontends`, and `git diff --check` passed.
 
 ## Done
 

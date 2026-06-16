@@ -1,8 +1,8 @@
 # UI V2 Long-Term Plan
 
-Status: Activated and promoted to the default runtime. The user reactivated
-this plan after the backend and migration tasks were completed, then decided to
-serve only the New API newer UI by default.
+Status: Activated and promoted to the only runtime. The user reactivated this
+plan after the backend and migration tasks were completed, then decided to keep
+only the newer Data Proxy UI in the repository.
 
 ## Decision
 
@@ -19,12 +19,9 @@ top of the existing shadcn frontend, not as a new shadcn migration.
 
 ## Scope
 
-Use `web/default` as the only runtime frontend:
+Use `web/default` as the only frontend:
 
 - `web/default`: current primary UI and the future home of UI v2 work.
-- `web/classic`: legacy source retained in the repository for reference only;
-  it is not part of the default runtime, normal deployment build, or settings
-  surface.
 
 Do not create a third frontend app unless a later architecture review proves it
 is cheaper than evolving `web/default`.
@@ -60,7 +57,7 @@ rollout.
 
 Prefer an incremental v2 shell inside `web/default`:
 
-- Keep the runtime on the newer frontend; do not reintroduce a classic frontend
+- Keep the runtime on the newer frontend; do not reintroduce a legacy frontend
   switcher unless a separate compatibility decision explicitly requires it.
 - Mount pilot routes under `/ui-lab/*` or `/v2/*` until the design is stable.
 - Reuse existing auth, API clients, React Query keys, TanStack Router patterns,
@@ -105,12 +102,12 @@ Before implementation starts:
 
 5. Migration or retirement
    - Promote stable v2 routes inside `web/default` after parity checks pass.
-   - Keep `web/classic` untouched unless a separate decision removes it from
-     the repository.
+   - Keep any retired UI experiments out of the runtime and release pipeline.
 
 ## Activation Gate
 
 Activated on 2026-06-13 after the Docker-backed migration gates and near-term
 backend hardening work were completed. Updated on 2026-06-16 to make the newer
-`web/default` frontend the only runtime UI; implementation should continue
-through the task list in `todo.md` without reintroducing a classic switcher.
+`web/default` frontend the only runtime UI. Updated later the same day to remove
+the legacy frontend source from the repository; implementation should continue
+through the task list in `todo.md` without reintroducing a legacy switcher.

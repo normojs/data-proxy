@@ -16,9 +16,9 @@ The default gate runs:
 - `docker buildx version`
 - `git diff --check`
 
-`make build-all-frontends` creates `web/default/dist`. The classic frontend
-source remains in the repository for reference, but it is no longer part of the
-normal runtime or deployment build path.
+`make build-all-frontends` creates `web/default/dist`. The repository now keeps
+only the newer `web/default` frontend; release and deployment builds no longer
+build or package a legacy UI.
 
 ## Optional Docker Image Build
 
