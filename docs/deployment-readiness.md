@@ -9,16 +9,16 @@ make deployment-preflight
 The default gate runs:
 
 - `go test ./...`
-- `make build-all-frontends`
+- `make build-all-frontends` (currently aliases the new frontend build)
 - `docker compose config`
 - `docker compose -f docker-compose.dev.yml config`
 - `docker version`
 - `docker buildx version`
 - `git diff --check`
 
-`make build-all-frontends` creates `web/default/dist` and `web/classic/dist`.
-Those directories are ignored by git and should stay uncommitted unless the
-repository policy changes.
+`make build-all-frontends` creates `web/default/dist`. The classic frontend
+source remains in the repository for reference, but it is no longer part of the
+normal runtime or deployment build path.
 
 ## Optional Docker Image Build
 
@@ -49,8 +49,8 @@ make deployment-preflight
 
 ## Current Caveat
 
-The latest local preflight passed backend tests, both production frontend
-builds, production/dev Compose config validation, Docker engine/buildx checks,
+The latest local preflight passed backend tests, the production new frontend
+build, production/dev Compose config validation, Docker engine/buildx checks,
 and whitespace checks. A full local Docker image build was attempted but had to
 be canceled after stalling on Docker Hub metadata pulls for the pinned
 `golang:1.26.1-alpine` and `oven/bun:1` base images.

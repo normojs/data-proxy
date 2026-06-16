@@ -2,14 +2,18 @@
 
 ## P1 - Default-only new UI runtime
 
-- [ ] Make the backend runtime serve only the new UI by default.
+- [x] Make the backend runtime serve only the new UI by default.
   - Acceptance: server-side theme defaults to `default`, existing `classic` values are normalized away, and web routing serves `web/default` assets/index only.
-- [ ] Remove the classic frontend switch from the new UI settings surface.
+  - Done: backend theme state now initializes and normalizes to `default`, Web routing serves only `web/default` assets/index, legacy theme-aware static serving was removed, and smoke/dev embed helpers only prepare `web/default/dist`.
+- [x] Remove the classic frontend switch from the new UI settings surface.
   - Acceptance: system settings no longer show a selectable classic frontend option and form validation accepts only the new UI value.
-- [ ] Align build/deployment defaults with new UI only.
+  - Done: system settings now show a read-only new-frontend status instead of a classic/default selector, and validation accepts only the `default` frontend value.
+- [x] Align build/deployment defaults with new UI only.
   - Acceptance: default frontend build and deployment preflight build only `web/default`; classic sources may remain in the repository but are not part of the normal runtime/deploy path.
-- [ ] Validate new UI default behavior and update docs.
+  - Done: `web` workspace, Dockerfile, Dockerfile.dev, `make build-all-frontends`, `make dev-web`, and deployment preflight now target the new frontend only.
+- [x] Validate new UI default behavior and update docs.
   - Acceptance: targeted Go tests, frontend type/build checks, and `git diff --check` pass; TODO/docs record that classic is no longer a runtime option.
+  - Done: `go test ./common ./router ./setting/system_setting ./controller`, `go test ./...`, `cd web && bun install --frozen-lockfile`, `cd web/default && bun run typecheck`, `make build-all-frontends`, `make -n deployment-preflight`, and `git diff --check` passed. `docs/deployment-readiness.md` and `docs/ui-v2-long-term-plan.md` now record that only the newer `web/default` UI is served by default.
 
 ## P2 - Runtime monitor resilience
 

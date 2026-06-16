@@ -135,7 +135,7 @@ function makeEnv(extra = {}) {
 
 async function ensureDevEmbedFiles() {
   const html = '<!doctype html><html><head><title>mcp smoke</title></head><body>mcp smoke</body></html>\n';
-  for (const rel of ['web/default/dist/index.html', 'web/classic/dist/index.html']) {
+  for (const rel of ['web/default/dist/index.html']) {
     const abs = path.join(repoRoot, rel);
     try {
       await fs.access(abs);

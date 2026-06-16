@@ -1,7 +1,8 @@
 # UI V2 Long-Term Plan
 
-Status: Activated as an incremental pilot. The user reactivated this plan after
-the backend and migration tasks were completed.
+Status: Activated and promoted to the default runtime. The user reactivated
+this plan after the backend and migration tasks were completed, then decided to
+serve only the New API newer UI by default.
 
 ## Decision
 
@@ -18,10 +19,12 @@ top of the existing shadcn frontend, not as a new shadcn migration.
 
 ## Scope
 
-Keep both existing frontend generations:
+Use `web/default` as the only runtime frontend:
 
-- `web/classic`: legacy UI, preserved for compatibility.
 - `web/default`: current primary UI and the future home of UI v2 work.
+- `web/classic`: legacy source retained in the repository for reference only;
+  it is not part of the default runtime, normal deployment build, or settings
+  surface.
 
 Do not create a third frontend app unless a later architecture review proves it
 is cheaper than evolving `web/default`.
@@ -57,15 +60,12 @@ rollout.
 
 Prefer an incremental v2 shell inside `web/default`:
 
-- Add a UI version switcher in a low-risk location such as the profile menu or
-  settings area.
-- Persist the choice in local storage or a user preference when the backend
-  supports it.
+- Keep the runtime on the newer frontend; do not reintroduce a classic frontend
+  switcher unless a separate compatibility decision explicitly requires it.
 - Mount pilot routes under `/ui-lab/*` or `/v2/*` until the design is stable.
 - Reuse existing auth, API clients, React Query keys, TanStack Router patterns,
   i18n, and shadcn components.
-- Keep the current UI as the default until v2 passes usability and regression
-  checks.
+- Keep production routes stable while v2 work lands inside `web/default`.
 
 Avoid mixing v1 and v2 component vocabulary inside a single production page
 unless the page is explicitly part of the pilot.
@@ -90,7 +90,6 @@ Before implementation starts:
    - Identify what the current UI gets wrong in concrete terms.
 
 2. Pilot shell
-   - Add the UI version switcher and route guard.
    - Add a small v2 layout shell with navigation, page header, breadcrumbs, and
      density rules.
 
@@ -105,12 +104,13 @@ Before implementation starts:
    - Either expand to channels/models/keys or keep the pilot internal.
 
 5. Migration or retirement
-   - Promote stable v2 routes to the default UI only after parity checks pass.
-   - Keep `web/classic` untouched unless a separate decision retires it.
+   - Promote stable v2 routes inside `web/default` after parity checks pass.
+   - Keep `web/classic` untouched unless a separate decision removes it from
+     the repository.
 
 ## Activation Gate
 
 Activated on 2026-06-13 after the Docker-backed migration gates and near-term
-backend hardening work were completed. Implementation should continue through
-the task list in `todo.md`, keeping the current UI available until the v2 pilot
-passes validation.
+backend hardening work were completed. Updated on 2026-06-16 to make the newer
+`web/default` frontend the only runtime UI; implementation should continue
+through the task list in `todo.md` without reintroducing a classic switcher.

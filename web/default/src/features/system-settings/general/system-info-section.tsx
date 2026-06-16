@@ -29,15 +29,8 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
@@ -53,7 +46,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 
 const _systemInfoSchema = z.object({
   theme: z.object({
-    frontend: z.enum(['default', 'classic']),
+    frontend: z.literal('default'),
   }),
   SystemName: z.string().min(1),
   ServerAddress: z.string().optional(),
@@ -84,8 +77,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
 
   const normalizedDefaults: SystemInfoFormValues = {
     theme: {
-      frontend:
-        defaultValues.theme?.frontend === 'classic' ? 'classic' : 'default',
+      frontend: 'default',
     },
     SystemName: normalizeValue(defaultValues.SystemName),
     ServerAddress: normalizeValue(defaultValues.ServerAddress),
@@ -101,7 +93,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
 
   const systemInfoSchemaWithI18n = z.object({
     theme: z.object({
-      frontend: z.enum(['default', 'classic']),
+      frontend: z.literal('default'),
     }),
     SystemName: z.string().min(1, {
       error: () => t('System name is required'),
@@ -154,51 +146,21 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
             />
             <FormDirtyIndicator isDirty={isDirty} />
             <SettingsFormGrid>
-              <FormField
-                control={form.control}
-                name='theme.frontend'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Frontend Theme')}</FormLabel>
-                    <Select
-                      items={[
-                        {
-                          value: 'default',
-                          label: t('Default (New Frontend)'),
-                        },
-                        {
-                          value: 'classic',
-                          label: t('Classic (Legacy Frontend)'),
-                        },
-                      ]}
-                      onValueChange={field.onChange}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger className='w-full'>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent alignItemWithTrigger={false}>
-                        <SelectGroup>
-                          <SelectItem value='default'>
-                            {t('Default (New Frontend)')}
-                          </SelectItem>
-                          <SelectItem value='classic'>
-                            {t('Classic (Legacy Frontend)')}
-                          </SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      {t(
-                        'Switch between the new frontend and the classic frontend. Changes take effect after page reload.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <SettingsFormGridItem>
+                <div className='border-border bg-muted/30 flex min-h-20 flex-col justify-center gap-2 rounded-lg border px-3 py-2.5'>
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <span className='text-sm font-medium'>
+                      {t('Frontend Theme')}
+                    </span>
+                    <Badge variant='secondary'>
+                      {t('Default (New Frontend)')}
+                    </Badge>
+                  </div>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Only the new frontend is served by this deployment.')}
+                  </p>
+                </div>
+              </SettingsFormGridItem>
 
               <FormField
                 control={form.control}
