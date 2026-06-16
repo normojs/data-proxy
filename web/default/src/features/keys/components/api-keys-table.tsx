@@ -31,11 +31,12 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import { useDebounce } from '@/hooks'
-import { Database } from 'lucide-react'
+import { Database, Globe2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useStatus } from '@/hooks/use-status'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import {
   Empty,
@@ -46,6 +47,7 @@ import {
 } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CopyButton } from '@/components/copy-button'
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
@@ -67,6 +69,29 @@ import { DataTableBulkActions } from './data-table-bulk-actions'
 import { DataTableRowActions } from './data-table-row-actions'
 
 const route = getRouteApi('/_authenticated/keys/')
+
+function extractServerAddress(status: unknown): string {
+  const record = status as Record<string, unknown> | null
+  const data = record?.data as Record<string, unknown> | undefined
+  const candidate =
+    record?.server_address ??
+    record?.serverAddress ??
+    data?.server_address ??
+    data?.serverAddress
+
+  if (typeof candidate === 'string' && candidate.trim()) {
+    return candidate.trim()
+  }
+
+  if (typeof window !== 'undefined') return window.location.origin
+  return ''
+}
+
+function buildApiBaseUrl(status: unknown): string {
+  const serverAddress = extractServerAddress(status).replace(/\/+$/, '')
+  if (!serverAddress) return ''
+  return serverAddress.endsWith('/v1') ? serverAddress : `${serverAddress}/v1`
+}
 
 function isDisabledApiKeyRow(apiKey: ApiKey) {
   return apiKey.status !== API_KEY_STATUS.ENABLED
@@ -191,6 +216,7 @@ function ApiKeysMobileList({
 export function ApiKeysTable() {
   const { t } = useTranslation()
   const { refreshTrigger } = useApiKeys()
+  const { status } = useStatus()
   const columns = useApiKeysColumns()
   const [rowSelection, setRowSelection] = useState({})
   const [sorting, setSorting] = useState<SortingState>([])
@@ -318,42 +344,69 @@ export function ApiKeysTable() {
     ensurePageInRange(pageCount)
   }, [pageCount, ensurePageInRange])
 
+  const baseUrl = buildApiBaseUrl(status)
+
   return (
-    <DataTablePage
-      table={table}
-      columns={columns}
-      isLoading={isLoading}
-      isFetching={isFetching}
-      emptyTitle={t('No API Keys Found')}
-      emptyDescription={t(
-        'No API keys available. Create your first API key to get started.'
-      )}
-      skeletonKeyPrefix='api-keys-skeleton'
-      toolbarProps={{
-        searchPlaceholder: t('Filter by name...'),
-        additionalSearch: (
-          <Input
-            placeholder={t('Filter by API key...')}
-            aria-label={t('Filter by API key...')}
-            value={tokenFilterInput}
-            onChange={(e) => setTokenFilterInput(e.target.value)}
-            className='w-full sm:w-50 lg:w-60'
-          />
-        ),
-        filters: [
-          {
-            columnId: 'status',
-            title: t('Status'),
-            options: API_KEY_STATUS_OPTIONS,
-            singleSelect: true,
-          },
-        ],
-      }}
-      mobile={<ApiKeysMobileList table={table} isLoading={isLoading} />}
-      getRowClassName={(row) =>
-        isDisabledApiKeyRow(row.original) ? DISABLED_ROW_DESKTOP : undefined
-      }
-      bulkActions={<DataTableBulkActions table={table} />}
-    />
+    <>
+      <div className='border-border bg-muted/30 flex flex-col gap-2 rounded-lg border px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between'>
+        <div className='flex min-w-0 items-center gap-2'>
+          <Globe2 className='text-muted-foreground size-4 shrink-0' />
+          <span className='text-muted-foreground text-sm'>
+            {t('Base URL')}
+          </span>
+          <code className='bg-background min-w-0 truncate rounded-md border px-2 py-1 text-xs'>
+            {baseUrl || t('Not configured')}
+          </code>
+        </div>
+        {baseUrl && (
+          <CopyButton
+            value={baseUrl}
+            tooltip={t('Copy Base URL')}
+            successTooltip={t('Copied!')}
+            aria-label={t('Copy Base URL')}
+            variant='outline'
+            size='sm'
+          >
+            {t('Copy')}
+          </CopyButton>
+        )}
+      </div>
+      <DataTablePage
+        table={table}
+        columns={columns}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        emptyTitle={t('No API Keys Found')}
+        emptyDescription={t(
+          'No API keys available. Create your first API key to get started.'
+        )}
+        skeletonKeyPrefix='api-keys-skeleton'
+        toolbarProps={{
+          searchPlaceholder: t('Filter by name...'),
+          additionalSearch: (
+            <Input
+              placeholder={t('Filter by API key...')}
+              aria-label={t('Filter by API key...')}
+              value={tokenFilterInput}
+              onChange={(e) => setTokenFilterInput(e.target.value)}
+              className='w-full sm:w-50 lg:w-60'
+            />
+          ),
+          filters: [
+            {
+              columnId: 'status',
+              title: t('Status'),
+              options: API_KEY_STATUS_OPTIONS,
+              singleSelect: true,
+            },
+          ],
+        }}
+        mobile={<ApiKeysMobileList table={table} isLoading={isLoading} />}
+        getRowClassName={(row) =>
+          isDisabledApiKeyRow(row.original) ? DISABLED_ROW_DESKTOP : undefined
+        }
+        bulkActions={<DataTableBulkActions table={table} />}
+      />
+    </>
   )
 }

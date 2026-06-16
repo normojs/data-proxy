@@ -803,15 +803,19 @@ export function ModelPricingEditorPanel({
               />
 
               <Tabs value={pricingMode} onValueChange={handleModeChange}>
-                <TabsList className='grid w-full grid-cols-3'>
-                  <TabsTrigger value='per-token'>{t('Per-token')}</TabsTrigger>
-                  <TabsTrigger value='per-request'>
-                    {t('Per-request')}
-                  </TabsTrigger>
-                  <TabsTrigger value='tiered_expr'>
-                    {t('Expression')}
-                  </TabsTrigger>
-                </TabsList>
+                <div className='overflow-x-auto pb-1'>
+                  <TabsList className='min-w-max justify-start'>
+                    <TabsTrigger value='per-token' className='min-w-28'>
+                      {t('Per-token')}
+                    </TabsTrigger>
+                    <TabsTrigger value='per-request' className='min-w-28'>
+                      {t('Per-request')}
+                    </TabsTrigger>
+                    <TabsTrigger value='tiered_expr' className='min-w-28'>
+                      {t('Expression')}
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
 
                 <TabsContent value='per-token' className='flex flex-col gap-5'>
                   <FieldGroup>

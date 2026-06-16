@@ -17,9 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import * as z from 'zod'
+import { useRef, useState, type ChangeEvent } from 'react'
 import type { Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { Loader2, Upload } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import {
   Form,
   FormControl,
@@ -30,8 +33,10 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { uploadSystemLogo } from '../api'
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
 import {
@@ -74,6 +79,8 @@ function normalizeValue(value: unknown): string {
 export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const logoFileInputRef = useRef<HTMLInputElement>(null)
+  const [isLogoUploading, setIsLogoUploading] = useState(false)
 
   const normalizedDefaults: SystemInfoFormValues = {
     theme: {
@@ -130,6 +137,36 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
         }
       },
     })
+
+  const handleLogoFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error(t('Logo image must be 5MB or smaller'))
+      return
+    }
+
+    setIsLogoUploading(true)
+    try {
+      const result = await uploadSystemLogo(file)
+      if (!result.success || !result.data?.url) {
+        toast.error(result.message || t('Failed to upload logo'))
+        return
+      }
+      form.setValue('Logo', result.data.url, {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true,
+      })
+      toast.success(t('Logo uploaded successfully'))
+    } catch {
+      toast.error(t('Failed to upload logo'))
+    } finally {
+      setIsLogoUploading(false)
+    }
+  }
 
   return (
     <>
@@ -205,13 +242,38 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                   <FormItem>
                     <FormLabel>{t('Logo URL')}</FormLabel>
                     <FormControl>
-                      <Input
-                        placeholder={t('https://example.com/logo.png')}
-                        {...field}
-                      />
+                      <div className='flex flex-col gap-2 sm:flex-row'>
+                        <Input
+                          placeholder={t('https://example.com/logo.png')}
+                          {...field}
+                        />
+                        <input
+                          ref={logoFileInputRef}
+                          type='file'
+                          accept='image/png,image/jpeg,image/webp,image/gif,image/x-icon,.ico'
+                          className='hidden'
+                          onChange={handleLogoFileChange}
+                        />
+                        <Button
+                          type='button'
+                          variant='outline'
+                          onClick={() => logoFileInputRef.current?.click()}
+                          disabled={isLogoUploading}
+                          className='sm:w-auto'
+                        >
+                          {isLogoUploading ? (
+                            <Loader2 className='animate-spin' />
+                          ) : (
+                            <Upload />
+                          )}
+                          {isLogoUploading ? t('Uploading...') : t('Upload')}
+                        </Button>
+                      </div>
                     </FormControl>
                     <FormDescription>
-                      {t('URL to your logo image (optional)')}
+                      {t(
+                        'Enter an image URL or upload a PNG, JPG, WebP, GIF, or ICO file up to 5MB.'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

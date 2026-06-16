@@ -294,14 +294,28 @@ export function OAuthSection(props: OAuthSectionProps) {
             <FormDirtyIndicator isDirty={form.formState.isDirty} />
 
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className='grid w-full grid-cols-6'>
-                <TabsTrigger value='github'>{t('GitHub')}</TabsTrigger>
-                <TabsTrigger value='discord'>{t('Discord')}</TabsTrigger>
-                <TabsTrigger value='oidc'>{t('OIDC')}</TabsTrigger>
-                <TabsTrigger value='telegram'>{t('Telegram')}</TabsTrigger>
-                <TabsTrigger value='linuxdo'>{t('LinuxDO')}</TabsTrigger>
-                <TabsTrigger value='wechat'>{t('WeChat')}</TabsTrigger>
-              </TabsList>
+              <div className='overflow-x-auto pb-1'>
+                <TabsList className='min-w-max justify-start'>
+                  <TabsTrigger value='github' className='min-w-20'>
+                    {t('GitHub')}
+                  </TabsTrigger>
+                  <TabsTrigger value='discord' className='min-w-20'>
+                    {t('Discord')}
+                  </TabsTrigger>
+                  <TabsTrigger value='oidc' className='min-w-20'>
+                    {t('OIDC')}
+                  </TabsTrigger>
+                  <TabsTrigger value='telegram' className='min-w-20'>
+                    {t('Telegram')}
+                  </TabsTrigger>
+                  <TabsTrigger value='linuxdo' className='min-w-20'>
+                    {t('LinuxDO')}
+                  </TabsTrigger>
+                  <TabsTrigger value='wechat' className='min-w-20'>
+                    {t('WeChat')}
+                  </TabsTrigger>
+                </TabsList>
+              </div>
 
               <TabsContent value='github' className={oauthTabContentClassName}>
                 <FormField

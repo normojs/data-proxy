@@ -448,13 +448,6 @@ export function RatioSettingsCard({
     'tool-prices': 'Tool prices',
     'upstream-sync': 'Upstream price sync',
   }
-  const tabsGridClass =
-    {
-      1: 'grid-cols-1',
-      2: 'grid-cols-2',
-      3: 'grid-cols-3',
-      4: 'grid-cols-4',
-    }[visibleTabs.length] ?? 'grid-cols-4'
   const defaultTab = visibleTabs[0] ?? 'models'
 
   const renderTabContent = (tab: RatioTabId) => {
@@ -505,13 +498,15 @@ export function RatioSettingsCard({
         renderTabContent(defaultTab)
       ) : (
         <Tabs defaultValue={defaultTab} className='space-y-6'>
-          <TabsList className={`grid w-full ${tabsGridClass}`}>
-            {visibleTabs.map((tab) => (
-              <TabsTrigger key={tab} value={tab}>
-                {t(tabLabels[tab])}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className='overflow-x-auto pb-1'>
+            <TabsList className='min-w-max justify-start'>
+              {visibleTabs.map((tab) => (
+                <TabsTrigger key={tab} value={tab} className='min-w-28'>
+                  {t(tabLabels[tab])}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
 
           {visibleTabs.map((tab) => (
             <TabsContent key={tab} value={tab}>

@@ -36,6 +36,13 @@ import {
 import { getNavGroupsForPath } from './layout/lib/sidebar-view-registry'
 import { ScrollArea } from './ui/scroll-area'
 
+type SearchFieldItem = {
+  title: string
+  parent: string
+  to: string
+  keywords: string[]
+}
+
 export function CommandMenu() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -47,6 +54,77 @@ export function CommandMenu() {
   // Use the active nested sidebar view's nav groups when one matches
   // the current URL; otherwise fall back to the root navigation.
   const navGroups = getNavGroupsForPath(pathname, t) ?? sidebarData.navGroups
+  const settingsFieldItems = React.useMemo<SearchFieldItem[]>(
+    () => [
+      {
+        title: t('System Name'),
+        parent: t('System Information'),
+        to: '/system-settings/site/system-info',
+        keywords: [t('Site & Branding'), 'SystemName'],
+      },
+      {
+        title: t('Server Address'),
+        parent: t('System Information'),
+        to: '/system-settings/site/system-info',
+        keywords: [t('Site & Branding'), 'ServerAddress', 'Base URL'],
+      },
+      {
+        title: t('Logo URL'),
+        parent: t('System Information'),
+        to: '/system-settings/site/system-info',
+        keywords: [t('Site & Branding'), t('Upload Logo'), 'Logo'],
+      },
+      {
+        title: t('Footer'),
+        parent: t('System Information'),
+        to: '/system-settings/site/system-info',
+        keywords: [t('Site & Branding'), 'Footer'],
+      },
+      {
+        title: t('About'),
+        parent: t('System Information'),
+        to: '/system-settings/site/system-info',
+        keywords: [t('Site & Branding'), 'About'],
+      },
+      {
+        title: t('Home Page Content'),
+        parent: t('System Information'),
+        to: '/system-settings/site/system-info',
+        keywords: [t('Site & Branding'), 'HomePageContent'],
+      },
+      {
+        title: t('User Agreement'),
+        parent: t('System Information'),
+        to: '/system-settings/site/system-info',
+        keywords: [t('Site & Branding'), 'legal.user_agreement'],
+      },
+      {
+        title: t('Privacy Policy'),
+        parent: t('System Information'),
+        to: '/system-settings/site/system-info',
+        keywords: [t('Site & Branding'), 'legal.privacy_policy'],
+      },
+      {
+        title: t('Notice'),
+        parent: t('System Notice'),
+        to: '/system-settings/site/notice',
+        keywords: [t('Site & Branding'), 'Notice'],
+      },
+      {
+        title: t('API Info'),
+        parent: t('Console Content'),
+        to: '/system-settings/content/api-info',
+        keywords: [t('Content'), 'console_setting.api_info'],
+      },
+      {
+        title: t('Announcements'),
+        parent: t('Console Content'),
+        to: '/system-settings/content/announcements',
+        keywords: [t('Content'), 'console_setting.announcements'],
+      },
+    ],
+    [t]
+  )
 
   const runCommand = React.useCallback(
     (command: () => unknown) => {
@@ -100,7 +178,26 @@ export function CommandMenu() {
               </CommandGroup>
             ))}
             <CommandSeparator />
-            <CommandGroup heading='Theme'>
+            <CommandGroup heading={t('Settings Fields')}>
+              {settingsFieldItems.map((item) => (
+                <CommandItem
+                  key={`${item.to}-${item.title}`}
+                  value={`${item.title} ${item.parent} ${item.keywords.join(' ')}`}
+                  onSelect={() => {
+                    runCommand(() => navigate({ to: item.to }))
+                  }}
+                >
+                  <div className='flex size-4 items-center justify-center'>
+                    <ArrowRight className='text-muted-foreground/80 size-2' />
+                  </div>
+                  <span className='text-muted-foreground'>{item.parent}</span>
+                  <ChevronRight />
+                  <span>{item.title}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+            <CommandSeparator />
+            <CommandGroup heading={t('Theme')}>
               <CommandItem onSelect={() => runCommand(() => setTheme('light'))}>
                 <Sun /> <span>{t('Light')}</span>
               </CommandItem>

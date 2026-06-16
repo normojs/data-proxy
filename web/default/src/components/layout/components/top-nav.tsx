@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Menu } from 'lucide-react'
+import { ExternalLink, Menu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -71,9 +71,13 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                         href={href}
                         target='_blank'
                         rel='noopener noreferrer'
-                        className={!isActive ? 'text-muted-foreground' : ''}
+                        className={cn(
+                          'inline-flex items-center gap-1.5',
+                          !isActive && 'text-muted-foreground'
+                        )}
                       >
                         {title}
+                        <ExternalLink className='size-3' aria-hidden='true' />
                       </a>
                     ) : (
                       <Link
@@ -107,9 +111,10 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
               href={href}
               target='_blank'
               rel='noopener noreferrer'
-              className={`hover:text-primary text-sm font-medium transition-colors ${isActive ? '' : 'text-muted-foreground'}`}
+              className={`hover:text-primary inline-flex items-center gap-1.5 text-sm font-medium transition-colors ${isActive ? '' : 'text-muted-foreground'}`}
             >
               {title}
+              <ExternalLink className='size-3' aria-hidden='true' />
             </a>
           ) : (
             <Link

@@ -577,6 +577,25 @@
   - Done: removed the old frontend directory, removed classic release workflow build steps, refreshed project rules/docs/license scope, and kept `web/package.json` as a single-workspace frontend root.
   - Validation: `rg` found no remaining legacy UI directory references outside intentional compatibility comments, `cd web && bun install --frozen-lockfile`, `cd web/default && bun run typecheck`, `make build-all-frontends`, and `git diff --check` passed.
 
+## P1 - New UI usability polish
+
+- [x] Clarify external links in the top navigation.
+  - Acceptance: the topbar documentation entry shows an external-link affordance on desktop and mobile.
+  - Done: added the external-link icon to external top navigation anchors.
+- [x] Surface the OpenAI-compatible API Base URL on the API keys page.
+  - Acceptance: users can see and copy the active `/v1` Base URL without leaving the API keys workflow.
+  - Done: added a compact Base URL strip with one-click copy, using configured server address with a browser-origin fallback.
+- [x] Expand command search beyond menu entries.
+  - Acceptance: search can find common settings fields such as system name, logo URL, footer, home page content, notice, API info, and announcements.
+  - Done: added settings-field search entries that route to the matching settings sections.
+- [x] Support logo upload from the system information settings.
+  - Acceptance: root users can upload PNG, JPG, WebP, GIF, or ICO logos up to 5MB and receive a public URL that can be saved as the logo URL.
+  - Done: added a root-only `/api/uploads/system/logo` endpoint, static serving for uploaded system assets, and an upload action beside the logo URL field.
+- [x] Polish admin/MCP translations and dense tab layouts.
+  - Acceptance: untranslated MCP/Admin UI strings are localized and crowded horizontal tabs remain usable on narrower screens.
+  - Done: expanded static i18n keys/locales and changed crowded settings tabs to horizontal scrolling layouts.
+  - Validation: `go test ./controller ./router`, `cd web/default && bun run typecheck`, and `git diff --check` passed.
+
 ## Done
 
 - [x] Commit MCP/Bridge, OpenAPI, billing events, wallet ledger, and operations dashboard checkpoint.

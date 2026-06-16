@@ -39,6 +39,15 @@ export type UpdateOptionResponse = {
   message: string
 }
 
+export type UploadSystemLogoResponse = {
+  success: boolean
+  message: string
+  data?: {
+    url: string
+    path: string
+  }
+}
+
 export type ConfirmPaymentComplianceResponse = {
   success: boolean
   message: string
