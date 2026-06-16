@@ -122,6 +122,10 @@ function upstreamModel(model, config) {
   return config.modelAliases?.[model] || model;
 }
 
+function modelOptions(model, config) {
+  return config.modelOptions?.[model] || {};
+}
+
 function resolveModelUpstream(model, config, options = {}) {
   const upstreamName = options.upstreamName || upstreamNameForModel(model, config);
   const apiBase = options.apiBaseOverride || configuredApiBase(config, upstreamName);
@@ -246,6 +250,34 @@ function aggregateUsage(parts) {
     usage.total_tokens += u.total_tokens || (u.prompt_tokens || 0) + (u.completion_tokens || 0);
   }
   return usage;
+}
+
+function exactMajorityEarlyExit(preset, panelResults, config) {
+  const rule = preset.earlyExit;
+  if (rule?.strategy !== "exact_majority") return null;
+  const minAgree = Math.max(2, Number(rule.minAgree) || 2);
+  const maxAnswerChars = Math.max(1, Number(rule.maxAnswerChars) || 200);
+  const groups = new Map();
+  for (const result of panelResults) {
+    if (!result.ok || !result.content?.trim()) continue;
+    const content = result.content.trim();
+    if (content.length > maxAnswerChars) continue;
+    const key = normalizeText(content);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(result);
+  }
+  const winners = [...groups.values()].sort((a, b) => b.length - a.length);
+  const winner = winners[0];
+  if (!winner || winner.length < minAgree) return null;
+  const usage = aggregateUsage(panelResults);
+  const costUsd = panelResults.reduce((sum, r) => sum + (r.cost_usd || 0), 0);
+  return {
+    answer: winner[0].content.trim(),
+    agreed_models: winner.map((r) => r.model),
+    usage,
+    cost_usd: costUsd
+  };
 }
 
 async function callChat({ apiBase, apiKey, body, extraHeaders = {}, timeoutMs = 120000, retries = 2 }) {
@@ -414,6 +446,7 @@ async function runFusion(body, config, options = {}) {
         apiKey: upstream.apiKey,
         body: {
           ...body,
+          ...modelOptions(model, config),
           model: upstream.model,
           messages: panelMessages(originalMessages, model),
           max_tokens: maxTokens,
@@ -451,6 +484,54 @@ async function runFusion(body, config, options = {}) {
     throw err;
   }
 
+  const earlyExit = exactMajorityEarlyExit(preset, panelResults, config);
+  if (earlyExit) {
+    return {
+      id: nowId("chatcmpl-fusion"),
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: body.model,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: earlyExit.answer
+          },
+          finish_reason: "stop"
+        }
+      ],
+      usage: earlyExit.usage,
+      fusion_metrics: {
+        preset: body.model,
+        panel: panelResults,
+        early_exit: {
+          strategy: preset.earlyExit?.strategy,
+          agreed_models: earlyExit.agreed_models
+        },
+        judge: {
+          skipped: true,
+          model: null,
+          preferred_model: preset.judge,
+          json_valid: null,
+          usage: null,
+          latency_ms: 0,
+          errors: []
+        },
+        final: {
+          skipped: true,
+          model: null,
+          preferred_model: preset.final,
+          usage: null,
+          latency_ms: 0
+        },
+        all_panel_failure: false,
+        judge_json_valid: null,
+        cost_usd: earlyExit.cost_usd
+      }
+    };
+  }
+
   let judgeResult = null;
   let judgeJsonValid = false;
   let judgeContent = "";
@@ -469,6 +550,7 @@ async function runFusion(body, config, options = {}) {
           apiBase: judgeUpstream.apiBase,
           apiKey: judgeUpstream.apiKey,
           body: {
+            ...modelOptions(candidate, config),
             model: judgeUpstream.model,
             messages: judgeMessages(originalMessages, panelResults),
             temperature: 0,
@@ -516,6 +598,7 @@ async function runFusion(body, config, options = {}) {
         apiKey: finalUpstream.apiKey,
         body: {
           ...body,
+          ...modelOptions(candidate, config),
           model: finalUpstream.model,
           messages: finalMessages(originalMessages, successfulPanels, judgeContent),
           max_tokens: maxTokens,
@@ -643,7 +726,7 @@ async function serve(argv) {
       const passthrough = await callChat({
         apiBase: upstream.apiBase,
         apiKey: upstream.apiKey,
-        body: { ...body, model: upstream.model },
+        body: { ...body, ...modelOptions(body.model, config), model: upstream.model },
         extraHeaders: { "x-revo-fusion-proxy": "passthrough" },
         timeoutMs: timeoutMs(config, "passthroughMs", 60000)
       });
@@ -783,7 +866,7 @@ async function callBenchmarkModel(model, body, config, options = {}) {
   return callChat({
     apiBase: upstream.apiBase,
     apiKey: upstream.apiKey,
-    body: { ...body, model: upstream.model },
+    body: { ...body, ...modelOptions(model, config), model: upstream.model },
     timeoutMs: timeoutMs(config, "passthroughMs", 60000)
   });
 }
@@ -847,6 +930,7 @@ async function freshRun(argv) {
                   latency_ms: p.latency_ms,
                   cost_usd: p.cost_usd
                 })),
+                early_exit: response.fusion_metrics.early_exit,
                 judge: response.fusion_metrics.judge,
                 final: response.fusion_metrics.final,
                 cost_usd: response.fusion_metrics.cost_usd

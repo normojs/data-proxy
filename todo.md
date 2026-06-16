@@ -2,6 +2,9 @@
 
 ## P1 - Release preflight and dirty ownership
 
+- [x] Classify follow-up Fusion benchmark request-option and early-exit changes.
+  - Acceptance: tracked dirty changes in `tools/fusion-benchmark.mjs` and `tools/fusion-benchmark/config.json` are either committed as project-owned benchmark functionality or explicitly reverted only if proven accidental.
+  - Done: kept the changes as project-owned Fusion benchmark support for per-model upstream request options and exact-majority early exit, documented `modelOptions` / `earlyExit` in the benchmark README, and added Qwen request-option plus Fusion preset early-exit examples in the shared config.
 - [x] Classify current dirty files before release checks.
   - Acceptance: identify which files are project-owned source/docs/config examples and which are local-only runtime artifacts.
   - Done: `tools/fusion-benchmark.mjs`, `tools/fusion-benchmark/README.md`, `tools/fusion-benchmark/config.json`, `tools/fusion-benchmark/.env.example`, and `tools/fusion-benchmark/data/*.example.jsonl` are classified as project-owned Fusion benchmark tooling; `tools/fusion-benchmark/.env.local`, `tools/fusion-benchmark/runs/`, `tools/fusion-benchmark/reports/`, and `tools/fusion-benchmark/secrets/` are local-only and ignored.

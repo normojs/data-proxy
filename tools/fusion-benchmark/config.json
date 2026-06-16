@@ -66,6 +66,11 @@
     "openai/gpt-5.5": "default",
     "anthropic/claude-sonnet-latest": "default"
   },
+  "modelOptions": {
+    "qwen/qwen3.6-flash": {
+      "enable_thinking": false
+    }
+  },
   "pairwise": {
     "defaultTarget": "fusion-cn-budget",
     "defaultBaseline": "openai/gpt-5.5",
@@ -78,6 +83,11 @@
         "moonshotai/kimi-k2.6",
         "deepseek/deepseek-v4-pro"
       ],
+      "earlyExit": {
+        "strategy": "exact_majority",
+        "minAgree": 2,
+        "maxAnswerChars": 200
+      },
       "judge": "qwen/qwen3.7-plus",
       "judgeFallbacks": ["minimax/minimax-m3"],
       "final": "moonshotai/kimi-k2.6",
@@ -121,6 +131,11 @@
         "qwen/qwen3.7-plus",
         "qwen/qwen3.6-flash"
       ],
+      "earlyExit": {
+        "strategy": "exact_majority",
+        "minAgree": 2,
+        "maxAnswerChars": 200
+      },
       "judge": "qwen/qwen3.7-plus",
       "judgeFallbacks": ["qwen/qwen3.6-flash"],
       "final": "qwen/qwen3.7-plus",

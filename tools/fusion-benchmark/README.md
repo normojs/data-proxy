@@ -185,6 +185,36 @@ node tools/fusion-benchmark.mjs models-probe --env-file tools/fusion-benchmark/.
 node tools/fusion-benchmark.mjs models-probe --env-file tools/fusion-benchmark/.env.local --upstream minimax --filter minimax
 ```
 
+Some upstreams need provider-specific request flags for fair benchmark behavior. Add those under `modelOptions` in `config.json`; the harness merges them into passthrough, panel, judge, final, and benchmark calls before replacing the public model name with the upstream model ID. For example, Qwen thinking mode can be disabled without changing benchmark request bodies:
+
+```json
+{
+  "modelOptions": {
+    "qwen/qwen3.6-flash": {
+      "enable_thinking": false
+    }
+  }
+}
+```
+
+Fusion presets can also define an `earlyExit` rule for objective short-answer runs. The `exact_majority` strategy skips the judge and final synthesizer when enough panel models return the same normalized answer under the configured length limit:
+
+```json
+{
+  "fusionPresets": {
+    "fusion-cn-budget": {
+      "earlyExit": {
+        "strategy": "exact_majority",
+        "minAgree": 2,
+        "maxAnswerChars": 200
+      }
+    }
+  }
+}
+```
+
+Early exits are reported in `fusion_metrics.early_exit`, and the skipped judge/final stages remain visible in the metrics object.
+
 ## What You Need To Do
 
 1. Put the required upstream base URLs and keys into `tools/fusion-benchmark/.env.local`.
