@@ -26,6 +26,17 @@
 
 ## P1 - Runtime brand residual audit
 
+- [x] Clean residual runtime JSON conversion calls in OAuth, middleware, and settings.
+  - Acceptance: OAuth providers, request-conversion middleware, exchange-rate fetching, and simple setting parsers use `common.Marshal`, `common.Unmarshal`, or `common.DecodeJson` instead of direct runtime `encoding/json` marshal/decode calls.
+  - Acceptance: DTO custom JSON methods, `json.RawMessage` type boundaries, and test helper JSON calls remain intentionally out of scope.
+  - Done: OAuth token/profile decoding, Jimeng/Kling request conversion, Turnstile/exchange-rate response decoding, and simple settings JSON parsing now route runtime conversion through project JSON helpers while preserving DTO/custom JSON boundaries.
+- [x] Refresh stale non-MCP audit classifications after residual JSON cleanup.
+  - Acceptance: `docs/non-mcp-backlog-audit.md` no longer lists already-completed non-JSON request parsing behavior as remaining technical debt and records the residual JSON cleanup batch.
+  - Done: `docs/non-mcp-backlog-audit.md` now records the residual JSON cleanup as completed and reclassifies `common/gin.go` unknown content-type parsing as an explicit no-op contract rather than remaining implementation debt.
+- [x] Validate and commit residual JSON cleanup.
+  - Acceptance: targeted Go packages, residual runtime JSON scan, `git diff --check`, and `todo.md` are updated before commit.
+  - Done: `go test ./oauth ./middleware ./service ./setting/...`, targeted residual runtime JSON scan over OAuth/middleware/exchange-rate/settings non-test files, and `git diff --check` passed before commit.
+
 - [x] Audit visible runtime references to upstream New API branding.
   - Acceptance: distinguish Go module/import paths and upstream attribution from user-visible Data Proxy runtime copy.
   - Done: `rg` shows many `github.com/QuantumNous/new-api` module paths and upstream docs/links that should remain as source attribution; actionable runtime findings were limited to channel helper copy, stale locale fallback values, and the dashboard update-check User-Agent.

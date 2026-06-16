@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -105,7 +104,7 @@ func FetchUSDExchangeRate(ctx context.Context, currencyCode string) (ExchangeRat
 	}
 
 	var payload frankfurterLatestResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := common.DecodeJson(resp.Body, &payload); err != nil {
 		return ExchangeRateResult{}, fmt.Errorf("failed to decode exchange rate response: %w", err)
 	}
 	rate := payload.Rates[code]

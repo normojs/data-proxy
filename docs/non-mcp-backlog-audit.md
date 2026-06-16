@@ -18,6 +18,8 @@ The previous recommended backend batch is complete:
 - Realtime WebSocket subprotocol compatibility is explicit and tested
 - generic provider adaptor `TODO implement me` / `errors.New("not implemented")`
   stubs now return typed `channel.UnsupportedFeatureError` values
+- residual runtime JSON conversion calls in OAuth, middleware, exchange-rate,
+  and settings paths now use the project JSON wrappers
 
 The remaining scan findings are therefore smaller and mostly fall into:
 
@@ -112,6 +114,26 @@ Completed work:
 - left DTO behavior unchanged; these tests are guardrails for any future field
   normalization
 
+### P1 - Align residual runtime JSON conversion helpers
+
+Source: `oauth/*`, `middleware/*_adapter.go`, `middleware/turnstile-check.go`,
+`service/exchange_rate.go`, and `setting/*`
+
+Status: completed on 2026-06-16.
+
+OAuth provider token/profile decoding, middleware request conversion,
+Turnstile/exchange-rate response decoding, and simple settings JSON parsing now
+route runtime conversion through `common.Marshal`, `common.Unmarshal`, or
+`common.DecodeJson`.
+
+Completed work:
+
+- removed direct runtime `json.Marshal`, `json.Unmarshal`, `json.NewEncoder`,
+  and `json.NewDecoder` usage from the targeted OAuth, middleware,
+  exchange-rate, and settings paths
+- intentionally kept DTO custom JSON methods, `json.RawMessage` type
+  boundaries, and test helper JSON calls outside this cleanup batch
+
 ## Intentional Unsupported / Do Not Batch-Implement
 
 ### OpenAI-compatible routes intentionally returning 501
@@ -147,8 +169,9 @@ Bridge smoke work.
 
 ## Remaining Technical Debt
 
-- `common/gin.go`: non-JSON request model variation needs request parsing design
-  before implementation.
+- `common/gin.go`: unknown non-JSON/non-form request body parsing is now an
+  explicit no-op contract; callers that require those payload formats should
+  parse them before using the reusable helper.
 - `model/main.go` and `common/embed-file-system.go`: production startup
   fail-fast `panic` calls are intentional startup guards, not request path
   panics.
