@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	exchangeRateProvider           = "frankfurter"
-	exchangeRateAutoUpdateTick     = 12 * time.Hour
-	exchangeRateHTTPRequestTimeout = 8 * time.Second
+	exchangeRateProvider                         = "frankfurter"
+	exchangeRateHTTPRequestTimeout               = 8 * time.Second
+	ExchangeRateAutoUpdateDefaultIntervalMinutes = 720
+	ExchangeRateAutoUpdateMinIntervalMinutes     = 60
 )
 
 var (
@@ -43,6 +44,23 @@ type ExchangeRateResult struct {
 type frankfurterLatestResponse struct {
 	Base  string             `json:"base"`
 	Rates map[string]float64 `json:"rates"`
+}
+
+func NormalizeExchangeRateAutoUpdateIntervalMinutes(minutes int) int {
+	if minutes <= 0 {
+		return ExchangeRateAutoUpdateDefaultIntervalMinutes
+	}
+	if minutes < ExchangeRateAutoUpdateMinIntervalMinutes {
+		return ExchangeRateAutoUpdateMinIntervalMinutes
+	}
+	return minutes
+}
+
+func currentExchangeRateAutoUpdateInterval() time.Duration {
+	minutes := NormalizeExchangeRateAutoUpdateIntervalMinutes(
+		operation_setting.GetGeneralSetting().ExchangeRateAutoUpdateIntervalMinutes,
+	)
+	return time.Duration(minutes) * time.Minute
 }
 
 func normalizeExchangeRateCurrency(code string) (string, error) {
@@ -152,11 +170,12 @@ func StartExchangeRateAutoUpdateTask() {
 			return
 		}
 		gopool.Go(func() {
-			logger.LogInfo(context.Background(), fmt.Sprintf("exchange rate auto-update task started: tick=%s", exchangeRateAutoUpdateTick))
+			logger.LogInfo(context.Background(), "exchange rate auto-update task started")
 			runExchangeRateAutoUpdateOnce()
-			ticker := time.NewTicker(exchangeRateAutoUpdateTick)
-			defer ticker.Stop()
-			for range ticker.C {
+			for {
+				interval := currentExchangeRateAutoUpdateInterval()
+				timer := time.NewTimer(interval)
+				<-timer.C
 				runExchangeRateAutoUpdateOnce()
 			}
 		})

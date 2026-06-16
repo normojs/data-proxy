@@ -224,6 +224,7 @@ export type BillingSettings = {
   'general_setting.custom_currency_code': string
   'general_setting.custom_currency_exchange_rate': number
   'general_setting.exchange_rate_auto_update_enabled': boolean
+  'general_setting.exchange_rate_auto_update_interval_minutes': number
   'general_setting.exchange_rate_auto_updated_at': number
   'general_setting.exchange_rate_provider': string
   DisplayInCurrencyEnabled: boolean

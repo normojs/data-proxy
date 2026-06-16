@@ -39,6 +39,7 @@ const defaultBillingSettings: BillingSettings = {
   'general_setting.custom_currency_code': 'CNY',
   'general_setting.custom_currency_exchange_rate': 1,
   'general_setting.exchange_rate_auto_update_enabled': false,
+  'general_setting.exchange_rate_auto_update_interval_minutes': 720,
   'general_setting.exchange_rate_auto_updated_at': 0,
   'general_setting.exchange_rate_provider': 'frankfurter',
   DisplayInCurrencyEnabled: true,

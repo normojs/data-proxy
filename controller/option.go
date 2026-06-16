@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -220,6 +221,15 @@ func UpdateOption(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无效的主题值：当前仅支持 default（新版前端）",
+			})
+			return
+		}
+	case "general_setting.exchange_rate_auto_update_interval_minutes":
+		minutes, parseErr := strconv.Atoi(strings.TrimSpace(option.Value.(string)))
+		if parseErr != nil || minutes < service.ExchangeRateAutoUpdateMinIntervalMinutes {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("汇率自动刷新间隔不能低于 %d 分钟", service.ExchangeRateAutoUpdateMinIntervalMinutes),
 			})
 			return
 		}

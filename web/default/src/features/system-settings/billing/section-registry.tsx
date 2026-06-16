@@ -101,6 +101,10 @@ const BILLING_SECTIONS = [
               settings[
                 'general_setting.exchange_rate_auto_update_enabled'
               ] ?? false,
+            exchange_rate_auto_update_interval_minutes:
+              settings[
+                'general_setting.exchange_rate_auto_update_interval_minutes'
+              ] ?? 720,
             exchange_rate_auto_updated_at:
               settings['general_setting.exchange_rate_auto_updated_at'] ?? 0,
             exchange_rate_provider:

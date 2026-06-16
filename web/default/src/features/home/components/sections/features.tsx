@@ -16,15 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { LucideIcon } from 'lucide-react'
 import {
-  Zap,
-  Shield,
-  Globe,
-  Code,
-  Gauge,
-  DollarSign,
-  Users,
-  HeartHandshake,
+  Activity,
+  BarChart3,
+  Braces,
+  Cable,
+  Download,
+  FileCode2,
+  KeyRound,
+  Route,
+  ShieldCheck,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { AnimateInView } from '@/components/animate-in-view'
@@ -33,207 +35,194 @@ interface FeaturesProps {
   className?: string
 }
 
+type FeatureTone = 'emerald' | 'blue' | 'amber' | 'violet'
+
+const toneClassName: Record<FeatureTone, string> = {
+  emerald:
+    'bg-emerald-500/10 text-emerald-700 ring-emerald-600/15 dark:text-emerald-300',
+  blue: 'bg-blue-500/10 text-blue-700 ring-blue-600/15 dark:text-blue-300',
+  amber: 'bg-amber-500/10 text-amber-700 ring-amber-600/15 dark:text-amber-300',
+  violet:
+    'bg-violet-500/10 text-violet-700 ring-violet-600/15 dark:text-violet-300',
+}
+
+function FeatureIcon({
+  icon: Icon,
+  tone,
+}: {
+  icon: LucideIcon
+  tone: FeatureTone
+}) {
+  return (
+    <div
+      className={`${toneClassName[tone]} flex size-9 items-center justify-center rounded-lg ring-1`}
+    >
+      <Icon className='size-4' strokeWidth={1.8} />
+    </div>
+  )
+}
+
 export function Features(_props: FeaturesProps) {
   const { t } = useTranslation()
 
-  const features = [
+  const primaryFeatures = [
     {
-      id: 'fast',
-      num: '01',
-      title: t('Lightning Fast'),
+      title: t('Provider routing that stays inspectable'),
       desc: t(
-        'Optimized network architecture ensures millisecond response times'
+        'Route OpenAI-compatible, Claude, Gemini, and custom providers through one control surface while keeping latency, cost, and policy state visible.'
       ),
-      span: 'md:col-span-2',
-      icon: <Zap className='size-4 text-blue-400' />,
-      visual: (
-        <div className='mt-4 grid grid-cols-3 gap-2'>
-          {['OpenAI', 'Claude', 'Gemini', 'DeepSeek', 'Qwen', 'Llama'].map(
-            (name) => (
-              <div
-                key={name}
-                className='border-border/30 bg-muted/20 text-muted-foreground flex items-center justify-center rounded-lg border px-3 py-2 text-xs transition-colors duration-300 hover:border-blue-500/30 hover:bg-blue-500/5'
-              >
-                {name}
-              </div>
-            )
-          )}
-        </div>
-      ),
+      icon: Route,
+      tone: 'emerald' as const,
+      visual: ['OpenAI', 'Claude', 'Gemini', 'DeepSeek', 'Qwen', 'Custom'],
     },
     {
-      id: 'secure',
-      num: '02',
-      title: t('Secure & Reliable'),
+      title: t('MCP and Bridge execution with guardrails'),
       desc: t(
-        'Enterprise-grade security with comprehensive permission management'
+        'Proxy remote MCP servers and local Bridge clients with heartbeats, write controls, target allowlists, and auditable tool calls.'
       ),
-      span: 'md:col-span-1',
-      icon: <Shield className='size-4 text-emerald-400' />,
-      visual: (
-        <div className='mt-4 flex items-center justify-center'>
-          <div className='relative'>
-            <div className='flex size-16 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/5'>
-              <Shield
-                className='size-7 text-emerald-500/70'
-                strokeWidth={1.5}
-              />
-            </div>
-            <div className='absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-emerald-500'>
-              <svg
-                className='size-2.5 text-white'
-                fill='none'
-                viewBox='0 0 24 24'
-                stroke='currentColor'
-                strokeWidth={3}
-              >
-                <path
-                  strokeLinecap='round'
-                  strokeLinejoin='round'
-                  d='m4.5 12.75 6 6 9-13.5'
-                />
-              </svg>
-            </div>
-          </div>
-        </div>
-      ),
+      icon: Cable,
+      tone: 'blue' as const,
+      visual: [t('Proxy health'), t('Bridge heartbeat'), t('Tool policy')],
     },
     {
-      id: 'global',
-      num: '03',
-      title: t('Global Coverage'),
-      desc: t('Multi-region deployment for stable global access'),
-      span: 'md:col-span-1',
-      icon: <Globe className='size-4 text-violet-400' />,
-      visual: (
-        <div className='mt-4 space-y-2'>
-          {[t('Load Balancing'), t('Rate Limiting'), t('Cost Tracking')].map(
-            (step, i) => (
-              <div key={step} className='flex items-center gap-2'>
-                <div
-                  className={`flex size-6 items-center justify-center rounded-full text-[10px] font-bold ${
-                    i === 1
-                      ? 'border border-blue-500/30 bg-blue-500/20 text-blue-500'
-                      : 'border-border/40 bg-muted text-muted-foreground border'
-                  }`}
-                >
-                  {i + 1}
-                </div>
-                <div className='bg-border/40 h-px flex-1' />
-                <span className='text-muted-foreground text-xs'>{step}</span>
-              </div>
-            )
-          )}
-        </div>
+      title: t('Keys, quota, and billing in one ledger'),
+      desc: t(
+        'Issue API keys, assign groups, track quota movement, reconcile billing events, and expose exchange-rate aware currency display.'
       ),
+      icon: KeyRound,
+      tone: 'amber' as const,
+      visual: [t('API keys'), t('Quota'), t('Billing events')],
     },
     {
-      id: 'developer',
-      num: '04',
-      title: t('Developer Friendly'),
-      desc: t('Compatible API routes for common AI application workflows'),
-      span: 'md:col-span-2',
-      icon: <Code className='size-4 text-amber-400' />,
-      visual: (
-        <div className='mt-4 flex items-center gap-3'>
-          <div className='flex -space-x-2'>
-            {['API', 'SDK', 'CLI', 'Docs'].map((n) => (
-              <div
-                key={n}
-                className='border-background from-muted to-muted/60 text-muted-foreground flex size-8 items-center justify-center rounded-full border-2 bg-gradient-to-br text-[9px] font-bold'
-              >
-                {n}
-              </div>
-            ))}
-          </div>
-          <div className='text-muted-foreground flex items-center gap-1.5 text-xs'>
-            <Code className='size-3.5 text-blue-500' />
-            {t('Multi-protocol Compatible')}
-          </div>
-        </div>
+      title: t('OpenAPI imports beyond text-only tools'),
+      desc: t(
+        'Reuse schemas, store binary OpenAPI responses as managed objects, and issue authorized download links for generated artifacts.'
       ),
+      icon: Download,
+      tone: 'violet' as const,
+      visual: [t('Schema reuse'), t('Binary objects'), t('Download audit')],
     },
   ]
 
-  const additionalFeatures = [
+  const secondaryFeatures = [
     {
-      icon: <Gauge className='size-5' strokeWidth={1.5} />,
-      title: t('High Performance'),
-      desc: t('Support for high concurrency with automatic load balancing'),
+      icon: Braces,
+      title: t('Unified API surface'),
+      desc: t(
+        'Compatible routes for chat, responses, embeddings, images, and provider-native protocols.'
+      ),
     },
     {
-      icon: <DollarSign className='size-5' strokeWidth={1.5} />,
-      title: t('Transparent Billing'),
-      desc: t('Pay-as-you-go with real-time usage monitoring'),
+      icon: BarChart3,
+      title: t('Operational trends'),
+      desc: t(
+        'Storage, Bridge sessions, proxy errors, and billing anomalies are visible from the dashboard.'
+      ),
     },
     {
-      icon: <Users className='size-5' strokeWidth={1.5} />,
-      title: t('Team Collaboration'),
-      desc: t('Multi-user management with flexible permission allocation'),
+      icon: ShieldCheck,
+      title: t('Review queue'),
+      desc: t(
+        'Health checks, stale clients, and high-error tools become concrete operator work items.'
+      ),
     },
     {
-      icon: <HeartHandshake className='size-5' strokeWidth={1.5} />,
-      title: t('Open Source'),
-      desc: t('Community driven, self-hosted, and extensible'),
+      icon: FileCode2,
+      title: t('Import discipline'),
+      desc: t(
+        'Preview schema reuse, skipped operations, and diff summaries before enabling tools.'
+      ),
     },
   ]
 
   return (
-    <section className='relative z-10 px-6 py-24 md:py-32'>
+    <section className='relative z-10 px-6 py-20 md:py-24'>
       <div className='mx-auto max-w-6xl'>
-        <AnimateInView className='mb-16 max-w-lg'>
-          <p className='text-muted-foreground mb-3 text-xs font-medium tracking-widest uppercase'>
-            {t('Core Features')}
+        <AnimateInView className='mb-10 max-w-2xl'>
+          <p className='text-muted-foreground mb-3 text-sm font-medium'>
+            {t('Gateway capabilities')}
           </p>
-          <h2 className='text-2xl leading-tight font-bold tracking-tight md:text-3xl'>
-            {t('Built for developers,')}
-            <br />
-            {t('designed for scale')}
+          <h2 className='max-w-2xl text-2xl leading-tight font-semibold tracking-tight text-balance md:text-3xl'>
+            {t('A precise operating layer for model and tool traffic')}
           </h2>
+          <p className='text-muted-foreground mt-4 text-sm leading-6 text-pretty'>
+            {t(
+              'Data Proxy is designed for operators who need the gateway to be powerful without becoming opaque.'
+            )}
+          </p>
         </AnimateInView>
 
-        {/* Bento grid */}
-        <div className='border-border/40 bg-border/40 grid gap-px overflow-hidden rounded-xl border md:grid-cols-3'>
-          {features.map((f, i) => (
+        <div className='border-border bg-border grid overflow-hidden rounded-xl border md:grid-cols-2'>
+          {primaryFeatures.map((feature, index) => (
             <AnimateInView
-              key={f.id}
-              delay={i * 100}
-              animation='scale-in'
-              className={`bg-background group hover:bg-muted/20 p-7 transition-colors duration-300 md:p-8 ${f.span}`}
+              key={feature.title}
+              delay={index * 80}
+              animation='fade-up'
+              className='bg-background min-h-[248px] p-6 md:p-7'
             >
-              <div className='mb-3 flex items-center gap-3'>
-                <span className='border-border/40 bg-muted text-muted-foreground flex size-7 items-center justify-center rounded-md border text-[10px] font-semibold tabular-nums'>
-                  {f.num}
-                </span>
-                <h3 className='text-sm font-semibold'>{f.title}</h3>
+              <div className='flex items-start gap-4'>
+                <FeatureIcon icon={feature.icon} tone={feature.tone} />
+                <div className='min-w-0'>
+                  <h3 className='text-base font-semibold tracking-tight'>
+                    {feature.title}
+                  </h3>
+                  <p className='text-muted-foreground mt-2 max-w-xl text-sm leading-6'>
+                    {feature.desc}
+                  </p>
+                </div>
               </div>
-              <p className='text-muted-foreground text-sm leading-relaxed'>
-                {f.desc}
-              </p>
-              {f.visual}
+              <div className='mt-6 flex flex-wrap gap-2'>
+                {feature.visual.map((item) => (
+                  <span
+                    key={item}
+                    className='border-border bg-muted/30 text-muted-foreground rounded-md border px-2.5 py-1 text-xs'
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
             </AnimateInView>
           ))}
         </div>
 
-        {/* Additional features row */}
-        <div className='mt-12 grid grid-cols-2 gap-8 md:grid-cols-4 md:gap-12'>
-          {additionalFeatures.map((f, i) => (
-            <AnimateInView
-              key={f.title}
-              delay={i * 100}
-              animation='fade-up'
-              className='flex flex-col items-center text-center'
-            >
-              <div className='text-muted-foreground border-border/50 bg-muted/30 group-hover:text-foreground mb-3 flex size-12 items-center justify-center rounded-xl border transition-colors'>
-                {f.icon}
-              </div>
-              <h3 className='mb-1.5 text-sm font-semibold'>{f.title}</h3>
-              <p className='text-muted-foreground max-w-[200px] text-xs leading-relaxed'>
-                {f.desc}
-              </p>
-            </AnimateInView>
-          ))}
+        <div className='mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+          {secondaryFeatures.map((feature, index) => {
+            const Icon = feature.icon
+            return (
+              <AnimateInView
+                key={feature.title}
+                delay={index * 70}
+                animation='fade-up'
+                className='border-border/80 bg-background rounded-xl border p-5'
+              >
+                <div className='text-muted-foreground mb-4 flex items-center gap-2'>
+                  <Icon className='size-4' strokeWidth={1.8} />
+                </div>
+                <h3 className='text-sm font-semibold'>{feature.title}</h3>
+                <p className='text-muted-foreground mt-2 text-xs leading-5'>
+                  {feature.desc}
+                </p>
+              </AnimateInView>
+            )
+          })}
         </div>
+
+        <AnimateInView className='border-border/80 bg-muted/20 mt-8 flex flex-col gap-4 rounded-xl border p-5 sm:flex-row sm:items-center sm:justify-between'>
+          <div>
+            <p className='text-sm font-semibold'>
+              {t('Designed for daily operations')}
+            </p>
+            <p className='text-muted-foreground mt-1 text-sm'>
+              {t(
+                'Every capability is paired with status, audit context, and an operator action.'
+              )}
+            </p>
+          </div>
+          <div className='text-muted-foreground flex items-center gap-2 text-xs'>
+            <Activity className='size-4 text-emerald-600' />
+            {t('Observable by default')}
+          </div>
+        </AnimateInView>
       </div>
     </section>
   )

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useRef } from 'react'
 import * as z from 'zod'
 import type { Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -59,6 +60,9 @@ import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { safeNumberFieldProps } from '../utils/numeric-field'
 
+const EXCHANGE_RATE_AUTO_UPDATE_DEFAULT_MINUTES = 720
+const EXCHANGE_RATE_AUTO_UPDATE_MIN_MINUTES = 60
+
 const createPricingSchema = (t: (key: string) => string) =>
   z
     .object({
@@ -82,6 +86,13 @@ const createPricingSchema = (t: (key: string) => string) =>
           .min(0.0001, t('Exchange rate must be greater than 0'))
           .optional(),
         exchange_rate_auto_update_enabled: z.boolean(),
+        exchange_rate_auto_update_interval_minutes: z.coerce
+          .number()
+          .int(t('Value must be a whole number'))
+          .min(
+            EXCHANGE_RATE_AUTO_UPDATE_MIN_MINUTES,
+            t('Exchange rate auto refresh interval must be at least 60 minutes')
+          ),
         exchange_rate_auto_updated_at: z.coerce.number().optional(),
         exchange_rate_provider: z.string().optional(),
       }),
@@ -126,6 +137,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const queryClient = useQueryClient()
+  const fetchAfterSaveCurrencyRef = useRef<string | undefined>(undefined)
 
   const pricingSchema = createPricingSchema(t)
   const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
@@ -136,7 +148,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
         PricingFormValues
       >,
       defaultValues,
-      onSubmit: async (_data, changedFields) => {
+      onSubmit: async (data, changedFields) => {
         for (const [key, value] of Object.entries(changedFields)) {
           if (value === undefined || value === null) continue
           if (typeof value === 'object') continue
@@ -153,6 +165,21 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
             key,
             value: serialized,
           })
+        }
+        if (
+          changedFields['general_setting.exchange_rate_auto_update_enabled'] ===
+            true &&
+          data.general_setting.quota_display_type !== 'TOKENS'
+        ) {
+          fetchAfterSaveCurrencyRef.current =
+            data.general_setting.quota_display_type === 'CUSTOM'
+              ? data.general_setting.custom_currency_code || undefined
+              : 'CNY'
+          setTimeout(() => {
+            const currencyCode = fetchAfterSaveCurrencyRef.current
+            fetchAfterSaveCurrencyRef.current = undefined
+            fetchRate.mutate(currencyCode)
+          }, 0)
         }
       },
     })
@@ -212,6 +239,9 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
     form.watch('general_setting.exchange_rate_auto_updated_at') ?? 0
   const exchangeRateProvider =
     form.watch('general_setting.exchange_rate_provider') ?? 'frankfurter'
+  const exchangeRateAutoUpdateEnabled = form.watch(
+    'general_setting.exchange_rate_auto_update_enabled'
+  )
   const displayInCurrencyEnabled = form.watch('DisplayInCurrencyEnabled')
   const canFetchExchangeRate = displayType === 'CNY' || displayType === 'CUSTOM'
   const showTokensOnlyOption = displayType === 'TOKENS'
@@ -455,36 +485,65 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
             )}
 
             {displayType !== 'TOKENS' && (
-              <FormField
-                control={form.control}
-                name='general_setting.exchange_rate_auto_update_enabled'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Auto update exchange rate')}</FormLabel>
+              <div className='space-y-4 rounded-lg border p-4'>
+                <FormField
+                  control={form.control}
+                  name='general_setting.exchange_rate_auto_update_enabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem className='border-0 p-0'>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Auto update exchange rate')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Updates the USD exchange rate automatically using a free public provider when available. Enabling it will fetch once immediately after saving.'
+                          )}
+                        </FormDescription>
+                        <div className='text-muted-foreground mt-1 text-xs'>
+                          {t('Provider')}: {exchangeRateProvider || '-'}
+                          {exchangeRateUpdatedAt > 0
+                            ? ` · ${t('Last updated')}: ${formatDateTimeObject(
+                                new Date(exchangeRateUpdatedAt * 1000)
+                              )}`
+                            : null}
+                        </div>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='general_setting.exchange_rate_auto_update_interval_minutes'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Auto refresh interval')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={EXCHANGE_RATE_AUTO_UPDATE_MIN_MINUTES}
+                          step='1'
+                          disabled={!exchangeRateAutoUpdateEnabled}
+                          placeholder={String(
+                            EXCHANGE_RATE_AUTO_UPDATE_DEFAULT_MINUTES
+                          )}
+                          {...safeNumberFieldProps(field)}
+                        />
+                      </FormControl>
                       <FormDescription>
                         {t(
-                          'Updates the USD exchange rate automatically using a free public provider when available.'
+                          'Default is 720 minutes. Minimum is 60 minutes to protect the free provider.'
                         )}
                       </FormDescription>
-                      <div className='text-muted-foreground mt-1 text-xs'>
-                        {t('Provider')}: {exchangeRateProvider || '-'}
-                        {exchangeRateUpdatedAt > 0
-                          ? ` · ${t('Last updated')}: ${formatDateTimeObject(
-                              new Date(exchangeRateUpdatedAt * 1000)
-                            )}`
-                          : null}
-                      </div>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </SettingsSwitchItem>
-                )}
-              />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             )}
 
             {showDisplayInCurrencyOption && (

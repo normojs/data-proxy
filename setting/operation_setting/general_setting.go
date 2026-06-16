@@ -24,6 +24,8 @@ type GeneralSetting struct {
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
 	// 是否使用公共汇率源自动更新展示汇率
 	ExchangeRateAutoUpdateEnabled bool `json:"exchange_rate_auto_update_enabled"`
+	// 自动刷新汇率间隔（分钟）
+	ExchangeRateAutoUpdateIntervalMinutes int `json:"exchange_rate_auto_update_interval_minutes"`
 	// 最近一次自动或手动汇率更新时间
 	ExchangeRateAutoUpdatedAt int64 `json:"exchange_rate_auto_updated_at"`
 	// 最近一次汇率来源
@@ -32,14 +34,15 @@ type GeneralSetting struct {
 
 // 默认配置
 var generalSetting = GeneralSetting{
-	DocsLink:                   "https://docs.newapi.pro",
-	PingIntervalEnabled:        false,
-	PingIntervalSeconds:        60,
-	QuotaDisplayType:           QuotaDisplayTypeUSD,
-	CustomCurrencySymbol:       "¤",
-	CustomCurrencyCode:         "CNY",
-	CustomCurrencyExchangeRate: 1.0,
-	ExchangeRateProvider:       "frankfurter",
+	DocsLink:                              "https://docs.newapi.pro",
+	PingIntervalEnabled:                   false,
+	PingIntervalSeconds:                   60,
+	QuotaDisplayType:                      QuotaDisplayTypeUSD,
+	CustomCurrencySymbol:                  "¤",
+	CustomCurrencyCode:                    "CNY",
+	CustomCurrencyExchangeRate:            1.0,
+	ExchangeRateAutoUpdateIntervalMinutes: 720,
+	ExchangeRateProvider:                  "frankfurter",
 }
 
 func init() {

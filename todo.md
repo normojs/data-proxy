@@ -1,5 +1,23 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Exchange rate controls and home page redesign
+
+- [x] Make automatic exchange-rate refresh configurable.
+  - Acceptance: operators can configure the refresh interval, the default is explicit, and values below the minimum are rejected before saving.
+  - Done: added `exchange_rate_auto_update_interval_minutes`, defaulted it to 720 minutes, enforced a 60-minute minimum in backend validation, exposed it through status/options, and covered interval normalization with service tests.
+- [x] Fetch the current exchange rate when automatic refresh is enabled.
+  - Acceptance: enabling automatic refresh from the pricing settings page triggers an immediate fetch after the setting is saved, while the background worker continues to use the configured interval.
+  - Done: pricing settings now call the exchange-rate fetch path immediately when auto-update is newly enabled; the background job reads the current interval each cycle.
+- [x] Keep manual exchange-rate fetching available.
+  - Acceptance: operators can still fetch the current rate on demand and use it to fill the manual display-rate field.
+  - Done: kept the manual `Fetch current rate` control in the pricing section and aligned helper copy for manual and automatic update flows.
+- [x] Redesign the public home page around Data Proxy's gateway role.
+  - Acceptance: the default home page feels like a production operations control plane rather than a generic AI landing page, and keeps the newer UI as the only runtime surface.
+  - Done: rebuilt the hero, stats, feature, lifecycle, and CTA sections around governed model/MCP/Bridge traffic, provider routing, quota/billing, OpenAPI binary objects, and operational review.
+- [x] Validate and deploy the updated local container.
+  - Acceptance: backend tests, frontend typecheck, locale parsing, Docker rebuild/restart, and browser verification pass.
+  - Done: `go test ./controller ./service ./setting/operation_setting`, locale JSON parse, `cd web/default && bun run typecheck`, `git diff --check`, `docker compose build data-proxy`, and `docker compose up -d data-proxy` passed. Browser verification at `http://localhost:3000/` confirms the new Data Proxy home page is served and the old hero copy is absent.
+
 ## P1 - Currency, announcements, and MCP guidance
 
 - [x] Add an optional free USD exchange-rate refresh path for pricing display.
