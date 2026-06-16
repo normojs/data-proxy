@@ -1,5 +1,14 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Runtime locale brand residuals
+
+- [x] Clean non-English runtime product-name translations that still display New API.
+  - Acceptance: Japanese, Russian, and Vietnamese runtime translations for product name, default sender/welcome placeholders, console example, and Base URL warning use Data Proxy where the text belongs to this product.
+  - Done: updated Japanese, Russian, and Vietnamese translations for product name, sender placeholder, Vietnamese console/welcome copy, and Base URL warning text to display Data Proxy.
+- [x] Validate locale JSON and residual runtime brand scan.
+  - Acceptance: locale JSON parses, residual scan only reports generic "new API key" copy or upstream attribution/compatibility keys, and the commit excludes Fusion files.
+  - Done: locale JSON parsing passed, residual scan now only reports generic "new API key" copy in Japanese/Vietnamese, and scoped `git diff --check` passed.
+
 ## P1 - Data Proxy release naming and dev targets
 
 - [x] Align Makefile dev service/database names with Data Proxy Compose files.
