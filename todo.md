@@ -1,5 +1,16 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Default-only new UI runtime
+
+- [ ] Make the backend runtime serve only the new UI by default.
+  - Acceptance: server-side theme defaults to `default`, existing `classic` values are normalized away, and web routing serves `web/default` assets/index only.
+- [ ] Remove the classic frontend switch from the new UI settings surface.
+  - Acceptance: system settings no longer show a selectable classic frontend option and form validation accepts only the new UI value.
+- [ ] Align build/deployment defaults with new UI only.
+  - Acceptance: default frontend build and deployment preflight build only `web/default`; classic sources may remain in the repository but are not part of the normal runtime/deploy path.
+- [ ] Validate new UI default behavior and update docs.
+  - Acceptance: targeted Go tests, frontend type/build checks, and `git diff --check` pass; TODO/docs record that classic is no longer a runtime option.
+
 ## P2 - Runtime monitor resilience
 
 - [x] Prevent optional pprof CPU monitor errors from crashing the process.
