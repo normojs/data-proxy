@@ -40,6 +40,10 @@
 - [x] Validate and commit residual JSON cleanup.
   - Acceptance: targeted Go packages, residual runtime JSON scan, `git diff --check`, and `todo.md` are updated before commit.
   - Done: `go test ./oauth ./middleware ./service ./setting/...`, targeted residual runtime JSON scan over OAuth/middleware/exchange-rate/settings non-test files, and `git diff --check` passed before commit.
+- [x] Remove actionable runtime brand leftovers from panic, notification, payment, and locale surfaces.
+  - Acceptance: runtime panic responses, Gotify notification headers, payment reference/default object names, and user-switchable locale values use Data Proxy where the text belongs to this product.
+  - Acceptance: Go module paths, upstream attribution URLs, and preserved upstream repository labels remain unchanged.
+  - Done: replaced panic response copy/error type, Gotify User-Agent, Stripe reference prefix, Waffo Pancake buyer/default names, and non-attribution locale values; residual scan only reports module/upstream attribution boundaries.
 
 - [x] Audit visible runtime references to upstream New API branding.
   - Acceptance: distinguish Go module/import paths and upstream attribution from user-visible Data Proxy runtime copy.
