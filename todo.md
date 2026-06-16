@@ -1,5 +1,14 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Transparent Data Proxy brand assets
+
+- [x] Remove the white background from generated Data Proxy brand assets.
+  - Acceptance: default logo and favicon assets preserve transparent backgrounds across the web UI, browser tab icon, and generated icon sizes.
+  - Done: regenerated `web/default/public/logo.png` as PNG32 with transparent background and regenerated `web/default/public/favicon.ico` with transparent 256/128/64/48/32/16 sizes from `/Users/fushilu/Pictures/dataproxy.png`.
+- [x] Validate and redeploy transparent brand assets locally.
+  - Acceptance: generated assets have alpha channels, the frontend build succeeds, and the local Docker container serves the refreshed assets.
+  - Done: `magick web/default/public/logo.png ...` confirmed transparent alpha on the generated logo, `make build-all-frontends` passed, `docker compose build data-proxy && docker compose up -d data-proxy` passed, the `data-proxy` container is healthy, and `curl` checks confirmed served `/logo.png` plus `/favicon.ico` have transparent corner pixels.
+
 ## P1 - Exchange rate controls and home page redesign
 
 - [x] Make automatic exchange-rate refresh configurable.
