@@ -1,5 +1,14 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - MCP market mock example polish
+
+- [x] Add realistic mock examples next to parameter templates.
+  - Acceptance: each MCP market tool detail keeps the existing input schema and parameter template actions, and adds a separate Mock Example action immediately after Parameter Template.
+  - Done: added a schema-aware mock JSON-RPC example dialog that fills common fields such as paths, commands, sessions, timezones, URLs, package names, limits, booleans, arrays, and nested objects with realistic sample values.
+- [x] Validate and commit this batch.
+  - Acceptance: locale JSON parsing, MCP i18n missing-key scan, frontend typecheck/build check, whitespace checks, and git commit complete.
+  - Done: locale JSON parse, MCP component missing-key scan, `cd web/default && bun run typecheck`, `cd web/default && bun run build:check`, and `git diff --check` passed.
+
 ## P1 - API key base URL and MCP Chinese copy polish
 
 - [x] Keep the API key Base URL copy action next to the address text.

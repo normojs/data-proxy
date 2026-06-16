@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { BookOpen, Code2, PlugZap, ReceiptText } from 'lucide-react'
+import { BookOpen, Code2, PlugZap, ReceiptText, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -111,6 +111,110 @@ function buildArgumentsTemplate(schema: unknown): Record<string, unknown> {
   )
 }
 
+function mockStringValueForProperty(name: string): string {
+  const key = name.toLowerCase()
+  if (key.includes('file_path')) {
+    return '/Users/alice/workspace/data-proxy/README.md'
+  }
+  if (key === 'path' || key.includes('directory') || key.includes('workdir')) {
+    return '/Users/alice/workspace/data-proxy'
+  }
+  if (key.includes('old_string')) return '旧配置项'
+  if (key.includes('new_string')) return '新配置项'
+  if (key.includes('content')) return '# Data Proxy\n\n这是用于测试的文件内容。'
+  if (key.includes('pattern')) return 'func BuiltinTools'
+  if (key.includes('glob')) return '**/*.go'
+  if (key.includes('command')) return 'go test ./...'
+  if (key.includes('input')) return 'pwd\n'
+  if (key.includes('session_id')) return 'shell-demo-001'
+  if (key.includes('timezone')) return 'Asia/Shanghai'
+  if (key.includes('manager')) return 'bun'
+  if (key.includes('package')) return 'zod'
+  if (key.includes('json')) return '{"name":"Data Proxy","enabled":true}'
+  if (key.includes('url')) return 'https://api.example.com/openapi.json'
+  if (key.includes('endpoint')) return 'https://mcp.example.com/message'
+  if (key.includes('namespace')) return 'default'
+  if (key.includes('token')) return 'sk-data-proxy-demo'
+  if (key.includes('request')) return 'req_demo_001'
+  if (key.includes('client')) return 'bridge-client-demo'
+  if (key.includes('server')) return 'mcp-server-demo'
+  if (key.includes('object')) return 'obj_demo_001'
+  if (key.includes('label')) return 'Data Proxy 示例'
+  if (key.includes('name')) return 'remote_read'
+  return 'mock-value'
+}
+
+function mockNumberValueForProperty(name: string): number {
+  const key = name.toLowerCase()
+  if (key.includes('timeout')) return 30000
+  if (key.includes('interval')) return 60
+  if (key.includes('ttl') || key.includes('expiry')) return 3600
+  if (key.includes('offset')) return 1
+  if (key.includes('depth')) return 2
+  if (key.includes('limit') || key.includes('max')) return 20
+  if (key.includes('size') || key.includes('bytes')) return 1024
+  if (key.includes('port')) return 443
+  return 1
+}
+
+function mockArrayValueForProperty(
+  name: string,
+  property: SchemaProperty
+): unknown[] {
+  const key = name.toLowerCase()
+  if (key.includes('tool')) return ['remote_read', 'server_time']
+  if (key.includes('group')) return ['default']
+  if (key.includes('target')) return ['workspace:default']
+  if (property.items) return [mockValueForProperty(`${name}_item`, property.items)]
+  return ['mock-value']
+}
+
+function mockValueForProperty(
+  name: string,
+  property: SchemaProperty
+): unknown {
+  if (property.default != null) return property.default
+  if (Array.isArray(property.enum) && property.enum.length > 0) {
+    return property.enum[0]
+  }
+
+  const type = Array.isArray(property.type) ? property.type[0] : property.type
+  switch (type) {
+    case 'integer':
+    case 'number':
+      return mockNumberValueForProperty(name)
+    case 'boolean':
+      return !name.toLowerCase().includes('dry')
+    case 'array':
+      return mockArrayValueForProperty(name, property)
+    case 'object': {
+      const properties = property.properties ?? {}
+      if (Object.keys(properties).length === 0) {
+        return { trace_id: 'trace_demo_001', source: 'mock' }
+      }
+      return Object.fromEntries(
+        Object.entries(properties).map(([key, child]) => [
+          key,
+          mockValueForProperty(key, child),
+        ])
+      )
+    }
+    case 'string':
+    default:
+      return mockStringValueForProperty(name)
+  }
+}
+
+function buildMockArguments(schema: unknown): Record<string, unknown> {
+  const properties = schemaProperties(schema)
+  return Object.fromEntries(
+    Object.entries(properties).map(([key, property]) => [
+      key,
+      mockValueForProperty(key, property),
+    ])
+  )
+}
+
 function buildToolCallExample(tool: MCPTool | null): Record<string, unknown> {
   return {
     jsonrpc: '2.0',
@@ -119,6 +223,18 @@ function buildToolCallExample(tool: MCPTool | null): Record<string, unknown> {
     params: {
       name: tool?.name ?? '',
       arguments: buildArgumentsTemplate(tool?.input_schema),
+    },
+  }
+}
+
+function buildToolCallMockExample(tool: MCPTool | null): Record<string, unknown> {
+  return {
+    jsonrpc: '2.0',
+    id: 'request-mock-1',
+    method: 'tools/call',
+    params: {
+      name: tool?.name ?? '',
+      arguments: buildMockArguments(tool?.input_schema),
     },
   }
 }
@@ -193,6 +309,7 @@ function MarketToolDetail(props: {
   onOpenLedger: (tool: MCPTool) => void
   onViewSchema: (tool: MCPTool) => void
   onViewExample: (tool: MCPTool) => void
+  onViewMockExample: (tool: MCPTool) => void
 }) {
   const { t } = useTranslation()
   const tool = props.tool
@@ -286,6 +403,14 @@ function MarketToolDetail(props: {
           <Button
             type='button'
             variant='outline'
+            onClick={() => props.onViewMockExample(tool)}
+          >
+            <Sparkles className='size-4' />
+            {t('Mock Example')}
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
             onClick={() => props.onOpenLedger(tool)}
           >
             <ReceiptText className='size-4' />
@@ -363,6 +488,7 @@ export function MCPMarket() {
   const [selectedToolId, setSelectedToolId] = useState<number | null>(null)
   const [schemaTool, setSchemaTool] = useState<MCPTool | null>(null)
   const [exampleTool, setExampleTool] = useState<MCPTool | null>(null)
+  const [mockExampleTool, setMockExampleTool] = useState<MCPTool | null>(null)
 
   const requestParams = {
     p: 1,
@@ -467,6 +593,7 @@ export function MCPMarket() {
             }}
             onViewSchema={setSchemaTool}
             onViewExample={setExampleTool}
+            onViewMockExample={setMockExampleTool}
           />
         </div>
       </div>
@@ -484,6 +611,13 @@ export function MCPMarket() {
         description={exampleTool?.name}
         value={buildToolCallExample(exampleTool)}
         onOpenChange={(open) => !open && setExampleTool(null)}
+      />
+      <JsonDetailDialog
+        open={mockExampleTool != null}
+        title={t('Mock Example')}
+        description={t('Realistic mock data based on this tool schema.')}
+        value={buildToolCallMockExample(mockExampleTool)}
+        onOpenChange={(open) => !open && setMockExampleTool(null)}
       />
     </>
   )

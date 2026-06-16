@@ -5217,6 +5217,8 @@
     "enum": "枚举",
     "value": "值",
     "High Error Rate": "高错误率",
-    "OAuth": "OAuth"
+    "OAuth": "OAuth",
+    "Mock Example": "Mock 示例",
+    "Realistic mock data based on this tool schema.": "基于当前工具入参结构生成的拟真 Mock 数据。"
   }
 }
