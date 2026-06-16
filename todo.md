@@ -1,5 +1,17 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Data Proxy operator handoff docs
+
+- [x] Publish a Data Proxy operator quick-start guide.
+  - Acceptance: operators have a Data Proxy-branded deployment entry point that explains default Docker startup, first-run dependency configuration, optional bundled PostgreSQL/Redis, runtime config restart behavior, and release validation commands without relying on the upstream README as the primary handoff.
+  - Done: added `docs/data-proxy-operator-guide.md` as the Data Proxy deployment handoff, covering default Docker startup, first-run dependency choices, bundled local dependencies without host-port conflicts, runtime config restart behavior, advanced environment overrides, release validation, and branding boundaries.
+- [x] Link release readiness docs to the operator guide.
+  - Acceptance: release/preflight docs explicitly point operators to the Data Proxy guide while keeping upstream README references classified as attribution.
+  - Done: `docs/deployment-readiness.md` now points to the Data Proxy operator guide and clarifies that top-level README files remain upstream attribution material rather than the recommended operator entry point.
+- [x] Validate and commit the operator handoff batch.
+  - Acceptance: docs links resolve, `git diff --check` passes, and the commit excludes unrelated Fusion dirty files.
+  - Done: checked referenced docs/files exist and ran `git diff --check -- todo.md docs/data-proxy-operator-guide.md docs/deployment-readiness.md`; commit staged only this TODO/docs batch.
+
 ## P1 - Release preflight and dirty ownership
 
 - [x] Classify follow-up Fusion benchmark request-option and early-exit changes.

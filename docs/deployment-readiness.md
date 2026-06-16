@@ -6,6 +6,10 @@ Use the deployment preflight before tagging or handing a build to an operator:
 make deployment-preflight
 ```
 
+Use `docs/data-proxy-operator-guide.md` as the primary Data Proxy deployment
+handoff. The top-level README files are preserved as upstream New API
+attribution material and are not the recommended operator entry point.
+
 The default gate runs:
 
 - `go test ./...`
