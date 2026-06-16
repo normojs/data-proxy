@@ -37,3 +37,10 @@ data/
 token_estimator_test.go
 skills-lock.json
 .playwright-mcp
+tools/fusion-benchmark/.env*
+!tools/fusion-benchmark/.env.example
+!tools/fusion-benchmark/data/
+!tools/fusion-benchmark/data/*.jsonl
+tools/fusion-benchmark/secrets/
+tools/fusion-benchmark/runs/
+tools/fusion-benchmark/reports/

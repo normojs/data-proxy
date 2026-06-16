@@ -1,5 +1,16 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Release preflight and dirty ownership
+
+- [x] Classify current dirty files before release checks.
+  - Acceptance: identify which files are project-owned source/docs/config examples and which are local-only runtime artifacts.
+  - Done: `tools/fusion-benchmark.mjs`, `tools/fusion-benchmark/README.md`, `tools/fusion-benchmark/config.json`, `tools/fusion-benchmark/.env.example`, and `tools/fusion-benchmark/data/*.example.jsonl` are classified as project-owned Fusion benchmark tooling; `tools/fusion-benchmark/.env.local`, `tools/fusion-benchmark/runs/`, `tools/fusion-benchmark/reports/`, and `tools/fusion-benchmark/secrets/` are local-only and ignored.
+- [x] Validate and commit dirty ownership handling.
+  - Acceptance: benchmark tool syntax check, secret scan, whitespace check, and git status confirm only intended files are staged/committed.
+  - Done: `node --check tools/fusion-benchmark.mjs`, `node tools/fusion-benchmark.mjs help`, sensitive pattern scan over staged benchmark files, and `git diff --check` passed; staged files exclude `.env.local`, `runs/`, and `reports/`.
+- [ ] Run release preflight after the ownership commit.
+  - Acceptance: default deployment preflight passes or any failure is documented with exact command and next fix.
+
 ## P1 - MCP market mock example polish
 
 - [x] Add realistic mock examples next to parameter templates.
