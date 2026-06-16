@@ -52,31 +52,26 @@ DEPLOYMENT_PREFLIGHT_IMAGE=new-api:release-preflight \
 make deployment-preflight
 ```
 
-## Current Caveat
+## Current Status
 
-The latest code-level local checks passed backend tests, the production new
-frontend build, production/dev Compose config validation, buildx availability,
-and whitespace checks. The release image gate is still blocked by the local
-Docker Desktop daemon state: `docker version` prints client information and
-then hangs before server information, while Docker's Unix socket responds with
-`Docker Desktop is unable to start`.
+The current release gate is green on this machine as of 2026-06-16.
 
-Recheck on 2026-06-16: `gtimeout 15 docker version` and `gtimeout 15 docker
-info` still time out while reading Server information, and the Unix socket still
-returns `Docker Desktop is unable to start`.
+Validated commands:
 
-`docker desktop start` reports that Docker Desktop is already running, but the
-daemon remains unhealthy: `docker version` / `docker info` still time out before
-Server details and the Unix socket still returns `Docker Desktop is unable to
-start`.
+- `gtimeout 15 docker version`
+- `gtimeout 15 docker info`
+- `make deployment-preflight`
+- `docker build --target builder2 -t new-api:preflight-builder .`
+- `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight`
 
-Follow-up non-Docker regression on 2026-06-16 passed: `go test ./...`,
-`cd web/default && bun run typecheck`, locale JSON parsing,
-`make build-all-frontends`, `make mcp-regression`, and a scoped whitespace check
-that excluded current-session Fusion benchmark dirty files. This keeps the
-code-level release signal green while Docker remains the only release-image
-blocker.
+Historical caveat: Docker Desktop previously reported `Docker Desktop is unable
+to start`, and `docker version` / `docker info` timed out while reading Server
+details. That local daemon issue later cleared without a code change. If it
+returns on another release host, treat it as a host Docker recovery task before
+tagging or publishing an image.
 
-Before publishing a release image, recover Docker Desktop on the release host,
-then rerun the default preflight and the opt-in Docker image build. A release
-tag should only be cut after both commands complete without hanging.
+Note: the first full optional preflight retry after Docker recovered was killed
+by the host while repeating the local frontend build (`SIGKILL`) before it
+reached Docker build. The same frontend build had already passed in the default
+preflight, the direct Docker build passed, and the full optional preflight passed
+on retry with cached Docker layers.

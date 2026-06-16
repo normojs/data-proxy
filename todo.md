@@ -22,12 +22,13 @@
   - Acceptance: code-level checks that do not require Docker pass while the Docker daemon gate remains explicitly blocked.
   - Done: `gtimeout 15 docker version` and `gtimeout 15 docker info` still timed out while reading Server information, and Docker's Unix socket still returned `Docker Desktop is unable to start`.
   - Done: `go test ./...`, `cd web/default && bun run typecheck`, locale JSON parsing, `make build-all-frontends`, `make mcp-regression`, and `git diff --check -- . ':!tools/fusion-benchmark.mjs'` passed. Fusion benchmark dirty files were intentionally excluded from this current-session scope.
-- [ ] Restore Docker daemon responsiveness before tagging a release image.
+- [x] Restore Docker daemon responsiveness before tagging a release image.
   - Acceptance: `docker version`, `docker info`, default `make deployment-preflight`, and optional `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight` complete without hanging.
   - Current status: Docker Desktop remains a local environment blocker. `ps` shows long-running `com.docker.backend`, `com.docker.build`, and `docker-sandbox daemon start` processes; `gtimeout 10 docker version` prints client info then times out before server info; `curl --unix-socket /Users/fushilu/.docker/run/docker.sock http://localhost/_ping` returns `Docker Desktop is unable to start`.
   - Rechecked 2026-06-16: `gtimeout 15 docker version` and `gtimeout 15 docker info` still time out while reading Server information; Docker's Unix socket still returns `Docker Desktop is unable to start`.
   - Rechecked after `docker desktop start`: Docker Desktop reports it is already running, but `docker version` / `docker info` still time out before Server details and the Unix socket still returns `Docker Desktop is unable to start`.
-  - Next action: recover Docker Desktop at the host level, then rerun `docker version`, `docker info`, `make deployment-preflight`, and `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight`. Do not tag or publish a release image until this gate passes.
+  - Done: Docker daemon later recovered; `gtimeout 15 docker version` and `gtimeout 15 docker info` both returned Server details.
+  - Done: `make deployment-preflight` passed. `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight` initially hit a local frontend `SIGKILL` before Docker build, then a direct `docker build --target builder2 -t new-api:preflight-builder .` passed, and the full optional preflight passed on retry with cached Docker layers.
 
 ## P1 - Current non-Docker audit follow-up
 
