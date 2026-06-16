@@ -553,6 +553,14 @@
   - Done: linked `docs/mcp-bridge-smoke.md` to the new operations runbook.
   - Validation: verified every runbook command maps to an existing Make target or Node script.
 
+## P1 - Admin user quota regression
+
+- [x] Fix quota adjustment mode state leakage across users.
+  - Acceptance: selecting override for one user cannot make the next user's adjustment submit override while the dialog appears to be add.
+  - Done: classic quota dialog now resets mode and amount on open, cancel, success, and user switch.
+  - Done: default quota dialog now resets on close/success, and remounts on open/user changes to start from add mode.
+  - Validation: default typecheck passed; targeted default ESLint/prettier passed; classic targeted ESLint passed; `git diff --check` passed.
+
 ## Done
 
 - [x] Commit MCP/Bridge, OpenAPI, billing events, wallet ledger, and operations dashboard checkpoint.

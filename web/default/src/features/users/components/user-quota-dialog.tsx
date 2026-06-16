@@ -50,6 +50,11 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const resetForm = () => {
+    setAmount('')
+    setMode('add')
+  }
+
   const { meta: currencyMeta } = getCurrencyDisplay()
   const currencyLabel = getCurrencyLabel()
   const tokensOnly = currencyMeta.kind === 'tokens'
@@ -90,8 +95,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
       })
       if (result.success) {
         toast.success(t('Quota adjusted successfully'))
-        setAmount('')
-        setMode('add')
+        resetForm()
         props.onOpenChange(false)
         props.onSuccess()
       } else {
@@ -105,8 +109,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   }
 
   const handleCancel = () => {
-    setAmount('')
-    setMode('add')
+    resetForm()
     props.onOpenChange(false)
   }
 
@@ -114,8 +117,15 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
     ? t('Enter amount in tokens')
     : t('Enter amount in {{currency}}', { currency: currencyLabel })
 
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      resetForm()
+    }
+    props.onOpenChange(open)
+  }
+
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog open={props.open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('Adjust Quota')}</DialogTitle>

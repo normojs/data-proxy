@@ -463,6 +463,7 @@ export function UsersMutateDrawer({
       {/* Adjust Quota Dialog */}
       {currentRow && (
         <UserQuotaDialog
+          key={`${currentRow.id}-${quotaDialogOpen ? 'open' : 'closed'}`}
           open={quotaDialogOpen}
           onOpenChange={setQuotaDialogOpen}
           userId={currentRow.id}

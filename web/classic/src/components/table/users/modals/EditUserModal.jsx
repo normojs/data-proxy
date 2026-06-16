@@ -79,6 +79,17 @@ const EditUserModal = (props) => {
 
   const isEdit = Boolean(userId);
 
+  const resetAdjustForm = () => {
+    setAdjustQuotaLocal('');
+    setAdjustAmountLocal('');
+    setAdjustMode('add');
+  };
+
+  const openAdjustModal = () => {
+    resetAdjustForm();
+    setAdjustModalOpen(true);
+  };
+
   const getInitValues = () => ({
     username: '',
     display_name: '',
@@ -134,6 +145,8 @@ const EditUserModal = (props) => {
     loadUser();
     if (userId) fetchGroups();
     setBindingModalVisible(false);
+    setAdjustModalOpen(false);
+    resetAdjustForm();
   }, [props.editingUser.id]);
 
   const openBindingModal = () => {
@@ -183,8 +196,7 @@ const EditUserModal = (props) => {
       if (success) {
         showSuccess(t('调整额度成功'));
         setAdjustModalOpen(false);
-        setAdjustQuotaLocal('');
-        setAdjustAmountLocal('');
+        resetAdjustForm();
         const userRes = await API.get(`/api/user/${userId}`);
         if (userRes.data.success) {
           const data = userRes.data.data;
@@ -384,7 +396,7 @@ const EditUserModal = (props) => {
                         <Form.Slot label={t('调整额度')}>
                           <Button
                             icon={<IconEdit />}
-                            onClick={() => setAdjustModalOpen(true)}
+                            onClick={openAdjustModal}
                           >
                             {t('调整额度')}
                           </Button>
@@ -467,9 +479,7 @@ const EditUserModal = (props) => {
         onOk={adjustQuota}
         onCancel={() => {
           setAdjustModalOpen(false);
-          setAdjustQuotaLocal('');
-          setAdjustAmountLocal('');
-          setAdjustMode('add');
+          resetAdjustForm();
         }}
         confirmLoading={adjustLoading}
         closable={null}
