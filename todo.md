@@ -2,12 +2,15 @@
 
 ## P2 - Runtime monitor resilience
 
-- [ ] Prevent optional pprof CPU monitor errors from crashing the process.
+- [x] Prevent optional pprof CPU monitor errors from crashing the process.
   - Acceptance: `common.Monitor` logs transient CPU sampling errors and continues instead of panicking in a background goroutine.
-- [ ] Refresh panic audit classification for pprof monitor.
+  - Done: `common.Monitor` now logs `cpu monitor sample failed` and continues the background loop when CPU sampling fails.
+- [x] Refresh panic audit classification for pprof monitor.
   - Acceptance: backlog audit no longer classifies `common/pprof.go` as startup fail-fast behavior.
-- [ ] Validate monitor package and scan results.
+  - Done: `docs/non-mcp-backlog-audit.md` now records pprof monitor errors as runtime-log-and-continue behavior.
+- [x] Validate monitor package and scan results.
   - Acceptance: targeted common package tests pass and panic scan shows the pprof runtime panic has been removed.
+  - Done: `go test ./common`, `rg -n "panic\\(" common/pprof.go docs/non-mcp-backlog-audit.md`, and `git diff --check` passed.
 
 ## P2 - Intentional unsupported route guardrails
 

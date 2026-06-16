@@ -149,9 +149,12 @@ Bridge smoke work.
 
 - `common/gin.go`: non-JSON request model variation needs request parsing design
   before implementation.
-- `model/main.go`, `common/embed-file-system.go`, `common/pprof.go`: production
-  startup fail-fast `panic` calls are intentional startup guards, not request
-  path panics.
+- `model/main.go` and `common/embed-file-system.go`: production startup
+  fail-fast `panic` calls are intentional startup guards, not request path
+  panics.
+- `common/pprof.go`: the optional pprof CPU monitor no longer panics on
+  transient CPU sampling errors; it logs the error and continues the background
+  loop.
 - `model/main.go` and `setting/ratio_setting/model_ratio.go`: ambiguous TODO
   comments were replaced with explicit maintenance notes; the disabled legacy
   migration statement still waits for an upgrade-floor decision, and new
