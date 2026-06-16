@@ -30,6 +30,10 @@ export interface SetupStatus {
   runtime_config_loaded?: boolean
   runtime_config_restart_required?: boolean
   runtime_config_path?: string
+  restart_required?: boolean
+  restart_supported?: boolean
+  restart_scheduled?: boolean
+  restart_delay_ms?: number
   // Some backends also echo mode flags; they are optional here.
   SelfUseModeEnabled?: boolean
   DemoSiteEnabled?: boolean

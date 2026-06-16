@@ -16,26 +16,33 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState } from 'react'
-import { Database, HardDrive, RotateCcw, Save, Server } from 'lucide-react'
-import { toast } from 'sonner'
+import { useMemo, useState } from 'react'
+import {
+  Database,
+  HardDrive,
+  Loader2,
+  RotateCcw,
+  Save,
+  Server,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from '@/components/ui/native-select'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { StatusBadge } from '@/components/status-badge'
-import { saveSetupRuntimeConfig } from '../api'
+import {
+  saveSetupRuntimeConfig,
+  waitForSetupRuntimeConfigApplied,
+} from '../api'
 import type { SetupDatabaseType, SetupStatus } from '../types'
 
 interface DatabaseStepProps {
   status?: SetupStatus
-  onConfigSaved?: () => Promise<void> | void
+  onConfigSaved?: (status?: SetupStatus) => Promise<void> | void
 }
 
 const DATABASE_META: Record<
@@ -121,6 +128,7 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
   )
   const [redisConnString, setRedisConnString] = useState('')
   const [saving, setSaving] = useState(false)
+  const [restarting, setRestarting] = useState(false)
   const electronApi =
     typeof window !== 'undefined'
       ? ((window as unknown as Record<string, unknown>)?.electron as
@@ -139,17 +147,12 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
     ? t(SOURCE_LABEL_KEYS[redisSource] ?? redisSource)
     : t('Not configured')
 
-  useEffect(() => {
-    setDatabaseType(normalizeDatabaseType(status?.database_type))
-    setRedisEnabled(Boolean(status?.redis_configured || status?.redis_enabled))
-  }, [status?.database_type, status?.redis_configured, status?.redis_enabled])
-
   const canSave = useMemo(() => {
-    if (saving) return false
+    if (saving || restarting) return false
     if (databaseType !== 'sqlite' && sqlDsn.trim().length === 0) return false
     if (redisEnabled && redisConnString.trim().length === 0) return false
     return true
-  }, [databaseType, redisConnString, redisEnabled, saving, sqlDsn])
+  }, [databaseType, redisConnString, redisEnabled, restarting, saving, sqlDsn])
 
   const handleSaveRuntimeConfig = async () => {
     setSaving(true)
@@ -167,6 +170,27 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
 
       if (!response.success) {
         toast.error(response.message || t('Failed to save runtime config'))
+        return
+      }
+
+      if (response.data?.restart_scheduled) {
+        toast.success(
+          response.message ||
+            t('Runtime config saved. Data Proxy is restarting automatically.')
+        )
+        setRestarting(true)
+        try {
+          const setupResponse = await waitForSetupRuntimeConfigApplied()
+          toast.success(t('Data Proxy restarted. You can continue setup.'))
+          await onConfigSaved?.(setupResponse.data)
+        } catch {
+          toast.error(
+            t('Data Proxy is still restarting. Refresh this page in a moment.')
+          )
+          await onConfigSaved?.()
+        } finally {
+          setRestarting(false)
+        }
         return
       }
 
@@ -257,9 +281,7 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
 
           {databaseType === 'sqlite' ? (
             <div className='space-y-2'>
-              <Label htmlFor='setup-sqlite-path'>
-                {t('SQLite file path')}
-              </Label>
+              <Label htmlFor='setup-sqlite-path'>{t('SQLite file path')}</Label>
               <Input
                 id='setup-sqlite-path'
                 value={sqlitePath}
@@ -409,13 +431,33 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
             onClick={handleSaveRuntimeConfig}
             disabled={!canSave}
           >
-            <Save className='size-4' />
-            {saving ? t('Testing…') : t('Test and save')}
+            {restarting ? (
+              <Loader2 className='size-4 animate-spin' />
+            ) : (
+              <Save className='size-4' />
+            )}
+            {restarting
+              ? t('Restarting…')
+              : saving
+                ? t('Testing…')
+                : t('Test and save')}
           </Button>
         </div>
       </div>
 
-      {restartRequired && (
+      {restarting ? (
+        <Alert className='border-sky-200 bg-sky-50 dark:border-sky-900/60 dark:bg-sky-950/40'>
+          <AlertTitle className='flex items-center gap-2'>
+            <Loader2 className='size-4 animate-spin text-sky-500' />
+            {t('Restarting Data Proxy')}
+          </AlertTitle>
+          <AlertDescription>
+            {t(
+              'Data Proxy is restarting to apply the saved database and Redis settings. This page will continue automatically when the service is back.'
+            )}
+          </AlertDescription>
+        </Alert>
+      ) : restartRequired ? (
         <Alert className='border-sky-200 bg-sky-50 dark:border-sky-900/60 dark:bg-sky-950/40'>
           <AlertTitle className='flex items-center gap-2'>
             <RotateCcw className='size-4 text-sky-500' />
@@ -427,7 +469,7 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
             )}
           </AlertDescription>
         </Alert>
-      )}
+      ) : null}
 
       {status?.database_type === 'sqlite' && (
         <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40'>

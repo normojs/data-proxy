@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import { sleep } from '@/lib/utils'
 import type {
   SetupFormValues,
   SetupResponse,
@@ -45,6 +46,33 @@ export async function saveSetupRuntimeConfig(
 ): Promise<SetupResponse> {
   const res = await api.post('/api/setup/runtime-config', payload)
   return res.data
+}
+
+export async function waitForSetupRuntimeConfigApplied(
+  maxAttempts: number = 60
+): Promise<SetupResponse> {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await sleep(attempt === 0 ? 1500 : 1000)
+
+    try {
+      const response = await getSetupStatus()
+      if (
+        response.success &&
+        response.data &&
+        !response.data.runtime_config_restart_required
+      ) {
+        return response
+      }
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Timed out waiting for Data Proxy restart')
 }
 
 export function buildSetupPayload(

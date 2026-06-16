@@ -561,6 +561,15 @@
   - Done: default quota dialog now resets on close/success, and remounts on open/user changes to start from add mode.
   - Validation: default typecheck passed; targeted default ESLint/prettier passed; classic targeted ESLint passed; `git diff --check` passed.
 
+## P1 - Setup runtime config auto-apply
+
+- [x] Replace the first-run manual restart dead end with container-safe automatic restart.
+  - Acceptance: after the setup wizard saves database/Redis runtime config in Docker, Data Proxy schedules a controlled process exit so Compose can restart the container and the wizard can continue when `/api/setup` is healthy again.
+  - Acceptance: non-container deployments still keep the explicit manual restart prompt instead of attempting risky hot-reload of global DB/Redis state.
+  - Done: `POST /api/setup/runtime-config` now reports restart support/scheduling metadata, schedules one delayed restart in container deployments, and supports `DATA_PROXY_SETUP_AUTO_RESTART=false` as an operations escape hatch.
+  - Done: the setup wizard waits for the restarted service to report `runtime_config_restart_required=false`, shows an automatic restart progress state, and refreshes setup status before allowing the next step.
+  - Validation: `go test ./controller -run 'TestPostSetupRuntimeConfig'`, `cd web/default && bun run typecheck`, targeted setup ESLint/prettier checks, and `git diff --check` passed.
+
 ## Done
 
 - [x] Commit MCP/Bridge, OpenAPI, billing events, wallet ledger, and operations dashboard checkpoint.

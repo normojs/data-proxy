@@ -181,6 +181,12 @@ export const STATIC_I18N_KEYS = [
   'PostgreSQL offers advanced reliability and data integrity for production workloads.',
   'Custom database driver detected.',
   'The setup wizard will use this database during initialization.',
+  'Runtime config saved. Data Proxy is restarting automatically.',
+  'Data Proxy restarted. You can continue setup.',
+  'Data Proxy is still restarting. Refresh this page in a moment.',
+  'Restarting…',
+  'Restarting Data Proxy',
+  'Data Proxy is restarting to apply the saved database and Redis settings. This page will continue automatically when the service is back.',
 
   // Setup wizard — usage mode step
   'External operations',

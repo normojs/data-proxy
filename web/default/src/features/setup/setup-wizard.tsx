@@ -188,8 +188,19 @@ export function SetupWizard() {
     if (currentStep === 0) {
       return (
         <DatabaseStep
+          key={[
+            setupStatus?.database_type,
+            setupStatus?.database_source,
+            setupStatus?.redis_enabled,
+            setupStatus?.redis_configured,
+            setupStatus?.runtime_config_restart_required,
+          ].join(':')}
           status={setupStatus}
-          onConfigSaved={async () => {
+          onConfigSaved={async (status) => {
+            if (status) {
+              setSetupStatus(status)
+              return
+            }
             const result = await refetch()
             if (result.data?.data) {
               setSetupStatus(result.data.data)

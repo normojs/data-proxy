@@ -3,6 +3,7 @@ package controller
 import (
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -10,6 +11,18 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+)
+
+var (
+	setupRuntimeRestartScheduled atomic.Bool
+	setupRuntimeRestartSupported = common.IsRunningInContainer
+	scheduleSetupRuntimeRestart  = func(delay time.Duration) {
+		go func() {
+			time.Sleep(delay)
+			common.SysLog("exiting Data Proxy to apply setup runtime config")
+			os.Exit(0)
+		}()
+	}
 )
 
 type Setup struct {
@@ -202,15 +215,37 @@ func PostSetupRuntimeConfig(c *gin.Context) {
 		return
 	}
 
+	restartScheduled := maybeScheduleSetupRuntimeRestart()
+	message := "运行配置已保存，请重启 Data Proxy 后继续初始化"
+	if restartScheduled {
+		message = "运行配置已保存，Data Proxy 正在自动重启以应用配置"
+	}
+
 	c.JSON(200, gin.H{
 		"success": true,
-		"message": "运行配置已保存，请重启 Data Proxy 后继续初始化",
+		"message": message,
 		"data": gin.H{
-			"database_type":    detectedType,
-			"redis_configured": redisConnString != "",
-			"restart_required": true,
+			"database_type":     detectedType,
+			"redis_configured":  redisConnString != "",
+			"restart_required":  true,
+			"restart_supported": setupRuntimeRestartSupported(),
+			"restart_scheduled": restartScheduled,
+			"restart_delay_ms":  1200,
 		},
 	})
+}
+
+func maybeScheduleSetupRuntimeRestart() bool {
+	if strings.EqualFold(os.Getenv("DATA_PROXY_SETUP_AUTO_RESTART"), "false") {
+		return false
+	}
+	if !setupRuntimeRestartSupported() {
+		return false
+	}
+	if setupRuntimeRestartScheduled.CompareAndSwap(false, true) {
+		scheduleSetupRuntimeRestart(1200 * time.Millisecond)
+	}
+	return true
 }
 
 func PostSetup(c *gin.Context) {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -82,6 +83,31 @@ func TestPostSetupRuntimeConfigSavesSQLiteConfigAndRequiresRestart(t *testing.T)
 	require.NotZero(t, cfg.UpdatedAt)
 }
 
+func TestPostSetupRuntimeConfigSchedulesContainerRestart(t *testing.T) {
+	tempDir := withSetupRuntimeConfigTestState(t)
+	runtimeConfigPath := filepath.Join(tempDir, "runtime-config.json")
+	sqlitePath := filepath.Join(tempDir, "data-proxy.db")
+	t.Setenv("DATA_PROXY_RUNTIME_CONFIG", runtimeConfigPath)
+
+	restartDelayCalled := false
+	setupRuntimeRestartSupported = func() bool { return true }
+	scheduleSetupRuntimeRestart = func(delay time.Duration) {
+		restartDelayCalled = true
+		require.Equal(t, 1200*time.Millisecond, delay)
+	}
+
+	recorder := postSetupRuntimeConfig(t, map[string]any{
+		"database_type": "sqlite",
+		"sqlite_path":   sqlitePath,
+	})
+
+	response := decodeSetupRuntimeConfigResponse(t, recorder)
+	require.True(t, response.Success)
+	require.Contains(t, response.Message, "正在自动重启")
+	require.True(t, restartDelayCalled)
+	require.Contains(t, recorder.Body.String(), `"restart_scheduled":true`)
+}
+
 func withSetupRuntimeConfigTestState(t *testing.T) string {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -90,22 +116,30 @@ func withSetupRuntimeConfigTestState(t *testing.T) string {
 	originalRuntimeConfigLoaded := common.RuntimeConfigLoaded
 	originalRuntimeConfigPath := common.RuntimeConfigPath
 	originalRuntimeConfigRestartRequired := common.RuntimeConfigRestartRequired
+	originalRestartSupported := setupRuntimeRestartSupported
+	originalScheduleRestart := scheduleSetupRuntimeRestart
 	tempDir := t.TempDir()
 
 	constant.Setup = false
 	common.RuntimeConfigLoaded = false
 	common.RuntimeConfigPath = ""
 	common.RuntimeConfigRestartRequired = false
+	setupRuntimeRestartScheduled.Store(false)
+	setupRuntimeRestartSupported = func() bool { return false }
 	t.Setenv("SQL_DSN", "")
 	t.Setenv("LOG_SQL_DSN", "")
 	t.Setenv("REDIS_CONN_STRING", "")
 	t.Setenv("SQLITE_PATH", "")
+	t.Setenv("DATA_PROXY_SETUP_AUTO_RESTART", "")
 
 	t.Cleanup(func() {
 		constant.Setup = originalSetup
 		common.RuntimeConfigLoaded = originalRuntimeConfigLoaded
 		common.RuntimeConfigPath = originalRuntimeConfigPath
 		common.RuntimeConfigRestartRequired = originalRuntimeConfigRestartRequired
+		setupRuntimeRestartScheduled.Store(false)
+		setupRuntimeRestartSupported = originalRestartSupported
+		scheduleSetupRuntimeRestart = originalScheduleRestart
 	})
 	return tempDir
 }
