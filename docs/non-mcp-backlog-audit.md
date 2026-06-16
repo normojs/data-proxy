@@ -123,6 +123,11 @@ Responses compact currently use explicit not-implemented handling. These should
 stay explicit 501-style responses until product decides to proxy or implement
 those APIs.
 
+The OpenAI-compatible route subset is now regression-covered: controller tests
+lock the OpenAI-style 501 response shape and router tests lock route
+registration to the explicit `RelayNotImplemented` handler so these routes do
+not drift to 404 or generic relay handling accidentally.
+
 ### Provider adaptor unsupported feature errors
 
 Source: `relay/channel/*/adaptor.go`, `relay/channel/unsupported.go`

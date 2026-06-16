@@ -2,12 +2,15 @@
 
 ## P2 - Intentional unsupported route guardrails
 
-- [ ] Cover OpenAI-compatible intentionally unsupported relay response shape.
+- [x] Cover OpenAI-compatible intentionally unsupported relay response shape.
   - Acceptance: `controller.RelayNotImplemented` returns HTTP 501 with stable OpenAI-style error code/type/message.
-- [ ] Cover intentionally unsupported relay route registration.
+  - Done: added controller coverage for HTTP 501 plus `api_not_implemented` / `new_api_error` / `API not implemented` response fields.
+- [x] Cover intentionally unsupported relay route registration.
   - Acceptance: `/v1/files`, `/v1/fine-tunes`, `/v1/images/variations`, and delete-model routes remain registered to the explicit not-implemented handler rather than drifting to 404 or a generic relay path.
-- [ ] Validate route guardrails and update audit notes.
+  - Done: added router registration coverage for files, fine-tunes, image variations, and model delete paths to ensure they stay wired to `controller.RelayNotImplemented`.
+- [x] Validate route guardrails and update audit notes.
   - Acceptance: targeted controller/router tests pass and the backlog audit records that explicit 501 routes are now regression-covered.
+  - Done: `go test ./controller ./router -run 'TestRelayNotImplemented|TestRelayNotImplementedRoutes'` and `git diff --check` passed; `docs/non-mcp-backlog-audit.md` now records the explicit route guardrail coverage.
 
 ## P2 - Residual TODO comment cleanup
 
