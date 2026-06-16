@@ -8,8 +8,12 @@
 - [x] Validate and commit dirty ownership handling.
   - Acceptance: benchmark tool syntax check, secret scan, whitespace check, and git status confirm only intended files are staged/committed.
   - Done: `node --check tools/fusion-benchmark.mjs`, `node tools/fusion-benchmark.mjs help`, sensitive pattern scan over staged benchmark files, and `git diff --check` passed; staged files exclude `.env.local`, `runs/`, and `reports/`.
-- [ ] Run release preflight after the ownership commit.
+- [x] Run release preflight after the ownership commit.
   - Acceptance: default deployment preflight passes or any failure is documented with exact command and next fix.
+  - Done: `make deployment-preflight` passed `go test ./...`, `make build-all-frontends`, production Compose config, and dev Compose config before being interrupted at the Docker daemon gate because `docker version >/dev/null` hung on Server response.
+  - Done: follow-up checks passed for `gtimeout 20 docker compose config`, `gtimeout 20 docker compose -f docker-compose.dev.yml config`, `gtimeout 10 docker buildx version`, and `git diff --check`; `gtimeout 10 docker version` still timed out after printing Docker Client info only, so release image validation is blocked on local Docker daemon responsiveness.
+- [ ] Restore Docker daemon responsiveness before tagging a release image.
+  - Acceptance: `docker version`, `docker info`, default `make deployment-preflight`, and optional `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight` complete without hanging.
 
 ## P1 - MCP market mock example polish
 
