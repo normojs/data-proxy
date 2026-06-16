@@ -61,6 +61,10 @@ Docker Desktop daemon state: `docker version` prints client information and
 then hangs before server information, while Docker's Unix socket responds with
 `Docker Desktop is unable to start`.
 
+Recheck on 2026-06-16: `gtimeout 15 docker version` and `gtimeout 15 docker
+info` still time out while reading Server information, and the Unix socket still
+returns `Docker Desktop is unable to start`.
+
 Before publishing a release image, recover Docker Desktop on the release host,
 then rerun the default preflight and the opt-in Docker image build. A release
 tag should only be cut after both commands complete without hanging.

@@ -21,6 +21,7 @@
 - [ ] Restore Docker daemon responsiveness before tagging a release image.
   - Acceptance: `docker version`, `docker info`, default `make deployment-preflight`, and optional `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight` complete without hanging.
   - Current status: Docker Desktop remains a local environment blocker. `ps` shows long-running `com.docker.backend`, `com.docker.build`, and `docker-sandbox daemon start` processes; `gtimeout 10 docker version` prints client info then times out before server info; `curl --unix-socket /Users/fushilu/.docker/run/docker.sock http://localhost/_ping` returns `Docker Desktop is unable to start`.
+  - Rechecked 2026-06-16: `gtimeout 15 docker version` and `gtimeout 15 docker info` still time out while reading Server information; Docker's Unix socket still returns `Docker Desktop is unable to start`.
   - Next action: recover Docker Desktop at the host level, then rerun `docker version`, `docker info`, `make deployment-preflight`, and `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight`. Do not tag or publish a release image until this gate passes.
 
 ## P1 - Runtime brand residual audit
