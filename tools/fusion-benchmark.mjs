@@ -1319,8 +1319,53 @@ function requestLogRows(records) {
     .sort((a, b) => b.total_cost_usd - a.total_cost_usd);
 }
 
+const reportColumnLabels = {
+  model: "模型",
+  fusion: "Fusion 组合",
+  category: "类别",
+  n: "样本数",
+  score: "得分",
+  solved: "答对数",
+  total_cost_usd: "总成本 USD",
+  avg_cost_usd: "平均成本 USD",
+  cost_per_solved_usd: "每答对成本 USD",
+  p50_latency_ms: "p50 延迟 ms",
+  p95_latency_ms: "p95 延迟 ms",
+  early_exit_rate: "早停率",
+  p50_panel_max_latency_ms: "panel 最大 p50 ms",
+  p50_judge_latency_ms: "judge p50 ms",
+  p50_final_latency_ms: "final p50 ms",
+  failure_rate: "失败率",
+  judge_json_validity: "judge JSON 有效率",
+  all_panel_failure_rate: "panel 全失败率",
+  degradation_rate_vs_best_chinese_single: "相对最佳中国单模型退化率",
+  win_rate_vs_gpt55: "对 GPT-5.5 胜率",
+  wins_vs_gpt55: "胜 GPT-5.5",
+  losses_vs_gpt55: "负 GPT-5.5",
+  ties_vs_gpt55: "平 GPT-5.5",
+  target_model: "目标模型",
+  baseline_model: "基准模型",
+  judge_model: "裁判模型",
+  win_rate: "胜率",
+  wins: "胜",
+  losses: "负",
+  ties: "平",
+  invalid: "无效"
+};
+
+const reportCategoryLabels = {
+  business_reasoning: "业务推理",
+  coding: "代码",
+  data_analysis: "数据分析",
+  instruction_following: "指令遵循",
+  long_context: "长上下文",
+  reasoning: "推理",
+  language: "语言",
+  math: "数学"
+};
+
 function markdownTable(rows, columns) {
-  const header = `| ${columns.join(" | ")} |`;
+  const header = `| ${columns.map((col) => reportColumnLabels[col] || col).join(" | ")} |`;
   const sep = `| ${columns.map(() => "---").join(" | ")} |`;
   const lines = rows.map((row) =>
     `| ${columns
@@ -1334,6 +1379,7 @@ function markdownTable(rows, columns) {
           return Number.isInteger(v) ? String(v) : v.toFixed(2);
         }
         if (v === null || v === undefined) return "";
+        if (col === "category") return reportCategoryLabels[v] || String(v);
         return String(v);
       })
       .join(" | ")} |`
@@ -1376,28 +1422,28 @@ function report(argv) {
     const beatsGpt = gptComparable ? row.score > gpt.score : false;
     const passNearGptCost = nearGpt && costRatio !== null && costRatio <= config.successCriteria.maxCostRatioVsGpt55;
     const shouldProceed = passLift || beatsGpt || passNearGptCost;
-    const verdict = shouldProceed ? (enoughEvidenceForArchitecture ? "PROCEED" : "EXPAND_EVAL") : "HOLD";
+    const verdict = shouldProceed ? (enoughEvidenceForArchitecture ? "可进入架构设计" : "扩大评测") : "暂缓";
     verdictLines.push(
-      `- ${row.model}: ${verdict}; lift_vs_best_chinese=${(lift * 100).toFixed(
+      `- ${row.model}: ${verdict}；相对最佳中国单模型提升=${(lift * 100).toFixed(
         1
-      )}%${bestChinese ? ` (${bestChinese.model})` : ""}; cost_ratio_vs_gpt55=${
-        costRatio === null ? "n/a" : `${(costRatio * 100).toFixed(1)}%`
-      }; evidence=${objectiveQuestionCount}/${minArchitectureQuestions}; gpt55_comparison=${
-        gptComparable ? "available" : "unavailable"
+      )}%${bestChinese ? `（${bestChinese.model}）` : ""}；相对 GPT-5.5 成本=${
+        costRatio === null ? "无对照" : `${(costRatio * 100).toFixed(1)}%`
+      }；证据量=${objectiveQuestionCount}/${minArchitectureQuestions}；GPT-5.5 对照=${
+        gptComparable ? "可用" : "不可用"
       }`
     );
   }
 
   const md = [
-    "# Fusion Benchmark Report",
+    "# Fusion 评测报告",
     "",
-    `Generated: ${new Date().toISOString()}`,
+    `生成时间：${new Date().toISOString()}`,
     "",
-    "## Verdict",
+    "## 结论",
     "",
-    verdictLines.join("\n") || "- No Fusion records found.",
+    verdictLines.join("\n") || "- 没有找到 Fusion 评测记录。",
     "",
-    "## Model Summary",
+    "## 模型汇总",
     "",
     markdownTable(modelRows, [
       "model",
@@ -1418,11 +1464,11 @@ function report(argv) {
       "all_panel_failure_rate"
     ]),
     "",
-    "## Category Summary",
+    "## 分类汇总",
     "",
     markdownTable(catRows, ["category", "model", "n", "score"]),
     "",
-    "## Fusion Comparisons",
+    "## Fusion 对比",
     "",
     markdownTable(compRows, [
       "fusion",
@@ -1433,7 +1479,7 @@ function report(argv) {
       "ties_vs_gpt55"
     ]),
     "",
-    "## Pairwise Summary",
+    "## 两两对比",
     "",
     pairRows.length
       ? markdownTable(pairRows, [
@@ -1452,9 +1498,9 @@ function report(argv) {
           "p50_latency_ms",
           "p95_latency_ms"
         ])
-      : "- No pairwise records found.",
+      : "- 没有找到两两对比记录。",
     "",
-    "## Request Cost And Latency",
+    "## 请求成本与延迟",
     "",
     requestRows.length
       ? markdownTable(requestRows, [
@@ -1468,7 +1514,7 @@ function report(argv) {
           "judge_json_validity",
           "all_panel_failure_rate"
         ])
-      : "- No request logs found.",
+      : "- 没有找到请求日志记录。",
     ""
   ].join("\n");
 
