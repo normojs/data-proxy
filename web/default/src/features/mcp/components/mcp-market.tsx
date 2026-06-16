@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { BookOpen, Code2, PlugZap, ReceiptText } from 'lucide-react'
@@ -37,7 +37,7 @@ import {
 import { mcpQueryError, mcpQueryErrorMessage } from '../lib/query-errors'
 import type { MCPTool } from '../types'
 import { JsonDetailDialog } from './json-detail-dialog'
-import { ToolSourceBadge } from './table-cells'
+import { ToolCategoryBadge, ToolSourceBadge } from './table-cells'
 
 type SchemaProperty = {
   type?: string | string[]
@@ -168,11 +168,7 @@ function MarketToolRow(props: {
         <ToolSourceBadge source={props.tool.source} />
       </span>
       <span className='flex flex-wrap items-center gap-2 text-xs'>
-        <StatusBadge
-          label={props.tool.category || '-'}
-          autoColor={props.tool.category || undefined}
-          copyable={false}
-        />
+        <ToolCategoryBadge category={props.tool.category} />
         <span className='text-muted-foreground tabular-nums'>
           {props.tool.price_per_call.toFixed(4)}{' '}
           {t(getPriceUnitLabel(props.tool.price_unit))}
@@ -230,7 +226,10 @@ function MarketToolDetail(props: {
         </div>
 
         <div className='grid gap-3 sm:grid-cols-2'>
-          <DetailField label={t('Category')} value={tool.category || '-'} />
+          <DetailField
+            label={t('Category')}
+            value={<ToolCategoryBadge category={tool.category} />}
+          />
           <DetailField
             label={t('Source')}
             value={t(getCapabilityBadges(tool)[0]?.labelKey || tool.source)}
@@ -290,11 +289,11 @@ function MarketToolDetail(props: {
   )
 }
 
-function DetailField(props: { label: string; value: string }) {
+function DetailField(props: { label: string; value: ReactNode }) {
   return (
     <div className='min-w-0'>
       <div className='text-muted-foreground text-xs'>{props.label}</div>
-      <div className='truncate text-sm font-medium'>{props.value}</div>
+      <div className='min-w-0 truncate text-sm font-medium'>{props.value}</div>
     </div>
   )
 }

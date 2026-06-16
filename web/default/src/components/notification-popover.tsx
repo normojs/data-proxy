@@ -44,6 +44,9 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface AnnouncementItem {
+  notificationKey?: string
+  read?: boolean
+  mustRead?: boolean
   type?: string
   content?: string
   extra?: string
@@ -59,6 +62,8 @@ interface NotificationPopoverProps {
   notice: string
   announcements: AnnouncementItem[]
   loading: boolean
+  onMarkAllAnnouncementsAsRead?: () => void
+  onMarkAnnouncementRead?: (key: string) => void
   className?: string
 }
 
@@ -195,10 +200,14 @@ function NoticeContent({
 function AnnouncementsContent({
   announcements,
   loading,
+  onMarkAllAnnouncementsAsRead,
+  onMarkAnnouncementRead,
   t,
 }: {
   announcements: AnnouncementItem[]
   loading: boolean
+  onMarkAllAnnouncementsAsRead?: () => void
+  onMarkAnnouncementRead?: (key: string) => void
   t: TFunction
 }) {
   if (loading) {
@@ -217,9 +226,27 @@ function AnnouncementsContent({
     )
   }
 
+  const hasUnread = announcements.some((item) => !item.read)
+
   return (
     <ScrollArea className='h-[min(52vh,28rem)] pr-3'>
       <div className='flex flex-col'>
+        <div className='flex items-center justify-between gap-2 pb-2'>
+          <span className='text-muted-foreground text-xs'>
+            {t('{{count}} unread announcements', {
+              count: announcements.filter((item) => !item.read).length,
+            })}
+          </span>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            disabled={!hasUnread}
+            onClick={onMarkAllAnnouncementsAsRead}
+          >
+            {t('Mark all as read')}
+          </Button>
+        </div>
         {announcements.map((item, idx) => {
           const publishDate = item.publishDate
             ? new Date(item.publishDate)
@@ -237,6 +264,18 @@ function AnnouncementsContent({
                 <div className='flex items-start gap-3'>
                   <AnnouncementDot type={item.type} />
                   <div className='flex min-w-0 flex-1 flex-col gap-2'>
+                    <div className='flex flex-wrap items-center gap-1.5'>
+                      {item.mustRead ? (
+                        <Badge variant='secondary'>
+                          {t('Required reading')}
+                        </Badge>
+                      ) : null}
+                      {!item.read ? (
+                        <Badge variant='outline'>{t('Unread')}</Badge>
+                      ) : (
+                        <Badge variant='outline'>{t('Read')}</Badge>
+                      )}
+                    </div>
                     <div className='text-sm'>
                       <Markdown>{item.content || ''}</Markdown>
                     </div>
@@ -251,6 +290,20 @@ function AnnouncementsContent({
                       <div className='text-muted-foreground text-xs'>
                         {relativeTime ? `${relativeTime} • ` : null}
                         {absoluteTime}
+                      </div>
+                    ) : null}
+                    {!item.read && item.notificationKey ? (
+                      <div>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='outline'
+                          onClick={() =>
+                            onMarkAnnouncementRead?.(item.notificationKey!)
+                          }
+                        >
+                          {t('Mark as read')}
+                        </Button>
                       </div>
                     ) : null}
                   </div>
@@ -277,6 +330,8 @@ export function NotificationPopover({
   notice,
   announcements,
   loading,
+  onMarkAllAnnouncementsAsRead,
+  onMarkAnnouncementRead,
   className,
 }: NotificationPopoverProps) {
   const { t } = useTranslation()
@@ -338,6 +393,8 @@ export function NotificationPopover({
             <AnnouncementsContent
               announcements={announcements}
               loading={loading}
+              onMarkAllAnnouncementsAsRead={onMarkAllAnnouncementsAsRead}
+              onMarkAnnouncementRead={onMarkAnnouncementRead}
               t={t}
             />
           </TabsContent>

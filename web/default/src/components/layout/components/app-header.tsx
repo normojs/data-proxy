@@ -136,6 +136,12 @@ export function AppHeader({
                 notice={notifications.notice}
                 announcements={notifications.announcements}
                 loading={notifications.loading}
+                onMarkAllAnnouncementsAsRead={() =>
+                  notifications.markAnnouncementsAsRead()
+                }
+                onMarkAnnouncementRead={(key) =>
+                  notifications.markAnnouncementsAsRead([key])
+                }
               />
             )}
             <LanguageSwitcher />

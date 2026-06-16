@@ -1,5 +1,20 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Currency, announcements, and MCP guidance
+
+- [x] Add an optional free USD exchange-rate refresh path for pricing display.
+  - Acceptance: operators can fetch the current USD-to-payment-currency rate on demand, enable automatic background refresh, and keep manual rates available when the free provider is unavailable.
+  - Done: added the Frankfurter free public provider integration, root-only `/api/option/exchange-rate/fetch`, 12-hour master-node auto-update task, status fields, pricing UI controls, and Chinese/English copy for manual/automatic update states.
+- [x] Add required-reading announcements with explicit read controls.
+  - Acceptance: announcement editors can mark a system announcement as required reading; logged-in users can mark one or all announcements as read; required announcements are not silently marked read just by opening the notification center.
+  - Done: added persisted per-user announcement read state, notification read APIs, required-reading validation, management UI checkbox/table column, notification popover badges, single-read and mark-all-read actions, and localStorage fallback for anonymous/offline paths.
+- [x] Replace color-only MCP categories and explain MCP pages.
+  - Acceptance: MCP category display uses icons plus text instead of category color alone; every MCP subpage has concise purpose copy; the MCP horizontal section navigation remains tidy at narrow widths.
+  - Done: added stable lucide icon category badges, reused them in the MCP market list/detail, added registry-backed MCP section descriptions, and changed MCP tabs to horizontal scrolling instead of wrapped rows.
+- [x] Validate and commit this batch.
+  - Acceptance: Go formatting/tests, frontend typecheck, locale JSON parsing, and whitespace checks pass; commit excludes unrelated local `.gitignore` and benchmark files.
+  - Done: `go test ./model ./controller ./router ./service`, locale JSON parse, `cd web/default && bun run typecheck`, and `git diff --check` passed. The commit excludes unrelated local `.gitignore` and benchmark files.
+
 ## P1 - First-run dependency setup wizard
 
 - [x] Move first-install database and Redis configuration into the setup wizard.

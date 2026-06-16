@@ -20,6 +20,8 @@ import { api } from '@/lib/api'
 import type {
   ConfirmPaymentComplianceResponse,
   DeleteLogsResponse,
+  FetchExchangeRateRequest,
+  FetchExchangeRateResponse,
   FetchUpstreamRatiosRequest,
   SystemOptionsResponse,
   UpdateOptionRequest,
@@ -36,6 +38,14 @@ export async function getSystemOptions() {
 
 export async function updateSystemOption(request: UpdateOptionRequest) {
   const res = await api.put<UpdateOptionResponse>('/api/option/', request)
+  return res.data
+}
+
+export async function fetchExchangeRate(request: FetchExchangeRateRequest) {
+  const res = await api.post<FetchExchangeRateResponse>(
+    '/api/option/exchange-rate/fetch',
+    request
+  )
   return res.data
 }
 

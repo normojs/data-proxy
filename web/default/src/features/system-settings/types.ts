@@ -39,6 +39,22 @@ export type UpdateOptionResponse = {
   message: string
 }
 
+export type FetchExchangeRateRequest = {
+  currency_code?: string
+}
+
+export type FetchExchangeRateResponse = {
+  success: boolean
+  message: string
+  data?: {
+    currency_code: string
+    rate: number
+    provider: string
+    updated_at: number
+    option_key: string
+  }
+}
+
 export type UploadSystemLogoResponse = {
   success: boolean
   message: string
@@ -205,7 +221,11 @@ export type BillingSettings = {
   USDExchangeRate: number
   'general_setting.quota_display_type': string
   'general_setting.custom_currency_symbol': string
+  'general_setting.custom_currency_code': string
   'general_setting.custom_currency_exchange_rate': number
+  'general_setting.exchange_rate_auto_update_enabled': boolean
+  'general_setting.exchange_rate_auto_updated_at': number
+  'general_setting.exchange_rate_provider': string
   DisplayInCurrencyEnabled: boolean
   DisplayTokenStatEnabled: boolean
   ModelPrice: string

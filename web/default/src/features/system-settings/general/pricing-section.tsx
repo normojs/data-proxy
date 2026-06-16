@@ -19,8 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 import * as z from 'zod'
 import type { Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
+import { formatDateTimeObject } from '@/lib/time'
+import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
@@ -40,6 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { fetchExchangeRate } from '../api'
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
 import {
@@ -65,10 +71,19 @@ const createPricingSchema = (t: (key: string) => string) =>
       general_setting: z.object({
         quota_display_type: z.enum(['USD', 'CNY', 'TOKENS', 'CUSTOM']),
         custom_currency_symbol: z.string().max(8).optional(),
+        custom_currency_code: z
+          .string()
+          .trim()
+          .regex(/^[A-Za-z]{3}$/, t('Use a three-letter ISO currency code'))
+          .optional()
+          .or(z.literal('')),
         custom_currency_exchange_rate: z.coerce
           .number()
           .min(0.0001, t('Exchange rate must be greater than 0'))
           .optional(),
+        exchange_rate_auto_update_enabled: z.boolean(),
+        exchange_rate_auto_updated_at: z.coerce.number().optional(),
+        exchange_rate_provider: z.string().optional(),
       }),
     })
     .superRefine((data, ctx) => {
@@ -80,6 +95,14 @@ const createPricingSchema = (t: (key: string) => string) =>
             code: z.ZodIssueCode.custom,
             path: ['general_setting', 'custom_currency_symbol'],
             message: t('Custom currency symbol is required'),
+          })
+        }
+
+        if (!data.general_setting.custom_currency_code?.trim()) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['general_setting', 'custom_currency_code'],
+            message: t('Custom currency code is required'),
           })
         }
 
@@ -102,9 +125,9 @@ type PricingSectionProps = {
 export function PricingSection({ defaultValues }: PricingSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const queryClient = useQueryClient()
 
   const pricingSchema = createPricingSchema(t)
-
   const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
     useSettingsForm<PricingFormValues>({
       resolver: zodResolver(pricingSchema) as Resolver<
@@ -134,8 +157,63 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
       },
     })
 
+  const fetchRate = useMutation({
+    mutationFn: (currencyCode?: string) =>
+      fetchExchangeRate({ currency_code: currencyCode }),
+    onSuccess: (response) => {
+      if (!response.success || !response.data) {
+        toast.error(response.message || t('Exchange rate provider unavailable'))
+        return
+      }
+      const data = response.data
+      if (data.option_key === 'USDExchangeRate') {
+        form.setValue('USDExchangeRate', data.rate, {
+          shouldDirty: false,
+          shouldValidate: true,
+        })
+      } else {
+        form.setValue(
+          'general_setting.custom_currency_exchange_rate',
+          data.rate,
+          { shouldDirty: false, shouldValidate: true }
+        )
+        form.setValue(
+          'general_setting.custom_currency_code',
+          data.currency_code,
+          {
+            shouldDirty: false,
+            shouldValidate: true,
+          }
+        )
+      }
+      form.setValue('general_setting.exchange_rate_provider', data.provider, {
+        shouldDirty: false,
+      })
+      form.setValue(
+        'general_setting.exchange_rate_auto_updated_at',
+        data.updated_at,
+        {
+          shouldDirty: false,
+        }
+      )
+      queryClient.invalidateQueries({ queryKey: ['system-options'] })
+      queryClient.invalidateQueries({ queryKey: ['status'] })
+      toast.success(t('Exchange rate updated'))
+    },
+    onError: () => {
+      toast.error(t('Exchange rate provider unavailable'))
+    },
+  })
+
   const displayType = form.watch('general_setting.quota_display_type') ?? 'USD'
+  const customCurrencyCode =
+    form.watch('general_setting.custom_currency_code') ?? 'CNY'
+  const exchangeRateUpdatedAt =
+    form.watch('general_setting.exchange_rate_auto_updated_at') ?? 0
+  const exchangeRateProvider =
+    form.watch('general_setting.exchange_rate_provider') ?? 'frankfurter'
   const displayInCurrencyEnabled = form.watch('DisplayInCurrencyEnabled')
+  const canFetchExchangeRate = displayType === 'CNY' || displayType === 'CUSTOM'
   const showTokensOnlyOption = displayType === 'TOKENS'
   const showQuotaPerUnit =
     displayType === 'TOKENS' ||
@@ -233,13 +311,41 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                 name='USDExchangeRate'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      {displayType === 'CNY'
-                        ? t('CNY per USD')
-                        : displayType === 'USD'
-                          ? t('USD Exchange Rate')
-                          : t('USD Exchange Rate')}
-                    </FormLabel>
+                    <div className='flex flex-wrap items-center justify-between gap-2'>
+                      <FormLabel>
+                        {displayType === 'CNY'
+                          ? t('CNY per USD')
+                          : displayType === 'USD'
+                            ? t('USD Exchange Rate')
+                            : t('USD Exchange Rate')}
+                      </FormLabel>
+                      {canFetchExchangeRate ? (
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={() =>
+                            fetchRate.mutate(
+                              displayType === 'CUSTOM'
+                                ? customCurrencyCode
+                                : 'CNY'
+                            )
+                          }
+                          disabled={fetchRate.isPending}
+                        >
+                          <RefreshCw
+                            className={
+                              fetchRate.isPending
+                                ? 'size-4 animate-spin'
+                                : 'size-4'
+                            }
+                          />
+                          {fetchRate.isPending
+                            ? t('Fetching rate...')
+                            : t('Fetch current rate')}
+                        </Button>
+                      ) : null}
+                    </div>
                     <FormControl>
                       <Input
                         type='number'
@@ -287,6 +393,35 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                 />
                 <FormField
                   control={form.control}
+                  name='general_setting.custom_currency_code'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Custom currency code')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='text'
+                          value={field.value ?? ''}
+                          onChange={(event) =>
+                            field.onChange(event.target.value.toUpperCase())
+                          }
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                          maxLength={3}
+                          placeholder={t('e.g. CNY, HKD, EUR')}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Use a three-letter ISO code such as CNY, HKD, EUR, or JPY when fetching rates.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
                   name='general_setting.custom_currency_exchange_rate'
                   render={({ field }) => (
                     <FormItem>
@@ -317,6 +452,39 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                   )}
                 />
               </div>
+            )}
+
+            {displayType !== 'TOKENS' && (
+              <FormField
+                control={form.control}
+                name='general_setting.exchange_rate_auto_update_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Auto update exchange rate')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Updates the USD exchange rate automatically using a free public provider when available.'
+                        )}
+                      </FormDescription>
+                      <div className='text-muted-foreground mt-1 text-xs'>
+                        {t('Provider')}: {exchangeRateProvider || '-'}
+                        {exchangeRateUpdatedAt > 0
+                          ? ` · ${t('Last updated')}: ${formatDateTimeObject(
+                              new Date(exchangeRateUpdatedAt * 1000)
+                            )}`
+                          : null}
+                      </div>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
             )}
 
             {showDisplayInCurrencyOption && (

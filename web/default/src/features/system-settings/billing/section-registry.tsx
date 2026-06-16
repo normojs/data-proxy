@@ -93,8 +93,19 @@ const BILLING_SECTIONS = [
             ),
             custom_currency_symbol:
               settings['general_setting.custom_currency_symbol'] ?? '¤',
+            custom_currency_code:
+              settings['general_setting.custom_currency_code'] ?? 'CNY',
             custom_currency_exchange_rate:
               settings['general_setting.custom_currency_exchange_rate'] ?? 1,
+            exchange_rate_auto_update_enabled:
+              settings[
+                'general_setting.exchange_rate_auto_update_enabled'
+              ] ?? false,
+            exchange_rate_auto_updated_at:
+              settings['general_setting.exchange_rate_auto_updated_at'] ?? 0,
+            exchange_rate_provider:
+              settings['general_setting.exchange_rate_provider'] ??
+              'frankfurter',
           },
         }}
       />

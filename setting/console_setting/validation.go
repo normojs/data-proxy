@@ -180,6 +180,11 @@ func validateAnnouncements(announcementsStr string) error {
 				return fmt.Errorf("第%d个公告的说明长度不能超过200字符", i+1)
 			}
 		}
+		if mustRead, exists := ann["mustRead"]; exists {
+			if _, ok := mustRead.(bool); !ok {
+				return fmt.Errorf("第%d个公告的必读字段必须为布尔值", i+1)
+			}
+		}
 	}
 	return nil
 }

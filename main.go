@@ -122,6 +122,9 @@ func main() {
 	// OpenAPI binary response object cleanup task (enabled by TTL env)
 	service.StartMCPOpenAPIBinaryObjectCleanupTask()
 
+	// Currency display exchange rate auto-update task (admin-configurable)
+	service.StartExchangeRateAutoUpdateTask()
+
 	// Wire task polling adaptor factory (breaks service -> relay import cycle)
 	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
 		a := relay.GetTaskAdaptor(platform)

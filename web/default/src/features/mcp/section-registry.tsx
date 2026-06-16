@@ -32,51 +32,71 @@ export const MCP_SECTIONS = [
   {
     id: 'market',
     titleKey: 'MCP Market',
+    descriptionKey:
+      'Browse enabled MCP tools, inspect schemas, and open related billing records.',
     build: () => <MCPMarket />,
   },
   {
     id: 'overview',
     titleKey: 'Overview',
+    descriptionKey:
+      'Monitor MCP health, recent activity, billing risk, and items that need operator review.',
     build: () => <MCPOverview />,
   },
   {
     id: 'tools',
     titleKey: 'MCP Tools',
+    descriptionKey:
+      'Manage server-side, OpenAPI, proxy, and bridge-exposed tools available to users.',
     build: () => <MCPToolsTable />,
   },
   {
     id: 'openapi-objects',
     titleKey: 'OpenAPI Objects',
+    descriptionKey:
+      'Review stored binary OpenAPI responses and download objects created by tool calls.',
     build: () => <OpenAPIBinaryObjectsTable />,
   },
   {
     id: 'proxy-servers',
     titleKey: 'Proxy Servers',
+    descriptionKey:
+      'Configure remote MCP servers, test transports, and run discovery or health checks.',
     build: () => <MCPProxyServersTable />,
   },
   {
     id: 'proxy-tools',
     titleKey: 'Proxy Tools',
+    descriptionKey:
+      'Review discovered proxy tools, downstream schema mappings, exposure status, and health.',
     build: () => <MCPProxyToolsTable />,
   },
   {
     id: 'bridge-clients',
     titleKey: 'Bridge Clients',
+    descriptionKey:
+      'Inspect local Bridge clients, heartbeats, workspace exposure, and write permissions.',
     build: () => <BridgeClientsTable />,
   },
   {
     id: 'tool-calls',
     titleKey: 'Tool Calls',
+    descriptionKey:
+      'Trace MCP tool invocations, durations, errors, settlement state, and downstream metadata.',
     build: () => <ToolCallsTable />,
   },
   {
     id: 'billing-events',
     titleKey: 'Billing Events',
+    descriptionKey:
+      'Audit MCP billing events, quota movement, ledger state, and reconciliation signals.',
     build: () => <BillingEventsTable />,
   },
   {
     id: 'audit-logs',
     titleKey: 'Bridge Audit Logs',
+    descriptionKey:
+      'Review Bridge request audit logs for remote client activity and policy decisions.',
     build: () => <AuditLogsTable />,
   },
 ] as const

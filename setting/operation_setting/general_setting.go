@@ -18,8 +18,16 @@ type GeneralSetting struct {
 	QuotaDisplayType string `json:"quota_display_type"`
 	// 自定义货币符号，用于 CUSTOM 展示类型
 	CustomCurrencySymbol string `json:"custom_currency_symbol"`
+	// 自定义货币 ISO 4217 代码，用于自动获取汇率
+	CustomCurrencyCode string `json:"custom_currency_code"`
 	// 自定义货币与美元汇率（1 USD = X Custom）
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
+	// 是否使用公共汇率源自动更新展示汇率
+	ExchangeRateAutoUpdateEnabled bool `json:"exchange_rate_auto_update_enabled"`
+	// 最近一次自动或手动汇率更新时间
+	ExchangeRateAutoUpdatedAt int64 `json:"exchange_rate_auto_updated_at"`
+	// 最近一次汇率来源
+	ExchangeRateProvider string `json:"exchange_rate_provider"`
 }
 
 // 默认配置
@@ -29,7 +37,9 @@ var generalSetting = GeneralSetting{
 	PingIntervalSeconds:        60,
 	QuotaDisplayType:           QuotaDisplayTypeUSD,
 	CustomCurrencySymbol:       "¤",
+	CustomCurrencyCode:         "CNY",
 	CustomCurrencyExchangeRate: 1.0,
+	ExchangeRateProvider:       "frankfurter",
 }
 
 func init() {

@@ -35,7 +35,11 @@ const STATUS_RELATED_KEYS = [
   'DisplayTokenStatEnabled',
   'general_setting.quota_display_type',
   'general_setting.custom_currency_symbol',
+  'general_setting.custom_currency_code',
   'general_setting.custom_currency_exchange_rate',
+  'general_setting.exchange_rate_auto_update_enabled',
+  'general_setting.exchange_rate_auto_updated_at',
+  'general_setting.exchange_rate_provider',
 ]
 
 export function useUpdateOption() {

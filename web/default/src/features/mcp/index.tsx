@@ -43,6 +43,7 @@ export function MCPDashboard() {
   const activeSection: MCPSectionId = isMCPSectionId(params.section)
     ? params.section
     : MCP_DEFAULT_SECTION
+  const activeMeta = getMCPSectionMeta(activeSection)
 
   const tabs = useMemo(
     () =>
@@ -68,18 +69,23 @@ export function MCPDashboard() {
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        {t(getMCPSectionMeta(activeSection).titleKey)}
+        {t(activeMeta.titleKey)}
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='space-y-4'>
+          <p className='text-muted-foreground max-w-3xl text-sm leading-6'>
+            {t(activeMeta.descriptionKey)}
+          </p>
           <Tabs value={activeSection} onValueChange={handleSectionChange}>
-            <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
-              {tabs.map((tab) => (
-                <TabsTrigger key={tab.id} value={tab.id}>
-                  {t(tab.titleKey)}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+            <div className='max-w-full overflow-x-auto pb-1'>
+              <TabsList className='w-max min-w-full justify-start group-data-horizontal/tabs:h-9'>
+                {tabs.map((tab) => (
+                  <TabsTrigger key={tab.id} value={tab.id}>
+                    {t(tab.titleKey)}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
           </Tabs>
           {getMCPSectionContent(activeSection)}
         </div>

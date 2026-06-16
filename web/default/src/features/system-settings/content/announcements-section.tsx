@@ -82,6 +82,7 @@ type Announcement = {
   content: string
   publishDate: string
   type: 'default' | 'ongoing' | 'success' | 'warning' | 'error'
+  mustRead?: boolean
   extra?: string
 }
 
@@ -97,6 +98,7 @@ const announcementSchema = z.object({
     .max(500, 'Content must be less than 500 characters'),
   publishDate: z.string().min(1, 'Publish date is required'),
   type: z.enum(['default', 'ongoing', 'success', 'warning', 'error']),
+  mustRead: z.boolean(),
   extra: z
     .string()
     .max(100, 'Extra must be less than 100 characters')
@@ -160,6 +162,7 @@ export function AnnouncementsSection({
       content: '',
       publishDate: new Date().toISOString(),
       type: 'default',
+      mustRead: false,
       extra: '',
     },
   })
@@ -203,6 +206,7 @@ export function AnnouncementsSection({
       content: '',
       publishDate: new Date().toISOString(),
       type: 'default',
+      mustRead: false,
       extra: '',
     })
     setShowDialog(true)
@@ -214,6 +218,7 @@ export function AnnouncementsSection({
       content: announcement.content,
       publishDate: announcement.publishDate,
       type: announcement.type,
+      mustRead: announcement.mustRead ?? false,
       extra: announcement.extra || '',
     })
     setShowDialog(true)
@@ -371,6 +376,7 @@ export function AnnouncementsSection({
                 <TableHead>{t('Content')}</TableHead>
                 <TableHead>{t('Publish Date')}</TableHead>
                 <TableHead>{t('Type')}</TableHead>
+                <TableHead>{t('Required')}</TableHead>
                 <TableHead>{t('Extra')}</TableHead>
                 <TableHead className='w-32'>{t('Actions')}</TableHead>
               </TableRow>
@@ -378,7 +384,7 @@ export function AnnouncementsSection({
             <TableBody>
               {sortedAnnouncements.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className='h-24 text-center'>
+                  <TableCell colSpan={7} className='h-24 text-center'>
                     {t(
                       'No announcements yet. Click "Add Announcement" to create one.'
                     )}
@@ -415,16 +421,23 @@ export function AnnouncementsSection({
                     </TableCell>
                     <TableCell>
                       <StatusBadge
-                        label={
+                        label={t(
                           typeOptions.find(
                             (opt) => opt.value === announcement.type
-                          )?.label
-                        }
+                          )?.label ?? 'Default'
+                        )}
                         variant={
                           typeOptions.find(
                             (opt) => opt.value === announcement.type
                           )?.badgeVariant ?? 'neutral'
                         }
+                        copyable={false}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge
+                        label={announcement.mustRead ? t('Yes') : t('No')}
+                        variant={announcement.mustRead ? 'warning' : 'neutral'}
                         copyable={false}
                       />
                     </TableCell>
@@ -538,7 +551,7 @@ export function AnnouncementsSection({
                               <div
                                 className={`h-3 w-3 rounded-full ${option.color}`}
                               />
-                              {option.label}
+                              {t(option.label)}
                             </div>
                           ),
                         })),
@@ -561,7 +574,7 @@ export function AnnouncementsSection({
                                 <div
                                   className={`h-3 w-3 rounded-full ${option.color}`}
                                 />
-                                {option.label}
+                                {t(option.label)}
                               </div>
                             </SelectItem>
                           ))}
@@ -593,6 +606,27 @@ export function AnnouncementsSection({
                   </FormItem>
                 )}
               />
+              <FormField
+                control={form.control}
+                name='mustRead'
+                render={({ field }) => (
+                  <div className='flex items-start gap-3 rounded-lg border p-3'>
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormItem className='space-y-1'>
+                      <FormLabel>{t('Required reading')}</FormLabel>
+                      <FormDescription>
+                        {t('Users must mark this announcement as read')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  </div>
+                )}
+              />
               <DialogFooter>
                 <Button
                   type='button'
@@ -616,8 +650,10 @@ export function AnnouncementsSection({
             <AlertDialogTitle>{t('Are you sure?')}</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget === 'single'
-                ? 'This announcement will be removed from the list.'
-                : `${selectedIds.length} announcements will be removed from the list.`}
+                ? t('This announcement will be removed from the list.')
+                : t('{{count}} announcements will be removed from the list.', {
+                    count: selectedIds.length,
+                  })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -16,6 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  Code2,
+  Database,
+  FileText,
+  Folder,
+  Globe2,
+  Search,
+  Shield,
+  Terminal,
+  type LucideIcon,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatQuota, formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -35,6 +46,26 @@ import {
   getProxyToolStatusLabel,
   getProxyToolStatusVariant,
 } from '../constants'
+
+const categoryIconRules: Array<{ icon: LucideIcon; tokens: string[] }> = [
+  { icon: Search, tokens: ['search', 'query', '检索', '搜索'] },
+  { icon: Globe2, tokens: ['web', 'http', 'browser', 'url', '网络', '网页'] },
+  { icon: FileText, tokens: ['file', 'doc', 'pdf', 'text', '文件', '文档'] },
+  { icon: Database, tokens: ['data', 'db', 'sql', 'database', '数据'] },
+  { icon: Code2, tokens: ['code', 'dev', 'api', '代码', '开发'] },
+  { icon: Terminal, tokens: ['shell', 'terminal', 'cli', 'command', '终端'] },
+  { icon: Shield, tokens: ['security', 'auth', 'safe', '安全', '权限'] },
+]
+
+function getCategoryIcon(category?: string): LucideIcon {
+  const normalized = (category || '').trim().toLowerCase()
+  if (!normalized) return Folder
+  return (
+    categoryIconRules.find((rule) =>
+      rule.tokens.some((token) => normalized.includes(token))
+    )?.icon ?? Folder
+  )
+}
 
 export function IdCell(props: { value: number | string }) {
   return <TableId value={props.value} className='w-[70px]' />
@@ -157,6 +188,20 @@ export function ToolSourceBadge(props: { source: string }) {
     <StatusBadge
       label={t(getToolSourceLabel(props.source))}
       variant='info'
+      copyable={false}
+    />
+  )
+}
+
+export function ToolCategoryBadge(props: { category?: string }) {
+  const { t } = useTranslation()
+  const label = props.category?.trim() || 'Uncategorized'
+  return (
+    <StatusBadge
+      label={t(label)}
+      icon={getCategoryIcon(label)}
+      variant='neutral'
+      showDot={false}
       copyable={false}
     />
   )
