@@ -66,7 +66,7 @@ export function UpdateCheckerSection({
         {
           headers: {
             Accept: 'application/vnd.github+json',
-            'User-Agent': 'new-api-dashboard',
+            'User-Agent': 'data-proxy-dashboard',
           },
         }
       )

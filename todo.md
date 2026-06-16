@@ -20,6 +20,17 @@
   - Current status: Docker Desktop remains a local environment blocker. `ps` shows long-running `com.docker.backend`, `com.docker.build`, and `docker-sandbox daemon start` processes; `gtimeout 10 docker version` prints client info then times out before server info; `curl --unix-socket /Users/fushilu/.docker/run/docker.sock http://localhost/_ping` returns `Docker Desktop is unable to start`.
   - Next action: recover Docker Desktop at the host level, then rerun `docker version`, `docker info`, `make deployment-preflight`, and `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight`. Do not tag or publish a release image until this gate passes.
 
+## P1 - Runtime brand residual audit
+
+- [x] Audit visible runtime references to upstream New API branding.
+  - Acceptance: distinguish Go module/import paths and upstream attribution from user-visible Data Proxy runtime copy.
+  - Done: `rg` shows many `github.com/QuantumNous/new-api` module paths and upstream docs/links that should remain as source attribution; actionable runtime findings were limited to channel helper copy, stale locale fallback values, and the dashboard update-check User-Agent.
+- [x] Replace actionable runtime brand leftovers.
+  - Acceptance: Chinese and English runtime strings no longer display New API for Data Proxy-owned placeholders, channel helper copy, or default fallback text.
+  - Done: updated channel credential/warning copy to Data Proxy/OpenAI-compatible wording, changed the update-check User-Agent to `data-proxy-dashboard`, and aligned stale Chinese/English locale fallback values for console placeholder, sender placeholder, product name, and welcome text.
+- [ ] Decide whether to maintain upstream README/electron packaging as attribution or create Data Proxy-specific release docs.
+  - Acceptance: repository-level docs and optional desktop packaging have an explicit branding policy so future audits do not mix source attribution with product runtime copy.
+
 ## P1 - MCP market mock example polish
 
 - [x] Add realistic mock examples next to parameter templates.
