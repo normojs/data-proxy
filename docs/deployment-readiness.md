@@ -20,6 +20,11 @@ The default gate runs:
 only the newer `web/default` frontend; release and deployment builds no longer
 build or package a legacy UI.
 
+Before preparing operator-facing release notes or images, apply the branding
+rules in `docs/branding-and-release-policy.md`: runtime surfaces use Data Proxy,
+while required upstream attribution and preserved upstream documentation keep
+their New API references.
+
 ## Optional Docker Image Build
 
 The full Docker multi-stage image build is intentionally opt-in because it can

@@ -31,8 +31,9 @@
 - [x] Replace actionable runtime brand leftovers.
   - Acceptance: Chinese and English runtime strings no longer display New API for Data Proxy-owned placeholders, channel helper copy, or default fallback text.
   - Done: updated channel credential/warning copy to Data Proxy/OpenAI-compatible wording, changed the update-check User-Agent to `data-proxy-dashboard`, and aligned stale Chinese/English locale fallback values for console placeholder, sender placeholder, product name, and welcome text.
-- [ ] Decide whether to maintain upstream README/electron packaging as attribution or create Data Proxy-specific release docs.
+- [x] Decide whether to maintain upstream README/electron packaging as attribution or create Data Proxy-specific release docs.
   - Acceptance: repository-level docs and optional desktop packaging have an explicit branding policy so future audits do not mix source attribution with product runtime copy.
+  - Done: added `docs/branding-and-release-policy.md`, kept top-level README/electron packaging classified as upstream attribution material for now, and made Data Proxy-specific release/operator docs the active release path. `docs/deployment-readiness.md` now links the policy for release checks.
 
 ## P1 - MCP market mock example polish
 
