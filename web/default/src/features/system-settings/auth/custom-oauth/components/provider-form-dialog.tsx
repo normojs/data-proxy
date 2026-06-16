@@ -172,6 +172,13 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
   }
 
   const isPending = createProvider.isPending || updateProvider.isPending
+  const slugValue = form.watch('slug')
+  const callbackPath = `/oauth/${slugValue || '<slug>'}`
+  const callbackOrigin =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : t('your Data Proxy public URL')
+  const callbackUrl = `${callbackOrigin}${callbackPath}`
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -250,6 +257,16 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
                     </FormItem>
                   )}
                 />
+              </div>
+
+              <div className='space-y-1.5'>
+                <FormLabel>{t('Data Proxy OAuth Callback URL')}</FormLabel>
+                <Input readOnly value={callbackUrl} className='font-mono' />
+                <FormDescription>
+                  {t(
+                    'Direct OAuth providers should redirect to this URL. Bridge-based providers should register the bridge callback upstream, then let the bridge redirect back to this URL.'
+                  )}
+                </FormDescription>
               </div>
 
               <FormField

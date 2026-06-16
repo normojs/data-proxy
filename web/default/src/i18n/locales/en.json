@@ -1080,6 +1080,7 @@
     "Data directory:": "Data directory:",
     "Data is stored locally on this device. Use system backups to keep a safe copy.": "Data is stored locally on this device. Use system backups to keep a safe copy.",
     "Data management and log viewing": "Data management and log viewing",
+    "Data Proxy OAuth Callback URL": "Data Proxy OAuth Callback URL",
     "Data retention": "Data retention",
     "Database": "Database",
     "Database check": "Database check",
@@ -1184,6 +1185,7 @@
     "Dify channels only support chatflow and agent, and agent does not support images": "Dify channels only support chatflow and agent, and agent does not support images",
     "Digest:": "Digest:",
     "Direction": "Direction",
+    "Direct OAuth providers should redirect to this URL. Bridge-based providers should register the bridge callback upstream, then let the bridge redirect back to this URL.": "Direct OAuth providers should redirect to this URL. Bridge-based providers should register the bridge callback upstream, then let the bridge redirect back to this URL.",
     "Directory File Count": "Directory File Count",
     "Directory Total Size": "Directory Total Size",
     "Disable": "Disable",
@@ -3680,7 +3682,10 @@
     "Simple mode: prune objects by type, e.g. redacted_thinking.": "Simple mode: prune objects by type, e.g. redacted_thinking.",
     "Single Key": "Single Key",
     "Site & Branding": "Site & Branding",
+    "Site Dashboard": "Site Dashboard",
     "Site Key": "Site Key",
+    "Site Model Analytics": "Site Model Analytics",
+    "Site-wide Filters": "Site-wide Filters",
     "Size:": "Size:",
     "sk_xxx or rk_xxx": "sk_xxx or rk_xxx",
     "Skip retry on failure": "Skip retry on failure",
@@ -4709,6 +4714,7 @@
     "Runtime config has been saved. Restart Data Proxy so the server can initialize the selected database and Redis before you create the first administrator account.": "Runtime config has been saved. Restart Data Proxy so the server can initialize the selected database and Redis before you create the first administrator account.",
     "Failed to save runtime config": "Failed to save runtime config",
     "Runtime config saved. Restart Data Proxy to apply it.": "Runtime config saved. Restart Data Proxy to apply it.",
-    "Restart Data Proxy to apply the saved runtime config first.": "Restart Data Proxy to apply the saved runtime config first."
+    "Restart Data Proxy to apply the saved runtime config first.": "Restart Data Proxy to apply the saved runtime config first.",
+    "your Data Proxy public URL": "your Data Proxy public URL"
   }
 }

@@ -17,11 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useState } from 'react'
-import { useAuthStore } from '@/stores/auth-store'
 import { formatNumber, formatQuota } from '@/lib/format'
 import { computeTimeRange } from '@/lib/time'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getUserQuotaDates } from '@/features/dashboard/api'
+import {
+  getUserQuotaDates,
+  type DashboardDataScope,
+} from '@/features/dashboard/api'
 import { useModelStatCardsConfig } from '@/features/dashboard/hooks/use-dashboard-config'
 import {
   buildQueryParams,
@@ -35,13 +37,12 @@ import type {
 
 interface LogStatCardsProps {
   filters?: DashboardFilters
+  scope?: DashboardDataScope
   onDataUpdate?: (data: QuotaDataItem[], loading: boolean) => void
 }
 
 export function LogStatCards(props: LogStatCardsProps) {
   const statCardsConfig = useModelStatCardsConfig()
-  const user = useAuthStore((state) => state.auth.user)
-  const isAdmin = !!(user?.role && user.role >= 10)
   const [stats, setStats] = useState<{
     totalQuota: number
     totalCount: number
@@ -52,7 +53,7 @@ export function LogStatCards(props: LogStatCardsProps) {
 
   const [timeRangeMinutes, setTimeRangeMinutes] = useState(0)
 
-  const { filters, onDataUpdate } = props
+  const { filters, scope = 'self', onDataUpdate } = props
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -70,7 +71,7 @@ export function LogStatCards(props: LogStatCardsProps) {
     const timeDiff = (timeRange.end_timestamp - timeRange.start_timestamp) / 60
     setTimeRangeMinutes(timeDiff)
 
-    getUserQuotaDates(buildQueryParams(timeRange, filters), isAdmin)
+    getUserQuotaDates(buildQueryParams(timeRange, filters), scope)
       .then((res) => {
         if (abortController.signal.aborted) return
         const data = res?.data || []
@@ -92,7 +93,7 @@ export function LogStatCards(props: LogStatCardsProps) {
     return () => {
       abortController.abort()
     }
-  }, [filters, isAdmin, onDataUpdate])
+  }, [filters, scope, onDataUpdate])
 
   const adaptedStats = {
     rpm: stats?.totalCount ?? 0,

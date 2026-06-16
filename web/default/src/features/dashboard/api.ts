@@ -27,8 +27,9 @@ import type { QuotaDataItem, UptimeGroupResult } from './types'
 // Quota & Usage Data
 // ----------------------------------------------------------------------------
 
+export type DashboardDataScope = 'self' | 'site'
+
 // Get user quota data within a time range
-// Admin users get all users' data by default (matching legacy behavior)
 export async function getUserQuotaDates(
   params: {
     start_timestamp: number
@@ -36,12 +37,14 @@ export async function getUserQuotaDates(
     default_time?: string
     username?: string
   },
-  isAdmin = false
+  scope: DashboardDataScope = 'self'
 ) {
-  const endpoint = isAdmin ? '/api/data' : '/api/data/self'
+  const endpoint = scope === 'site' ? '/api/data' : '/api/data/self'
+  const requestParams =
+    scope === 'self' ? { ...params, username: undefined } : params
   const res = await api.get<{ success: boolean; data: QuotaDataItem[] }>(
     endpoint,
-    { params }
+    { params: requestParams }
   )
   return res.data
 }

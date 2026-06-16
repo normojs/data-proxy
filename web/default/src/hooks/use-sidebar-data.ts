@@ -123,6 +123,12 @@ export function useSidebarData(): SidebarData {
         title: t('Admin'),
         items: [
           {
+            title: t('Site Dashboard'),
+            url: '/dashboard/site-models',
+            activeUrls: ['/dashboard/site-models', '/dashboard/users'],
+            icon: LayoutDashboard,
+          },
+          {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,

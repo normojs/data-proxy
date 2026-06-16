@@ -995,6 +995,8 @@ export const STATIC_I18N_KEYS = [
   'Console Area',
   'Data management and log viewing',
   'Dashboard',
+  'Site Dashboard',
+  'Site Model Analytics',
   'System data statistics',
   'Token Management',
   'API token management',
@@ -1017,6 +1019,10 @@ export const STATIC_I18N_KEYS = [
   'Sidebar Personal Settings',
   'Customize sidebar display content',
   'Reset to Default',
+  'Data Proxy OAuth Callback URL',
+  'Direct OAuth providers should redirect to this URL. Bridge-based providers should register the bridge callback upstream, then let the bridge redirect back to this URL.',
+  'Site-wide Filters',
+  'your Data Proxy public URL',
 
   // Available models
   'Available Models',

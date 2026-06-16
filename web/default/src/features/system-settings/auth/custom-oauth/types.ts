@@ -118,6 +118,20 @@ export interface OAuthPreset {
 
 export const OAUTH_PRESETS: OAuthPreset[] = [
   {
+    key: 'dc-hhhl',
+    name: 'H 站',
+    icon: 'openid',
+    authorization_endpoint: '/authorize',
+    token_endpoint: '/token',
+    user_info_endpoint: '/userinfo',
+    scopes: 'read:profile',
+    user_id_field: 'sub',
+    username_field: 'username',
+    display_name_field: 'name',
+    email_field: '',
+    needsBaseUrl: true,
+  },
+  {
     key: 'github-enterprise',
     name: 'GitHub Enterprise',
     icon: 'github',

@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useCallback, useMemo, lazy, Suspense } from 'react'
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  lazy,
+  Suspense,
+} from 'react'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
@@ -137,6 +144,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   models: {
     titleKey: 'Model Call Analytics',
   },
+  'site-models': {
+    titleKey: 'Site Model Analytics',
+  },
   users: {
     titleKey: 'User Analytics',
   },
@@ -185,13 +195,20 @@ export function Dashboard() {
 
   const meta = SECTION_META[activeSection] ?? SECTION_META.overview
   const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
-  const visibleSections = useMemo(
-    () =>
-      DASHBOARD_SECTION_IDS.filter(
-        (section) => section !== 'overview' && (section !== 'users' || isAdmin)
-      ),
-    [isAdmin]
-  )
+  const isSiteSection =
+    activeSection === 'site-models' || activeSection === 'users'
+  const isModelSection =
+    activeSection === 'models' || activeSection === 'site-models'
+  const dashboardScope = activeSection === 'site-models' ? 'site' : 'self'
+  const visibleSections = useMemo(() => {
+    if (!isAdmin) return DASHBOARD_SECTION_IDS.filter((s) => s === 'models')
+    if (isSiteSection) {
+      return DASHBOARD_SECTION_IDS.filter(
+        (s) => s === 'site-models' || s === 'users'
+      )
+    }
+    return DASHBOARD_SECTION_IDS.filter((s) => s === 'models')
+  }, [isAdmin, isSiteSection])
   const handleSectionChange = useCallback(
     (section: string) => {
       void navigate({
@@ -201,22 +218,33 @@ export function Dashboard() {
     },
     [navigate]
   )
+  useEffect(() => {
+    if (!isAdmin && isSiteSection) {
+      void navigate({
+        to: '/dashboard/$section',
+        params: { section: 'models' },
+        replace: true,
+      })
+    }
+  }, [isAdmin, isSiteSection, navigate])
   const showSectionTabs =
     activeSection !== 'overview' && visibleSections.length > 1
-  const modelActions =
-    activeSection === 'models' ? (
-      <>
-        <ModelsChartPreferences
-          preferences={chartPreferences}
-          onPreferencesChange={handleChartPreferencesChange}
-        />
-        <ModelsFilter
-          preferences={chartPreferences}
-          onFilterChange={handleFilterChange}
-          onReset={handleResetFilters}
-        />
-      </>
-    ) : null
+  const modelActions = isModelSection ? (
+    <>
+      <ModelsChartPreferences
+        preferences={chartPreferences}
+        onPreferencesChange={handleChartPreferencesChange}
+      />
+      <ModelsFilter
+        preferences={chartPreferences}
+        allowUsernameFilter={activeSection === 'site-models'}
+        onFilterChange={handleFilterChange}
+        onReset={handleResetFilters}
+      />
+    </>
+  ) : null
+
+  if (!isAdmin && isSiteSection) return null
 
   return (
     <SectionPageLayout>
@@ -246,17 +274,18 @@ export function Dashboard() {
             </div>
           )}
           {activeSection === 'overview' && <OverviewDashboard />}
-          {activeSection === 'models' && (
+          {isModelSection && (
             <>
               <FadeIn>
                 <Suspense fallback={<LogStatCardsFallback />}>
                   <LazyLogStatCards
                     filters={modelFilters}
+                    scope={dashboardScope}
                     onDataUpdate={handleDataUpdate}
                   />
                 </Suspense>
               </FadeIn>
-              {isAdmin && (
+              {activeSection === 'site-models' && (
                 <FadeIn delay={0.05}>
                   <Suspense fallback={<PerformanceOverviewFallback />}>
                     <LazyPerformanceOverview />

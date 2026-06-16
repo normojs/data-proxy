@@ -1,5 +1,20 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - H 站 OAuth and dashboard scope split
+
+- [x] Add an H 站 OAuth preset for the dc.hhhl.cc bridge.
+  - Acceptance: operators can choose the H 站 preset in Custom OAuth, use `read:profile`, and see the exact Data Proxy callback URL pattern to register in H 站.
+  - Done: added the `dc-hhhl` preset with bridge OAuth endpoints, `read:profile`, stable field mappings, and a read-only Data Proxy callback URL hint that distinguishes direct OAuth callbacks from bridge callbacks.
+- [x] Rename the Chinese Playground menu label.
+  - Acceptance: the `/playground` route keeps its URL, but Chinese UI uses a clearer product label instead of “游乐场”.
+  - Done: Chinese UI now labels Playground as “模型调试” while keeping the `/playground` route unchanged.
+- [x] Split personal and site-wide dashboard scope.
+  - Acceptance: General / Dashboard always queries the current account, including admin users; a separate Admin / Site Dashboard entry above Channels queries site-wide model usage.
+  - Done: dashboard usage APIs now take an explicit `self` / `site` scope; General / Dashboard uses current-account data, Admin / Site Dashboard points to `/dashboard/site-models`, and site-wide username filtering plus performance health only appear in the site-wide view.
+- [x] Validate and commit this batch.
+  - Acceptance: frontend typecheck, locale JSON parse, whitespace checks, and targeted tests pass or any skipped checks are recorded.
+  - Done: locale JSON parse, targeted Prettier check, `cd web/default && bun run typecheck`, `cd web/default && bun run build:check`, and `git diff --check` passed.
+
 ## P1 - Transparent Data Proxy brand assets
 
 - [x] Remove the white background from generated Data Proxy brand assets.

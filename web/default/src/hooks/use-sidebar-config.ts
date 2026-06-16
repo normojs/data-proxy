@@ -57,6 +57,7 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
   },
   admin: {
     enabled: true,
+    dashboard: true,
     channel: true,
     models: true,
     redemption: true,
@@ -100,7 +101,8 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/dashboard': { section: 'console', module: 'detail' },
   '/dashboard/overview': { section: 'console', module: 'detail' },
   '/dashboard/models': { section: 'console', module: 'detail' },
-  '/dashboard/users': { section: 'console', module: 'detail' },
+  '/dashboard/site-models': { section: 'admin', module: 'dashboard' },
+  '/dashboard/users': { section: 'admin', module: 'dashboard' },
   '/keys': { section: 'console', module: 'token' },
   '/usage-logs': { section: 'console', module: 'log' },
   '/usage-logs/common': { section: 'console', module: 'log' },

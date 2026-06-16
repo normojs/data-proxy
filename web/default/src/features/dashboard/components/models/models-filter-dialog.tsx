@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState } from 'react'
 import { Filter, RotateCcw, Calendar, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useAuthStore } from '@/stores/auth-store'
 import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -59,6 +58,7 @@ import type {
 
 interface ModelsFilterProps {
   preferences: DashboardChartPreferences
+  allowUsernameFilter?: boolean
   onFilterChange: (filters: DashboardFilters) => void
   onReset: () => void
 }
@@ -79,9 +79,6 @@ const SectionDivider = ({ label }: { label: string }) => (
 
 export function ModelsFilter(props: ModelsFilterProps) {
   const { t } = useTranslation()
-  // 使用已缓存的用户数据，避免重复调用 API
-  const user = useAuthStore((state) => state.auth.user)
-  const isAdmin = user?.role && user.role >= 10
 
   const [open, setOpen] = useState(false)
   const [filters, setFilters] = useState<DashboardFilters>(() =>
@@ -247,10 +244,10 @@ export function ModelsFilter(props: ModelsFilterProps) {
               </Select>
             </div>
 
-            {/* Admin-only fields */}
-            {isAdmin && (
+            {/* Site-wide fields */}
+            {props.allowUsernameFilter && (
               <>
-                <SectionDivider label={t('Admin Only')} />
+                <SectionDivider label={t('Site-wide Filters')} />
 
                 <div className='grid gap-2'>
                   <Label htmlFor='username'>{t('Username')}</Label>
