@@ -6,7 +6,7 @@ product
 
 ## Users
 
-The primary users are admins, operators, and developers who run New API as an
+The primary users are admins, operators, and developers who run Data Proxy as an
 operations console for model routing, channels, keys, MCP, Bridge clients,
 OpenAPI tools, billing, audits, and incident response. They work in repeated
 sessions where speed, scanability, trustworthy state, and safe configuration
@@ -14,9 +14,9 @@ changes matter more than visual novelty.
 
 ## Product Purpose
 
-New API provides a unified control plane for many model providers and local MCP
-/ Bridge capabilities. It helps teams route traffic, inspect provider health,
-manage access and quota, review tool calls, reconcile billing, and keep
+Data Proxy provides a unified control plane for many model providers and local
+MCP / Bridge capabilities. It helps teams route traffic, inspect provider
+health, manage access and quota, review tool calls, reconcile billing, and keep
 automation infrastructure observable. Success means an operator can understand
 system state quickly, act without guessing, and recover from failures with an
 audit trail.
@@ -42,7 +42,7 @@ menus, and detail panels are expected.
 2. Make risk visible at the point of action.
 3. Preserve familiar product affordances.
 4. Optimize for scanning, filtering, comparison, and repeated edits.
-5. Keep v1 and v2 reversible until the pilot proves itself.
+5. Keep major shell changes reversible until staging proves them.
 
 ## Accessibility & Inclusion
 

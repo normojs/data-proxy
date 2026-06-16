@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -46,7 +45,7 @@ func LoadRuntimeConfigIntoEnv() error {
 	}
 
 	var cfg RuntimeConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := Unmarshal(data, &cfg); err != nil {
 		return err
 	}
 
@@ -80,7 +79,7 @@ func SaveRuntimeConfig(cfg RuntimeConfig) error {
 	RuntimeConfigPath = RuntimeConfigFilePath()
 	cfg.UpdatedAt = time.Now().Unix()
 
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}

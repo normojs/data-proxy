@@ -29,6 +29,18 @@
   - Rechecked after `docker desktop start`: Docker Desktop reports it is already running, but `docker version` / `docker info` still time out before Server details and the Unix socket still returns `Docker Desktop is unable to start`.
   - Next action: recover Docker Desktop at the host level, then rerun `docker version`, `docker info`, `make deployment-preflight`, and `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight`. Do not tag or publish a release image until this gate passes.
 
+## P1 - Current non-Docker audit follow-up
+
+- [x] Align runtime config JSON helper usage.
+  - Acceptance: runtime-config load/save paths use the project JSON wrappers instead of direct standard-library JSON calls, while `common/json.go` remains the wrapper boundary.
+  - Done: `common/runtime_config.go` now uses `common.Unmarshal` / `common.MarshalIndent`; the package-level JSON scan reports only `common/json.go` wrapper implementation calls.
+- [x] Align active product/design context with the Data Proxy brand.
+  - Acceptance: active AI/design context files describe Data Proxy, not New API, while upstream attribution docs remain unchanged.
+  - Done: `PRODUCT.md` and `DESIGN.md` now describe Data Proxy as the active product/design system, and no longer retain obsolete v1/v2 reversibility guidance after the legacy UI deletion.
+- [x] Validate and commit the non-Docker audit follow-up.
+  - Acceptance: targeted Go tests, runtime JSON scan, brand context scan, whitespace checks, and git commit complete without staging Fusion exploration files.
+  - Done: `go test ./common ./controller -run 'TestPostSetupRuntimeConfig|TestRuntimeConfig|TestLoadRuntimeConfig|TestSaveRuntimeConfig'`, common runtime JSON scan, `rg -n "New API|new-api" PRODUCT.md DESIGN.md`, and scoped `git diff --check` passed.
+
 ## P1 - Runtime brand residual audit
 
 - [x] Clean residual runtime JSON conversion calls in OAuth, middleware, and settings.

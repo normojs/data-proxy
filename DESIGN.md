@@ -1,5 +1,5 @@
 ---
-name: New API
+name: Data Proxy
 description: Operations console for model routing, MCP, Bridge, billing, and provider control.
 colors:
   background: "oklch(1 0 0)"
@@ -67,13 +67,13 @@ components:
     padding: "1rem"
 ---
 
-# Design System: New API
+# Design System: Data Proxy
 
 ## 1. Overview
 
 **Creative North Star: "The Operations Ledger"**
 
-New API should look like a precise operations ledger for model and tool
+Data Proxy should look like a precise operations ledger for model and tool
 infrastructure. The current visual system is restrained: neutral surfaces,
 Public Sans typography, compact controls, shadcn/base-ui primitives, and state
 colors reserved for actual system meaning. UI v2 should keep that trust while
