@@ -22,9 +22,27 @@ export interface SetupStatus {
   status: boolean
   root_init: boolean
   database_type: string
+  database_configured?: boolean
+  database_source?: 'env' | 'runtime-config' | 'sqlite-default' | string
+  redis_enabled?: boolean
+  redis_configured?: boolean
+  redis_source?: 'env' | 'runtime-config' | string
+  runtime_config_loaded?: boolean
+  runtime_config_restart_required?: boolean
+  runtime_config_path?: string
   // Some backends also echo mode flags; they are optional here.
   SelfUseModeEnabled?: boolean
   DemoSiteEnabled?: boolean
+}
+
+export type SetupDatabaseType = 'sqlite' | 'mysql' | 'postgres'
+
+export interface SetupRuntimeConfigPayload {
+  database_type: SetupDatabaseType
+  sql_dsn?: string
+  sqlite_path?: string
+  redis_enabled: boolean
+  redis_conn_string?: string
 }
 
 export interface SetupFormValues {

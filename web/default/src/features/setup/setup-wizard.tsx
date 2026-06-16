@@ -186,7 +186,17 @@ export function SetupWizard() {
 
   const currentStepComponent = useMemo(() => {
     if (currentStep === 0) {
-      return <DatabaseStep status={setupStatus} />
+      return (
+        <DatabaseStep
+          status={setupStatus}
+          onConfigSaved={async () => {
+            const result = await refetch()
+            if (result.data?.data) {
+              setSetupStatus(result.data.data)
+            }
+          }}
+        />
+      )
     }
     if (currentStep === 1) {
       return (
@@ -200,7 +210,17 @@ export function SetupWizard() {
       return <UsageModeStep form={form} />
     }
     return <CompleteStep status={setupStatus} values={watchedValues} />
-  }, [currentStep, setupStatus, form, watchedValues])
+  }, [currentStep, setupStatus, form, watchedValues, refetch])
+
+  const validateDependencyStep = () => {
+    if (setupStatus?.runtime_config_restart_required) {
+      toast.error(
+        t('Restart Data Proxy to apply the saved runtime config first.')
+      )
+      return false
+    }
+    return true
+  }
 
   const validateAdminStep = () => {
     if (setupStatus?.root_init) return true
@@ -253,6 +273,7 @@ export function SetupWizard() {
   }
 
   const handleNextStep = () => {
+    if (currentStep === 0 && !validateDependencyStep()) return
     if (currentStep === 1 && !validateAdminStep()) return
     if (currentStep === 2 && !validateUsageModeStep()) return
 
@@ -264,6 +285,7 @@ export function SetupWizard() {
   }
 
   const handleSubmit = async () => {
+    if (!validateDependencyStep()) return
     const adminValid = validateAdminStep()
     const usageValid = validateUsageModeStep()
     if (!adminValid || !usageValid) return

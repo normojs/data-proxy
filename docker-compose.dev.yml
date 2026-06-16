@@ -1,12 +1,18 @@
-# Frontend Development - Backend built from local source
+# Data Proxy frontend development - backend built from local source
 #
 # Usage:
 #   1. docker compose -f docker-compose.dev.yml up -d
-#   2. cd web && bun install && bun run dev
+#   2. Open http://localhost:3000 and use the first-run setup wizard to
+#      configure an existing MySQL/PostgreSQL database and optional Redis.
+#   3. cd web && bun install && bun run dev
 #   3. Open http://localhost:3001 (Rsbuild dev server, API auto-proxied to :3000)
 #
 # Rebuild backend after Go code changes:
-#   docker compose -f docker-compose.dev.yml up -d --build new-api
+#   docker compose -f docker-compose.dev.yml up -d --build data-proxy
+#
+# Optional disposable dependencies for local testing:
+#   docker compose -f docker-compose.dev.yml --profile local-deps up -d
+#   Then use `postgres` / `redis` as hosts in the setup wizard.
 #
 # Stop:
 #   docker compose -f docker-compose.dev.yml down
@@ -15,51 +21,48 @@
 #   docker compose -f docker-compose.dev.yml down -v
 
 services:
-  new-api:
+  data-proxy:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    image: new-api-dev:local
-    container_name: new-api-dev
+    image: data-proxy-dev:local
+    container_name: data-proxy-dev
     restart: unless-stopped
     ports:
       - "3000:3000"
     volumes:
       - dev_data:/data
     environment:
-      - SQL_DSN=postgresql://root:123456@postgres:5432/new-api
-      - REDIS_CONN_STRING=redis://redis
       - TZ=Asia/Shanghai
       - BATCH_UPDATE_ENABLED=true
-    depends_on:
-      redis:
-        condition: service_started
-      postgres:
-        condition: service_healthy
     networks:
       - dev-network
 
   redis:
     image: redis:7-alpine
-    container_name: new-api-dev-redis
+    container_name: data-proxy-dev-redis
+    profiles:
+      - local-deps
     restart: unless-stopped
     networks:
       - dev-network
 
   postgres:
     image: postgres:15-alpine
-    container_name: new-api-dev-pg
+    container_name: data-proxy-dev-pg
+    profiles:
+      - local-deps
     restart: unless-stopped
     environment:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: new-api
+      POSTGRES_DB: data_proxy
     volumes:
       - dev_pg_data:/var/lib/postgresql/data
     networks:
       - dev-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U root -d new-api"]
+      test: ["CMD-SHELL", "pg_isready -U root -d data_proxy"]
       interval: 5s
       timeout: 3s
       retries: 5

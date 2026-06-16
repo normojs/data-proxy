@@ -17,7 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import type { SetupFormValues, SetupResponse } from './types'
+import type {
+  SetupFormValues,
+  SetupResponse,
+  SetupRuntimeConfigPayload,
+} from './types'
 
 export async function getSetupStatus(): Promise<SetupResponse> {
   const res = await api.get('/api/setup', {
@@ -33,6 +37,13 @@ export async function submitSetup(
   payload: Record<string, unknown>
 ): Promise<SetupResponse> {
   const res = await api.post('/api/setup', payload)
+  return res.data
+}
+
+export async function saveSetupRuntimeConfig(
+  payload: SetupRuntimeConfigPayload
+): Promise<SetupResponse> {
+  const res = await api.post('/api/setup/runtime-config', payload)
   return res.data
 }
 

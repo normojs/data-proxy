@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"os"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -11,9 +13,17 @@ import (
 )
 
 type Setup struct {
-	Status       bool   `json:"status"`
-	RootInit     bool   `json:"root_init"`
-	DatabaseType string `json:"database_type"`
+	Status                       bool   `json:"status"`
+	RootInit                     bool   `json:"root_init"`
+	DatabaseType                 string `json:"database_type"`
+	DatabaseConfigured           bool   `json:"database_configured"`
+	DatabaseSource               string `json:"database_source"`
+	RedisEnabled                 bool   `json:"redis_enabled"`
+	RedisConfigured              bool   `json:"redis_configured"`
+	RedisSource                  string `json:"redis_source"`
+	RuntimeConfigLoaded          bool   `json:"runtime_config_loaded"`
+	RuntimeConfigRestartRequired bool   `json:"runtime_config_restart_required"`
+	RuntimeConfigPath            string `json:"runtime_config_path"`
 }
 
 type SetupRequest struct {
@@ -24,10 +34,16 @@ type SetupRequest struct {
 	DemoSiteEnabled    bool   `json:"DemoSiteEnabled"`
 }
 
+type SetupRuntimeConfigRequest struct {
+	DatabaseType    string `json:"database_type"`
+	SQLDSN          string `json:"sql_dsn"`
+	SQLitePath      string `json:"sqlite_path"`
+	RedisEnabled    bool   `json:"redis_enabled"`
+	RedisConnString string `json:"redis_conn_string"`
+}
+
 func GetSetup(c *gin.Context) {
-	setup := Setup{
-		Status: constant.Setup,
-	}
+	setup := currentSetupStatus()
 	if constant.Setup {
 		c.JSON(200, gin.H{
 			"success": true,
@@ -36,6 +52,24 @@ func GetSetup(c *gin.Context) {
 		return
 	}
 	setup.RootInit = model.RootUserExists()
+	c.JSON(200, gin.H{
+		"success": true,
+		"data":    setup,
+	})
+}
+
+func currentSetupStatus() Setup {
+	setup := Setup{
+		Status:                       constant.Setup,
+		DatabaseConfigured:           os.Getenv("SQL_DSN") != "",
+		DatabaseSource:               common.RuntimeConfigValueSource("SQL_DSN"),
+		RedisEnabled:                 common.RedisEnabled,
+		RedisConfigured:              os.Getenv("REDIS_CONN_STRING") != "",
+		RedisSource:                  common.RuntimeConfigValueSource("REDIS_CONN_STRING"),
+		RuntimeConfigLoaded:          common.RuntimeConfigLoaded,
+		RuntimeConfigRestartRequired: common.RuntimeConfigRestartRequired,
+		RuntimeConfigPath:            common.RuntimeConfigPath,
+	}
 	if common.UsingMySQL {
 		setup.DatabaseType = "mysql"
 	}
@@ -45,9 +79,137 @@ func GetSetup(c *gin.Context) {
 	if common.UsingSQLite {
 		setup.DatabaseType = "sqlite"
 	}
+	if setup.DatabaseSource == "" {
+		if setup.DatabaseConfigured {
+			setup.DatabaseSource = "env"
+		} else {
+			setup.DatabaseSource = "sqlite-default"
+		}
+	}
+	if setup.RedisSource == "" && setup.RedisConfigured {
+		setup.RedisSource = "env"
+	}
+	return setup
+}
+
+func PostSetupRuntimeConfig(c *gin.Context) {
+	if constant.Setup {
+		c.JSON(200, gin.H{
+			"success": false,
+			"message": "系统已经初始化完成",
+		})
+		return
+	}
+
+	var req SetupRuntimeConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(200, gin.H{
+			"success": false,
+			"message": "请求参数有误",
+		})
+		return
+	}
+
+	dbType := strings.ToLower(strings.TrimSpace(req.DatabaseType))
+	sqlDSN := strings.TrimSpace(req.SQLDSN)
+	sqlitePath := strings.TrimSpace(req.SQLitePath)
+	switch dbType {
+	case "", "sqlite":
+		dbType = "sqlite"
+		sqlDSN = "local"
+	case "mysql":
+		if sqlDSN == "" {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "请填写 MySQL 连接字符串",
+			})
+			return
+		}
+		if detected := model.DetectDatabaseType(sqlDSN); detected != "mysql" {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "当前连接字符串不是 MySQL 格式",
+			})
+			return
+		}
+	case "postgres", "postgresql":
+		dbType = "postgres"
+		if sqlDSN == "" {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "请填写 PostgreSQL 连接字符串",
+			})
+			return
+		}
+		if detected := model.DetectDatabaseType(sqlDSN); detected != "postgres" {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "当前连接字符串不是 PostgreSQL 格式",
+			})
+			return
+		}
+	default:
+		c.JSON(200, gin.H{
+			"success": false,
+			"message": "不支持的数据库类型",
+		})
+		return
+	}
+
+	detectedType, err := model.TestDatabaseConnection(sqlDSN, sqlitePath)
+	if err != nil {
+		c.JSON(200, gin.H{
+			"success": false,
+			"message": "数据库连接测试失败: " + err.Error(),
+		})
+		return
+	}
+	if dbType != detectedType {
+		c.JSON(200, gin.H{
+			"success": false,
+			"message": "数据库类型与连接字符串不匹配",
+		})
+		return
+	}
+
+	redisConnString := strings.TrimSpace(req.RedisConnString)
+	if req.RedisEnabled {
+		if redisConnString == "" {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "启用 Redis 时必须填写连接字符串",
+			})
+			return
+		}
+		if err := common.TestRedisConnection(redisConnString); err != nil {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "Redis 连接测试失败: " + err.Error(),
+			})
+			return
+		}
+	}
+
+	if err := common.SaveRuntimeConfig(common.RuntimeConfig{
+		SQLDSN:          sqlDSN,
+		SQLitePath:      sqlitePath,
+		RedisConnString: redisConnString,
+	}); err != nil {
+		c.JSON(200, gin.H{
+			"success": false,
+			"message": "保存运行配置失败: " + err.Error(),
+		})
+		return
+	}
+
 	c.JSON(200, gin.H{
 		"success": true,
-		"data":    setup,
+		"message": "运行配置已保存，请重启 Data Proxy 后继续初始化",
+		"data": gin.H{
+			"database_type":    detectedType,
+			"redis_configured": redisConnString != "",
+			"restart_required": true,
+		},
 	})
 }
 

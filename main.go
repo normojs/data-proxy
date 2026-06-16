@@ -263,6 +263,9 @@ func InitResources() error {
 			common.SysLog("No .env file found, using default environment variables. If needed, please create a .env file and set the relevant variables.")
 		}
 	}
+	if err := common.LoadRuntimeConfigIntoEnv(); err != nil {
+		return fmt.Errorf("failed to load runtime config: %w", err)
+	}
 
 	// 加载环境变量
 	common.InitEnv()

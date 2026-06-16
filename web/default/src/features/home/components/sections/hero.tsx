@@ -178,7 +178,7 @@ export function Hero(props: HeroProps) {
               </span>
               <p className='text-muted-foreground/60 text-xs leading-relaxed'>
                 {t(
-                  'Supports one-click configuration and perfectly adapts to NewAPI multi-protocol configuration.'
+                  'Supports one-click client configuration and Data Proxy multi-protocol routing.'
                 )}
               </p>
             </div>

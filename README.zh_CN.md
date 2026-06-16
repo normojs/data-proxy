@@ -114,9 +114,6 @@
 git clone https://github.com/QuantumNous/new-api.git
 cd new-api
 
-# 编辑 docker-compose.yml 配置
-nano docker-compose.yml
-
 # 启动服务
 docker-compose up -d
 ```
@@ -128,23 +125,15 @@ docker-compose up -d
 # 拉取最新镜像
 docker pull calciumion/new-api:latest
 
-# 使用 SQLite（默认）
 docker run --name new-api -d --restart always \
   -p 3000:3000 \
-  -e TZ=Asia/Shanghai \
-  -v ./data:/data \
-  calciumion/new-api:latest
-
-# 使用 MySQL
-docker run --name new-api -d --restart always \
-  -p 3000:3000 \
-  -e SQL_DSN="root:123456@tcp(localhost:3306)/oneapi" \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \
   calciumion/new-api:latest
 ```
 
 > **💡 提示：** `-v ./data:/data` 会将数据保存在当前目录的 `data` 文件夹中，你也可以改为绝对路径如 `-v /your/custom/path:/data`
+> 启动后请访问 `http://localhost:3000`，在首次初始化向导中配置已有 MySQL/PostgreSQL 数据库和可选 Redis，再创建首个管理员账号。`SQL_DSN` 等环境变量属于高级覆盖，不是推荐的首次安装路径。
 
 </details>
 
@@ -314,15 +303,15 @@ docker run --name new-api -d --restart always \
 |--------|--------------------------------------------------------------|--------|
 | `SESSION_SECRET` | 会话密钥（多机部署必须）                                                 | - |
 | `CRYPTO_SECRET` | 加密密钥（Redis 必须）                                               | - |
-| `SQL_DSN` | 数据库连接字符串                                                     | - |
-| `REDIS_CONN_STRING` | Redis 连接字符串                                                  | - |
+| `SQL_DSN` | 高级数据库覆盖；首次安装推荐使用初始化向导配置                                      | - |
+| `REDIS_CONN_STRING` | 高级 Redis 覆盖；首次安装推荐使用初始化向导配置                               | - |
 | `STREAMING_TIMEOUT` | 流式超时时间（秒）                                                    | `300` |
 | `STREAM_SCANNER_MAX_BUFFER_MB` | 流式扫描器单行最大缓冲（MB），图像生成等超大 `data:` 片段（如 4K 图片 base64）需适当调大 | `64` |
 | `MAX_REQUEST_BODY_MB` | 请求体最大大小（MB，**解压后**计；防止超大请求/zip bomb 导致内存暴涨），超过将返回 `413` | `32` |
 | `AZURE_DEFAULT_API_VERSION` | Azure API 版本                                                 | `2025-04-01-preview` |
 | `ERROR_LOG_ENABLED` | 错误日志开关                                                       | `false` |
 | `PYROSCOPE_URL` | Pyroscope 服务地址                                            | - |
-| `PYROSCOPE_APP_NAME` | Pyroscope 应用名                                        | `new-api` |
+| `PYROSCOPE_APP_NAME` | Pyroscope 应用名                                        | `data-proxy` |
 | `PYROSCOPE_BASIC_AUTH_USER` | Pyroscope Basic Auth 用户名                        | - |
 | `PYROSCOPE_BASIC_AUTH_PASSWORD` | Pyroscope Basic Auth 密码                  | - |
 | `PYROSCOPE_MUTEX_RATE` | Pyroscope mutex 采样率                               | `5` |
@@ -343,9 +332,6 @@ docker run --name new-api -d --restart always \
 git clone https://github.com/QuantumNous/new-api.git
 cd new-api
 
-# 编辑配置
-nano docker-compose.yml
-
 # 启动服务
 docker-compose up -d
 ```
@@ -355,20 +341,9 @@ docker-compose up -d
 <details>
 <summary><strong>方式 2：Docker 命令</strong></summary>
 
-**使用 SQLite：**
 ```bash
 docker run --name new-api -d --restart always \
   -p 3000:3000 \
-  -e TZ=Asia/Shanghai \
-  -v ./data:/data \
-  calciumion/new-api:latest
-```
-
-**使用 MySQL：**
-```bash
-docker run --name new-api -d --restart always \
-  -p 3000:3000 \
-  -e SQL_DSN="root:123456@tcp(localhost:3306)/oneapi" \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \
   calciumion/new-api:latest
@@ -377,6 +352,7 @@ docker run --name new-api -d --restart always \
 > **💡 路径说明：**
 > - `./data:/data` - 相对路径，数据保存在当前目录的 data 文件夹
 > - 也可使用绝对路径，如：`/your/custom/path:/data`
+> - 启动后访问 `http://localhost:3000`，在首次初始化向导中配置已有 MySQL/PostgreSQL 数据库和可选 Redis。
 
 </details>
 
@@ -402,7 +378,8 @@ docker run --name new-api -d --restart always \
 **重试配置：** `设置 → 运营设置 → 通用设置 → 失败重试次数`
 
 **缓存配置：**
-- `REDIS_CONN_STRING`：Redis 缓存（推荐）
+- 首次初始化向导：Redis 缓存（推荐）
+- `REDIS_CONN_STRING`：高级 Redis 覆盖
 - `MEMORY_CACHE_ENABLED`：内存缓存
 
 ---

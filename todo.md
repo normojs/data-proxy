@@ -1,5 +1,20 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - First-run dependency setup wizard
+
+- [x] Move first-install database and Redis configuration into the setup wizard.
+  - Acceptance: default Docker startup does not require `SQL_DSN` / `REDIS_CONN_STRING`; the setup API reports dependency state; uninitialized systems can test and save database/Redis runtime config before creating the first administrator account.
+  - Done: added local `runtime-config.json` loading before DB/Redis initialization, setup status dependency fields, `POST /api/setup/runtime-config`, DB/Redis connection tests, and setup wizard controls for SQLite/MySQL/PostgreSQL plus optional Redis.
+- [x] Keep `.env` as an advanced operations override instead of the recommended first-install path.
+  - Acceptance: explicit environment variables still win, but Docker Compose and primary README guidance direct users to configure existing dependencies in the first-run wizard.
+  - Done: updated `.env.example`, `docker-compose.yml`, `docker-compose.dev.yml`, `README.md`, and `README.zh_CN.md`; default Compose services now start only `data-proxy`, with PostgreSQL/Redis available only under the optional `local-deps` profile.
+- [x] Prevent initialization from writing the first administrator into the temporary database after runtime config is saved.
+  - Acceptance: after saving runtime config, the setup UI requires a Data Proxy restart before moving past the dependency step or submitting final initialization.
+  - Done: setup status exposes `runtime_config_restart_required`; the setup wizard blocks next/submit and shows a restart-required alert until the server restarts with the saved config.
+- [x] Validate setup wizard dependency configuration.
+  - Acceptance: backend tests, frontend type/build checks, locale parsing, Docker Compose default-service checks, and whitespace checks pass.
+  - Done: `go test ./common ./model ./controller ./router`, `cd web/default && bun run typecheck`, locale JSON parse, `docker compose -f docker-compose.dev.yml config --services`, `docker compose config --services`, `make build-all-frontends`, and `git diff --check` passed. Added controller regression tests for setup runtime config rejection/success paths.
+
 ## P1 - Data Proxy runtime branding
 
 - [x] Replace default runtime product naming with Data Proxy.

@@ -16,14 +16,26 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Database, HardDrive, Server } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Database, HardDrive, RotateCcw, Save, Server } from 'lucide-react'
+import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from '@/components/ui/native-select'
+import { Switch } from '@/components/ui/switch'
 import { StatusBadge } from '@/components/status-badge'
-import type { SetupStatus } from '../types'
+import { saveSetupRuntimeConfig } from '../api'
+import type { SetupDatabaseType, SetupStatus } from '../types'
 
 interface DatabaseStepProps {
   status?: SetupStatus
+  onConfigSaved?: () => Promise<void> | void
 }
 
 const DATABASE_META: Record<
@@ -66,9 +78,40 @@ function resolveDatabaseMeta(type?: string) {
   )
 }
 
-export function DatabaseStep({ status }: DatabaseStepProps) {
+const SOURCE_LABEL_KEYS: Record<string, string> = {
+  env: 'Environment override',
+  'runtime-config': 'Setup runtime config',
+  'sqlite-default': 'Temporary SQLite fallback',
+}
+
+function normalizeDatabaseType(type?: string): SetupDatabaseType {
+  if (type === 'mysql' || type === 'postgres') return type
+  return 'sqlite'
+}
+
+function databasePlaceholder(type: SetupDatabaseType) {
+  if (type === 'postgres') {
+    return 'postgresql://user:password@host.docker.internal:5432/data_proxy'
+  }
+  if (type === 'mysql') {
+    return 'user:password@tcp(host.docker.internal:3306)/data_proxy?charset=utf8mb4&parseTime=true&loc=Local'
+  }
+  return ''
+}
+
+export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
   const { t } = useTranslation()
   const meta = resolveDatabaseMeta(status?.database_type)
+  const [databaseType, setDatabaseType] = useState<SetupDatabaseType>(() =>
+    normalizeDatabaseType(status?.database_type)
+  )
+  const [sqlDsn, setSqlDsn] = useState('')
+  const [sqlitePath, setSqlitePath] = useState('')
+  const [redisEnabled, setRedisEnabled] = useState(
+    Boolean(status?.redis_configured || status?.redis_enabled)
+  )
+  const [redisConnString, setRedisConnString] = useState('')
+  const [saving, setSaving] = useState(false)
   const electronApi =
     typeof window !== 'undefined'
       ? ((window as unknown as Record<string, unknown>)?.electron as
@@ -77,10 +120,60 @@ export function DatabaseStep({ status }: DatabaseStepProps) {
       : undefined
   const isElectron = Boolean(electronApi?.isElectron)
   const electronDataDir = electronApi?.dataDir as string | undefined
+  const databaseSource = status?.database_source ?? 'sqlite-default'
+  const redisSource = status?.redis_source || 'not-configured'
+  const restartRequired = Boolean(status?.runtime_config_restart_required)
+  const databaseSourceLabel = t(
+    SOURCE_LABEL_KEYS[databaseSource] ?? databaseSource
+  )
+  const redisSourceLabel = status?.redis_configured
+    ? t(SOURCE_LABEL_KEYS[redisSource] ?? redisSource)
+    : t('Not configured')
+
+  useEffect(() => {
+    setDatabaseType(normalizeDatabaseType(status?.database_type))
+    setRedisEnabled(Boolean(status?.redis_configured || status?.redis_enabled))
+  }, [status?.database_type, status?.redis_configured, status?.redis_enabled])
+
+  const canSave = useMemo(() => {
+    if (saving) return false
+    if (databaseType !== 'sqlite' && sqlDsn.trim().length === 0) return false
+    if (redisEnabled && redisConnString.trim().length === 0) return false
+    return true
+  }, [databaseType, redisConnString, redisEnabled, saving, sqlDsn])
+
+  const handleSaveRuntimeConfig = async () => {
+    setSaving(true)
+    try {
+      const response = await saveSetupRuntimeConfig({
+        database_type: databaseType,
+        sql_dsn: databaseType === 'sqlite' ? undefined : sqlDsn.trim(),
+        sqlite_path:
+          databaseType === 'sqlite' && sqlitePath.trim()
+            ? sqlitePath.trim()
+            : undefined,
+        redis_enabled: redisEnabled,
+        redis_conn_string: redisEnabled ? redisConnString.trim() : undefined,
+      })
+
+      if (!response.success) {
+        toast.error(response.message || t('Failed to save runtime config'))
+        return
+      }
+
+      toast.success(
+        response.message ||
+          t('Runtime config saved. Restart Data Proxy to apply it.')
+      )
+      await onConfigSaved?.()
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className='space-y-4'>
-      <div className='bg-card flex items-center justify-between rounded-lg border p-4'>
+      <div className='bg-card flex flex-col gap-4 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between'>
         <div className='space-y-1'>
           <p className='text-muted-foreground text-sm font-medium'>
             {t('Detected database')}
@@ -94,15 +187,163 @@ export function DatabaseStep({ status }: DatabaseStepProps) {
                 'The setup wizard will use this database during initialization.'
             )}
           </p>
+          <p className='text-muted-foreground text-xs'>
+            {t('Source:')} {databaseSourceLabel}
+          </p>
         </div>
-        <StatusBadge
-          label={meta?.label ?? t('Unknown')}
-          variant={meta?.variant ?? 'info'}
-          className='cursor-default'
-          copyable={false}
-          icon={Database}
-        />
+        <div className='flex flex-wrap items-center gap-2'>
+          <StatusBadge
+            label={meta?.label ?? t('Unknown')}
+            variant={meta?.variant ?? 'info'}
+            className='cursor-default'
+            copyable={false}
+            icon={Database}
+          />
+          <StatusBadge
+            label={
+              status?.redis_enabled
+                ? t('Redis enabled')
+                : status?.redis_configured
+                  ? t('Redis configured')
+                  : t('Redis optional')
+            }
+            variant={status?.redis_enabled ? 'success' : 'neutral'}
+            className='cursor-default'
+            copyable={false}
+            icon={Server}
+          />
+        </div>
       </div>
+
+      <div className='bg-card space-y-4 rounded-lg border p-4'>
+        <div className='space-y-1'>
+          <h3 className='text-sm font-semibold'>
+            {t('Workspace dependency configuration')}
+          </h3>
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Configure the database and optional Redis service here before creating the first administrator account. Data Proxy will test the connection, save a local runtime config, and use it after restart.'
+            )}
+          </p>
+        </div>
+
+        <div className='grid gap-4 md:grid-cols-[180px_1fr]'>
+          <div className='space-y-2'>
+            <Label htmlFor='setup-database-type'>{t('Database type')}</Label>
+            <NativeSelect
+              id='setup-database-type'
+              className='w-full'
+              value={databaseType}
+              onChange={(event) =>
+                setDatabaseType(event.target.value as SetupDatabaseType)
+              }
+            >
+              <NativeSelectOption value='sqlite'>SQLite</NativeSelectOption>
+              <NativeSelectOption value='mysql'>MySQL</NativeSelectOption>
+              <NativeSelectOption value='postgres'>
+                PostgreSQL
+              </NativeSelectOption>
+            </NativeSelect>
+          </div>
+
+          {databaseType === 'sqlite' ? (
+            <div className='space-y-2'>
+              <Label htmlFor='setup-sqlite-path'>
+                {t('SQLite file path')}
+              </Label>
+              <Input
+                id='setup-sqlite-path'
+                value={sqlitePath}
+                onChange={(event) => setSqlitePath(event.target.value)}
+                placeholder='/data/data-proxy.db'
+              />
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Leave empty to use the built-in default path. For containers, make sure the data directory is persisted.'
+                )}
+              </p>
+            </div>
+          ) : (
+            <div className='space-y-2'>
+              <Label htmlFor='setup-sql-dsn'>
+                {databaseType === 'postgres'
+                  ? t('PostgreSQL connection string')
+                  : t('MySQL connection string')}
+              </Label>
+              <Input
+                id='setup-sql-dsn'
+                value={sqlDsn}
+                onChange={(event) => setSqlDsn(event.target.value)}
+                placeholder={databasePlaceholder(databaseType)}
+              />
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'When Data Proxy runs in Docker and the database runs on this Mac, use host.docker.internal as the host.'
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className='rounded-lg border p-3'>
+          <div className='flex items-start justify-between gap-3'>
+            <div className='space-y-1'>
+              <Label htmlFor='setup-redis-enabled'>{t('Redis cache')}</Label>
+              <p className='text-muted-foreground text-xs'>
+                {t('Current Redis source:')} {redisSourceLabel}
+              </p>
+            </div>
+            <Switch
+              id='setup-redis-enabled'
+              checked={redisEnabled}
+              onCheckedChange={setRedisEnabled}
+            />
+          </div>
+          {redisEnabled && (
+            <div className='mt-3 space-y-2'>
+              <Label htmlFor='setup-redis-dsn'>
+                {t('Redis connection string')}
+              </Label>
+              <Input
+                id='setup-redis-dsn'
+                value={redisConnString}
+                onChange={(event) => setRedisConnString(event.target.value)}
+                placeholder='redis://:password@host.docker.internal:6379/0'
+              />
+            </div>
+          )}
+        </div>
+
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Secrets are saved on the server only and are never returned to this page after saving.'
+            )}
+          </p>
+          <Button
+            type='button'
+            onClick={handleSaveRuntimeConfig}
+            disabled={!canSave}
+          >
+            <Save className='size-4' />
+            {saving ? t('Testing…') : t('Test and save')}
+          </Button>
+        </div>
+      </div>
+
+      {restartRequired && (
+        <Alert className='border-sky-200 bg-sky-50 dark:border-sky-900/60 dark:bg-sky-950/40'>
+          <AlertTitle className='flex items-center gap-2'>
+            <RotateCcw className='size-4 text-sky-500' />
+            {t('Restart required')}
+          </AlertTitle>
+          <AlertDescription>
+            {t(
+              'Runtime config has been saved. Restart Data Proxy so the server can initialize the selected database and Redis before you create the first administrator account.'
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {status?.database_type === 'sqlite' && (
         <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40'>

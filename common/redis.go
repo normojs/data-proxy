@@ -61,6 +61,20 @@ func ParseRedisOption() *redis.Options {
 	return opt
 }
 
+func TestRedisConnection(connString string) error {
+	opt, err := redis.ParseURL(connString)
+	if err != nil {
+		return err
+	}
+	client := redis.NewClient(opt)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return client.Ping(ctx).Err()
+}
+
 func RedisSet(key string, value string, expiration time.Duration) error {
 	if DebugEnabled {
 		SysLog(fmt.Sprintf("Redis SET: key=%s, value=%s, expiration=%v", key, value, expiration))
