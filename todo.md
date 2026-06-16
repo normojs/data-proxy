@@ -1,5 +1,14 @@
 # data-proxy MCP / Bridge TODO
 
+## P2 - Intentional unsupported route guardrails
+
+- [ ] Cover OpenAI-compatible intentionally unsupported relay response shape.
+  - Acceptance: `controller.RelayNotImplemented` returns HTTP 501 with stable OpenAI-style error code/type/message.
+- [ ] Cover intentionally unsupported relay route registration.
+  - Acceptance: `/v1/files`, `/v1/fine-tunes`, `/v1/images/variations`, and delete-model routes remain registered to the explicit not-implemented handler rather than drifting to 404 or a generic relay path.
+- [ ] Validate route guardrails and update audit notes.
+  - Acceptance: targeted controller/router tests pass and the backlog audit records that explicit 501 routes are now regression-covered.
+
 ## P2 - Residual TODO comment cleanup
 
 - [x] Replace ambiguous production TODO comments with explicit maintenance notes.
