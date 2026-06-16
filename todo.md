@@ -8,9 +8,6 @@
 - [x] Classify follow-up Fusion benchmark report metric changes.
   - Acceptance: tracked dirty changes in `tools/fusion-benchmark.mjs` are either committed as project-owned report functionality or explicitly reverted only if proven accidental.
   - Done: kept the changes as project-owned Fusion benchmark reporting support for early-exit rate and panel/judge/final stage latency metrics, and documented the extra report fields in the benchmark README.
-- [x] Classify follow-up Fusion benchmark report localization changes.
-  - Acceptance: tracked dirty changes in `tools/fusion-benchmark.mjs` are either committed as project-owned report polish or explicitly left uncommitted if proven local-only.
-  - Done: kept the changes as project-owned Fusion benchmark report localization; report headings, verdict copy, category labels, and table column labels now render in Chinese while preserving raw fallback keys for unknown fields.
 - [x] Classify current dirty files before release checks.
   - Acceptance: identify which files are project-owned source/docs/config examples and which are local-only runtime artifacts.
   - Done: `tools/fusion-benchmark.mjs`, `tools/fusion-benchmark/README.md`, `tools/fusion-benchmark/config.json`, `tools/fusion-benchmark/.env.example`, and `tools/fusion-benchmark/data/*.example.jsonl` are classified as project-owned Fusion benchmark tooling; `tools/fusion-benchmark/.env.local`, `tools/fusion-benchmark/runs/`, `tools/fusion-benchmark/reports/`, and `tools/fusion-benchmark/secrets/` are local-only and ignored.
