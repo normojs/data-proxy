@@ -14,6 +14,9 @@
 - [x] Clarify bundled-vs-local dependency choices in the setup wizard.
   - Acceptance: first-run dependency setup explains when bundled PostgreSQL/Redis run, which Compose hostnames to use, that bundled services do not publish host ports, and when to use `host.docker.internal` for existing local services.
   - Done: replaced the single helper line with concise PostgreSQL/MySQL/Redis decision notes, including explicit no-host-port guarantees for bundled PostgreSQL `5432` and Redis `6379`. Validation: `cd web/default && bun run typecheck`, locale JSON parse, `docker compose config --services`, `docker compose --profile local-deps config --services`, and `git diff --check` passed.
+- [x] Clarify host selection for existing local dependencies.
+  - Acceptance: setup copy no longer implies that `host.docker.internal` is always correct; it distinguishes Docker-to-host access, same-machine direct access, and remote network access.
+  - Done: updated PostgreSQL/MySQL/Redis setup notes to say `host.docker.internal` is only for Data Proxy running in Docker while the dependency runs on this Mac, `127.0.0.1` is for direct same-machine runtime, and network IP/domain is for dependencies on another machine. Validation: `cd web/default && bun run typecheck`, locale JSON parse, and `git diff --check` passed.
 - [x] Prevent initialization from writing the first administrator into the temporary database after runtime config is saved.
   - Acceptance: after saving runtime config, the setup UI requires a Data Proxy restart before moving past the dependency step or submitting final initialization.
   - Done: setup status exposes `runtime_config_restart_required`; the setup wizard blocks next/submit and shows a restart-required alert until the server restarts with the saved config.

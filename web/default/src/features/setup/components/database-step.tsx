@@ -326,10 +326,10 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
                 <li>
                   {databaseType === 'postgres'
                     ? t(
-                        'Local PostgreSQL means an existing database on this Mac or your network. When Data Proxy runs in Docker and the database runs on this Mac, use host.docker.internal as the host.'
+                        'Local PostgreSQL means an existing database outside this Compose stack. Use host.docker.internal only when Data Proxy runs in Docker and PostgreSQL runs on this Mac; use 127.0.0.1 when Data Proxy also runs directly on this Mac; use a network IP or domain for another machine.'
                       )
                     : t(
-                        'Local MySQL means an existing database on this Mac or your network. When Data Proxy runs in Docker and the database runs on this Mac, use host.docker.internal as the host.'
+                        'Local MySQL means an existing database outside this Compose stack. Use host.docker.internal only when Data Proxy runs in Docker and MySQL runs on this Mac; use 127.0.0.1 when Data Proxy also runs directly on this Mac; use a network IP or domain for another machine.'
                       )}
                 </li>
               </ul>
@@ -390,7 +390,7 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
                 </li>
                 <li>
                   {t(
-                    'Local Redis means an existing Redis service on this Mac or your network. When Data Proxy runs in Docker and Redis runs on this Mac, use host.docker.internal as the host.'
+                    'Local Redis means an existing Redis service outside this Compose stack. Use host.docker.internal only when Data Proxy runs in Docker and Redis runs on this Mac; use 127.0.0.1 when Data Proxy also runs directly on this Mac; use a network IP or domain for another machine.'
                   )}
                 </li>
               </ul>
