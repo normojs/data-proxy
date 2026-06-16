@@ -1125,6 +1125,10 @@ function summarize(records, config) {
       cost_per_solved_usd: solved > 0 ? totalCost / solved : 0,
       p50_latency_ms: percentile(items.map((r) => r.latency_ms), 50),
       p95_latency_ms: percentile(items.map((r) => r.latency_ms), 95),
+      early_exit_rate: earlyExitRate(items),
+      p50_panel_max_latency_ms: fusionStageLatency(items, "panel", 50),
+      p50_judge_latency_ms: fusionStageLatency(items, "judge", 50),
+      p50_final_latency_ms: fusionStageLatency(items, "final", 50),
       failure_rate: items.length ? failures / items.length : 0,
       judge_json_validity: judgeValidity(items),
       all_panel_failure_rate: panelFailureRate(items),
@@ -1145,6 +1149,28 @@ function panelFailureRate(items) {
   const fusionItems = items.filter((r) => typeof r.all_panel_failure === "boolean");
   if (fusionItems.length === 0) return null;
   return fusionItems.filter((r) => r.all_panel_failure).length / fusionItems.length;
+}
+
+function earlyExitRate(items) {
+  const fusionItems = items.filter((r) => r.fusion_metrics);
+  if (fusionItems.length === 0) return null;
+  return fusionItems.filter((r) => r.fusion_metrics?.early_exit).length / fusionItems.length;
+}
+
+function fusionStageLatency(items, stage, p) {
+  const values = items
+    .map((r) => {
+      if (!r.fusion_metrics) return null;
+      if (stage === "panel") {
+        const latencies = (r.fusion_metrics.panel || []).map((panel) => panel.latency_ms).filter(Number.isFinite);
+        return latencies.length ? Math.max(...latencies) : null;
+      }
+      if (r.fusion_metrics?.[stage]?.skipped) return null;
+      return r.fusion_metrics?.[stage]?.latency_ms;
+    })
+    .filter(Number.isFinite);
+  if (values.length === 0) return null;
+  return percentile(values, p);
 }
 
 function isChineseSingleModel(model, config) {
@@ -1383,6 +1409,10 @@ function report(argv) {
       "cost_per_solved_usd",
       "p50_latency_ms",
       "p95_latency_ms",
+      "early_exit_rate",
+      "p50_panel_max_latency_ms",
+      "p50_judge_latency_ms",
+      "p50_final_latency_ms",
       "failure_rate",
       "judge_json_validity",
       "all_panel_failure_rate"

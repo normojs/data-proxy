@@ -89,6 +89,10 @@ node tools/fusion-benchmark.mjs report \
   --out tools/fusion-benchmark/reports/fresh-example.md
 ```
 
+Fusion reports include cost, solved rate, p50/p95 latency, early-exit rate,
+panel max latency, judge latency, final latency, judge JSON validity, and panel
+failure rates when the input records contain Fusion metrics.
+
 Run pairwise open-ended eval:
 
 ```bash
@@ -184,6 +188,20 @@ node tools/fusion-benchmark.mjs models-probe --env-file tools/fusion-benchmark/.
 node tools/fusion-benchmark.mjs models-probe --env-file tools/fusion-benchmark/.env.local --upstream deepseek --filter deepseek
 node tools/fusion-benchmark.mjs models-probe --env-file tools/fusion-benchmark/.env.local --upstream minimax --filter minimax
 ```
+
+Some relay models need extra request options. Put those under `modelOptions` in `config.json`; for example, Qwen thinking models may return only `reasoning_content` unless `enable_thinking` is disabled for short-answer benchmarks.
+
+Fusion presets can use conservative early exit:
+
+```json
+"earlyExit": {
+  "strategy": "exact_majority",
+  "minAgree": 2,
+  "maxAnswerChars": 200
+}
+```
+
+This skips judge/final only when enough panel models return the same short normalized answer. The report includes `early_exit_rate` and panel/judge/final latency columns so the optimization is visible.
 
 Some upstreams need provider-specific request flags for fair benchmark behavior. Add those under `modelOptions` in `config.json`; the harness merges them into passthrough, panel, judge, final, and benchmark calls before replacing the public model name with the upstream model ID. For example, Qwen thinking mode can be disabled without changing benchmark request bodies:
 
