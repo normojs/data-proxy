@@ -17,6 +17,8 @@
   - Done: follow-up checks passed for `gtimeout 20 docker compose config`, `gtimeout 20 docker compose -f docker-compose.dev.yml config`, `gtimeout 10 docker buildx version`, and `git diff --check`; `gtimeout 10 docker version` still timed out after printing Docker Client info only, so release image validation is blocked on local Docker daemon responsiveness.
 - [ ] Restore Docker daemon responsiveness before tagging a release image.
   - Acceptance: `docker version`, `docker info`, default `make deployment-preflight`, and optional `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight` complete without hanging.
+  - Current status: Docker Desktop remains a local environment blocker. `ps` shows long-running `com.docker.backend`, `com.docker.build`, and `docker-sandbox daemon start` processes; `gtimeout 10 docker version` prints client info then times out before server info; `curl --unix-socket /Users/fushilu/.docker/run/docker.sock http://localhost/_ping` returns `Docker Desktop is unable to start`.
+  - Next action: recover Docker Desktop at the host level, then rerun `docker version`, `docker info`, `make deployment-preflight`, and `DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight`. Do not tag or publish a release image until this gate passes.
 
 ## P1 - MCP market mock example polish
 

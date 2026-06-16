@@ -49,11 +49,13 @@ make deployment-preflight
 
 ## Current Caveat
 
-The latest local preflight passed backend tests, the production new frontend
-build, production/dev Compose config validation, Docker engine/buildx checks,
-and whitespace checks. A full local Docker image build was attempted but had to
-be canceled after stalling on Docker Hub metadata pulls for the pinned
-`golang:1.26.1-alpine` and `oven/bun:1` base images.
+The latest code-level local checks passed backend tests, the production new
+frontend build, production/dev Compose config validation, buildx availability,
+and whitespace checks. The release image gate is still blocked by the local
+Docker Desktop daemon state: `docker version` prints client information and
+then hangs before server information, while Docker's Unix socket responds with
+`Docker Desktop is unable to start`.
 
-Before publishing a release image, rerun the opt-in Docker image build from a
-network environment that can pull those base images.
+Before publishing a release image, recover Docker Desktop on the release host,
+then rerun the default preflight and the opt-in Docker image build. A release
+tag should only be cut after both commands complete without hanging.
