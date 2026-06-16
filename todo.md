@@ -1,5 +1,14 @@
 # data-proxy MCP / Bridge TODO
 
+## P2 - Runtime monitor resilience
+
+- [ ] Prevent optional pprof CPU monitor errors from crashing the process.
+  - Acceptance: `common.Monitor` logs transient CPU sampling errors and continues instead of panicking in a background goroutine.
+- [ ] Refresh panic audit classification for pprof monitor.
+  - Acceptance: backlog audit no longer classifies `common/pprof.go` as startup fail-fast behavior.
+- [ ] Validate monitor package and scan results.
+  - Acceptance: targeted common package tests pass and panic scan shows the pprof runtime panic has been removed.
+
 ## P2 - Intentional unsupported route guardrails
 
 - [x] Cover OpenAI-compatible intentionally unsupported relay response shape.
