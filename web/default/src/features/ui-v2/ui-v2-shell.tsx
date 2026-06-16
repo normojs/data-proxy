@@ -78,7 +78,7 @@ export function UIV2Shell() {
               <p className='text-muted-foreground max-w-3xl text-sm text-pretty'>
                 {currentNavItem
                   ? t(currentNavItem.descriptionKey)
-                  : t('Dense operations shell for the next New API UI.')}
+                  : t('Dense operations shell for the Data Proxy UI.')}
               </p>
             </div>
 

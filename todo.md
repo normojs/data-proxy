@@ -1,5 +1,17 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Data Proxy runtime branding
+
+- [x] Replace default runtime product naming with Data Proxy.
+  - Acceptance: backend defaults, startup/help output, browser title/meta, setup/settings defaults, and layout fallbacks no longer show New API as the product name.
+  - Done: backend `SystemName`, startup/help text, browser title/meta, default frontend constants, layout fallbacks, setup/settings defaults, and product placeholders now use `Data Proxy` while upstream compatibility references remain explicit.
+- [x] Replace default web logo/favicon assets from `/Users/fushilu/Pictures/dataproxy.png`.
+  - Acceptance: `web/default/public/logo.png` and `web/default/public/favicon.ico` are regenerated from the provided image and used by the default frontend.
+  - Done: regenerated `web/default/public/logo.png` as 512x512 PNG and `web/default/public/favicon.ico` with 256/128/64/48/32/16 sizes from `/Users/fushilu/Pictures/dataproxy.png`.
+- [x] Validate branding changes and commit.
+  - Acceptance: targeted Go tests, frontend typecheck/build, and whitespace checks pass; this TODO batch records exact validation commands and the commit is created.
+  - Done: `go test ./common ./controller ./setting/system_setting`, `node -e "const fs=require('fs'); for (const f of fs.readdirSync('web/default/src/i18n/locales').filter(f=>f.endsWith('.json'))) JSON.parse(fs.readFileSync('web/default/src/i18n/locales/'+f,'utf8')); console.log('locale json ok')"`, `cd web/default && bun run typecheck`, `make build-all-frontends`, and `git diff --check` passed.
+
 ## P1 - Default-only new UI runtime
 
 - [x] Make the backend runtime serve only the new UI by default.
