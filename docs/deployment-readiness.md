@@ -65,6 +65,11 @@ Recheck on 2026-06-16: `gtimeout 15 docker version` and `gtimeout 15 docker
 info` still time out while reading Server information, and the Unix socket still
 returns `Docker Desktop is unable to start`.
 
+`docker desktop start` reports that Docker Desktop is already running, but the
+daemon remains unhealthy: `docker version` / `docker info` still time out before
+Server details and the Unix socket still returns `Docker Desktop is unable to
+start`.
+
 Follow-up non-Docker regression on 2026-06-16 passed: `go test ./...`,
 `cd web/default && bun run typecheck`, locale JSON parsing,
 `make build-all-frontends`, `make mcp-regression`, and a scoped whitespace check
