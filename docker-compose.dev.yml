@@ -10,9 +10,11 @@
 # Rebuild backend after Go code changes:
 #   docker compose -f docker-compose.dev.yml up -d --build data-proxy
 #
-# Optional disposable dependencies for local testing:
+# Optional bundled dependencies for local testing:
 #   docker compose -f docker-compose.dev.yml --profile local-deps up -d
 #   Then use `postgres` / `redis` as hosts in the setup wizard.
+#   These services stay on the Compose network and do not publish host ports,
+#   so they will not conflict with PostgreSQL/Redis already running locally.
 #
 # Stop:
 #   docker compose -f docker-compose.dev.yml down
@@ -40,16 +42,15 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: data-proxy-dev-redis
     profiles:
       - local-deps
     restart: unless-stopped
+    command: ["redis-server", "--requirepass", "123456"]
     networks:
       - dev-network
 
   postgres:
     image: postgres:15-alpine
-    container_name: data-proxy-dev-pg
     profiles:
       - local-deps
     restart: unless-stopped

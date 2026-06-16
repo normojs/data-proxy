@@ -11,9 +11,11 @@
 #   If Data Proxy runs in Docker and your database/Redis runs on this Mac,
 #   use host.docker.internal as the host in the setup wizard.
 #
-# Optional disposable dependencies:
+# Optional bundled dependencies:
 #   docker compose --profile local-deps up -d
 #   Then use `postgres` / `redis` as hosts in the setup wizard.
+#   These services do not publish host ports, so they will not conflict with
+#   PostgreSQL/Redis already running on your machine.
 
 services:
   data-proxy:
@@ -52,7 +54,6 @@ services:
 
   redis:
     image: redis:latest
-    container_name: data-proxy-redis
     profiles:
       - local-deps
     restart: always
@@ -62,7 +63,6 @@ services:
 
   postgres:
     image: postgres:15
-    container_name: data-proxy-postgres
     profiles:
       - local-deps
     restart: always

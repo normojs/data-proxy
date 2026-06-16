@@ -99,6 +99,15 @@ function databasePlaceholder(type: SetupDatabaseType) {
   return ''
 }
 
+const POSTGRES_BUNDLED_DSN =
+  'postgresql://root:123456@postgres:5432/data_proxy?sslmode=disable'
+const POSTGRES_HOST_DSN =
+  'postgresql://user:password@host.docker.internal:5432/data_proxy'
+const MYSQL_HOST_DSN =
+  'user:password@tcp(host.docker.internal:3306)/data_proxy?charset=utf8mb4&parseTime=true&loc=Local'
+const REDIS_BUNDLED_DSN = 'redis://:123456@redis:6379/0'
+const REDIS_HOST_DSN = 'redis://:password@host.docker.internal:6379/0'
+
 export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
   const { t } = useTranslation()
   const meta = resolveDatabaseMeta(status?.database_type)
@@ -276,9 +285,39 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
                 onChange={(event) => setSqlDsn(event.target.value)}
                 placeholder={databasePlaceholder(databaseType)}
               />
+              <div className='flex flex-wrap gap-2'>
+                {databaseType === 'postgres' && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setSqlDsn(POSTGRES_BUNDLED_DSN)}
+                  >
+                    <Server className='size-3.5' />
+                    {t('Use bundled PostgreSQL')}
+                  </Button>
+                )}
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() =>
+                    setSqlDsn(
+                      databaseType === 'postgres'
+                        ? POSTGRES_HOST_DSN
+                        : MYSQL_HOST_DSN
+                    )
+                  }
+                >
+                  <Server className='size-3.5' />
+                  {databaseType === 'postgres'
+                    ? t('Use local PostgreSQL')
+                    : t('Use local MySQL')}
+                </Button>
+              </div>
               <p className='text-muted-foreground text-xs'>
                 {t(
-                  'When Data Proxy runs in Docker and the database runs on this Mac, use host.docker.internal as the host.'
+                  'Use postgres as the host for bundled Compose PostgreSQL, or host.docker.internal when Data Proxy runs in Docker and the database runs on this Mac.'
                 )}
               </p>
             </div>
@@ -308,8 +347,33 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
                 id='setup-redis-dsn'
                 value={redisConnString}
                 onChange={(event) => setRedisConnString(event.target.value)}
-                placeholder='redis://:password@host.docker.internal:6379/0'
+                placeholder={REDIS_HOST_DSN}
               />
+              <div className='flex flex-wrap gap-2'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setRedisConnString(REDIS_BUNDLED_DSN)}
+                >
+                  <Server className='size-3.5' />
+                  {t('Use bundled Redis')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setRedisConnString(REDIS_HOST_DSN)}
+                >
+                  <Server className='size-3.5' />
+                  {t('Use local Redis')}
+                </Button>
+              </div>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Use redis as the host for bundled Compose Redis, or host.docker.internal when Redis runs on this Mac.'
+                )}
+              </p>
             </div>
           )}
         </div>
