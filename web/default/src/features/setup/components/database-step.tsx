@@ -315,11 +315,24 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
                     : t('Use local MySQL')}
                 </Button>
               </div>
-              <p className='text-muted-foreground text-xs'>
-                {t(
-                  'Use postgres as the host for bundled Compose PostgreSQL, or host.docker.internal when Data Proxy runs in Docker and the database runs on this Mac.'
+              <ul className='text-muted-foreground list-disc space-y-1 pl-4 text-xs'>
+                {databaseType === 'postgres' && (
+                  <li>
+                    {t(
+                      'Bundled PostgreSQL runs only when the local-deps Compose profile is enabled. Use postgres as the host; it does not publish port 5432 to this Mac, so it will not conflict with a local PostgreSQL service.'
+                    )}
+                  </li>
                 )}
-              </p>
+                <li>
+                  {databaseType === 'postgres'
+                    ? t(
+                        'Local PostgreSQL means an existing database on this Mac or your network. When Data Proxy runs in Docker and the database runs on this Mac, use host.docker.internal as the host.'
+                      )
+                    : t(
+                        'Local MySQL means an existing database on this Mac or your network. When Data Proxy runs in Docker and the database runs on this Mac, use host.docker.internal as the host.'
+                      )}
+                </li>
+              </ul>
             </div>
           )}
         </div>
@@ -369,11 +382,18 @@ export function DatabaseStep({ status, onConfigSaved }: DatabaseStepProps) {
                   {t('Use local Redis')}
                 </Button>
               </div>
-              <p className='text-muted-foreground text-xs'>
-                {t(
-                  'Use redis as the host for bundled Compose Redis, or host.docker.internal when Redis runs on this Mac.'
-                )}
-              </p>
+              <ul className='text-muted-foreground list-disc space-y-1 pl-4 text-xs'>
+                <li>
+                  {t(
+                    'Bundled Redis runs only when the local-deps Compose profile is enabled. Use redis as the host; it does not publish port 6379 to this Mac, so it will not conflict with a local Redis service.'
+                  )}
+                </li>
+                <li>
+                  {t(
+                    'Local Redis means an existing Redis service on this Mac or your network. When Data Proxy runs in Docker and Redis runs on this Mac, use host.docker.internal as the host.'
+                  )}
+                </li>
+              </ul>
             </div>
           )}
         </div>
