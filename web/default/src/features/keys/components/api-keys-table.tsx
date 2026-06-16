@@ -348,28 +348,30 @@ export function ApiKeysTable() {
 
   return (
     <>
-      <div className='border-border bg-muted/30 flex flex-col gap-2 rounded-lg border px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between'>
+      <div className='border-border bg-muted/30 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2.5'>
         <div className='flex min-w-0 items-center gap-2'>
           <Globe2 className='text-muted-foreground size-4 shrink-0' />
           <span className='text-muted-foreground text-sm'>
             {t('Base URL')}
           </span>
-          <code className='bg-background min-w-0 truncate rounded-md border px-2 py-1 text-xs'>
+        </div>
+        <div className='flex min-w-0 max-w-full flex-wrap items-center gap-1.5'>
+          <code className='bg-background max-w-[calc(100vw-8rem)] min-w-0 truncate rounded-md border px-2 py-1 text-xs sm:max-w-[560px] lg:max-w-[720px]'>
             {baseUrl || t('Not configured')}
           </code>
+          {baseUrl && (
+            <CopyButton
+              value={baseUrl}
+              tooltip={t('Copy Base URL')}
+              successTooltip={t('Copied!')}
+              aria-label={t('Copy Base URL')}
+              variant='outline'
+              size='sm'
+            >
+              {t('Copy')}
+            </CopyButton>
+          )}
         </div>
-        {baseUrl && (
-          <CopyButton
-            value={baseUrl}
-            tooltip={t('Copy Base URL')}
-            successTooltip={t('Copied!')}
-            aria-label={t('Copy Base URL')}
-            variant='outline'
-            size='sm'
-          >
-            {t('Copy')}
-          </CopyButton>
-        )}
       </div>
       <DataTablePage
         table={table}

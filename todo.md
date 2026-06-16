@@ -1,5 +1,20 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - API key base URL and MCP Chinese copy polish
+
+- [x] Keep the API key Base URL copy action next to the address text.
+  - Acceptance: the API address and copy button remain visually grouped on desktop and mobile; long addresses truncate before the button instead of pushing it to the far edge.
+  - Done: constrained the Base URL code field width and kept the copy button in the same inline flex group.
+- [x] Localize MCP market and subpage static copy.
+  - Acceptance: MCP Market, Overview, MCP Tools, Proxy, Bridge, OpenAPI object, audit, billing, reconciliation, empty-state, toast, and action copy have Chinese translations.
+  - Done: filled the missing MCP component translation keys, added dynamic MCP status/source/category/schema labels, and added an explicit “工具介绍” label in the market detail panel.
+- [x] Localize built-in MCP tool introductions and parameter descriptions.
+  - Acceptance: seeded built-in MCP tools display Chinese names, descriptions, and input schema property descriptions in the market and tool detail surfaces.
+  - Done: updated the built-in MCP catalog seed definitions; existing deployments can refresh these records through startup seeding or the MCP seed action.
+- [x] Validate and commit this batch.
+  - Acceptance: locale JSON parsing, MCP i18n missing-key scan, frontend typecheck/build check, targeted Go tests, whitespace checks, and git commit complete.
+  - Done: locale JSON parse, MCP component/dynamic missing-key scan, `cd web/default && bun run typecheck`, `cd web/default && bun run build:check`, `go test ./pkg/mcp/catalog ./model -run 'TestSeed|TestMCP|TestBuiltin|TestOpenAPI|TestProxy'`, and `git diff --check` passed.
+
 ## P1 - H 站 OAuth and dashboard scope split
 
 - [x] Add an H 站 OAuth preset for the dc.hhhl.cc bridge.

@@ -68,9 +68,14 @@ function schemaRequired(schema: unknown): string[] {
     : []
 }
 
-function schemaTypeLabel(property: SchemaProperty) {
-  if (Array.isArray(property.type)) return property.type.join(' | ')
-  return property.type || (property.enum ? 'enum' : 'value')
+function schemaTypeLabel(
+  property: SchemaProperty,
+  t: (key: string) => string
+) {
+  if (Array.isArray(property.type)) {
+    return property.type.map((item) => t(item)).join(' | ')
+  }
+  return t(property.type || (property.enum ? 'enum' : 'value'))
 }
 
 function exampleValueForProperty(property: SchemaProperty): unknown {
@@ -251,8 +256,11 @@ function MarketToolDetail(props: {
         </div>
 
         {tool.description && (
-          <div className='text-muted-foreground text-sm leading-6'>
-            {tool.description}
+          <div className='space-y-1.5'>
+            <div className='text-muted-foreground text-xs font-medium'>
+              {t('Tool Introduction')}
+            </div>
+            <p className='text-sm leading-6'>{tool.description}</p>
           </div>
         )}
 
@@ -323,7 +331,7 @@ function SchemaFieldList(props: { schema: unknown }) {
                 {name}
               </code>
               <StatusBadge
-                label={schemaTypeLabel(property)}
+                label={schemaTypeLabel(property, t)}
                 variant='neutral'
                 copyable={false}
               />
