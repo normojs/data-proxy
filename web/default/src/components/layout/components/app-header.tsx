@@ -20,7 +20,10 @@ import { useNotifications } from '@/hooks/use-notifications'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { LanguageSwitcher } from '@/components/language-switcher'
-import { NotificationPopover } from '@/components/notification-popover'
+import {
+  NotificationPopover,
+  RequiredAnnouncementDialog,
+} from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
 import { defaultTopNavLinks } from '../config/top-nav.config'
@@ -150,6 +153,12 @@ export function AppHeader({
           </div>
         )}
       </Header>
+      {showNotifications && (
+        <RequiredAnnouncementDialog
+          announcement={notifications.popupAnnouncement}
+          onMarkRead={(key) => notifications.markAnnouncementsAsRead([key])}
+        />
+      )}
     </>
   )
 }

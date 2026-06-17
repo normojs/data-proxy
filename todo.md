@@ -1,5 +1,17 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - System announcement popup required reading
+
+- [x] Add a popup-required option to system announcements.
+  - Acceptance: announcement editors can choose regular required reading or required reading with a popup, and popup-required announcements are saved as required-reading announcements.
+  - Done: added a "Required reading (popup)" announcement option; enabling it automatically preserves the announcement as required reading, and the admin table distinguishes regular required reading from popup-required announcements.
+- [x] Show unread popup-required announcements to users.
+  - Acceptance: users see an in-app modal for the first unread popup-required announcement and can dismiss it only by marking the announcement as read through the existing read-state flow.
+  - Done: notification state now exposes the first unread popup-required announcement after read-state loading, app/public headers render a required announcement dialog, and the dialog uses the existing announcement read API/local fallback path.
+- [x] Validate and commit the announcement popup batch.
+  - Acceptance: locale JSON parsing, frontend typecheck/build checks where practical, whitespace checks, and git commit complete without staging Fusion exploration files.
+  - Done: locale JSON parse, targeted Prettier check, `cd web/default && tsc -b`, `cd web/default && rsbuild build`, and scoped `git diff --check` passed. Commit excludes Fusion exploration files.
+
 ## P1 - Runtime locale brand residuals
 
 - [x] Clean non-English runtime product-name translations that still display New API.

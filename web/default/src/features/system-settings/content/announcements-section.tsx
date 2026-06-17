@@ -83,6 +83,7 @@ type Announcement = {
   publishDate: string
   type: 'default' | 'ongoing' | 'success' | 'warning' | 'error'
   mustRead?: boolean
+  popup?: boolean
   extra?: string
 }
 
@@ -99,6 +100,7 @@ const announcementSchema = z.object({
   publishDate: z.string().min(1, 'Publish date is required'),
   type: z.enum(['default', 'ongoing', 'success', 'warning', 'error']),
   mustRead: z.boolean(),
+  popup: z.boolean(),
   extra: z
     .string()
     .max(100, 'Extra must be less than 100 characters')
@@ -163,6 +165,7 @@ export function AnnouncementsSection({
       publishDate: new Date().toISOString(),
       type: 'default',
       mustRead: false,
+      popup: false,
       extra: '',
     },
   })
@@ -207,6 +210,7 @@ export function AnnouncementsSection({
       publishDate: new Date().toISOString(),
       type: 'default',
       mustRead: false,
+      popup: false,
       extra: '',
     })
     setShowDialog(true)
@@ -219,6 +223,7 @@ export function AnnouncementsSection({
       publishDate: announcement.publishDate,
       type: announcement.type,
       mustRead: announcement.mustRead ?? false,
+      popup: announcement.popup ?? false,
       extra: announcement.extra || '',
     })
     setShowDialog(true)
@@ -263,16 +268,21 @@ export function AnnouncementsSection({
   }
 
   const handleSubmitForm = (values: AnnouncementFormValues) => {
+    const nextValues = {
+      ...values,
+      mustRead: values.popup ? true : values.mustRead,
+    }
+
     if (editingAnnouncement) {
       setAnnouncements((prev) =>
         prev.map((item) =>
-          item.id === editingAnnouncement.id ? { ...item, ...values } : item
+          item.id === editingAnnouncement.id ? { ...item, ...nextValues } : item
         )
       )
       toast.success(t('Announcement updated. Click "Save Settings" to apply.'))
     } else {
       const newId = Math.max(...announcements.map((item) => item.id), 0) + 1
-      setAnnouncements((prev) => [...prev, { id: newId, ...values }])
+      setAnnouncements((prev) => [...prev, { id: newId, ...nextValues }])
       toast.success(t('Announcement added. Click "Save Settings" to apply.'))
     }
     setHasChanges(true)
@@ -436,8 +446,18 @@ export function AnnouncementsSection({
                     </TableCell>
                     <TableCell>
                       <StatusBadge
-                        label={announcement.mustRead ? t('Yes') : t('No')}
-                        variant={announcement.mustRead ? 'warning' : 'neutral'}
+                        label={
+                          announcement.popup
+                            ? t('Required reading (popup)')
+                            : announcement.mustRead
+                              ? t('Required reading')
+                              : t('No')
+                        }
+                        variant={
+                          announcement.popup || announcement.mustRead
+                            ? 'warning'
+                            : 'neutral'
+                        }
                         copyable={false}
                       />
                     </TableCell>
@@ -614,13 +634,46 @@ export function AnnouncementsSection({
                     <FormControl>
                       <Checkbox
                         checked={field.value}
-                        onCheckedChange={field.onChange}
+                        onCheckedChange={(checked) => {
+                          field.onChange(checked)
+                          if (!checked) {
+                            form.setValue('popup', false)
+                          }
+                        }}
                       />
                     </FormControl>
                     <FormItem className='space-y-1'>
                       <FormLabel>{t('Required reading')}</FormLabel>
                       <FormDescription>
                         {t('Users must mark this announcement as read')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  </div>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='popup'
+                render={({ field }) => (
+                  <div className='flex items-start gap-3 rounded-lg border p-3'>
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={(checked) => {
+                          field.onChange(checked)
+                          if (checked) {
+                            form.setValue('mustRead', true)
+                          }
+                        }}
+                      />
+                    </FormControl>
+                    <FormItem className='space-y-1'>
+                      <FormLabel>{t('Required reading (popup)')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Show a required-reading dialog until the user marks it as read'
+                        )}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

@@ -22,6 +22,16 @@ import { useTranslation } from 'react-i18next'
 import { getAnnouncementColorClass } from '@/lib/colors'
 import { formatDateTimeObject } from '@/lib/time'
 import { cn } from '@/lib/utils'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -47,6 +57,7 @@ interface AnnouncementItem {
   notificationKey?: string
   read?: boolean
   mustRead?: boolean
+  popup?: boolean
   type?: string
   content?: string
   extra?: string
@@ -65,6 +76,11 @@ interface NotificationPopoverProps {
   onMarkAllAnnouncementsAsRead?: () => void
   onMarkAnnouncementRead?: (key: string) => void
   className?: string
+}
+
+interface RequiredAnnouncementDialogProps {
+  announcement?: AnnouncementItem | null
+  onMarkRead?: (key: string) => void
 }
 
 /**
@@ -315,6 +331,78 @@ function AnnouncementsContent({
         })}
       </div>
     </ScrollArea>
+  )
+}
+
+/**
+ * Required-reading popup for announcements that must be acknowledged explicitly.
+ */
+export function RequiredAnnouncementDialog({
+  announcement,
+  onMarkRead,
+}: RequiredAnnouncementDialogProps) {
+  const { t } = useTranslation()
+
+  if (!announcement) return null
+
+  const notificationKey = announcement.notificationKey
+  const publishDate = announcement.publishDate
+    ? new Date(announcement.publishDate)
+    : null
+  const relativeTime = publishDate ? getRelativeTime(publishDate, t) : ''
+  const absoluteTime = publishDate ? formatDateTimeObject(publishDate) : ''
+
+  return (
+    <AlertDialog open={true} onOpenChange={() => undefined}>
+      <AlertDialogContent className='max-w-[calc(100%-2rem)] sm:max-w-lg'>
+        <AlertDialogHeader>
+          <AlertDialogMedia>
+            <Megaphone className='size-5' />
+          </AlertDialogMedia>
+          <AlertDialogTitle>{t('Required announcement')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('This announcement must be read before continuing.')}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className='space-y-3'>
+          <div className='flex flex-wrap items-center gap-1.5'>
+            <Badge variant='secondary'>{t('Required reading (popup)')}</Badge>
+            {absoluteTime ? (
+              <span className='text-muted-foreground text-xs'>
+                {relativeTime ? `${relativeTime} • ` : null}
+                {absoluteTime}
+              </span>
+            ) : null}
+          </div>
+
+          <ScrollArea className='max-h-[min(50vh,24rem)] pr-3'>
+            <div className='text-sm'>
+              <Markdown>{announcement.content || ''}</Markdown>
+            </div>
+
+            {announcement.extra ? (
+              <div className='text-muted-foreground mt-3 text-xs'>
+                <Markdown>{announcement.extra}</Markdown>
+              </div>
+            ) : null}
+          </ScrollArea>
+        </div>
+
+        <AlertDialogFooter>
+          <AlertDialogAction
+            disabled={!notificationKey}
+            onClick={() => {
+              if (notificationKey) {
+                onMarkRead?.(notificationKey)
+              }
+            }}
+          >
+            {t('I have read this announcement')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

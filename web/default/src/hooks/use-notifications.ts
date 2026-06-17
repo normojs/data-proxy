@@ -125,7 +125,7 @@ export function useNotifications() {
 
   const announcementIsRead = (key: string) => {
     if (user?.id && readStateQuery.isSuccess) {
-      return serverReadKeys.has(key)
+      return serverReadKeys.has(key) || isAnnouncementRead(key)
     }
     return isAnnouncementRead(key)
   }
@@ -136,6 +136,8 @@ export function useNotifications() {
         const notificationKey = getAnnouncementKey(item)
         return {
           ...item,
+          mustRead: item.mustRead === true,
+          popup: item.popup === true,
           notificationKey,
           read: announcementIsRead(notificationKey),
         }
@@ -191,6 +193,18 @@ export function useNotifications() {
     }
   }, [noticeContent, lastReadNotice, announcements])
 
+  const canEvaluatePopupAnnouncement =
+    !user?.id || readStateQuery.isSuccess || readStateQuery.isError
+
+  const popupAnnouncement = useMemo(() => {
+    if (!canEvaluatePopupAnnouncement) return null
+
+    return (
+      announcements.find((item) => item.mustRead && item.popup && !item.read) ??
+      null
+    )
+  }, [announcements, canEvaluatePopupAnnouncement])
+
   const markAnnouncementsAsRead = (keys?: string[]) => {
     const targetKeys =
       keys ??
@@ -234,6 +248,7 @@ export function useNotifications() {
     // Data
     notice: noticeContent,
     announcements,
+    popupAnnouncement,
     loading: noticeLoading || statusLoading,
 
     // Unread counts
