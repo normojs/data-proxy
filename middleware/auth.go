@@ -163,6 +163,18 @@ func TryUserAuth() func(c *gin.Context) {
 		if id != nil {
 			c.Set("id", id)
 		}
+		username, usernameOk := session.Get("username").(string)
+		role, roleOk := session.Get("role").(int)
+		status, statusOk := session.Get("status").(int)
+		if usernameOk && roleOk && statusOk &&
+			status == common.UserStatusEnabled &&
+			validUserInfo(username, role) {
+			c.Set("username", username)
+			c.Set("role", role)
+			c.Set("group", session.Get("group"))
+			c.Set("user_group", session.Get("group"))
+			c.Set("use_access_token", false)
+		}
 		c.Next()
 	}
 }

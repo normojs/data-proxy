@@ -40,7 +40,7 @@ func SetApiRouter(router *gin.Engine) {
 			perfMetricsRoute.GET("", controller.GetPerfMetrics)
 		}
 		serviceStatusRoute := apiRouter.Group("/service-status")
-		serviceStatusRoute.Use(middleware.UserAuth())
+		serviceStatusRoute.Use(middleware.TryUserAuth())
 		{
 			serviceStatusRoute.GET("/summary", controller.GetServiceStatusSummary)
 		}

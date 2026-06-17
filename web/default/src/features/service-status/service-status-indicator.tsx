@@ -81,7 +81,13 @@ function buildIndicatorLabel(
   })
 }
 
-export function ServiceStatusIndicator() {
+type ServiceStatusIndicatorProps = {
+  buttonClassName?: string
+  labelClassName?: string
+  labelMode?: 'summary' | 'title'
+}
+
+export function ServiceStatusIndicator(props: ServiceStatusIndicatorProps) {
   const { t } = useTranslation()
   const statusQuery = useQuery({
     queryKey: ['service-status-summary', SERVICE_STATUS_WINDOW_HOURS],
@@ -105,6 +111,7 @@ export function ServiceStatusIndicator() {
     () => buildIndicatorLabel(data, overallStatus, t),
     [data, overallStatus, t]
   )
+  const displayLabel = props.labelMode === 'title' ? t('Service Status') : label
   const activeAlerts = data?.summary.active_alerts ?? 0
 
   return (
@@ -115,7 +122,11 @@ export function ServiceStatusIndicator() {
             type='button'
             variant='ghost'
             size='sm'
-            className='inline-flex max-w-[13.5rem] gap-1.5 px-2'
+            className={cn(
+              'inline-flex max-w-[13.5rem] gap-1.5 px-2',
+              props.buttonClassName
+            )}
+            aria-label={displayLabel}
           />
         }
       >
@@ -133,7 +144,9 @@ export function ServiceStatusIndicator() {
           )}
           aria-hidden='true'
         />
-        <span className='hidden truncate xl:inline'>{label}</span>
+        <span className={cn('hidden truncate xl:inline', props.labelClassName)}>
+          {displayLabel}
+        </span>
         {statusQuery.isFetching && (
           <RefreshCw
             className='text-muted-foreground size-3 animate-spin'

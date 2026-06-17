@@ -11,6 +11,9 @@
 - [x] Add a topbar service-status entry and observation page.
   - Acceptance: the topbar exposes service status, `/status` is available to authenticated users, and the UI states clearly that active probes/connectivity checks are not connected yet.
   - Done: added the topbar popover, responsive icon entry, `/status` summary/table/detail sheet, admin alert panel, and Chinese/English copy.
+- [x] Expose service-status observation publicly.
+  - Acceptance: anonymous users can open `/status` and read observation results from the home topbar, while administrator-only alert payloads stay gated behind an administrator session.
+  - Done: moved `/status` out of the authenticated route tree, added a visible public-header service-status entry, and changed the summary API to use optional user detection so anonymous users receive observation data and administrators still receive alert payloads.
 - [x] Validate and commit service-status observability.
   - Acceptance: targeted Go tests, frontend type/build checks, locale parsing, whitespace checks, and git commit complete without staging Fusion exploration files.
   - Done: `go test ./pkg/perf_metrics ./pkg/service_status ./model ./controller ./router`, locale JSON parsing, `cd web/default && bun run typecheck`, `cd web/default && bun run build:check`, and scoped `git diff --check` passed. Fusion exploration files remain intentionally unstaged.

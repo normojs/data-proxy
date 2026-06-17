@@ -41,6 +41,7 @@ import {
 } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
+import { ServiceStatusIndicator } from '@/features/service-status/service-status-indicator'
 import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
 import { HeaderLogo } from './header-logo'
@@ -264,6 +265,12 @@ export function PublicHeader(props: PublicHeaderProps) {
                 )
               })}
 
+              <ServiceStatusIndicator
+                buttonClassName='max-w-none'
+                labelClassName='hidden md:inline'
+                labelMode='title'
+              />
+
               {(showLanguageSwitcher ||
                 showThemeSwitch ||
                 showNotifications) && (
@@ -313,6 +320,10 @@ export function PublicHeader(props: PublicHeaderProps) {
 
             {/* Mobile: compact actions + hamburger */}
             <div className='flex items-center gap-2 sm:hidden'>
+              <ServiceStatusIndicator
+                buttonClassName='size-9 max-w-none px-0'
+                labelMode='title'
+              />
               {showThemeSwitch && <ThemeSwitch />}
               {showAuthButtons && !loading && isAuthenticated && (
                 <ProfileDropdown />
@@ -362,6 +373,19 @@ export function PublicHeader(props: PublicHeaderProps) {
       >
         <div className='flex h-full flex-col justify-between px-8 pt-20 pb-10'>
           <nav className='flex flex-col gap-1'>
+            <Link
+              to='/status'
+              onClick={() => setMobileOpen(false)}
+              className={cn(
+                'text-muted-foreground flex items-center gap-3 py-3 text-base font-medium tracking-tight transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]',
+                mobileOpen
+                  ? 'translate-y-0 opacity-100'
+                  : 'translate-y-4 opacity-0'
+              )}
+              style={{ transitionDelay: mobileOpen ? '80ms' : '0ms' }}
+            >
+              {t('Service Status')}
+            </Link>
             {links.map((link, i) => {
               const isActive = pathname === link.href
               const linkClassName = cn(

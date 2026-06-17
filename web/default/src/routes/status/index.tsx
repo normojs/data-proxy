@@ -17,8 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
+import { PublicLayout } from '@/components/layout'
 import { ServiceStatus } from '@/features/service-status'
 
-export const Route = createFileRoute('/_authenticated/status/')({
-  component: ServiceStatus,
+function PublicServiceStatusPage() {
+  return (
+    <PublicLayout showMainContainer={false}>
+      <div className='min-h-svh pt-16'>
+        <ServiceStatus />
+      </div>
+    </PublicLayout>
+  )
+}
+
+export const Route = createFileRoute('/status/')({
+  component: PublicServiceStatusPage,
 })
