@@ -244,7 +244,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                       )}
                     >
                       {t(link.title)}
-                      <ExternalLink className='size-3 shrink-0' aria-hidden />
+                      <ExternalLink className='size-3.5 shrink-0' aria-hidden />
                       <span className='sr-only'>{t('Open in new tab')}</span>
                     </a>
                   )

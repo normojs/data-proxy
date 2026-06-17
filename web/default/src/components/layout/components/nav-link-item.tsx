@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
+import { ExternalLink } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { TopNavLink } from '../types'
 
@@ -30,8 +32,9 @@ interface NavLinkItemProps {
  * Handles routing and proper link attributes
  */
 export function NavLinkItem({ link, className }: NavLinkItemProps) {
+  const { t } = useTranslation()
   const linkClassName = cn(
-    'text-muted-foreground hover:text-foreground transition-colors',
+    'text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 transition-colors',
     link.disabled && 'pointer-events-none opacity-50',
     className
   )
@@ -46,6 +49,8 @@ export function NavLinkItem({ link, className }: NavLinkItemProps) {
         aria-disabled={link.disabled}
       >
         {link.title}
+        <ExternalLink className='size-3.5 shrink-0' aria-hidden />
+        <span className='sr-only'>{t('Open in new tab')}</span>
       </a>
     )
   }

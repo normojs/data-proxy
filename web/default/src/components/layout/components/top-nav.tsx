@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ExternalLink, Menu } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,6 +39,7 @@ type TopNavProps = React.HTMLAttributes<HTMLElement> & {
  * 在大屏幕显示水平导航，在小屏幕显示下拉菜单
  */
 export function TopNav({ className, links, ...props }: TopNavProps) {
+  const { t } = useTranslation()
   // 规范化链接，确保所有可选属性都有默认值
   const normalizedLinks = useMemo(
     () =>
@@ -77,7 +79,11 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                         )}
                       >
                         {title}
-                        <ExternalLink className='size-3' aria-hidden='true' />
+                        <ExternalLink
+                          className='size-3.5 shrink-0'
+                          aria-hidden
+                        />
+                        <span className='sr-only'>{t('Open in new tab')}</span>
                       </a>
                     ) : (
                       <Link
@@ -114,7 +120,8 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
               className={`hover:text-primary inline-flex items-center gap-1.5 text-sm font-medium transition-colors ${isActive ? '' : 'text-muted-foreground'}`}
             >
               {title}
-              <ExternalLink className='size-3' aria-hidden='true' />
+              <ExternalLink className='size-3.5 shrink-0' aria-hidden />
+              <span className='sr-only'>{t('Open in new tab')}</span>
             </a>
           ) : (
             <Link

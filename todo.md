@@ -5,6 +5,9 @@
 - [x] Restore the external-link affordance for the public documentation nav item.
   - Acceptance: the public home topbar and mobile menu show an external-link icon for configured external documentation links, while keeping the link accessible as an item that opens in a new tab.
   - Done: restored the `ExternalLink` icon and screen-reader "Open in new tab" text for external public-header links.
+- [x] Keep the external-link affordance consistent across top navigation renderers.
+  - Acceptance: public, app, and shared nav link components all render an external-link icon for external documentation links.
+  - Done: added the icon and screen-reader "Open in new tab" text to the remaining shared navigation renderers and aligned icon sizing.
 
 ## P1 - Service status observability
 
