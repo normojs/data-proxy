@@ -80,7 +80,9 @@ interface NotificationPopoverProps {
 
 interface RequiredAnnouncementDialogProps {
   announcement?: AnnouncementItem | null
+  onDismiss?: (key: string) => void
   onMarkRead?: (key: string) => void
+  onMarkAllRead?: () => void
 }
 
 /**
@@ -339,13 +341,20 @@ function AnnouncementsContent({
  */
 export function RequiredAnnouncementDialog({
   announcement,
+  onDismiss,
   onMarkRead,
+  onMarkAllRead,
 }: RequiredAnnouncementDialogProps) {
   const { t } = useTranslation()
 
   if (!announcement) return null
 
   const notificationKey = announcement.notificationKey
+  const handleDismiss = () => {
+    if (notificationKey) {
+      onDismiss?.(notificationKey)
+    }
+  }
   const publishDate = announcement.publishDate
     ? new Date(announcement.publishDate)
     : null
@@ -353,7 +362,14 @@ export function RequiredAnnouncementDialog({
   const absoluteTime = publishDate ? formatDateTimeObject(publishDate) : ''
 
   return (
-    <AlertDialog open={true} onOpenChange={() => undefined}>
+    <AlertDialog
+      open={true}
+      onOpenChange={(open) => {
+        if (!open) {
+          handleDismiss()
+        }
+      }}
+    >
       <AlertDialogContent className='max-w-[calc(100%-2rem)] sm:max-w-lg'>
         <AlertDialogHeader>
           <AlertDialogMedia>
@@ -361,7 +377,9 @@ export function RequiredAnnouncementDialog({
           </AlertDialogMedia>
           <AlertDialogTitle>{t('Required announcement')}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t('This announcement must be read before continuing.')}
+            {t(
+              'Close this popup to stop showing it on this device, or mark announcements as read.'
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -390,6 +408,12 @@ export function RequiredAnnouncementDialog({
         </div>
 
         <AlertDialogFooter>
+          <Button type='button' variant='outline' onClick={handleDismiss}>
+            {t('Close')}
+          </Button>
+          <Button type='button' variant='secondary' onClick={onMarkAllRead}>
+            {t('Mark all as read')}
+          </Button>
           <AlertDialogAction
             disabled={!notificationKey}
             onClick={() => {

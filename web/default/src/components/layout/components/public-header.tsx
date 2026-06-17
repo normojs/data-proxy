@@ -432,7 +432,9 @@ export function PublicHeader(props: PublicHeaderProps) {
       {showNotifications && (
         <RequiredAnnouncementDialog
           announcement={notifications.popupAnnouncement}
+          onDismiss={(key) => notifications.dismissAnnouncementPopups([key])}
           onMarkRead={(key) => notifications.markAnnouncementsAsRead([key])}
+          onMarkAllRead={() => notifications.markAnnouncementsAsRead()}
         />
       )}
 

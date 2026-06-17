@@ -17,12 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useMemo } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
-import { useAuthStore } from '@/stores/auth-store'
+import { useQuery } from '@tanstack/react-query'
 import { useNotificationStore } from '@/stores/notification-store'
-import { api } from '@/lib/api'
 import { getNotice } from '@/lib/api'
 import { useStatus } from '@/hooks/use-status'
 
@@ -66,9 +62,6 @@ export function getAnnouncementKey(item: Record<string, unknown>): string {
  * Provides unread counts and read status management
  */
 export function useNotifications() {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const user = useAuthStore((state) => state.auth.user)
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'notice' | 'announcements'>(
     'notice'
@@ -98,35 +91,12 @@ export function useNotifications() {
     lastReadNotice,
     markNoticeRead,
     markAnnouncementsRead,
+    dismissAnnouncementPopups,
     isAnnouncementRead,
+    isAnnouncementPopupDismissed,
   } = useNotificationStore()
 
-  const readStateQuery = useQuery({
-    queryKey: ['notification-read-state', user?.id],
-    enabled: Boolean(user?.id),
-    queryFn: async () => {
-      const res = await api.get<{
-        success: boolean
-        data?: { announcement_keys?: string[] }
-      }>('/api/notifications/read-state', {
-        skipErrorHandler: true,
-        skipBusinessError: true,
-      })
-      if (!res.data.success) return []
-      return res.data.data?.announcement_keys ?? []
-    },
-    staleTime: 1000 * 60,
-  })
-
-  const serverReadKeys = useMemo(
-    () => new Set(readStateQuery.data ?? []),
-    [readStateQuery.data]
-  )
-
   const announcementIsRead = (key: string) => {
-    if (user?.id && readStateQuery.isSuccess) {
-      return serverReadKeys.has(key) || isAnnouncementRead(key)
-    }
     return isAnnouncementRead(key)
   }
 
@@ -143,34 +113,8 @@ export function useNotifications() {
         }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rawAnnouncements, serverReadKeys, isAnnouncementRead, user?.id]
+    [rawAnnouncements, isAnnouncementRead]
   )
-
-  const markAnnouncementsMutation = useMutation({
-    mutationFn: async (keys: string[]) => {
-      if (!user?.id) return { success: true }
-      const res = await api.post(
-        '/api/notifications/read',
-        { announcement_keys: keys },
-        { skipErrorHandler: true, skipBusinessError: true }
-      )
-      return res.data as { success: boolean; message?: string }
-    },
-    onSuccess: (response, keys) => {
-      markAnnouncementsRead(keys)
-      if (user?.id) {
-        queryClient.invalidateQueries({
-          queryKey: ['notification-read-state', user.id],
-        })
-      }
-      if (!response.success) {
-        toast.error(response.message || t('Failed to mark as read'))
-      }
-    },
-    onError: (_error, keys) => {
-      markAnnouncementsRead(keys)
-    },
-  })
 
   // Extract notice content
   const noticeContent = noticeResponse?.success
@@ -193,17 +137,17 @@ export function useNotifications() {
     }
   }, [noticeContent, lastReadNotice, announcements])
 
-  const canEvaluatePopupAnnouncement =
-    !user?.id || readStateQuery.isSuccess || readStateQuery.isError
-
   const popupAnnouncement = useMemo(() => {
-    if (!canEvaluatePopupAnnouncement) return null
-
     return (
-      announcements.find((item) => item.mustRead && item.popup && !item.read) ??
-      null
+      announcements.find(
+        (item) =>
+          item.mustRead &&
+          item.popup &&
+          !item.read &&
+          !isAnnouncementPopupDismissed(item.notificationKey as string)
+      ) ?? null
     )
-  }, [announcements, canEvaluatePopupAnnouncement])
+  }, [announcements, isAnnouncementPopupDismissed])
 
   const markAnnouncementsAsRead = (keys?: string[]) => {
     const targetKeys =
@@ -213,7 +157,14 @@ export function useNotifications() {
         .map((item) => item.notificationKey as string)
     const uniqueKeys = [...new Set(targetKeys.filter(Boolean))]
     if (uniqueKeys.length > 0) {
-      markAnnouncementsMutation.mutate(uniqueKeys)
+      markAnnouncementsRead(uniqueKeys)
+    }
+  }
+
+  const dismissAnnouncementPopupsLocal = (keys: string[]) => {
+    const uniqueKeys = [...new Set(keys.filter(Boolean))]
+    if (uniqueKeys.length > 0) {
+      dismissAnnouncementPopups(uniqueKeys)
     }
   }
 
@@ -266,6 +217,7 @@ export function useNotifications() {
     openPopover: handleOpenPopover,
     closePopover: () => setPopoverOpen(false),
     markAnnouncementsAsRead,
+    dismissAnnouncementPopups: dismissAnnouncementPopupsLocal,
     refetchNotice,
   }
 }

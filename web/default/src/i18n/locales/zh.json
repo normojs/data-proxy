@@ -4705,6 +4705,7 @@
     "Show a required-reading dialog until the user marks it as read": "未读时弹出必读对话框，直到用户标记为已读",
     "Required announcement": "必读公告",
     "This announcement must be read before continuing.": "请先阅读该公告后再继续。",
+    "Close this popup to stop showing it on this device, or mark announcements as read.": "关闭后本设备不再弹出，也可以直接标记公告已读。",
     "I have read this announcement": "我已阅读此公告",
     "Users must mark this announcement as read": "用户必须手动将此公告标记为已读",
     "Mark all as read": "全部标记为已读",

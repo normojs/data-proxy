@@ -156,7 +156,9 @@ export function AppHeader({
       {showNotifications && (
         <RequiredAnnouncementDialog
           announcement={notifications.popupAnnouncement}
+          onDismiss={(key) => notifications.dismissAnnouncementPopups([key])}
           onMarkRead={(key) => notifications.markAnnouncementsAsRead([key])}
+          onMarkAllRead={() => notifications.markAnnouncementsAsRead()}
         />
       )}
     </>

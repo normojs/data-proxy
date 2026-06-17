@@ -1,5 +1,17 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Local-only announcement popup acknowledgement
+
+- [x] Keep popup dismissal local-only.
+  - Acceptance: closing a popup-required announcement records a localStorage dismissal key and does not call notification read database APIs.
+  - Done: popup-required announcement dismissal now writes only to the persisted notification store's `dismissedAnnouncementPopupKeys`; the frontend no longer calls notification read-state/read database APIs for this flow.
+- [x] Keep announcement read actions local-only and add popup all-read.
+  - Acceptance: "mark as read" and "mark all as read" update localStorage only, and the popup dialog offers a one-click all-read action.
+  - Done: announcement read state now stays in localStorage through `readAnnouncementKeys`; the notification popover and required popup both expose mark-one and mark-all-read actions without backend writes.
+- [x] Validate and commit the local-only popup follow-up.
+  - Acceptance: locale JSON parsing, frontend typecheck/build checks where practical, whitespace checks, and git commit complete without staging Fusion exploration files.
+  - Done: targeted Prettier check, `cd web/default && tsc -b`, `cd web/default && rsbuild build`, locale JSON parsing, and scoped `git diff --check` passed. Commit excludes Fusion exploration files.
+
 ## P1 - System announcement popup required reading
 
 - [x] Add a popup-required option to system announcements.
