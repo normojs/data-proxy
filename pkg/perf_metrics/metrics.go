@@ -15,6 +15,7 @@ import (
 )
 
 var hotBuckets sync.Map
+var channelHotBuckets sync.Map
 
 // seriesSchema is a stable client cache/schema marker. Do not change it when
 // hiding fields or making response-only privacy hardening changes.
@@ -42,9 +43,14 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 	if generationMs <= 0 {
 		generationMs = latencyMs
 	}
+	channelId := 0
+	if info.ChannelMeta != nil {
+		channelId = info.ChannelId
+	}
 	Record(Sample{
 		Model:        info.OriginModelName,
 		Group:        info.UsingGroup,
+		ChannelId:    channelId,
 		LatencyMs:    latencyMs,
 		TtftMs:       ttftMs,
 		HasTtft:      hasTtft,
@@ -74,6 +80,28 @@ func Record(sample Sample) {
 	actual, _ := hotBuckets.LoadOrStore(key, &atomicBucket{})
 	actual.(*atomicBucket).add(sample)
 	recordRedis(key, sample)
+	recordChannel(sample)
+}
+
+func recordChannel(sample Sample) {
+	if sample.ChannelId <= 0 || sample.Model == "" {
+		return
+	}
+	if sample.Group == "" {
+		sample.Group = "default"
+	}
+	if sample.LatencyMs < 0 {
+		sample.LatencyMs = 0
+	}
+
+	key := channelBucketKey{
+		channelId: sample.ChannelId,
+		model:     sample.Model,
+		group:     sample.Group,
+		bucketTs:  bucketStart(time.Now().Unix()),
+	}
+	actual, _ := channelHotBuckets.LoadOrStore(key, &atomicBucket{})
+	actual.(*atomicBucket).add(sample)
 }
 
 func Query(params QueryParams) (QueryResult, error) {
@@ -197,6 +225,39 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	})
 
 	return SummaryAllResult{Models: models}, nil
+}
+
+func ChannelHotBucketSnapshots(startTs int64, endTs int64) []ChannelBucketSnapshot {
+	snapshots := make([]ChannelBucketSnapshot, 0)
+	channelHotBuckets.Range(func(key, value any) bool {
+		k := key.(channelBucketKey)
+		if k.bucketTs < startTs || k.bucketTs > endTs {
+			return true
+		}
+		snap := value.(*atomicBucket).snapshot()
+		if snap.requestCount == 0 {
+			return true
+		}
+		snapshots = append(snapshots, channelSnapshotFromCounters(k, snap))
+		return true
+	})
+	return snapshots
+}
+
+func channelSnapshotFromCounters(key channelBucketKey, value counters) ChannelBucketSnapshot {
+	return ChannelBucketSnapshot{
+		ChannelId:      key.channelId,
+		ModelName:      key.model,
+		Group:          key.group,
+		BucketTs:       key.bucketTs,
+		RequestCount:   value.requestCount,
+		SuccessCount:   value.successCount,
+		TotalLatencyMs: value.totalLatencyMs,
+		TtftSumMs:      value.ttftSumMs,
+		TtftCount:      value.ttftCount,
+		OutputTokens:   value.outputTokens,
+		GenerationMs:   value.generationMs,
+	}
 }
 
 func allowedGroupSet(groups []string) map[string]struct{} {

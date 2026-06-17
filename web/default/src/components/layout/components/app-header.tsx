@@ -26,6 +26,7 @@ import {
 } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
+import { ServiceStatusIndicator } from '@/features/service-status/service-status-indicator'
 import { defaultTopNavLinks } from '../config/top-nav.config'
 import { type TopNavLink } from '../types'
 import { Header } from './header'
@@ -128,6 +129,7 @@ export function AppHeader({
                 <TopNav links={links} />
               </div>
             )}
+            <ServiceStatusIndicator />
             {showSearch && <Search />}
             {showNotifications && (
               <NotificationPopover

@@ -1,5 +1,20 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Service status observability
+
+- [x] Capture relay metrics with channel-level dimensions.
+  - Acceptance: service status can aggregate real traffic by channel without changing the existing model performance dashboard schema.
+  - Done: added `perf_channel_metrics`, channel hot buckets, channel metric flush/retention cleanup, and channel-safe loading that omits provider keys.
+- [x] Expose an authenticated service-status summary API.
+  - Acceptance: all logged-in users can read observation results, while alert payloads are returned only to administrators.
+  - Done: added `GET /api/service-status/summary`; the API aggregates 24h status, confidence, model observations, trend series, and admin-only alerts.
+- [x] Add a topbar service-status entry and observation page.
+  - Acceptance: the topbar exposes service status, `/status` is available to authenticated users, and the UI states clearly that active probes/connectivity checks are not connected yet.
+  - Done: added the topbar popover, responsive icon entry, `/status` summary/table/detail sheet, admin alert panel, and Chinese/English copy.
+- [x] Validate and commit service-status observability.
+  - Acceptance: targeted Go tests, frontend type/build checks, locale parsing, whitespace checks, and git commit complete without staging Fusion exploration files.
+  - Done: `go test ./pkg/perf_metrics ./pkg/service_status ./model ./controller ./router`, locale JSON parsing, `cd web/default && bun run typecheck`, `cd web/default && bun run build:check`, and scoped `git diff --check` passed. Fusion exploration files remain intentionally unstaged.
+
 ## P1 - Local-only announcement popup acknowledgement
 
 - [x] Keep popup dismissal local-only.
