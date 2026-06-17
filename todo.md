@@ -1,5 +1,11 @@
 # data-proxy MCP / Bridge TODO
 
+## P1 - Public navigation polish
+
+- [x] Restore the external-link affordance for the public documentation nav item.
+  - Acceptance: the public home topbar and mobile menu show an external-link icon for configured external documentation links, while keeping the link accessible as an item that opens in a new tab.
+  - Done: restored the `ExternalLink` icon and screen-reader "Open in new tab" text for external public-header links.
+
 ## P1 - Service status observability
 
 - [x] Capture relay metrics with channel-level dimensions.

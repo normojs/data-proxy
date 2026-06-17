@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
@@ -238,11 +239,13 @@ export function PublicHeader(props: PublicHeaderProps) {
                       tabIndex={link.disabled ? -1 : undefined}
                       onClick={(event) => handleNavLinkClick(event, link)}
                       className={cn(
-                        'text-muted-foreground hover:text-foreground rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-200',
+                        'text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-200',
                         link.disabled && 'pointer-events-none opacity-50'
                       )}
                     >
                       {t(link.title)}
+                      <ExternalLink className='size-3 shrink-0' aria-hidden />
+                      <span className='sr-only'>{t('Open in new tab')}</span>
                     </a>
                   )
                 }
@@ -413,6 +416,8 @@ export function PublicHeader(props: PublicHeaderProps) {
                     style={transitionStyle}
                   >
                     {t(link.title)}
+                    <ExternalLink className='size-3.5 shrink-0' aria-hidden />
+                    <span className='sr-only'>{t('Open in new tab')}</span>
                   </a>
                 )
               }
