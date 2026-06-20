@@ -21,8 +21,12 @@ import (
 const (
 	enterpriseGovernanceAuditActionDryRunReject = "enterprise_governance.dry_run_reject"
 	enterpriseGovernanceAuditActionHardReject   = "enterprise_governance.hard_limit_reject"
+	enterpriseGovernanceAuditActionPolicyAction = "enterprise_governance.policy_action"
 	enterpriseUsageAttributionStatusSuccess     = "success"
 	enterpriseProjectIdHeader                   = "X-Data-Proxy-Project-ID"
+	enterprisePolicyActionsHeader               = "X-Data-Proxy-Enterprise-Policy-Actions"
+	enterprisePolicyActionHintHeader            = "X-Data-Proxy-Enterprise-Policy-Action-Hint"
+	enterpriseFallbackModelHeader               = "X-Data-Proxy-Enterprise-Fallback-Model"
 )
 
 func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayInfo, estimatedQuota int) *types.NewAPIError {
@@ -62,6 +66,11 @@ func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayIn
 		common.SetContextKey(c, constant.ContextKeyEnterpriseGovernanceReserve, reservation)
 	}
 
+	if len(decision.ActionObservations) > 0 {
+		recordEnterpriseGovernancePolicyActionAudit(c, enterpriseCtx, req, decision)
+		setEnterpriseGovernancePolicyActionHeaders(c, decision)
+		logger.LogWarn(c, fmt.Sprintf("enterprise governance policy action observed: %s", enterprisePolicyActionLogSummary(decision.ActionObservations)))
+	}
 	if decision.DryRun && decision.WouldReject {
 		recordEnterpriseGovernanceRejectAudit(c, enterpriseCtx, req, decision)
 		logger.LogWarn(c, fmt.Sprintf("enterprise governance dry-run would reject request: %s", decision.DenyReason))
@@ -213,31 +222,7 @@ func evaluateEnterpriseGovernancePreCheck(req PolicyEvaluationRequest) (PolicyDe
 	if req.EnterpriseContext == nil || !req.EnterpriseContext.Enabled {
 		return decision, nil, nil
 	}
-	if !req.EnterpriseContext.DryRun {
-		return EvaluateEnterprisePolicies(req)
-	}
-	decision.DryRun = req.EnterpriseContext.DryRun
-	policies, err := MatchEnterprisePolicies(req)
-	if err != nil {
-		return decision, nil, err
-	}
-	for _, policy := range policies {
-		decision.MatchedPolicyIds = append(decision.MatchedPolicyIds, policy.Id)
-		if isEnterpriseCounterPolicy(policy) {
-			decision.CounterPolicyIds = append(decision.CounterPolicyIds, policy.Id)
-		}
-	}
-	if err := CheckEnterpriseModelPermission(req, policies); err != nil {
-		if isEnterpriseModelNotAllowedError(err) {
-			markEnterprisePolicyDecisionDenied(&decision, err)
-			return decision, nil, nil
-		}
-		return decision, nil, err
-	}
-	if err := CheckEnterpriseQuota(req, policies); err != nil {
-		markEnterprisePolicyDecisionDenied(&decision, err)
-	}
-	return decision, nil, nil
+	return EvaluateEnterprisePolicies(req)
 }
 
 func enterpriseGovernanceUserFacingError(c *gin.Context, decision PolicyDecision) (string, types.ErrorCode) {
@@ -308,6 +293,7 @@ func enterpriseGovernanceRejectAuditPayload(enterpriseCtx *EnterpriseContext, re
 		"policy_group_ids":   cloneIntSlice(enterpriseCtx.PolicyGroupIds),
 		"matched_policy_ids": cloneIntSlice(decision.MatchedPolicyIds),
 		"counter_policy_ids": cloneIntSlice(decision.CounterPolicyIds),
+		"policy_actions":     cloneEnterprisePolicyActionObservations(decision.ActionObservations),
 		"estimated_quota":    req.Estimated.Quota,
 		"request_count":      req.Estimated.RequestCount,
 		"deny_reason":        decision.DenyReason,
@@ -341,6 +327,63 @@ func enterpriseGovernanceRejectAuditPayload(enterpriseCtx *EnterpriseContext, re
 	}
 	payload["deny_type"] = "unknown"
 	return payload
+}
+
+func recordEnterpriseGovernancePolicyActionAudit(c *gin.Context, enterpriseCtx *EnterpriseContext, req PolicyEvaluationRequest, decision PolicyDecision) {
+	if enterpriseCtx == nil || len(decision.ActionObservations) == 0 {
+		return
+	}
+	err := model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
+		EnterpriseId: enterpriseCtx.EnterpriseId,
+		ActorUserId:  enterpriseCtx.UserId,
+		Action:       enterpriseGovernanceAuditActionPolicyAction,
+		TargetType:   "quota_policy",
+		TargetId:     firstEnterprisePolicyActionObservationId(decision.ActionObservations),
+		After:        enterpriseGovernancePolicyActionAuditPayload(enterpriseCtx, req, decision),
+		RequestId:    req.RequestId,
+	})
+	if err != nil {
+		logger.LogError(c, "error recording enterprise governance policy action audit: "+err.Error())
+	}
+}
+
+func enterpriseGovernancePolicyActionAuditPayload(enterpriseCtx *EnterpriseContext, req PolicyEvaluationRequest, decision PolicyDecision) map[string]any {
+	return map[string]any{
+		"request_id":         req.RequestId,
+		"model":              req.ModelName,
+		"ability":            req.Ability,
+		"channel_id":         req.ChannelId,
+		"token_id":           enterpriseCtx.TokenId,
+		"org_unit_id":        enterpriseCtx.PrimaryOrgUnitId,
+		"project_id":         enterpriseCtx.ProjectId,
+		"policy_group_ids":   cloneIntSlice(enterpriseCtx.PolicyGroupIds),
+		"matched_policy_ids": cloneIntSlice(decision.MatchedPolicyIds),
+		"counter_policy_ids": cloneIntSlice(decision.CounterPolicyIds),
+		"policy_actions":     cloneEnterprisePolicyActionObservations(decision.ActionObservations),
+		"estimated_quota":    req.Estimated.Quota,
+		"request_count":      req.Estimated.RequestCount,
+		"user_message_key":   "enterprise_governance.policy_action_observed",
+		"dry_run":            decision.DryRun,
+	}
+}
+
+func setEnterpriseGovernancePolicyActionHeaders(c *gin.Context, decision PolicyDecision) {
+	if c == nil || len(decision.ActionObservations) == 0 {
+		return
+	}
+	c.Header(enterprisePolicyActionsHeader, strings.Join(uniqueEnterprisePolicyActionNames(decision.ActionObservations), ","))
+	c.Header(enterprisePolicyActionHintHeader, "enterprise_governance.policy_action_observed")
+	if fallbackModel := firstEnterprisePolicyFallbackModel(decision.ActionObservations); fallbackModel != "" {
+		c.Header(enterpriseFallbackModelHeader, fallbackModel)
+	}
+}
+
+func enterprisePolicyActionLogSummary(observations []PolicyActionObservation) string {
+	parts := make([]string, 0, len(observations))
+	for _, observation := range observations {
+		parts = append(parts, fmt.Sprintf("policy_id=%d action=%s trigger=%s", observation.PolicyId, observation.Action, observation.Trigger))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func enterpriseAbilityFromRelayMode(relayMode int) string {
@@ -394,11 +437,51 @@ func firstEnterprisePolicyId(ids []int) int {
 	return ids[0]
 }
 
+func firstEnterprisePolicyActionObservationId(observations []PolicyActionObservation) int {
+	if len(observations) == 0 {
+		return 0
+	}
+	return observations[0].PolicyId
+}
+
+func uniqueEnterprisePolicyActionNames(observations []PolicyActionObservation) []string {
+	names := make([]string, 0, len(observations))
+	seen := map[string]struct{}{}
+	for _, observation := range observations {
+		action := strings.TrimSpace(observation.Action)
+		if action == "" {
+			continue
+		}
+		if _, ok := seen[action]; ok {
+			continue
+		}
+		seen[action] = struct{}{}
+		names = append(names, action)
+	}
+	return names
+}
+
+func firstEnterprisePolicyFallbackModel(observations []PolicyActionObservation) string {
+	for _, observation := range observations {
+		if observation.FallbackModel != "" {
+			return observation.FallbackModel
+		}
+	}
+	return ""
+}
+
 func cloneIntSlice(values []int) []int {
 	if len(values) == 0 {
 		return []int{}
 	}
 	return append([]int(nil), values...)
+}
+
+func cloneEnterprisePolicyActionObservations(values []PolicyActionObservation) []PolicyActionObservation {
+	if len(values) == 0 {
+		return []PolicyActionObservation{}
+	}
+	return append([]PolicyActionObservation(nil), values...)
 }
 
 func clearEnterpriseGovernanceReservation(ctx *gin.Context) {

@@ -181,6 +181,13 @@ export type PolicyModelScope = 'all' | 'specific'
 
 export type PolicyConditionMode = 'structured' | 'cel'
 
+export type PolicyAction =
+  | 'reject'
+  | 'alert'
+  | 'fallback_model'
+  | 'queue'
+  | 'shared_pool'
+
 export type EnterpriseQuotaPolicy = {
   id: number
   enterprise_id: number
@@ -199,7 +206,7 @@ export type EnterpriseQuotaPolicy = {
   condition_json: string
   condition_expr: string
   condition_hash: string
-  action: string
+  action: PolicyAction
   priority: number
   status: number
   effective_at: number
@@ -317,10 +324,7 @@ export type EnterpriseNotificationOutboxStatus =
   | 'failed'
   | 'permanent_failed'
 
-export type EnterpriseNotificationOutboxChannel =
-  | 'in_app'
-  | 'email'
-  | 'webhook'
+export type EnterpriseNotificationOutboxChannel = 'in_app' | 'email' | 'webhook'
 
 export type EnterpriseNotificationOutbox = {
   id: number

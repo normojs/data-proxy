@@ -306,6 +306,43 @@ func TestEnterprisePolicyEvaluateRejectsModelOutsideSpecificScope(t *testing.T) 
 	assert.EqualValues(t, 0, counterCount)
 }
 
+func TestEnterprisePolicyEvaluateUnknownActionFallsBackToReject(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1018, Username: "unknown-action-user", Status: common.UserStatusEnabled, Group: "default"}).Error)
+
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "legacy unknown action",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricRequestCount,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   1,
+		ModelScope:   model.PolicyModelScopeAll,
+		Action:       "legacy_fallback",
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+
+	decision, reservation, err := EvaluateEnterprisePolicies(PolicyEvaluationRequest{
+		EnterpriseContext: &EnterpriseContext{Enabled: true, EnterpriseId: enterprise.Id, UserId: 1018},
+		ModelName:         "gpt-4o",
+		Estimated:         UsageAmount{RequestCount: 2},
+		Now:               time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC),
+	})
+
+	require.NoError(t, err)
+	assert.Nil(t, reservation)
+	assert.False(t, decision.Allowed)
+	assert.True(t, decision.WouldReject)
+	assert.Equal(t, []int{policy.Id}, decision.MatchedPolicyIds)
+	assert.Empty(t, decision.ActionObservations)
+	var quotaErr EnterpriseQuotaExceededError
+	require.True(t, errors.As(decision.DenyError, &quotaErr))
+	assert.Equal(t, policy.Id, quotaErr.PolicyId)
+}
+
 func TestEnterpriseQuotaReservationRollsBackWhenAnyPolicyExceedsLimit(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()

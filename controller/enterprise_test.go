@@ -543,6 +543,54 @@ func TestEnterpriseQuotaPolicyCreateWritesAuditLog(t *testing.T) {
 	assert.EqualValues(t, 1, auditCount)
 }
 
+func TestEnterpriseQuotaPolicyAdvancedActionsValidation(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+
+	actions := []string{
+		model.PolicyActionAlert,
+		model.PolicyActionFallbackModel,
+		model.PolicyActionQueue,
+		model.PolicyActionSharedPool,
+	}
+	for index, action := range actions {
+		ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-policies", `{
+			"name": "enterprise action `+strconv.Itoa(index)+`",
+			"target_type": "enterprise",
+			"target_id": 0,
+			"metric": "request_count",
+			"period": "day",
+			"limit_value": 10,
+			"model_scope": "all",
+			"action": "`+action+`"
+		}`)
+		CreateEnterpriseQuotaPolicy(ctx)
+		response := decodeEnterpriseControllerResponse(t, recorder)
+		require.True(t, response.Success, response.Message)
+		policyId := enterpriseResponseId(t, response)
+
+		var policy model.EnterpriseQuotaPolicy
+		require.NoError(t, model.DB.First(&policy, policyId).Error)
+		assert.Equal(t, action, policy.Action)
+		assert.Equal(t, model.PolicyTargetEnterprise, policy.TargetType)
+		assert.Equal(t, policy.EnterpriseId, policy.TargetId)
+	}
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-policies", `{
+		"name": "enterprise invalid action",
+		"target_type": "enterprise",
+		"target_id": 0,
+		"metric": "request_count",
+		"period": "day",
+		"limit_value": 10,
+		"model_scope": "all",
+		"action": "silently_do_magic"
+	}`)
+	CreateEnterpriseQuotaPolicy(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "不支持的策略动作")
+}
+
 func TestEnterpriseAuditLogFilters(t *testing.T) {
 	setupEnterpriseControllerTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()

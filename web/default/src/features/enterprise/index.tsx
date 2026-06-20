@@ -16,13 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  type FormEvent,
-  type ReactNode,
-  useMemo,
-  useState,
-} from 'react'
+import { type FormEvent, type ReactNode, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Route } from '@/routes/_authenticated/enterprise'
 import {
   Activity,
   Check,
@@ -50,7 +46,6 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
-import { Route } from '@/routes/_authenticated/enterprise'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -172,6 +167,7 @@ import type {
   EnterpriseWebhookPayload,
   EnterpriseWebhookTestResult,
   PageInfo,
+  PolicyAction,
   PolicyConditionMode,
   PolicyMetric,
   PolicyModelScope,
@@ -240,6 +236,13 @@ const ALL_VALUE = '__all__'
 const ROOT_VALUE = '__root__'
 const UNASSIGNED_VALUE = '__unassigned__'
 const EMPTY_ORG_UNITS: EnterpriseOrgUnit[] = []
+const policyActionOptions: { value: PolicyAction; label: string }[] = [
+  { value: 'reject', label: 'Reject' },
+  { value: 'alert', label: 'Alert' },
+  { value: 'fallback_model', label: 'Fallback Model' },
+  { value: 'queue', label: 'Queue' },
+  { value: 'shared_pool', label: 'Shared Pool' },
+]
 const ORG_SYNC_PAYLOAD_TEMPLATE = `{
   "org_units": [
     {
@@ -373,6 +376,16 @@ function auditBoolean(payload: Record<string, unknown>, key: string) {
 function auditList(payload: Record<string, unknown>, key: string) {
   const value = payload[key]
   return Array.isArray(value) ? value.map(String).join(', ') : ''
+}
+
+function auditObjectList(payload: Record<string, unknown>, key: string) {
+  const value = payload[key]
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+      )
+    : []
 }
 
 function formatAuditNumberValue(payload: Record<string, unknown>, key: string) {
@@ -869,6 +882,14 @@ function formatPeriod(period: PolicyPeriod) {
   return period === 'month' ? 'Monthly' : 'Daily'
 }
 
+function formatPolicyAction(action: PolicyAction | string) {
+  return (
+    policyActionOptions.find((option) => option.value === action)?.label ||
+    action ||
+    'Reject'
+  )
+}
+
 function UsageBar(props: { used: number; limit: number }) {
   const percent =
     props.limit > 0 ? Math.min(100, (props.used / props.limit) * 100) : 0
@@ -1102,13 +1123,13 @@ function SsoOrgSyncPanel() {
 
   const buildPayload = (): EnterpriseOrgSyncPayload | null => {
     try {
-      const parsed = JSON.parse(payloadText) as Partial<EnterpriseOrgSyncPayload>
+      const parsed = JSON.parse(
+        payloadText
+      ) as Partial<EnterpriseOrgSyncPayload>
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new Error(t('Invalid JSON payload'))
       }
-      const orgUnits = Array.isArray(parsed.org_units)
-        ? parsed.org_units
-        : []
+      const orgUnits = Array.isArray(parsed.org_units) ? parsed.org_units : []
       const members = Array.isArray(parsed.members) ? parsed.members : []
       setParseError('')
       return {
@@ -1225,9 +1246,7 @@ function SsoOrgSyncPanel() {
           <label className='flex items-center gap-2 text-sm'>
             <Checkbox
               checked={allowConflicts}
-              onCheckedChange={(checked) =>
-                setAllowConflicts(checked === true)
-              }
+              onCheckedChange={(checked) => setAllowConflicts(checked === true)}
             />
             <span>{t('Apply non-conflicting rows')}</span>
           </label>
@@ -2123,6 +2142,9 @@ function QuotaPoliciesTab(props: {
                           </Badge>
                           <Badge variant='secondary'>
                             {t(formatPeriod(policy.period))}
+                          </Badge>
+                          <Badge variant='outline'>
+                            {t(formatPolicyAction(policy.action))}
                           </Badge>
                         </div>
                       </TableCell>
@@ -3146,9 +3168,12 @@ function AuditRejectExplanation(props: {
   const denyReason = auditString(payload, 'deny_reason')
   const denyType = auditString(payload, 'deny_type')
   const dryRun = auditBoolean(payload, 'dry_run')
-  const isGovernanceReject = props.log.action.startsWith(
-    'enterprise_governance.'
-  )
+  if (props.log.action === 'enterprise_governance.policy_action') {
+    return <AuditPolicyActionExplanation payload={payload} />
+  }
+  const isGovernanceReject =
+    props.log.action === 'enterprise_governance.dry_run_reject' ||
+    props.log.action === 'enterprise_governance.hard_limit_reject'
 
   if (!isGovernanceReject && !denyReason && !denyType) return null
 
@@ -3244,6 +3269,59 @@ function AuditRejectExplanation(props: {
           />
         </div>
       )}
+    </div>
+  )
+}
+
+function AuditPolicyActionExplanation(props: {
+  payload: Record<string, unknown>
+}) {
+  const { t } = useTranslation()
+  const actions = auditObjectList(props.payload, 'policy_actions')
+
+  if (actions.length === 0) return null
+
+  return (
+    <div className='space-y-3 rounded-lg border p-3'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <div className='min-w-0'>
+          <div className='text-sm font-semibold'>
+            {t('Policy action observed')}
+          </div>
+          <div className='text-muted-foreground mt-1 text-xs'>
+            {t(auditString(props.payload, 'user_message_key'))}
+          </div>
+        </div>
+        <Badge variant='secondary'>{t('Allowed')}</Badge>
+      </div>
+      <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
+        {actions.map((action, index) => (
+          <div
+            key={`${auditString(action, 'action')}:${index}`}
+            className='space-y-2 rounded-md border p-2'
+          >
+            <AuditDetailField
+              label='Policy'
+              value={`#${auditNumber(action, 'policy_id') ?? '-'}`}
+              mono
+            />
+            <AuditDetailField
+              label='Action'
+              value={formatPolicyAction(auditString(action, 'action'))}
+            />
+            <AuditDetailField
+              label='Trigger'
+              value={auditString(action, 'trigger') || '-'}
+              mono
+            />
+            <AuditDetailField
+              label='Fallback Model'
+              value={auditString(action, 'fallback_model') || '-'}
+              mono
+            />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -3432,7 +3510,9 @@ function NotificationPreferenceRow(props: {
               })
             }
           />
-          <span>{t(props.emailPreference.enabled ? 'Enabled' : 'Disabled')}</span>
+          <span>
+            {t(props.emailPreference.enabled ? 'Enabled' : 'Disabled')}
+          </span>
         </label>
       </TableCell>
       <TableCell>
@@ -3509,7 +3589,9 @@ function NotificationPreferenceRow(props: {
               })
             }
           />
-          <span>{t(props.webhookPreference.enabled ? 'Enabled' : 'Disabled')}</span>
+          <span>
+            {t(props.webhookPreference.enabled ? 'Enabled' : 'Disabled')}
+          </span>
         </label>
       </TableCell>
       <TableCell>
@@ -3637,7 +3719,9 @@ function WebhooksTab() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={webhook.has_secret ? 'outline' : 'secondary'}>
+                      <Badge
+                        variant={webhook.has_secret ? 'outline' : 'secondary'}
+                      >
                         {t(webhook.has_secret ? 'Set' : 'Not set')}
                       </Badge>
                     </TableCell>
@@ -5044,6 +5128,7 @@ type QuotaPolicyFormState = {
   condition_model_names: string
   condition_channel_ids: string
   condition_is_playground: string
+  action: PolicyAction
   priority: string
   status: string
   effective_at: string
@@ -5083,6 +5168,7 @@ function policyToQuotaForm(
       structuredCondition.is_playground === undefined
         ? ''
         : String(structuredCondition.is_playground),
+    action: policy?.action ?? 'reject',
     priority: String(policy?.priority ?? 0),
     status: String(policy?.status ?? ENABLED_STATUS),
     effective_at: policy?.effective_at ? String(policy.effective_at) : '',
@@ -5146,7 +5232,7 @@ function QuotaPolicyDialog(props: {
         : '',
     condition_expr:
       form.condition_mode === 'cel' ? form.condition_expr.trim() : '',
-    action: 'reject',
+    action: form.action,
     priority: Number(form.priority || 0),
     status: Number(form.status),
     effective_at: Number(form.effective_at || 0),
@@ -5368,7 +5454,31 @@ function QuotaPolicyDialog(props: {
               />
             </Field>
           </div>
-          <div className='grid gap-3 sm:grid-cols-2'>
+          <div className='grid gap-3 sm:grid-cols-3'>
+            <Field label='Action'>
+              <Select
+                value={form.action}
+                onValueChange={(value) =>
+                  setField(
+                    'action',
+                    normalizeSelectValue(value) as PolicyAction
+                  )
+                }
+              >
+                <SelectTrigger className='w-full'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    {policyActionOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {t(option.label)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
             <Field label='Model Scope'>
               <Select
                 value={form.model_scope}
@@ -5586,16 +5696,16 @@ function QuotaRequestDialog(props: {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [form, setForm] = useState<QuotaRequestFormState>(() => ({
-      policy_id: props.initialValues?.policyId
-        ? String(props.initialValues.policyId)
-        : props.policies[0]?.id
-          ? String(props.policies[0].id)
-          : '',
-      limit_delta: props.initialValues?.limitDelta
-        ? String(props.initialValues.limitDelta)
+    policy_id: props.initialValues?.policyId
+      ? String(props.initialValues.policyId)
+      : props.policies[0]?.id
+        ? String(props.policies[0].id)
         : '',
-      expires_at: todayInputValue(),
-      reason: props.initialValues?.reason ?? '',
+    limit_delta: props.initialValues?.limitDelta
+      ? String(props.initialValues.limitDelta)
+      : '',
+    expires_at: todayInputValue(),
+    reason: props.initialValues?.reason ?? '',
   }))
 
   const payload = (): EnterpriseQuotaRequestPayload => ({

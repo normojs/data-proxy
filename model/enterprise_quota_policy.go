@@ -22,8 +22,29 @@ const (
 	PolicyConditionModeStructured = "structured"
 	PolicyConditionModeCEL        = "cel"
 
-	PolicyActionReject = "reject"
+	PolicyActionReject        = "reject"
+	PolicyActionAlert         = "alert"
+	PolicyActionFallbackModel = "fallback_model"
+	PolicyActionQueue         = "queue"
+	PolicyActionSharedPool    = "shared_pool"
 )
+
+func IsEnterpriseQuotaPolicyAction(action string) bool {
+	switch action {
+	case PolicyActionReject,
+		PolicyActionAlert,
+		PolicyActionFallbackModel,
+		PolicyActionQueue,
+		PolicyActionSharedPool:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsEnterpriseQuotaPolicyBlockingAction(action string) bool {
+	return action == "" || action == PolicyActionReject
+}
 
 type EnterpriseQuotaPolicy struct {
 	Id            int    `json:"id" gorm:"primaryKey"`

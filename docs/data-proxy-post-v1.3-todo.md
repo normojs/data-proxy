@@ -24,20 +24,20 @@
 | 10 | DP-V15-003 | P2 | Done | V1.5 token 级 hard limit | token 模型支持硬额度上限；relay 前置校验、超限错误、结算回滚和单测覆盖完整。 |
 | 11 | DP-V15-004 | P2 | Done | V1.5 并发压测脚本 | 提供企业额度 reserve/settle/refund 并发一致性脚本，并在文档中记录 Redis/DB 两种模式的运行方式。 |
 | 12 | DP-V15-005 | P2 | Done | V1.5 Redis-only 崩溃恢复 | 扫描 Redis-only counter key、补建缺失 DB mirror，并评估操作级幂等补偿队列。 |
-| 13 | DP-V16-001 | P2 | Pending | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作，并保留审计和用户提示。 |
+| 13 | DP-V16-001 | P2 | Done (MVP) | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作的配置、命中观测、审计事件和响应提示；实际模型改写、异步排队和共享池执行留给后续增强。 |
 | 14 | DP-V17-001 | P2 | Pending | V1.7 企业治理 RBAC/财务视图 | 企业管理员、部门管理员、财务查看员、审计员、项目管理员的权限边界和回归测试。 |
 
-## 当前开始项：DP-V15-003
+## 当前开始项：DP-V16-001
 
-V1.5 高并发和精细额度继续按以下顺序拆分，避免额度主链路一次性改动过大：
+V1.6 高级策略动作先交付最小可用的“策略命中可见”，避免在 relay 已完成渠道选择和计费准备后静默改写请求：
 
-1. 已完成：梳理 `service/pre_consume_quota.go`、`service/quota.go`、`service/enterprise_policy_counter.go` 和 `model/enterprise_quota_counter.go` 的额度扣减边界，先把企业策略 counter 抽成可切换实现。
-2. 已完成：新增 Redis 原子计数抽象，先覆盖企业策略 counter 的 request_count/quota reserve/settle/refund，不改变用户余额主逻辑。
-3. 已完成：增加 DB/Redis 对账补偿 MVP，管理员可 dry-run/repair，主节点周期任务可将 Redis 快照幂等修复到 DB 当前值，并写入 `quota_counter.reconcile` 审计。
-4. 已完成：补 token 级 hard limit 的模型、relay/MCP 校验、结算回滚和回归测试；MCP 保持按次扣费，只把每次调用费用纳入 token hard limit 判断。
-5. 已完成：增加轻量并发测试/压测入口，覆盖企业额度 reserve 后混合 settle/refund、低上限并发抢占和释放后的 reserved 归零。
-6. 已完成：补 Redis-only 崩溃恢复；reconcile 可扫描 Redis-only counter key，dry-run 展示 `missing_db`，repair 补建 DB mirror 并写入 `quota_counter.reconcile` 审计。
-7. 后续：评估是否需要操作级幂等补偿队列，将 Redis reserve 成功但 DB 同步失败的单次操作记录下来，便于更细粒度重放。
+1. 已完成：策略 action 白名单扩展为 `reject`、`alert`、`fallback_model`、`queue`、`shared_pool`，旧数据中的未知 action 保守按 `reject` 处理。
+2. 已完成：`reject` 保持硬拒绝；`alert`、`fallback_model`、`queue`、`shared_pool` 作为非阻断动作记录命中，不中断当前请求。
+3. 已完成：非阻断动作命中后继续更新策略 counter，用于后续运营看板和审计排查；`fallback_model` 从现有模型范围中给出推荐模型提示。
+4. 已完成：relay 响应写入 `X-Data-Proxy-Enterprise-Policy-Actions`、`X-Data-Proxy-Enterprise-Policy-Action-Hint`，必要时写入 `X-Data-Proxy-Enterprise-Fallback-Model`。
+5. 已完成：命中动作写入 `enterprise_governance.policy_action` 审计事件，前端审计详情可识别为策略动作观测；配额策略 UI 支持选择 action 并在列表展示。
+6. 后续：实现真正的模型改写前，需要同步更新渠道选择、请求体、计费 attribution 和用户可见提示，避免 fallback 后账单和请求模型不一致。
+7. 后续：`queue` 需要独立的异步执行/重试/取消语义；`shared_pool` 需要共享额度池模型、借用上限、归还和报表归属。
 
 ## 当前进展
 
@@ -52,6 +52,7 @@ V1.5 高并发和精细额度继续按以下顺序拆分，避免额度主链路
 - DP-V15-003 已完成最小可用闭环：新增 `quota_hard_limit_enabled` token 字段；API Key 控制台支持 unlimited token 配置硬上限；relay hard limit 会禁用信任额度旁路、前置拒绝超限并在正向补扣时先锁定 token 额度；MCP 继续只按 `price_per_call` 进行按次扣费，并把该按次额度纳入 token hard limit 预检、结算和退款；新增 controller/service 回归测试。
 - DP-V15-004 已完成轻量并发压测入口：新增 `scripts/enterprise-quota-counter-stress.sh` 和 `make enterprise-quota-counter-stress`，默认跑 DB 与 Redis-code-path(fake atomic counter) 两种模式；覆盖高上限并发 reserve 后混合 settle/refund 的最终一致性，以及低上限并发抢占的成功/拒绝数量和 refund 后 reserved 归零。常用命令：`scripts/enterprise-quota-counter-stress.sh`；仅 DB：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=db scripts/enterprise-quota-counter-stress.sh`；仅 Redis 代码路径：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis scripts/enterprise-quota-counter-stress.sh`；连接真实 Redis Lua 路径：`REDIS_CONN_STRING=redis://:123456@127.0.0.1:6379/0 ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis ENTERPRISE_QUOTA_COUNTER_STRESS_REDIS_BACKEND=real scripts/enterprise-quota-counter-stress.sh`。
 - DP-V15-005 已完成最小恢复闭环：`POST /api/enterprise/quota-counters/reconcile` 新增可选 `include_redis_orphans`；后台周期 repair 默认打开 Redis-only 扫描；Redis key 会按 `enterprise_quota_counter:v1:{enterprise}:{policy}:{target_type}:{target_id}:{metric}:{period_start}` 解析，若当前 policy 维度仍匹配且 DB mirror 缺失，则 dry-run 返回 `missing_db`，repair 创建 `enterprise_quota_counters` mirror、保留 Redis used/reserved 快照并写入 `quota_counter.reconcile` 审计。操作级幂等补偿队列仍保留为后续增强项。
+- DP-V16-001 已完成最小可用闭环：配额策略支持 `alert`、`fallback_model`、`queue`、`shared_pool` 非阻断动作；策略命中会保留 counter 观测、响应 header 提示和 `enterprise_governance.policy_action` 审计；`fallback_model` 仅推荐备用模型，不改写 relay 请求。`queue` 和 `shared_pool` 当前为可见 MVP，真实排队执行和共享池借用仍保留为 V1.6 后续任务。
 
 ## 提交和发布规则
 

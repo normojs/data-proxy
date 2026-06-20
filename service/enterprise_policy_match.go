@@ -32,13 +32,23 @@ type PolicyEvaluationRequest struct {
 }
 
 type PolicyDecision struct {
-	Allowed          bool
-	DryRun           bool
-	DenyReason       string
-	DenyError        error
-	WouldReject      bool
-	MatchedPolicyIds []int
-	CounterPolicyIds []int
+	Allowed            bool
+	DryRun             bool
+	DenyReason         string
+	DenyError          error
+	WouldReject        bool
+	MatchedPolicyIds   []int
+	CounterPolicyIds   []int
+	ActionObservations []PolicyActionObservation
+}
+
+type PolicyActionObservation struct {
+	PolicyId      int      `json:"policy_id"`
+	Action        string   `json:"action"`
+	Trigger       string   `json:"trigger"`
+	Reason        string   `json:"reason"`
+	FallbackModel string   `json:"fallback_model,omitempty"`
+	AllowedModels []string `json:"allowed_models,omitempty"`
 }
 
 type EnterpriseModelNotAllowedError struct {
@@ -67,25 +77,38 @@ func EvaluateEnterprisePolicies(req PolicyEvaluationRequest) (PolicyDecision, *R
 			decision.CounterPolicyIds = append(decision.CounterPolicyIds, policy.Id)
 		}
 	}
-	if err := CheckEnterpriseModelPermission(req, policies); err != nil {
+	blockingPolicies, actionPolicies := splitEnterprisePoliciesByAction(policies)
+	if err := CheckEnterpriseModelPermission(req, blockingPolicies); err != nil {
 		if isEnterpriseModelNotAllowedError(err) {
 			markEnterprisePolicyDecisionDenied(&decision, err)
 			return decision, nil, nil
 		}
 		return decision, nil, err
 	}
+	actionObservations, err := EvaluateEnterprisePolicyActions(req, actionPolicies)
+	if err != nil {
+		return decision, nil, err
+	}
+	decision.ActionObservations = actionObservations
 	if decision.DryRun {
-		if err := CheckEnterpriseQuota(req, policies); err != nil {
+		if err := CheckEnterpriseQuota(req, blockingPolicies); err != nil {
 			markEnterprisePolicyDecisionDenied(&decision, err)
 		}
 		return decision, nil, nil
 	}
-	reservation, err := ReserveEnterpriseQuota(req, policies)
+	reservation, err := ReserveEnterpriseQuota(req, blockingPolicies)
 	if err != nil {
 		markEnterprisePolicyDecisionDenied(&decision, err)
 		return decision, nil, nil
 	}
-	return decision, reservation, nil
+	actionReservation, err := ReserveEnterpriseQuotaObservation(req, actionPolicies)
+	if err != nil {
+		if reservation != nil {
+			_ = RefundEnterpriseReservation(reservation)
+		}
+		return decision, nil, err
+	}
+	return decision, MergeEnterpriseReservations(reservation, actionReservation), nil
 }
 
 func MatchEnterprisePolicies(req PolicyEvaluationRequest) ([]model.EnterpriseQuotaPolicy, error) {
@@ -258,6 +281,70 @@ func enterprisePolicyCELInputFromRequest(req PolicyEvaluationRequest) Enterprise
 
 func isEnterpriseCounterPolicy(policy model.EnterpriseQuotaPolicy) bool {
 	return policy.Metric == model.PolicyMetricRequestCount || policy.Metric == model.PolicyMetricQuota
+}
+
+func splitEnterprisePoliciesByAction(policies []model.EnterpriseQuotaPolicy) ([]model.EnterpriseQuotaPolicy, []model.EnterpriseQuotaPolicy) {
+	blocking := make([]model.EnterpriseQuotaPolicy, 0, len(policies))
+	action := make([]model.EnterpriseQuotaPolicy, 0, len(policies))
+	for _, policy := range policies {
+		if model.IsEnterpriseQuotaPolicyBlockingAction(normalizedEnterprisePolicyAction(policy)) {
+			blocking = append(blocking, policy)
+			continue
+		}
+		action = append(action, policy)
+	}
+	return blocking, action
+}
+
+func EvaluateEnterprisePolicyActions(req PolicyEvaluationRequest, policies []model.EnterpriseQuotaPolicy) ([]PolicyActionObservation, error) {
+	observations := make([]PolicyActionObservation, 0)
+	for _, policy := range policies {
+		action := normalizedEnterprisePolicyAction(policy)
+		if model.IsEnterpriseQuotaPolicyBlockingAction(action) {
+			continue
+		}
+		if err := CheckEnterpriseModelPermission(req, []model.EnterpriseQuotaPolicy{policy}); err != nil {
+			if !isEnterpriseModelNotAllowedError(err) {
+				return nil, err
+			}
+			observation := policyActionObservation(policy, "model_not_allowed", err)
+			var modelErr EnterpriseModelNotAllowedError
+			if errors.As(err, &modelErr) {
+				observation.AllowedModels = append([]string(nil), modelErr.AllowedModels...)
+				if action == model.PolicyActionFallbackModel && len(modelErr.AllowedModels) > 0 {
+					observation.FallbackModel = modelErr.AllowedModels[0]
+				}
+			}
+			observations = append(observations, observation)
+		}
+		if err := CheckEnterpriseQuota(req, []model.EnterpriseQuotaPolicy{policy}); err != nil {
+			if !isEnterpriseQuotaExceededError(err) {
+				return nil, err
+			}
+			observations = append(observations, policyActionObservation(policy, "quota_exceeded", err))
+		}
+	}
+	return observations, nil
+}
+
+func policyActionObservation(policy model.EnterpriseQuotaPolicy, trigger string, err error) PolicyActionObservation {
+	return PolicyActionObservation{
+		PolicyId: policy.Id,
+		Action:   normalizedEnterprisePolicyAction(policy),
+		Trigger:  trigger,
+		Reason:   err.Error(),
+	}
+}
+
+func normalizedEnterprisePolicyAction(policy model.EnterpriseQuotaPolicy) string {
+	action := strings.TrimSpace(policy.Action)
+	if action == "" {
+		return model.PolicyActionReject
+	}
+	if !model.IsEnterpriseQuotaPolicyAction(action) {
+		return model.PolicyActionReject
+	}
+	return action
 }
 
 func markEnterprisePolicyDecisionDenied(decision *PolicyDecision, err error) {

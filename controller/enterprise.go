@@ -2485,6 +2485,9 @@ func quotaPolicyFromRequest(enterpriseId int, req enterpriseQuotaPolicyRequest) 
 	if req.LimitValue <= 0 {
 		return model.EnterpriseQuotaPolicy{}, errors.New("额度上限必须大于 0")
 	}
+	if req.TargetType == model.PolicyTargetEnterprise && req.TargetId == 0 {
+		req.TargetId = enterpriseId
+	}
 	if err := validateQuotaPolicyTarget(enterpriseId, req.TargetType, req.TargetId); err != nil {
 		return model.EnterpriseQuotaPolicy{}, err
 	}
@@ -2504,11 +2507,12 @@ func quotaPolicyFromRequest(enterpriseId int, req enterpriseQuotaPolicyRequest) 
 	if req.ModelScope == model.PolicyModelScopeSpecific && len(models) == 0 {
 		return model.EnterpriseQuotaPolicy{}, errors.New("指定模型范围不能为空")
 	}
+	req.Action = strings.TrimSpace(req.Action)
 	if req.Action == "" {
 		req.Action = model.PolicyActionReject
 	}
-	if req.Action != model.PolicyActionReject {
-		return model.EnterpriseQuotaPolicy{}, errors.New("不支持的超额动作")
+	if !model.IsEnterpriseQuotaPolicyAction(req.Action) {
+		return model.EnterpriseQuotaPolicy{}, errors.New("不支持的策略动作")
 	}
 	status := req.Status
 	if status == 0 {

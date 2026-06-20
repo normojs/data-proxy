@@ -378,6 +378,154 @@ func TestPreCheckEnterpriseGovernanceHardLimitRejectsWithModelNotAllowedCode(t *
 	assert.EqualValues(t, 0, counterCount)
 }
 
+func TestPreCheckEnterpriseGovernanceAlertActionAllowsAuditsAndTracksUsage(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	gin.SetMode(gin.TestMode)
+
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1014,
+		Username: "olivia",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+	}).Error)
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "alert quota limit",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   10,
+		ModelScope:   model.PolicyModelScopeAll,
+		Action:       model.PolicyActionAlert,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+
+	ctx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-alert-action", 654)
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:          1014,
+		TokenId:         95,
+		RequestId:       "req-enterprise-alert-action",
+		OriginModelName: "gpt-4o",
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+	}
+
+	apiErr := PreCheckEnterpriseGovernance(ctx, relayInfo, 20)
+	require.Nil(t, apiErr)
+	assert.Equal(t, model.PolicyActionAlert, ctx.Writer.Header().Get(enterprisePolicyActionsHeader))
+	assert.Equal(t, "enterprise_governance.policy_action_observed", ctx.Writer.Header().Get(enterprisePolicyActionHintHeader))
+	decision, ok := common.GetContextKeyType[PolicyDecision](ctx, constant.ContextKeyEnterpriseGovernanceDecision)
+	require.True(t, ok)
+	require.Len(t, decision.ActionObservations, 1)
+	assert.Equal(t, model.PolicyActionAlert, decision.ActionObservations[0].Action)
+	assert.Equal(t, "quota_exceeded", decision.ActionObservations[0].Trigger)
+	assert.True(t, decision.Allowed)
+	assert.False(t, decision.WouldReject)
+
+	reservation, ok := common.GetContextKeyType[*Reservation](ctx, constant.ContextKeyEnterpriseGovernanceReserve)
+	require.True(t, ok)
+	require.NotNil(t, reservation)
+	var counter model.EnterpriseQuotaCounter
+	require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&counter).Error)
+	assert.EqualValues(t, 20, counter.ReservedValue)
+	assert.EqualValues(t, 0, counter.UsedValue)
+
+	require.NoError(t, SettleEnterpriseGovernanceUsage(ctx, UsageAmount{Quota: 13}))
+	require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&counter).Error)
+	assert.EqualValues(t, 0, counter.ReservedValue)
+	assert.EqualValues(t, 13, counter.UsedValue)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("request_id = ? AND action = ?", "req-enterprise-alert-action", enterpriseGovernanceAuditActionPolicyAction).
+		First(&audit).Error)
+	auditAfter := enterpriseAuditAfterForTest(t, audit)
+	assert.Equal(t, "enterprise_governance.policy_action_observed", auditAfter["user_message_key"])
+	actions, ok := auditAfter["policy_actions"].([]any)
+	require.True(t, ok)
+	require.Len(t, actions, 1)
+	action, ok := actions[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, model.PolicyActionAlert, action["action"])
+	assert.Equal(t, "quota_exceeded", action["trigger"])
+
+	var hardRejectCount int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).
+		Where("request_id = ? AND action = ?", "req-enterprise-alert-action", enterpriseGovernanceAuditActionHardReject).
+		Count(&hardRejectCount).Error)
+	assert.EqualValues(t, 0, hardRejectCount)
+}
+
+func TestPreCheckEnterpriseGovernanceFallbackModelActionAllowsWithHint(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	gin.SetMode(gin.TestMode)
+
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1016,
+		Username: "trent",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+	}).Error)
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "fallback model allow list",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   100,
+		ModelScope:   model.PolicyModelScopeSpecific,
+		ModelsJson:   `["gpt-4o-mini","gpt-4o"]`,
+		Action:       model.PolicyActionFallbackModel,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+
+	ctx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-fallback-action", 655)
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:          1016,
+		TokenId:         96,
+		RequestId:       "req-enterprise-fallback-action",
+		OriginModelName: "claude-sonnet-4",
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+	}
+
+	apiErr := PreCheckEnterpriseGovernance(ctx, relayInfo, 1)
+	require.Nil(t, apiErr)
+	assert.Equal(t, model.PolicyActionFallbackModel, ctx.Writer.Header().Get(enterprisePolicyActionsHeader))
+	assert.Equal(t, "gpt-4o", ctx.Writer.Header().Get(enterpriseFallbackModelHeader))
+	decision, ok := common.GetContextKeyType[PolicyDecision](ctx, constant.ContextKeyEnterpriseGovernanceDecision)
+	require.True(t, ok)
+	require.Len(t, decision.ActionObservations, 1)
+	assert.Equal(t, "model_not_allowed", decision.ActionObservations[0].Trigger)
+	assert.Equal(t, "gpt-4o", decision.ActionObservations[0].FallbackModel)
+	assert.Equal(t, []string{"gpt-4o", "gpt-4o-mini"}, decision.ActionObservations[0].AllowedModels)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("request_id = ? AND action = ?", "req-enterprise-fallback-action", enterpriseGovernanceAuditActionPolicyAction).
+		First(&audit).Error)
+	assert.Equal(t, policy.Id, audit.TargetId)
+	auditAfter := enterpriseAuditAfterForTest(t, audit)
+	actions, ok := auditAfter["policy_actions"].([]any)
+	require.True(t, ok)
+	require.Len(t, actions, 1)
+	action, ok := actions[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, model.PolicyActionFallbackModel, action["action"])
+	assert.Equal(t, "model_not_allowed", action["trigger"])
+	assert.Equal(t, "gpt-4o", action["fallback_model"])
+
+	var hardRejectCount int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).
+		Where("request_id = ? AND action = ?", "req-enterprise-fallback-action", enterpriseGovernanceAuditActionHardReject).
+		Count(&hardRejectCount).Error)
+	assert.EqualValues(t, 0, hardRejectCount)
+}
+
 func TestPreCheckEnterpriseGovernanceDryRunReturnsQueryErrorForInvalidModelScope(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	gin.SetMode(gin.TestMode)

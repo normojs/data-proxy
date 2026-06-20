@@ -130,6 +130,50 @@ func ReserveEnterpriseQuota(req PolicyEvaluationRequest, policies []model.Enterp
 	return reserveEnterpriseQuotaWithDB(req, policies)
 }
 
+func ReserveEnterpriseQuotaObservation(req PolicyEvaluationRequest, policies []model.EnterpriseQuotaPolicy) (*Reservation, error) {
+	return reserveEnterpriseQuotaObservationWithDB(req, policies)
+}
+
+func MergeEnterpriseReservations(primary *Reservation, extra *Reservation) *Reservation {
+	if primary == nil {
+		return extra
+	}
+	if extra == nil {
+		return primary
+	}
+	primary.PolicyIds = append(primary.PolicyIds, extra.PolicyIds...)
+	if primary.CounterIds == nil {
+		primary.CounterIds = map[int]int{}
+	}
+	for policyId, counterId := range extra.CounterIds {
+		primary.CounterIds[policyId] = counterId
+	}
+	if primary.ReservedAmounts == nil {
+		primary.ReservedAmounts = map[int]UsageAmount{}
+	}
+	for policyId, amount := range extra.ReservedAmounts {
+		primary.ReservedAmounts[policyId] = amount
+	}
+	if len(extra.RedisCounterKeys) > 0 {
+		if primary.RedisCounterKeys == nil {
+			primary.RedisCounterKeys = map[int]string{}
+		}
+		for policyId, key := range extra.RedisCounterKeys {
+			primary.RedisCounterKeys[policyId] = key
+		}
+	}
+	if len(extra.RedisCounterTTLs) > 0 {
+		if primary.RedisCounterTTLs == nil {
+			primary.RedisCounterTTLs = map[int]time.Duration{}
+		}
+		for policyId, ttl := range extra.RedisCounterTTLs {
+			primary.RedisCounterTTLs[policyId] = ttl
+		}
+	}
+	primary.RedisCounterUsed = primary.RedisCounterUsed || extra.RedisCounterUsed
+	return primary
+}
+
 func reserveEnterpriseQuotaWithDB(req PolicyEvaluationRequest, policies []model.EnterpriseQuotaPolicy) (*Reservation, error) {
 	if req.EnterpriseContext == nil || !req.EnterpriseContext.Enabled {
 		return nil, nil
@@ -165,6 +209,54 @@ func reserveEnterpriseQuotaWithDB(req PolicyEvaluationRequest, policies []model.
 			}
 			if counter.UsedValue+counter.ReservedValue+amount > effectiveLimit {
 				return enterpriseQuotaExceededErrorForPolicy(policy, *counter, amount, effectiveLimit, start, end)
+			}
+			counter.ReservedValue += amount
+			if err := tx.Save(counter).Error; err != nil {
+				return err
+			}
+			reservation.PolicyIds = append(reservation.PolicyIds, policy.Id)
+			reservation.CounterIds[policy.Id] = counter.Id
+			reservation.ReservedAmounts[policy.Id] = usageAmountForMetric(policy.Metric, amount)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(reservation.PolicyIds) == 0 {
+		return nil, nil
+	}
+	return reservation, nil
+}
+
+func reserveEnterpriseQuotaObservationWithDB(req PolicyEvaluationRequest, policies []model.EnterpriseQuotaPolicy) (*Reservation, error) {
+	if req.EnterpriseContext == nil || !req.EnterpriseContext.Enabled {
+		return nil, nil
+	}
+	reservation := &Reservation{
+		RequestId:       req.RequestId,
+		EnterpriseId:    req.EnterpriseContext.EnterpriseId,
+		UserId:          req.EnterpriseContext.UserId,
+		CounterIds:      map[int]int{},
+		ReservedAmounts: map[int]UsageAmount{},
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		for _, policy := range policies {
+			amount := amountForEnterprisePolicyMetric(policy.Metric, req.Estimated)
+			if amount <= 0 {
+				continue
+			}
+			start, end, err := ResolveEnterprisePolicyPeriod(policy, now)
+			if err != nil {
+				return err
+			}
+			counter, err := lockEnterpriseQuotaCounter(tx, policy, start, end)
+			if err != nil {
+				return err
 			}
 			counter.ReservedValue += amount
 			if err := tx.Save(counter).Error; err != nil {
