@@ -161,6 +161,7 @@ type enterpriseUsageQuery struct {
 	OrgUnitId     int
 	OrgUnitIds    []int
 	ProjectId     int
+	ProjectIds    []int
 	PolicyGroupId int
 	ChannelId     int
 	TokenId       int
@@ -907,6 +908,9 @@ func ListEnterpriseProjects(c *gin.Context) {
 			Where("enterprise_id = ? AND org_unit_id IN ?", enterprise.Id, access.ScopedOrgUnitIds)
 		query = query.Where("id IN (?)", scopedProjectIds)
 	}
+	if access.HasProjectScope() {
+		query = query.Where("id IN ?", access.ScopedProjectIds)
+	}
 	if status, err := parseOptionalIntQuery(c, "status"); err != nil {
 		common.ApiError(c, err)
 		return
@@ -966,6 +970,15 @@ func CreateEnterpriseProject(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireProjectOwnerInScope(c, access, project); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&project).Error; err != nil {
 			return err
@@ -1006,8 +1019,19 @@ func UpdateEnterpriseProject(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&before).Error; err != nil {
+			return err
+		}
+		if err := requireProjectInScope(access, before.Id); err != nil {
+			return err
+		}
+		if err := requireProjectOwnerInScope(c, access, next); err != nil {
 			return err
 		}
 		next.Id = before.Id
@@ -1041,6 +1065,15 @@ func DeleteEnterpriseProject(c *gin.Context) {
 	}
 	var project model.EnterpriseProject
 	if err := model.DB.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&project).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireProjectInScope(access, project.Id); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1464,6 +1497,10 @@ func GetEnterpriseUsageSummary(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := applyProjectUsageScope(&params, access); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	rows, err := loadEnterpriseUsageRows(enterprise.Id, params)
 	if err != nil {
 		common.ApiError(c, err)
@@ -1496,6 +1533,10 @@ func GetEnterpriseUsageBreakdown(c *gin.Context) {
 		return
 	}
 	if err := applyDepartmentUsageScope(&params, access); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := applyProjectUsageScope(&params, access); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1549,6 +1590,10 @@ func ExportEnterpriseUsageBreakdown(c *gin.Context) {
 		return
 	}
 	if err := applyDepartmentUsageScope(&params, access); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := applyProjectUsageScope(&params, access); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1877,7 +1922,7 @@ func enterpriseAccessForRequest(c *gin.Context) (service.EnterpriseAccess, error
 }
 
 func scopedEnterpriseError() error {
-	return errors.New("无权访问本部门范围外的企业治理数据")
+	return errors.New("无权访问权限范围外的企业治理数据")
 }
 
 func applyDepartmentOrgUnitScope(query *gorm.DB, access service.EnterpriseAccess, column string) *gorm.DB {
@@ -1906,6 +1951,26 @@ func requireDepartmentUserInScope(enterpriseId int, access service.EnterpriseAcc
 		return err
 	}
 	if !ok {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
+func requireProjectInScope(access service.EnterpriseAccess, projectId int) error {
+	if !access.HasProjectScope() {
+		return nil
+	}
+	if !access.ProjectInScope(projectId) {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
+func requireProjectOwnerInScope(c *gin.Context, access service.EnterpriseAccess, project model.EnterpriseProject) error {
+	if !access.HasProjectScope() {
+		return nil
+	}
+	if project.OwnerUserId != c.GetInt("id") {
 		return scopedEnterpriseError()
 	}
 	return nil
@@ -1959,6 +2024,20 @@ func applyDepartmentUsageScope(params *enterpriseUsageQuery, access service.Ente
 		return requireDepartmentOrgUnitInScope(access, params.OrgUnitId)
 	}
 	params.OrgUnitIds = access.ScopedOrgUnitIds
+	return nil
+}
+
+func applyProjectUsageScope(params *enterpriseUsageQuery, access service.EnterpriseAccess) error {
+	if !access.HasProjectScope() {
+		return nil
+	}
+	if params.ProjectId > 0 {
+		if !access.ProjectInScope(params.ProjectId) {
+			return scopedEnterpriseError()
+		}
+		return nil
+	}
+	params.ProjectIds = access.ScopedProjectIds
 	return nil
 }
 
@@ -2059,6 +2138,8 @@ func loadEnterpriseUsageRows(enterpriseId int, params enterpriseUsageQuery) ([]e
 	}
 	if params.ProjectId > 0 {
 		query = query.Where("project_id = ?", params.ProjectId)
+	} else if len(params.ProjectIds) > 0 {
+		query = query.Where("project_id IN ?", params.ProjectIds)
 	}
 	if params.ModelName != "" {
 		query = query.Where("model_name = ?", params.ModelName)

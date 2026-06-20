@@ -46,6 +46,7 @@ type EnterpriseAccess struct {
 	Role             string
 	OrgUnitId        int
 	ScopedOrgUnitIds []int
+	ScopedProjectIds []int
 	Permissions      EnterpriseUserPermissions
 	SystemAdmin      bool
 }
@@ -128,6 +129,13 @@ func EnterpriseAccessForUser(userId int, systemRole int) (EnterpriseAccess, erro
 		}
 		access.ScopedOrgUnitIds = scopeIds
 	}
+	if normalizeEnterpriseRole(membership.Role) == EnterpriseRoleProjectAdmin {
+		projectIds, err := EnterpriseOwnedProjectIds(enterprise.Id, userId)
+		if err != nil {
+			return EnterpriseAccess{}, err
+		}
+		access.ScopedProjectIds = projectIds
+	}
 	return access, nil
 }
 
@@ -168,8 +176,16 @@ func (access EnterpriseAccess) HasDepartmentScope() bool {
 	return !access.SystemAdmin && access.Permissions.DepartmentManage && !access.Permissions.Manage && len(access.ScopedOrgUnitIds) > 0
 }
 
+func (access EnterpriseAccess) HasProjectScope() bool {
+	return !access.SystemAdmin && access.Role == EnterpriseRoleProjectAdmin && access.Permissions.ProjectManage && !access.Permissions.Manage
+}
+
 func (access EnterpriseAccess) OrgUnitInScope(orgUnitId int) bool {
 	return EnterpriseOrgUnitInScope(orgUnitId, access.ScopedOrgUnitIds)
+}
+
+func (access EnterpriseAccess) ProjectInScope(projectId int) bool {
+	return EnterpriseProjectInScope(projectId, access.ScopedProjectIds)
 }
 
 func EnterpriseRoleHasCapability(role string, capability string) bool {
@@ -248,12 +264,40 @@ func EnterpriseOrgUnitScopeIds(enterpriseId int, orgUnitId int) ([]int, error) {
 	return ids, nil
 }
 
+func EnterpriseOwnedProjectIds(enterpriseId int, ownerUserId int) ([]int, error) {
+	if enterpriseId <= 0 || ownerUserId <= 0 {
+		return []int{}, nil
+	}
+	var projects []model.EnterpriseProject
+	if err := model.DB.Select("id").Where("enterprise_id = ? AND owner_user_id = ? AND status = ?", enterpriseId, ownerUserId, model.EnterpriseProjectStatusEnabled).Find(&projects).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]int, 0, len(projects))
+	for _, project := range projects {
+		ids = append(ids, project.Id)
+	}
+	sort.Ints(ids)
+	return ids, nil
+}
+
 func EnterpriseOrgUnitInScope(orgUnitId int, scopeIds []int) bool {
 	if orgUnitId <= 0 {
 		return false
 	}
 	for _, scopeId := range scopeIds {
 		if scopeId == orgUnitId {
+			return true
+		}
+	}
+	return false
+}
+
+func EnterpriseProjectInScope(projectId int, scopeIds []int) bool {
+	if projectId <= 0 {
+		return false
+	}
+	for _, scopeId := range scopeIds {
+		if scopeId == projectId {
 			return true
 		}
 	}

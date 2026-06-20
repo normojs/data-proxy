@@ -44,6 +44,11 @@ type enterpriseQuotaPolicyItemForTest struct {
 	TargetId   int    `json:"target_id"`
 }
 
+type enterpriseProjectItemForTest struct {
+	Id          int `json:"id"`
+	OwnerUserId int `json:"owner_user_id"`
+}
+
 type enterpriseQuotaRequestItemForTest struct {
 	Id              int    `json:"id"`
 	ApplicantUserId int    `json:"applicant_user_id"`
@@ -269,7 +274,7 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
   }`, departmentCookies, departmentAdminId)
 	crossPolicyResponse := decodeEnterpriseAuthResponse(t, createCrossPolicy)
 	require.False(t, crossPolicyResponse.Success)
-	require.Contains(t, crossPolicyResponse.Message, "本部门范围外")
+	require.Contains(t, crossPolicyResponse.Message, "权限范围外")
 
 	quotaRequests := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/quota-requests?page_size=20", "", departmentCookies, departmentAdminId)
 	require.True(t, decodeEnterpriseAuthResponse(t, quotaRequests).Success)
@@ -286,7 +291,7 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	approveCross := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-requests/"+strconv.Itoa(salesRequest.Id)+"/approve", `{}`, departmentCookies, departmentAdminId)
 	approveCrossResponse := decodeEnterpriseAuthResponse(t, approveCross)
 	require.False(t, approveCrossResponse.Success)
-	require.Contains(t, approveCrossResponse.Message, "本部门范围外")
+	require.Contains(t, approveCrossResponse.Message, "权限范围外")
 
 	usageSummary := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100", "", departmentCookies, departmentAdminId)
 	usageResponse := decodeEnterpriseUsageSummaryResponseForTest(t, usageSummary)
@@ -307,14 +312,91 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	crossUsage := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100&org_unit_id="+strconv.Itoa(salesId), "", departmentCookies, departmentAdminId)
 	crossUsageResponse := decodeEnterpriseUsageSummaryResponseForTest(t, crossUsage)
 	require.False(t, crossUsageResponse.Success)
-	require.Contains(t, crossUsageResponse.Message, "本部门范围外")
+	require.Contains(t, crossUsageResponse.Message, "权限范围外")
 
 	updateCrossMember := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/members/"+strconv.Itoa(salesUserId)+"/org-unit", `{
     "org_unit_id": `+strconv.Itoa(platformId)+`
   }`, departmentCookies, departmentAdminId)
 	updateCrossMemberResponse := decodeEnterpriseAuthResponse(t, updateCrossMember)
 	require.False(t, updateCrossMemberResponse.Success)
-	require.Contains(t, updateCrossMemberResponse.Message, "本部门范围外")
+	require.Contains(t, updateCrossMemberResponse.Message, "权限范围外")
+}
+
+func TestEnterpriseRBACProjectAdminFinanceScope(t *testing.T) {
+	setupEnterpriseRouterTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	projectAdminId := 7401
+	otherOwnerId := 7402
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, projectAdminId, service.EnterpriseRoleProjectAdmin)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, otherOwnerId, "")
+	adminProject := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "Owned Project",
+		Slug:         "owned-project",
+		OwnerUserId:  projectAdminId,
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	otherProject := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "Other Project",
+		Slug:         "other-project",
+		OwnerUserId:  otherOwnerId,
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&adminProject).Error)
+	require.NoError(t, model.DB.Create(&otherProject).Error)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseUsageAttribution{
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "owned-project-usage",
+			UserId:       projectAdminId,
+			ProjectId:    adminProject.Id,
+			ModelName:    "gpt-4o",
+			Quota:        120,
+			Status:       "succeeded",
+			CreatedAt:    1000,
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "other-project-usage",
+			UserId:       otherOwnerId,
+			ProjectId:    otherProject.Id,
+			ModelName:    "gpt-4o",
+			Quota:        800,
+			Status:       "succeeded",
+			CreatedAt:    1000,
+		},
+	}).Error)
+
+	router := newEnterpriseRouterForTest(t)
+	projectAdminCookies := loginEnterpriseRouterUserForTest(t, router, projectAdminId, common.RoleCommonUser)
+
+	projects := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/projects?page_size=20", "", projectAdminCookies, projectAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, projects).Success)
+	projectPage := decodeEnterprisePageResponseForTest[enterpriseProjectItemForTest](t, projects)
+	require.Len(t, projectPage.Data.Items, 1)
+	require.Equal(t, adminProject.Id, projectPage.Data.Items[0].Id)
+
+	summary := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100", "", projectAdminCookies, projectAdminId)
+	summaryResponse := decodeEnterpriseUsageSummaryResponseForTest(t, summary)
+	require.True(t, summaryResponse.Success, summaryResponse.Message)
+	require.EqualValues(t, 1, summaryResponse.Data.Total.RequestCount)
+	require.EqualValues(t, 120, summaryResponse.Data.Total.Quota)
+
+	crossProject := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100&project_id="+strconv.Itoa(otherProject.Id), "", projectAdminCookies, projectAdminId)
+	crossProjectResponse := decodeEnterpriseUsageSummaryResponseForTest(t, crossProject)
+	require.False(t, crossProjectResponse.Success)
+	require.Contains(t, crossProjectResponse.Message, "权限范围外")
+
+	export := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/breakdown/export?start_time=900&end_time=1100&dimension=project", "", projectAdminCookies, projectAdminId)
+	require.Equal(t, http.StatusOK, export.Code)
+	reader := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(export.Body.Bytes(), []byte{0xEF, 0xBB, 0xBF})))
+	records, err := reader.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	require.Equal(t, strconv.Itoa(adminProject.Id), records[1][1])
+	require.Equal(t, "120", records[1][7])
 }
 
 func setupEnterpriseRouterTestDB(t *testing.T) {
