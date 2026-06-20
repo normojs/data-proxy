@@ -15,6 +15,7 @@ type MarkNotificationsReadRequest struct {
 	AnnouncementKeys           []string `json:"announcement_keys"`
 	EnterpriseNotificationKeys []string `json:"enterprise_notification_keys"`
 	EnterpriseQuotaRequestKeys []string `json:"enterprise_quota_request_keys"`
+	ConnectedAppRequestKeys    []string `json:"connected_app_request_keys"`
 }
 
 func GetNotificationReadState(c *gin.Context) {
@@ -41,6 +42,7 @@ func GetNotificationReadState(c *gin.Context) {
 			"announcement_keys":             keys,
 			"enterprise_notification_keys":  enterpriseKeys,
 			"enterprise_quota_request_keys": enterpriseKeys,
+			"connected_app_request_keys":    enterpriseKeys,
 		},
 	})
 }
@@ -63,6 +65,7 @@ func MarkNotificationsRead(c *gin.Context) {
 		return
 	}
 	enterpriseInputKeys := append(req.EnterpriseNotificationKeys, req.EnterpriseQuotaRequestKeys...)
+	enterpriseInputKeys = append(enterpriseInputKeys, req.ConnectedAppRequestKeys...)
 	enterpriseKeys, err := model.MarkEnterpriseNotificationsRead(c.GetInt("id"), enterpriseInputKeys)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -78,6 +81,7 @@ func MarkNotificationsRead(c *gin.Context) {
 			"announcement_keys":             keys,
 			"enterprise_notification_keys":  enterpriseKeys,
 			"enterprise_quota_request_keys": enterpriseKeys,
+			"connected_app_request_keys":    enterpriseKeys,
 		},
 	})
 }

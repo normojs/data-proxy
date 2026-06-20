@@ -24,6 +24,13 @@ type ApiEnvelope<T> = {
   data?: T
 }
 
+type ApiPage<T> = {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export const CONNECTED_APP_STATUS_ENABLED = 1
 export const CONNECTED_APP_STATUS_DISABLED = 2
 
@@ -57,6 +64,80 @@ export type ConnectedAppPayload = {
   authorization_flow: 'device_code' | string
   trusted: boolean
   status: ConnectedAppStatus
+}
+
+export type ConnectedAppRequestStatus = 'pending' | 'approved' | 'rejected'
+
+export type ConnectedAppRequest = {
+  id: number
+  applicant_user_id: number
+  applicant_name: string
+  app_id: number
+  slug: string
+  name: string
+  description: string
+  requested_scopes: string[]
+  default_scopes: string[]
+  authorization_flow: 'device_code' | string
+  homepage_url: string
+  callback_url: string
+  reason: string
+  status: ConnectedAppRequestStatus | string
+  reviewer_user_id: number
+  reviewer_name: string
+  review_note: string
+  reviewed_at: number
+  created_at: number
+  updated_at: number
+}
+
+export type ConnectedAppRequestListParams = {
+  status?: ConnectedAppRequestStatus | string
+  p?: number
+  page_size?: number
+}
+
+export type ConnectedAppReviewDecision = 'approved' | 'rejected'
+
+export type ConnectedAppReviewPayload = {
+  decision: ConnectedAppReviewDecision
+  review_note?: string
+  name?: string
+  description?: string
+  allowed_scopes?: string[]
+  default_scopes?: string[]
+  authorization_flow?: 'device_code' | string
+  homepage_url?: string
+  callback_url?: string
+}
+
+export type ConnectedAppReviewResponse = {
+  request: ConnectedAppRequest
+  app?: ConnectedApp
+  audit: ConnectedAppAuditLog
+}
+
+export type ConnectedAppAuditLog = {
+  id: number
+  actor_user_id: number
+  actor_name: string
+  action: string
+  target_type: string
+  target_id: number
+  before_json: string
+  after_json: string
+  request_id: string
+  created_at: number
+}
+
+export type ConnectedAppAuditLogListParams = {
+  action?: string
+  target_type?: string
+  target_id?: number
+  actor_user_id?: number
+  request_id?: string
+  p?: number
+  page_size?: number
 }
 
 function unwrap<T>(response: ApiEnvelope<T>): T {
@@ -93,6 +174,38 @@ export async function updateConnectedApp(
     `/api/connected-apps/${id}`,
     payload,
     { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function listConnectedAppRequests(
+  params: ConnectedAppRequestListParams = {}
+): Promise<ApiPage<ConnectedAppRequest>> {
+  const res = await api.get<ApiEnvelope<ApiPage<ConnectedAppRequest>>>(
+    '/api/connected-apps/requests',
+    { params, skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function reviewConnectedAppRequest(
+  id: number,
+  payload: ConnectedAppReviewPayload
+): Promise<ConnectedAppReviewResponse> {
+  const res = await api.post<ApiEnvelope<ConnectedAppReviewResponse>>(
+    `/api/connected-apps/requests/${id}/review`,
+    payload,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function listConnectedAppAuditLogs(
+  params: ConnectedAppAuditLogListParams = {}
+): Promise<ApiPage<ConnectedAppAuditLog>> {
+  const res = await api.get<ApiEnvelope<ApiPage<ConnectedAppAuditLog>>>(
+    '/api/connected-apps/audit-logs',
+    { params, skipBusinessError: true }
   )
   return unwrap(res.data)
 }

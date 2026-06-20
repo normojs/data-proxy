@@ -245,6 +245,31 @@ export interface EnterpriseQuotaRequestNotification {
   created_at: number
 }
 
+export interface ConnectedAppRequestNotification {
+  key: string
+  kind: 'connected_app_request'
+  title: string
+  content: string
+  title_key?: string
+  content_key?: string
+  content_params?: Record<string, string>
+  status: 'pending' | 'approved' | 'rejected' | string
+  read: boolean
+  request_id: number
+  app_id: number
+  audit_log_id: number
+  slug: string
+  app_name: string
+  applicant_name: string
+  actor_name: string
+  requested_scopes: string[]
+  created_at: number
+}
+
+export type ApprovalNotification =
+  | EnterpriseQuotaRequestNotification
+  | ConnectedAppRequestNotification
+
 export interface EnterpriseQuotaRequestNotificationQuery {
   page?: number
   page_size?: number
@@ -272,6 +297,26 @@ export async function getEnterpriseQuotaRequestNotifications(
   return res.data
 }
 
+export async function getConnectedAppRequestNotifications(
+  params?: EnterpriseQuotaRequestNotificationQuery
+): Promise<{
+  success: boolean
+  message?: string
+  data?: {
+    items: ConnectedAppRequestNotification[]
+    unread_count: number
+    page: number
+    page_size: number
+    has_more: boolean
+  }
+}> {
+  const res = await api.get('/api/notifications/connected-app-requests', {
+    params,
+    skipErrorHandler: true,
+  })
+  return res.data
+}
+
 export async function markEnterpriseQuotaRequestNotificationsRead(
   keys: string[]
 ): Promise<{
@@ -286,6 +331,27 @@ export async function markEnterpriseQuotaRequestNotificationsRead(
     '/api/notifications/enterprise-quota-requests/read',
     {
       enterprise_notification_keys: keys,
+    },
+    { skipErrorHandler: true }
+  )
+  return res.data
+}
+
+export async function markConnectedAppRequestNotificationsRead(
+  keys: string[]
+): Promise<{
+  success: boolean
+  message?: string
+  data?: {
+    enterprise_notification_keys?: string[]
+    connected_app_request_keys?: string[]
+    connected_app_request_event_keys?: string[]
+  }
+}> {
+  const res = await api.post(
+    '/api/notifications/connected-app-requests/read',
+    {
+      connected_app_request_keys: keys,
     },
     { skipErrorHandler: true }
   )

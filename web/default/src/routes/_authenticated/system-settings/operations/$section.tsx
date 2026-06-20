@@ -16,12 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import z from 'zod'
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { OperationsSettings } from '@/features/system-settings/operations'
 import {
   OPERATIONS_DEFAULT_SECTION,
   OPERATIONS_SECTION_IDS,
 } from '@/features/system-settings/operations/section-registry.tsx'
+
+const operationsSearchSchema = z.object({
+  tab: z.enum(['apps', 'requests', 'audit']).optional().catch(undefined),
+  connected_app_request_id: z.number().optional().catch(undefined),
+})
 
 export const Route = createFileRoute(
   '/_authenticated/system-settings/operations/$section'
@@ -35,5 +41,6 @@ export const Route = createFileRoute(
       })
     }
   },
+  validateSearch: operationsSearchSchema,
   component: OperationsSettings,
 })

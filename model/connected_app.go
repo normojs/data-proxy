@@ -197,6 +197,72 @@ func UpdateConnectedApp(app *ConnectedApp) error {
 	return DB.Save(app).Error
 }
 
+func ListConnectedAppRequests(status string, applicantUserId int, offset int, limit int) ([]ConnectedAppRequest, int64, error) {
+	var requests []ConnectedAppRequest
+	query := DB.Model(&ConnectedAppRequest{})
+	if normalizedStatus := strings.TrimSpace(status); normalizedStatus != "" {
+		query = query.Where("status = ?", normalizedStatus)
+	}
+	if applicantUserId > 0 {
+		query = query.Where("applicant_user_id = ?", applicantUserId)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if err := query.Order("created_at desc, id desc").Offset(offset).Limit(limit).Find(&requests).Error; err != nil {
+		return nil, 0, err
+	}
+	return requests, total, nil
+}
+
+func GetConnectedAppRequestByID(id int) (*ConnectedAppRequest, error) {
+	var request ConnectedAppRequest
+	if err := DB.Where("id = ?", id).First(&request).Error; err != nil {
+		return nil, err
+	}
+	return &request, nil
+}
+
+func CreateConnectedAppRequest(request *ConnectedAppRequest) error {
+	return DB.Create(request).Error
+}
+
+func UpdateConnectedAppRequest(tx *gorm.DB, request *ConnectedAppRequest) error {
+	if tx == nil {
+		tx = DB
+	}
+	return tx.Save(request).Error
+}
+
+func ListConnectedAppAuditLogs(action string, targetType string, targetId int, actorUserId int, requestId string, offset int, limit int) ([]ConnectedAppAuditLog, int64, error) {
+	var logs []ConnectedAppAuditLog
+	query := DB.Model(&ConnectedAppAuditLog{})
+	if normalizedAction := strings.TrimSpace(action); normalizedAction != "" {
+		query = query.Where("action = ?", normalizedAction)
+	}
+	if normalizedTargetType := strings.TrimSpace(targetType); normalizedTargetType != "" {
+		query = query.Where("target_type = ?", normalizedTargetType)
+	}
+	if targetId > 0 {
+		query = query.Where("target_id = ?", targetId)
+	}
+	if actorUserId > 0 {
+		query = query.Where("actor_user_id = ?", actorUserId)
+	}
+	if normalizedRequestId := strings.TrimSpace(requestId); normalizedRequestId != "" {
+		query = query.Where("request_id = ?", normalizedRequestId)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if err := query.Order("created_at desc, id desc").Offset(offset).Limit(limit).Find(&logs).Error; err != nil {
+		return nil, 0, err
+	}
+	return logs, total, nil
+}
+
 func UpsertConnectedAppGrant(tx *gorm.DB, app ConnectedApp, userId int, scopes []string, now int64) (*ConnectedAppGrant, error) {
 	if tx == nil {
 		tx = DB

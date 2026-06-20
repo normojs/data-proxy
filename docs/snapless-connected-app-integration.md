@@ -80,10 +80,64 @@ Device Code Flow：
 前端入口：
 
 - `/system-settings/operations/connected-apps`
-  - 以表格展示应用状态、trusted 状态、scope、grant/device 数量和更新时间。
+  - `Apps` 页签以表格展示应用状态、trusted 状态、scope、grant/device 数量和更新时间。
   - 使用右侧 Sheet 新增或编辑应用；内置 Snapless app 的 `slug=snapless` 保持不变。
+  - `Requests` 页签展示第三方应用接入申请，管理员可批准或拒绝。
+  - `Audit` 页签展示 connected app 申请提交、批准、拒绝等审计事件。
 
 内置 seed 仍由 `EnsureBuiltinConnectedApps()` 维护 Snapless 的默认名称、描述、scopes 和 trusted 标记，但保留管理员设置的 `status`，避免升级时把手动停用的 Snapless 重新启用。
+
+## 应用申请、审批和站内通知
+
+`SNAPLESS-006` 提供最小可用的应用申请和权限审批闭环。当前版本先保证站内通知和审计可见，不直接发送 email 或 webhook。
+
+数据表：
+
+- `connected_app_requests`：记录申请人、目标 slug、展示信息、requested/default scopes、device code 授权方式、homepage/callback URL、申请原因、审批状态和审批备注。
+- `connected_app_audit_logs`：记录申请提交、批准、拒绝等操作的 actor、target、before/after JSON 和 request ID。
+- 已读状态复用现有 `enterprise_notification_reads`，通过稳定 notification key 记录 connected app 申请通知已读状态。
+
+用户接口：
+
+- `POST /api/connected-app-requests`
+  - 登录用户提交应用接入申请。
+  - `slug` 需符合 connected app slug 规则，且不能与已有 app 或待审批申请冲突。
+  - `authorization_flow` 当前只支持 `device_code`。
+  - `homepage_url`、`callback_url` 可选，但填写时必须是绝对 `http` 或 `https` URL。
+- `GET /api/connected-app-requests/self`
+  - 登录用户查看自己提交的应用申请和审批结果。
+
+管理员接口：
+
+- `GET /api/connected-apps/requests`
+  - 分页查看全部应用接入申请，可用 `status=pending|approved|rejected` 筛选。
+- `POST /api/connected-apps/requests/:id/review`
+  - `decision=approved` 时创建 enabled/trusted connected app，并把 request 更新为 approved。
+  - `decision=rejected` 时只更新 request 审批状态和备注。
+  - 审批动作在同一事务中写入 `connected_app_audit_logs`。
+- `GET /api/connected-apps/audit-logs`
+  - 查看 connected app 审计事件，支持按 `action`、`target_type`、`target_id`、`actor_user_id`、`request_id` 过滤。
+
+站内通知接口：
+
+- `GET /api/notifications/connected-app-requests`
+  - 管理员可看到 pending 申请通知。
+  - 申请人可看到 approved/rejected 决策通知。
+  - 支持 `page`、`page_size`、`unread_only`，返回 `unread_count` 和 `has_more`。
+- `POST /api/notifications/connected-app-requests/read`
+  - 请求体使用 `connected_app_request_keys` 标记通知已读。
+
+通知 key 约定：
+
+- 待审批：`connected_app_request:pending:{request_id}`
+- 决策：`connected_app_request:{approved|rejected}:{request_id}:{audit_log_id}`
+
+前端通知中心：
+
+- 通知弹层的 `Approvals` 页签会合并企业额度审批和 connected app 审批通知。
+- 管理员点击 connected app pending 通知会进入 `/system-settings/operations/connected-apps?tab=requests&connected_app_request_id=...`。
+- 管理员可从通知进入 `Audit` 页签查看对应 request 的审计事件。
+- 申请人看到批准/拒绝通知后可进入 Profile 查看自身连接状态；后续 `SNAPLESS-007` 会补应用开发者 API 和更完整的开发者视图。
 
 ## 可操作状态
 
@@ -139,6 +193,6 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 应用申请和权限审批：第三方应用提交接入申请，管理员审核 scopes、展示信息和设备流能力，审批结果写入审计和站内通知。
-2. 应用开发者 API：获批应用可以创建自己的 device sessions、查看授权状态并查询允许的 API endpoints。
+1. 应用开发者 API：获批应用可以创建自己的 device sessions、查看授权状态并查询允许的 API endpoints。
+2. 应用级权限边界和开发者视图：只暴露与自身 app 相关的 grant/binding/session，并补充自助排障状态。
 3. 邮件/Webhook 通知扩展：在站内通知和审计可见后再扩展外部通知渠道。

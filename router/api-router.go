@@ -78,6 +78,8 @@ func SetApiRouter(router *gin.Engine) {
 			notificationRoute.POST("/read", controller.MarkNotificationsRead)
 			notificationRoute.GET("/enterprise-quota-requests", controller.ListEnterpriseQuotaRequestNotifications)
 			notificationRoute.POST("/enterprise-quota-requests/read", controller.MarkEnterpriseQuotaRequestNotificationsRead)
+			notificationRoute.GET("/connected-app-requests", controller.ListConnectedAppRequestNotifications)
+			notificationRoute.POST("/connected-app-requests/read", controller.MarkConnectedAppRequestNotificationsRead)
 		}
 
 		userRoute := apiRouter.Group("/user")
@@ -306,7 +308,17 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			connectedAppRoute.GET("", controller.ListConnectedApps)
 			connectedAppRoute.POST("", controller.CreateConnectedApp)
+			connectedAppRoute.GET("/requests", controller.AdminListConnectedAppRequests)
+			connectedAppRoute.POST("/requests/:id/review", controller.ReviewConnectedAppRequest)
+			connectedAppRoute.GET("/audit-logs", controller.ListConnectedAppAuditLogs)
 			connectedAppRoute.PUT("/:id", controller.UpdateConnectedApp)
+		}
+
+		connectedAppRequestRoute := apiRouter.Group("/connected-app-requests")
+		connectedAppRequestRoute.Use(middleware.UserAuth())
+		{
+			connectedAppRequestRoute.GET("/self", controller.ListSelfConnectedAppRequests)
+			connectedAppRequestRoute.POST("", middleware.CriticalRateLimit(), controller.SubmitConnectedAppRequest)
 		}
 
 		snaplessRoute := apiRouter.Group("/snapless")

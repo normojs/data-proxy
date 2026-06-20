@@ -20,7 +20,10 @@ import { Link } from '@tanstack/react-router'
 import type { TFunction } from 'i18next'
 import { Bell, ClipboardCheck, Megaphone, ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { EnterpriseQuotaRequestNotification } from '@/lib/api'
+import type {
+  ApprovalNotification,
+  ConnectedAppRequestNotification,
+} from '@/lib/api'
 import { getAnnouncementColorClass } from '@/lib/colors'
 import { formatDateTimeObject } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -79,7 +82,7 @@ interface NotificationPopoverProps {
   onTabChange: (tab: NotificationTab) => void
   notice: string
   announcements: AnnouncementItem[]
-  approvalNotifications?: EnterpriseQuotaRequestNotification[]
+  approvalNotifications?: ApprovalNotification[]
   showApprovals?: boolean
   showApprovalAuditLinks?: boolean
   loading: boolean
@@ -392,20 +395,34 @@ function formatApprovalNumber(value: number | undefined) {
   return new Intl.NumberFormat().format(value ?? 0)
 }
 
-function approvalNotificationTitle(
-  item: EnterpriseQuotaRequestNotification,
-  t: TFunction
-) {
+function approvalNotificationTitle(item: ApprovalNotification, t: TFunction) {
   return item.title_key ? t(item.title_key) : t(item.title)
 }
 
-function approvalNotificationContent(
-  item: EnterpriseQuotaRequestNotification,
-  t: TFunction
-) {
+function approvalNotificationContent(item: ApprovalNotification, t: TFunction) {
   return item.content_key
     ? t(item.content_key, item.content_params ?? {})
     : t(item.content)
+}
+
+function isConnectedAppNotification(
+  item: ApprovalNotification
+): item is ConnectedAppRequestNotification {
+  return item.kind === 'connected_app_request'
+}
+
+function connectedAppOpenSearch(item: ConnectedAppRequestNotification) {
+  return {
+    tab: 'requests',
+    connected_app_request_id: item.request_id,
+  } as const
+}
+
+function connectedAppAuditSearch(item: ConnectedAppRequestNotification) {
+  return {
+    tab: 'audit',
+    connected_app_request_id: item.request_id,
+  } as const
 }
 
 function ApprovalsContent({
@@ -422,7 +439,7 @@ function ApprovalsContent({
   onOpenChange,
   t,
 }: {
-  approvals: EnterpriseQuotaRequestNotification[]
+  approvals: ApprovalNotification[]
   loading: boolean
   onMarkAllApprovalsAsRead?: () => void
   onMarkApprovalRead?: (key: string) => void
@@ -489,16 +506,19 @@ function ApprovalsContent({
           const createdAt = item.created_at
             ? new Date(item.created_at * 1000)
             : null
-          const expiresAt = item.expires_at
-            ? new Date(item.expires_at * 1000)
-            : null
+          const isConnectedApp = isConnectedAppNotification(item)
+          const expiresAt =
+            !isConnectedApp && item.expires_at
+              ? new Date(item.expires_at * 1000)
+              : null
           const relativeTime = createdAt ? getRelativeTime(createdAt, t) : ''
           const absoluteTime = createdAt ? formatDateTimeObject(createdAt) : ''
-          const openLink = buildApprovalNotificationOpenLink(
-            item,
-            showAuditLinks
-          )
-          const auditSearch = buildApprovalNotificationAuditSearch(item)
+          const openLink = !isConnectedApp
+            ? buildApprovalNotificationOpenLink(item, showAuditLinks)
+            : null
+          const auditSearch = !isConnectedApp
+            ? buildApprovalNotificationAuditSearch(item)
+            : null
 
           return (
             <div key={item.key}>
@@ -533,19 +553,43 @@ function ApprovalsContent({
                       </p>
                     </div>
                     <div className='text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-xs'>
-                      <span>
-                        {t('Delta')} {formatApprovalNumber(item.limit_delta)}
-                      </span>
-                      {expiresAt ? (
-                        <span>
-                          {t('Expires')} {formatDateTimeObject(expiresAt)}
-                        </span>
-                      ) : null}
-                      {item.audit_log_id ? (
-                        <span>
-                          {t('Audit')} #{item.audit_log_id}
-                        </span>
-                      ) : null}
+                      {isConnectedApp ? (
+                        <>
+                          <span>
+                            {t('App')} {item.slug}
+                          </span>
+                          <span>
+                            {t('Scopes')} {item.requested_scopes.length}
+                          </span>
+                          {item.applicant_name ? (
+                            <span>
+                              {t('Applicant')} {item.applicant_name}
+                            </span>
+                          ) : null}
+                          {item.audit_log_id ? (
+                            <span>
+                              {t('Audit')} #{item.audit_log_id}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          <span>
+                            {t('Delta')}{' '}
+                            {formatApprovalNumber(item.limit_delta)}
+                          </span>
+                          {expiresAt ? (
+                            <span>
+                              {t('Expires')} {formatDateTimeObject(expiresAt)}
+                            </span>
+                          ) : null}
+                          {item.audit_log_id ? (
+                            <span>
+                              {t('Audit')} #{item.audit_log_id}
+                            </span>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                     {absoluteTime ? (
                       <div className='text-muted-foreground text-xs'>
@@ -554,35 +598,79 @@ function ApprovalsContent({
                       </div>
                     ) : null}
                     <div className='flex flex-wrap gap-2'>
-                      <Button
-                        render={
-                          <Link
-                            to={openLink.target}
-                            search={openLink.search}
-                            onClick={() => {
-                              if (!item.read) onMarkApprovalRead?.(item.key)
-                              onOpenChange(false)
-                            }}
-                          />
-                        }
-                        type='button'
-                        size='sm'
-                        variant='outline'
-                      >
-                        <ExternalLink className='size-3.5' />
-                        {t('Open')}
-                      </Button>
-                      {showAuditLinks && item.audit_log_id ? (
+                      {isConnectedApp ? (
+                        <Button
+                          render={
+                            showAuditLinks ? (
+                              <Link
+                                to='/system-settings/operations/$section'
+                                params={{ section: 'connected-apps' }}
+                                search={connectedAppOpenSearch(item)}
+                                onClick={() => {
+                                  if (!item.read) onMarkApprovalRead?.(item.key)
+                                  onOpenChange(false)
+                                }}
+                              />
+                            ) : (
+                              <Link
+                                to='/profile'
+                                onClick={() => {
+                                  if (!item.read) onMarkApprovalRead?.(item.key)
+                                  onOpenChange(false)
+                                }}
+                              />
+                            )
+                          }
+                          type='button'
+                          size='sm'
+                          variant='outline'
+                        >
+                          <ExternalLink className='size-3.5' />
+                          {t('Open')}
+                        </Button>
+                      ) : (
                         <Button
                           render={
                             <Link
-                              to='/enterprise'
-                              search={auditSearch}
+                              to={openLink!.target}
+                              search={openLink!.search}
                               onClick={() => {
                                 if (!item.read) onMarkApprovalRead?.(item.key)
                                 onOpenChange(false)
                               }}
                             />
+                          }
+                          type='button'
+                          size='sm'
+                          variant='outline'
+                        >
+                          <ExternalLink className='size-3.5' />
+                          {t('Open')}
+                        </Button>
+                      )}
+                      {showAuditLinks && item.audit_log_id ? (
+                        <Button
+                          render={
+                            isConnectedApp ? (
+                              <Link
+                                to='/system-settings/operations/$section'
+                                params={{ section: 'connected-apps' }}
+                                search={connectedAppAuditSearch(item)}
+                                onClick={() => {
+                                  if (!item.read) onMarkApprovalRead?.(item.key)
+                                  onOpenChange(false)
+                                }}
+                              />
+                            ) : (
+                              <Link
+                                to='/enterprise'
+                                search={auditSearch!}
+                                onClick={() => {
+                                  if (!item.read) onMarkApprovalRead?.(item.key)
+                                  onOpenChange(false)
+                                }}
+                              />
+                            )
                           }
                           type='button'
                           size='sm'

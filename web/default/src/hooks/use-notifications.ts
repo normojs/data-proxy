@@ -26,9 +26,13 @@ import {
 import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
 import {
+  type ApprovalNotification,
+  type ConnectedAppRequestNotification,
   type EnterpriseQuotaRequestNotification,
+  getConnectedAppRequestNotifications,
   getEnterpriseQuotaRequestNotifications,
   getNotice,
+  markConnectedAppRequestNotificationsRead,
   markEnterpriseQuotaRequestNotificationsRead,
 } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
@@ -136,7 +140,7 @@ export function useNotifications() {
 
   const {
     data: approvalNotificationsResponse,
-    isLoading: approvalsLoading,
+    isLoading: enterpriseApprovalsLoading,
     refetch: refetchApprovals,
     fetchNextPage: fetchNextApprovalNotificationsPage,
     hasNextPage: hasMoreApprovalNotifications,
@@ -164,20 +168,77 @@ export function useNotifications() {
     retry: false,
   })
 
-  const approvalNotifications: EnterpriseQuotaRequestNotification[] =
+  const {
+    data: connectedAppNotificationsResponse,
+    isLoading: connectedAppApprovalsLoading,
+    refetch: refetchConnectedAppApprovals,
+    fetchNextPage: fetchNextConnectedAppNotificationsPage,
+    hasNextPage: hasMoreConnectedAppNotifications,
+    isFetchingNextPage: connectedAppApprovalsFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: [
+      'notifications',
+      'connected-app-requests',
+      { unreadOnly: approvalUnreadOnly },
+    ],
+    queryFn: ({ pageParam }) =>
+      getConnectedAppRequestNotifications({
+        page: pageParam,
+        page_size: APPROVAL_NOTIFICATION_PAGE_SIZE,
+        unread_only: approvalUnreadOnly || undefined,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.success || !lastPage.data?.has_more) return undefined
+      return (lastPage.data.page || 1) + 1
+    },
+    enabled: Boolean(user),
+    staleTime: 1000 * 30,
+    refetchInterval: popoverOpen ? false : 1000 * 60,
+    retry: false,
+  })
+
+  const enterpriseApprovalNotifications: EnterpriseQuotaRequestNotification[] =
     approvalNotificationsResponse?.pages.flatMap((page) =>
       page.success ? (page.data?.items ?? []) : []
     ) ?? []
 
-  const approvalNotificationsUnread =
+  const connectedAppApprovalNotifications: ConnectedAppRequestNotification[] =
+    connectedAppNotificationsResponse?.pages.flatMap((page) =>
+      page.success ? (page.data?.items ?? []) : []
+    ) ?? []
+
+  const approvalNotifications: ApprovalNotification[] = [
+    ...enterpriseApprovalNotifications,
+    ...connectedAppApprovalNotifications,
+  ].sort((left, right) => (right.created_at || 0) - (left.created_at || 0))
+
+  const enterpriseApprovalNotificationsUnread =
     approvalNotificationsResponse?.pages.find((page) => page.success)?.data
       ?.unread_count ?? 0
+
+  const connectedAppApprovalNotificationsUnread =
+    connectedAppNotificationsResponse?.pages.find((page) => page.success)?.data
+      ?.unread_count ?? 0
+
+  const approvalNotificationsUnread =
+    enterpriseApprovalNotificationsUnread +
+    connectedAppApprovalNotificationsUnread
 
   const markApprovalsReadMutation = useMutation({
     mutationFn: markEnterpriseQuotaRequestNotificationsRead,
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['notifications', 'enterprise-quota-requests'],
+      })
+    },
+  })
+
+  const markConnectedAppApprovalsReadMutation = useMutation({
+    mutationFn: markConnectedAppRequestNotificationsRead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['notifications', 'connected-app-requests'],
       })
     },
   })
@@ -272,8 +333,29 @@ export function useNotifications() {
       keys ??
       approvalNotifications.filter((item) => !item.read).map((item) => item.key)
     const uniqueKeys = [...new Set(targetKeys.filter(Boolean))]
-    if (uniqueKeys.length > 0) {
-      markApprovalsReadMutation.mutate(uniqueKeys)
+    if (uniqueKeys.length === 0) return
+
+    const connectedAppKeys = uniqueKeys.filter((key) =>
+      key.startsWith('connected_app_request:')
+    )
+    const enterpriseKeys = uniqueKeys.filter(
+      (key) => !key.startsWith('connected_app_request:')
+    )
+
+    if (enterpriseKeys.length > 0) {
+      markApprovalsReadMutation.mutate(enterpriseKeys)
+    }
+    if (connectedAppKeys.length > 0) {
+      markConnectedAppApprovalsReadMutation.mutate(connectedAppKeys)
+    }
+  }
+
+  const loadMoreApprovalNotifications = () => {
+    if (hasMoreApprovalNotifications) {
+      fetchNextApprovalNotificationsPage()
+    }
+    if (hasMoreConnectedAppNotifications) {
+      fetchNextConnectedAppNotificationsPage()
     }
   }
 
@@ -282,17 +364,19 @@ export function useNotifications() {
     notice: noticeContent,
     announcements,
     approvalNotifications,
-    approvalNotificationsEnabled: Boolean(user && enterpriseGovernanceEnabled),
-    approvalAuditLinksEnabled: Boolean(
-      user && user.role >= ROLE.ADMIN && enterpriseGovernanceEnabled
-    ),
+    approvalNotificationsEnabled: Boolean(user),
+    approvalAuditLinksEnabled: Boolean(user && user.role >= ROLE.ADMIN),
     popupAnnouncement,
     loading: noticeLoading || statusLoading,
-    approvalsLoading,
+    approvalsLoading:
+      enterpriseApprovalsLoading || connectedAppApprovalsLoading,
     approvalsUnreadOnly: approvalUnreadOnly,
     setApprovalsUnreadOnly: setApprovalUnreadOnly,
-    hasMoreApprovalNotifications: Boolean(hasMoreApprovalNotifications),
-    approvalsFetchingNextPage,
+    hasMoreApprovalNotifications: Boolean(
+      hasMoreApprovalNotifications || hasMoreConnectedAppNotifications
+    ),
+    approvalsFetchingNextPage:
+      approvalsFetchingNextPage || connectedAppApprovalsFetchingNextPage,
 
     // Unread counts
     unreadCount: unreadCounts.total,
@@ -311,9 +395,12 @@ export function useNotifications() {
     closePopover: () => setPopoverOpen(false),
     markAnnouncementsAsRead,
     markApprovalsAsRead,
-    loadMoreApprovalNotifications: fetchNextApprovalNotificationsPage,
+    loadMoreApprovalNotifications,
     dismissAnnouncementPopups: dismissAnnouncementPopupsLocal,
     refetchNotice,
-    refetchApprovals,
+    refetchApprovals: () => {
+      refetchApprovals()
+      refetchConnectedAppApprovals()
+    },
   }
 }
