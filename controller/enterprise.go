@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -1529,6 +1532,56 @@ func GetEnterpriseUsageBreakdown(c *gin.Context) {
 	common.ApiSuccess(c, pageInfo)
 }
 
+func ExportEnterpriseUsageBreakdown(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	params, err := enterpriseUsageQueryFromRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := applyDepartmentUsageScope(&params, access); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	dimension := strings.TrimSpace(c.Query("dimension"))
+	if dimension == "" {
+		dimension = "org_unit"
+	}
+	if !isSupportedEnterpriseUsageDimension(dimension) {
+		common.ApiErrorMsg(c, "不支持的用量聚合维度")
+		return
+	}
+	rows, err := loadEnterpriseUsageRows(enterprise.Id, params)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	items := aggregateEnterpriseUsageBreakdownWithGranularity(rows, dimension, params.Granularity)
+	sortEnterpriseUsageBreakdown(items, c.Query("sort_by"), c.Query("sort_order"))
+	if err := fillEnterpriseUsageBreakdownNames(enterprise.Id, dimension, items); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	payload, err := enterpriseUsageBreakdownCSV(items)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	filename := fmt.Sprintf("enterprise-usage-%s-%d-%d.csv", dimension, params.StartTime, params.EndTime)
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", payload)
+}
+
 func ListEnterpriseAuditLogs(c *gin.Context) {
 	enterprise, err := currentEnterprise()
 	if err != nil {
@@ -2249,6 +2302,49 @@ func fillEnterpriseUsageBreakdownNames(enterpriseId int, dimension string, items
 		}
 	}
 	return nil
+}
+
+func enterpriseUsageBreakdownCSV(items []enterpriseUsageBreakdownItem) ([]byte, error) {
+	var buffer bytes.Buffer
+	buffer.Write([]byte{0xEF, 0xBB, 0xBF})
+	writer := csv.NewWriter(&buffer)
+	if err := writer.Write([]string{
+		"dimension",
+		"target_id",
+		"target_name",
+		"model_name",
+		"status",
+		"time_bucket",
+		"request_count",
+		"quota",
+		"prompt_tokens",
+		"completion_tokens",
+		"total_tokens",
+	}); err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if err := writer.Write([]string{
+			item.Dimension,
+			strconv.Itoa(item.TargetId),
+			item.TargetName,
+			item.ModelName,
+			item.Status,
+			item.TimeBucket,
+			strconv.FormatInt(item.RequestCount, 10),
+			strconv.FormatInt(item.Quota, 10),
+			strconv.FormatInt(item.PromptTokens, 10),
+			strconv.FormatInt(item.CompletionTokens, 10),
+			strconv.FormatInt(item.TotalTokens, 10),
+		}); err != nil {
+			return nil, err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
 }
 
 func enterpriseOrgUnitNames(enterpriseId int) (map[int]string, error) {

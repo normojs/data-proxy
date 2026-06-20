@@ -389,6 +389,20 @@ export async function getEnterpriseUsageBreakdown(
   return res.data
 }
 
+export async function downloadEnterpriseUsageBreakdownExport(
+  params: EnterpriseUsageBreakdownParams = {}
+) {
+  const res = await api.get<Blob>(
+    withQuery(`${ENTERPRISE_API}/usage/breakdown/export`, params),
+    {
+      responseType: 'blob',
+      disableDuplicate: true,
+      skipBusinessError: true,
+    }
+  )
+  return res.data
+}
+
 export async function getEnterpriseAuditLogs(
   params: EnterpriseAuditLogParams = {}
 ) {

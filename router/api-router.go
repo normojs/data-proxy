@@ -411,6 +411,7 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				financeEnterpriseRoute.GET("/usage/summary", controller.GetEnterpriseUsageSummary)
 				financeEnterpriseRoute.GET("/usage/breakdown", controller.GetEnterpriseUsageBreakdown)
+				financeEnterpriseRoute.GET("/usage/breakdown/export", controller.ExportEnterpriseUsageBreakdown)
 			}
 
 			auditEnterpriseRoute := enterpriseRoute.Group("")

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -1155,6 +1156,21 @@ func TestEnterpriseUsageSummaryAndBreakdown(t *testing.T) {
 	assert.EqualValues(t, 30, page.Items[0].Quota)
 	assert.Equal(t, "1970-02", page.Items[1].TimeBucket)
 	assert.EqualValues(t, 5, page.Items[1].Quota)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/breakdown/export?start_time=900&end_time=2688500&dimension=project&sort_by=quota&sort_order=desc", "")
+	ExportEnterpriseUsageBreakdown(ctx)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Header().Get("Content-Type"), "text/csv")
+	reader := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(recorder.Body.Bytes(), []byte{0xEF, 0xBB, 0xBF})))
+	records, err := reader.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 3)
+	assert.Equal(t, []string{"dimension", "target_id", "target_name", "model_name", "status", "time_bucket", "request_count", "quota", "prompt_tokens", "completion_tokens", "total_tokens"}, records[0])
+	assert.Equal(t, "project", records[1][0])
+	assert.Equal(t, "销售成本中心", records[1][2])
+	assert.Equal(t, "20", records[1][7])
+	assert.Equal(t, "研发成本中心", records[2][2])
+	assert.Equal(t, "15", records[2][7])
 }
 
 func decodeEnterpriseResponseData(t *testing.T, response enterpriseControllerResponse, out any) {

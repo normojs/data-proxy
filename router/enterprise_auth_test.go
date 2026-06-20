@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"encoding/csv"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -292,6 +293,16 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.True(t, usageResponse.Success, usageResponse.Message)
 	require.EqualValues(t, 1, usageResponse.Data.Total.RequestCount)
 	require.EqualValues(t, 100, usageResponse.Data.Total.Quota)
+
+	usageExport := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/breakdown/export?start_time=900&end_time=1100&dimension=org_unit", "", departmentCookies, departmentAdminId)
+	require.Equal(t, http.StatusOK, usageExport.Code)
+	require.Contains(t, usageExport.Header().Get("Content-Type"), "text/csv")
+	reader := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(usageExport.Body.Bytes(), []byte{0xEF, 0xBB, 0xBF})))
+	records, err := reader.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	require.Equal(t, strconv.Itoa(engineeringId), records[1][1])
+	require.Equal(t, "100", records[1][7])
 
 	crossUsage := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100&org_unit_id="+strconv.Itoa(salesId), "", departmentCookies, departmentAdminId)
 	crossUsageResponse := decodeEnterpriseUsageSummaryResponseForTest(t, crossUsage)

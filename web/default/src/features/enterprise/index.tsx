@@ -31,6 +31,7 @@ import {
   Ban,
   Building2,
   ClipboardList,
+  Download,
   Gauge,
   Mail,
   Layers3,
@@ -142,6 +143,7 @@ import {
   submitEnterpriseQuotaRequest,
   withdrawEnterpriseQuotaRequest,
   applyEnterpriseOrgSync,
+  downloadEnterpriseUsageBreakdownExport,
 } from './api'
 import type {
   ApiResponse,
@@ -2593,6 +2595,8 @@ function UsageTab(props: {
   setTokenId: (value: string) => void
   status: string
   setStatus: (value: string) => void
+  onExport: () => void
+  isExporting: boolean
 }) {
   const { t } = useTranslation()
   const total = props.summary?.total
@@ -2755,7 +2759,20 @@ function UsageTab(props: {
         />
       </div>
 
-      <Panel title='Usage Breakdown'>
+      <Panel
+        title='Usage Breakdown'
+        actions={
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={props.isExporting}
+            onClick={props.onExport}
+          >
+            <Download className='size-3.5' />
+            {t('Export')}
+          </Button>
+        }
+      >
         <QueryState
           query={props.breakdownQuery}
           empty={props.breakdown.length === 0}
@@ -6473,6 +6490,33 @@ export function EnterpriseGovernance() {
       }),
     enabled: canReadFinance,
   })
+  const exportUsageMutation = useMutation({
+    mutationFn: () =>
+      downloadEnterpriseUsageBreakdownExport({
+        start_time: usageStartTime,
+        end_time: usageEndTime,
+        dimension: usageDimension,
+        granularity: usageGranularity,
+        model_name: usageModelName,
+        project_id: usageProjectIdValue,
+        channel_id: usageChannelIdValue,
+        token_id: usageTokenIdValue,
+        status: usageStatus,
+        sort_by: 'quota',
+        sort_order: 'desc',
+      }),
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `enterprise-usage-${usageDimension}-${usageStartDate}-${usageEndDate}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      toast.success(t('Exported'))
+    },
+  })
   const auditStartTime = auditStartDate
     ? startOfDayUnix(auditStartDate)
     : undefined
@@ -6914,6 +6958,8 @@ export function EnterpriseGovernance() {
                   setTokenId={setUsageTokenId}
                   status={usageStatus}
                   setStatus={setUsageStatus}
+                  onExport={() => exportUsageMutation.mutate()}
+                  isExporting={exportUsageMutation.isPending}
                 />
               </TabsContent>
 
