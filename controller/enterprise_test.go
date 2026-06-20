@@ -116,6 +116,12 @@ type enterpriseControllerListResponse struct {
 	Data    []any  `json:"data"`
 }
 
+type enterpriseOrgSyncControllerResponse struct {
+	Success bool                            `json:"success"`
+	Message string                          `json:"message"`
+	Data    service.EnterpriseOrgSyncResult `json:"data"`
+}
+
 func setupEnterpriseControllerTestDB(t *testing.T) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -183,6 +189,14 @@ func decodeEnterpriseControllerListResponse(t *testing.T, recorder *httptest.Res
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response enterpriseControllerListResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	return response
+}
+
+func decodeEnterpriseOrgSyncResponse(t *testing.T, recorder *httptest.ResponseRecorder) enterpriseOrgSyncControllerResponse {
+	t.Helper()
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response enterpriseOrgSyncControllerResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	return response
 }
 
@@ -287,6 +301,97 @@ func TestEnterpriseMemberOrgUnitAssignment(t *testing.T) {
 	var membership model.EnterpriseOrgMembership
 	require.NoError(t, model.DB.Where("enterprise_id = ? AND user_id = ?", enterprise.Id, 1001).First(&membership).Error)
 	assert.Equal(t, orgUnitId, membership.OrgUnitId)
+}
+
+func TestEnterpriseOrgSyncPreviewAndApply(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&[]model.User{
+		{Id: 1101, Username: "alice", DisplayName: "Alice", Email: "alice@example.com", HStationId: "hs-alice", AffCode: "aff1101", Status: common.UserStatusEnabled},
+		{Id: 1102, Username: "bob", DisplayName: "Bob", Email: "bob@example.com", AffCode: "aff1102", Status: common.UserStatusEnabled},
+	}).Error)
+
+	payload := `{
+		"provider": "hstation",
+		"snapshot_at": 1710000000,
+		"org_units": [
+			{"external_id": "eng", "name": "Engineering", "slug": "engineering", "sort": 10},
+			{"external_id": "platform", "parent_external_id": "eng", "name": "Platform", "slug": "platform", "sort": 20}
+		],
+		"members": [
+			{"provider_user_id": "hs-alice", "org_unit_external_id": "eng", "role": "owner"},
+			{"username": "bob", "org_unit_external_id": "platform"}
+		]
+	}`
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-sync/preview", payload)
+	PreviewEnterpriseOrgSync(ctx)
+	preview := decodeEnterpriseOrgSyncResponse(t, recorder)
+	require.True(t, preview.Success, preview.Message)
+	assert.True(t, preview.Data.DryRun)
+	assert.Equal(t, "hstation", preview.Data.Provider)
+	assert.EqualValues(t, 2, preview.Data.Summary.CreateOrgUnits)
+	assert.EqualValues(t, 2, preview.Data.Summary.AssignMembers)
+	assert.Empty(t, preview.Data.Conflicts)
+
+	var orgCount int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseOrgUnit{}).Where("enterprise_id = ?", enterprise.Id).Count(&orgCount).Error)
+	assert.EqualValues(t, 0, orgCount)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-sync/apply", payload)
+	ApplyEnterpriseOrgSync(ctx)
+	applied := decodeEnterpriseOrgSyncResponse(t, recorder)
+	require.True(t, applied.Success, applied.Message)
+	assert.False(t, applied.Data.DryRun)
+	assert.NotZero(t, applied.Data.AppliedAt)
+	assert.EqualValues(t, 2, applied.Data.Summary.CreateOrgUnits)
+	assert.EqualValues(t, 2, applied.Data.Summary.AssignMembers)
+
+	var engineering model.EnterpriseOrgUnit
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND slug = ?", enterprise.Id, "engineering").First(&engineering).Error)
+	var platform model.EnterpriseOrgUnit
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND slug = ?", enterprise.Id, "platform").First(&platform).Error)
+	assert.Equal(t, engineering.Id, platform.ParentId)
+
+	var aliceMembership model.EnterpriseOrgMembership
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND user_id = ?", enterprise.Id, 1101).First(&aliceMembership).Error)
+	assert.Equal(t, engineering.Id, aliceMembership.OrgUnitId)
+	assert.Equal(t, "owner", aliceMembership.Role)
+	var bobMembership model.EnterpriseOrgMembership
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND user_id = ?", enterprise.Id, 1102).First(&bobMembership).Error)
+	assert.Equal(t, platform.Id, bobMembership.OrgUnitId)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND action = ?", enterprise.Id, "org_sync.apply").First(&audit).Error)
+	assert.Contains(t, audit.AfterJson, `"provider":"hstation"`)
+	assert.Contains(t, audit.AfterJson, `"create_org_units":2`)
+}
+
+func TestEnterpriseOrgSyncPreviewReportsConflicts(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	payload := `{
+		"provider": "hstation",
+		"org_units": [
+			{"external_id": "platform", "parent_external_id": "missing", "name": "Platform", "slug": "platform"}
+		],
+		"members": [
+			{"provider_user_id": "missing-user", "org_unit_external_id": "platform"}
+		]
+	}`
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-sync/preview", payload)
+	PreviewEnterpriseOrgSync(ctx)
+	preview := decodeEnterpriseOrgSyncResponse(t, recorder)
+	require.True(t, preview.Success, preview.Message)
+	assert.Len(t, preview.Data.Conflicts, 2)
+	assert.EqualValues(t, 2, preview.Data.Summary.Conflicts)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-sync/apply", payload)
+	ApplyEnterpriseOrgSync(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "冲突")
 }
 
 func TestEnterprisePolicyGroupDisableRejectsReferencedGroup(t *testing.T) {

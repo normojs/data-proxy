@@ -104,6 +104,8 @@ type enterpriseNotificationPreferenceRequest struct {
 	RecipientScope service.EnterpriseNotificationRecipientScope `json:"recipient_scope"`
 }
 
+type enterpriseOrgSyncRequest = service.EnterpriseOrgSyncInput
+
 type enterpriseQuotaRequestItem struct {
 	model.EnterpriseQuotaRequest
 	PolicyName    string `json:"policy_name"`
@@ -535,6 +537,45 @@ func UpdateEnterpriseMemberOrgUnit(c *gin.Context) {
 	}
 	recordEnterpriseAudit(c, enterprise.Id, "member.update_org_unit", "user", userId, before, membership)
 	common.ApiSuccess(c, gin.H{"user_id": userId})
+}
+
+func PreviewEnterpriseOrgSync(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterpriseOrgSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	result, err := service.PreviewEnterpriseOrgSync(enterprise.Id, service.EnterpriseOrgSyncInput(req))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
+func ApplyEnterpriseOrgSync(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterpriseOrgSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	result, err := service.ApplyEnterpriseOrgSync(enterprise.Id, service.EnterpriseOrgSyncInput(req))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordEnterpriseAudit(c, enterprise.Id, "org_sync.apply", "org_sync", 0, nil, result)
+	common.ApiSuccess(c, result)
 }
 
 func ListEnterprisePolicyGroups(c *gin.Context) {

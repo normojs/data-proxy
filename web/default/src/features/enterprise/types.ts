@@ -66,6 +66,77 @@ export type EnterpriseMember = {
   policy_group_count: number
 }
 
+export type EnterpriseOrgSyncOrgUnitPayload = {
+  external_id: string
+  parent_external_id?: string
+  name: string
+  slug: string
+  description?: string
+  sort?: number
+  status?: number
+}
+
+export type EnterpriseOrgSyncMemberPayload = {
+  user_id?: number
+  username?: string
+  email?: string
+  provider_user_id?: string
+  org_unit_external_id?: string
+  org_unit_slug?: string
+  role?: string
+}
+
+export type EnterpriseOrgSyncPayload = {
+  provider: string
+  snapshot_at?: number
+  org_units: EnterpriseOrgSyncOrgUnitPayload[]
+  members: EnterpriseOrgSyncMemberPayload[]
+  allow_conflicts?: boolean
+}
+
+export type EnterpriseOrgSyncSummary = {
+  org_units_total: number
+  members_total: number
+  create_org_units: number
+  update_org_units: number
+  unchanged_org_units: number
+  assign_members: number
+  unchanged_members: number
+  conflicts: number
+}
+
+export type EnterpriseOrgSyncConflict = {
+  type: string
+  external_id?: string
+  user_id?: number
+  username?: string
+  email?: string
+  field?: string
+  message: string
+}
+
+export type EnterpriseOrgSyncOperation = {
+  type: string
+  action: string
+  external_id?: string
+  slug?: string
+  user_id?: number
+  target_id?: number
+  target_name?: string
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+}
+
+export type EnterpriseOrgSyncResult = {
+  provider: string
+  snapshot_at: number
+  dry_run: boolean
+  applied_at?: number
+  summary: EnterpriseOrgSyncSummary
+  conflicts: EnterpriseOrgSyncConflict[]
+  operations: EnterpriseOrgSyncOperation[]
+}
+
 export type EnterprisePolicyGroup = {
   id: number
   enterprise_id: number

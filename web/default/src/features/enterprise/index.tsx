@@ -126,6 +126,7 @@ import {
   getEnterpriseUsageBreakdown,
   getEnterpriseUsageSummary,
   getEnterpriseWebhooks,
+  previewEnterpriseOrgSync,
   retryEnterpriseNotificationOutbox,
   testEnterpriseWebhook,
   updateEnterpriseCurrent,
@@ -139,6 +140,7 @@ import {
   rejectEnterpriseQuotaRequest,
   submitEnterpriseQuotaRequest,
   withdrawEnterpriseQuotaRequest,
+  applyEnterpriseOrgSync,
 } from './api'
 import type {
   ApiResponse,
@@ -152,6 +154,8 @@ import type {
   EnterpriseNotificationRecipientScope,
   EnterpriseOrgUnit,
   EnterpriseOrgUnitPayload,
+  EnterpriseOrgSyncPayload,
+  EnterpriseOrgSyncResult,
   EnterprisePolicyGroup,
   EnterprisePolicyGroupPayload,
   EnterpriseProject,
@@ -236,6 +240,30 @@ const ALL_VALUE = '__all__'
 const ROOT_VALUE = '__root__'
 const UNASSIGNED_VALUE = '__unassigned__'
 const EMPTY_ORG_UNITS: EnterpriseOrgUnit[] = []
+const ORG_SYNC_PAYLOAD_TEMPLATE = `{
+  "org_units": [
+    {
+      "external_id": "engineering",
+      "name": "Engineering",
+      "slug": "engineering",
+      "sort": 10
+    },
+    {
+      "external_id": "platform",
+      "parent_external_id": "engineering",
+      "name": "Platform",
+      "slug": "platform",
+      "sort": 20
+    }
+  ],
+  "members": [
+    {
+      "provider_user_id": "hstation-user-id",
+      "org_unit_external_id": "engineering",
+      "role": "owner"
+    }
+  ]
+}`
 
 const tabs: { value: EnterpriseTab; label: string; icon: typeof Activity }[] = [
   { value: 'overview', label: 'Overview', icon: Activity },
@@ -1063,6 +1091,242 @@ function OverviewTab(props: {
   )
 }
 
+function SsoOrgSyncPanel() {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [provider, setProvider] = useState('hstation')
+  const [payloadText, setPayloadText] = useState(ORG_SYNC_PAYLOAD_TEMPLATE)
+  const [allowConflicts, setAllowConflicts] = useState(false)
+  const [parseError, setParseError] = useState('')
+  const [result, setResult] = useState<EnterpriseOrgSyncResult | null>(null)
+
+  const buildPayload = (): EnterpriseOrgSyncPayload | null => {
+    try {
+      const parsed = JSON.parse(payloadText) as Partial<EnterpriseOrgSyncPayload>
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(t('Invalid JSON payload'))
+      }
+      const orgUnits = Array.isArray(parsed.org_units)
+        ? parsed.org_units
+        : []
+      const members = Array.isArray(parsed.members) ? parsed.members : []
+      setParseError('')
+      return {
+        provider,
+        snapshot_at: parsed.snapshot_at,
+        org_units: orgUnits,
+        members,
+        allow_conflicts: allowConflicts,
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('Invalid JSON payload')
+      setParseError(message)
+      toast.error(message)
+      return null
+    }
+  }
+
+  const previewMutation = useMutation({
+    mutationFn: previewEnterpriseOrgSync,
+    onSuccess: (response) => {
+      if (!response.success || !response.data) {
+        toast.error(response.message ?? t('Preview failed'))
+        return
+      }
+      setResult(response.data)
+      toast.success(t('Preview ready'))
+    },
+  })
+
+  const applyMutation = useMutation({
+    mutationFn: applyEnterpriseOrgSync,
+    onSuccess: (response) => {
+      if (!response.success || !response.data) {
+        toast.error(response.message ?? t('Sync failed'))
+        return
+      }
+      setResult(response.data)
+      toast.success(t('Synced'))
+      queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+    },
+  })
+
+  const isPending = previewMutation.isPending || applyMutation.isPending
+  const summary = result?.summary
+  const operations = result?.operations ?? []
+  const conflicts = result?.conflicts ?? []
+
+  return (
+    <Panel
+      className='xl:col-span-2'
+      title='SSO Sync'
+      description='Preview and apply organization snapshots from an SSO source.'
+      actions={
+        <>
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={isPending}
+            onClick={() => {
+              const payload = buildPayload()
+              if (payload) previewMutation.mutate(payload)
+            }}
+          >
+            <Search className='size-3.5' />
+            {t('Preview')}
+          </Button>
+          <Button
+            size='sm'
+            disabled={isPending || (conflicts.length > 0 && !allowConflicts)}
+            onClick={() => {
+              const payload = buildPayload()
+              if (payload) applyMutation.mutate(payload)
+            }}
+          >
+            <Check className='size-3.5' />
+            {t('Apply')}
+          </Button>
+        </>
+      }
+    >
+      <div className='grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(280px,0.6fr)]'>
+        <div className='space-y-3'>
+          <div className='grid gap-2 sm:grid-cols-[180px_minmax(0,1fr)]'>
+            <Field label='Provider'>
+              <Select
+                value={provider}
+                onValueChange={(value) => {
+                  if (value) setProvider(value)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t('Provider')} />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    <SelectItem value='hstation'>HStation</SelectItem>
+                    <SelectItem value='oidc'>OIDC</SelectItem>
+                    <SelectItem value='github'>GitHub</SelectItem>
+                    <SelectItem value='manual'>Manual</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label='Snapshot JSON'>
+              <Textarea
+                value={payloadText}
+                onChange={(event) => setPayloadText(event.target.value)}
+                spellCheck={false}
+                className='min-h-56 resize-y font-mono text-xs leading-5'
+              />
+            </Field>
+          </div>
+          <label className='flex items-center gap-2 text-sm'>
+            <Checkbox
+              checked={allowConflicts}
+              onCheckedChange={(checked) =>
+                setAllowConflicts(checked === true)
+              }
+            />
+            <span>{t('Apply non-conflicting rows')}</span>
+          </label>
+          {parseError && (
+            <div className='text-destructive text-xs'>{parseError}</div>
+          )}
+        </div>
+
+        <div className='space-y-3'>
+          {summary ? (
+            <>
+              <div className='grid grid-cols-2 gap-2'>
+                <StatCell
+                  icon={Building2}
+                  label='Create Org Units'
+                  value={formatNumber(summary.create_org_units)}
+                />
+                <StatCell
+                  icon={Pencil}
+                  label='Update Org Units'
+                  value={formatNumber(summary.update_org_units)}
+                />
+                <StatCell
+                  icon={Users}
+                  label='Assign Members'
+                  value={formatNumber(summary.assign_members)}
+                />
+                <StatCell
+                  icon={Ban}
+                  label='Conflicts'
+                  value={formatNumber(summary.conflicts)}
+                />
+              </div>
+              <div className='text-muted-foreground text-xs'>
+                {result?.dry_run
+                  ? t('Dry-run result')
+                  : `${t('Applied')} ${formatDateTime(result?.applied_at)}`}
+              </div>
+            </>
+          ) : (
+            <div className='text-muted-foreground rounded-lg border border-dashed p-3 text-sm'>
+              {t('No preview result')}
+            </div>
+          )}
+
+          {conflicts.length > 0 && (
+            <div className='rounded-lg border'>
+              <div className='border-b px-3 py-2 text-xs font-medium'>
+                {t('Conflicts')}
+              </div>
+              <div className='max-h-44 overflow-auto'>
+                {conflicts.slice(0, 8).map((conflict, index) => (
+                  <div
+                    key={`${conflict.type}:${conflict.external_id ?? conflict.user_id ?? index}:${index}`}
+                    className='border-b px-3 py-2 text-xs last:border-b-0'
+                  >
+                    <div className='font-medium'>
+                      {conflict.field || conflict.type}
+                    </div>
+                    <div className='text-muted-foreground mt-0.5'>
+                      {conflict.message}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {operations.length > 0 && (
+            <div className='rounded-lg border'>
+              <div className='border-b px-3 py-2 text-xs font-medium'>
+                {t('Operations')}
+              </div>
+              <div className='max-h-44 overflow-auto'>
+                {operations.slice(0, 8).map((operation, index) => (
+                  <div
+                    key={`${operation.type}:${operation.action}:${operation.slug ?? operation.user_id ?? index}`}
+                    className='flex items-center justify-between gap-3 border-b px-3 py-2 text-xs last:border-b-0'
+                  >
+                    <span className='truncate'>
+                      {operation.target_name ||
+                        operation.slug ||
+                        operation.external_id ||
+                        `#${operation.user_id}`}
+                    </span>
+                    <Badge variant='outline'>
+                      {operation.type}.{operation.action}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
 function OrganizationTab(props: {
   orgUnits: EnterpriseOrgUnit[]
   orgUnitsQuery: QueryResult<EnterpriseOrgUnit[]>
@@ -1098,6 +1362,8 @@ function OrganizationTab(props: {
 
   return (
     <div className='grid gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]'>
+      <SsoOrgSyncPanel />
+
       <Panel
         title='Organization'
         description='Department tree and ownership boundaries.'

@@ -355,6 +355,8 @@ func SetApiRouter(router *gin.Engine) {
 				adminEnterpriseRoute.DELETE("/org-units/:id", controller.DeleteEnterpriseOrgUnit)
 				adminEnterpriseRoute.GET("/members", controller.ListEnterpriseMembers)
 				adminEnterpriseRoute.PUT("/members/:user_id/org-unit", controller.UpdateEnterpriseMemberOrgUnit)
+				adminEnterpriseRoute.POST("/org-sync/preview", controller.PreviewEnterpriseOrgSync)
+				adminEnterpriseRoute.POST("/org-sync/apply", controller.ApplyEnterpriseOrgSync)
 				adminEnterpriseRoute.GET("/policy-groups", controller.ListEnterprisePolicyGroups)
 				adminEnterpriseRoute.POST("/policy-groups", controller.CreateEnterprisePolicyGroup)
 				adminEnterpriseRoute.PUT("/policy-groups/:id", controller.UpdateEnterprisePolicyGroup)

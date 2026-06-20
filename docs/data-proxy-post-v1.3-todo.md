@@ -18,20 +18,20 @@
 | 4 | DP-OAUTH-002 | P0 | Done | HStation OAuth 自动化验证 | 覆盖登录、注册、绑定、解绑、取消授权、重复绑定、回调错误；至少补后端单测和前端 typecheck。 |
 | 5 | DP-BENCH-001 | P1 | Done | fusion-benchmark 工具收口 | 明确数据文件和 fixtures 是否入库；CLI、README、测试和样例数据可复现，不泄露密钥或真实隐私数据。 |
 | 6 | DP-BENCH-002 | P1 | Done | fusion-benchmark CI/文档策略 | 若工具进入主仓库，增加轻量测试命令和文档；若不进入主仓库，迁移到独立仓库或保持未提交。 |
-| 7 | DP-V14-001 | P1 | Pending | V1.4 SSO 组织同步方案 | 设计 importer 抽象、增量同步、dry-run、冲突处理 UI、同步审计和回滚边界。 |
+| 7 | DP-V14-001 | P1 | Done | V1.4 SSO 组织同步方案 | 设计 importer 抽象、增量同步、dry-run、冲突处理 UI、同步审计和回滚边界。 |
 | 8 | DP-V15-001 | P2 | Pending | V1.5 高并发和精细额度 | Redis 原子计数、DB/Redis 对账、token 级 hard limit、失败补偿队列和压测脚本。 |
 | 9 | DP-V16-001 | P2 | Pending | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作，并保留审计和用户提示。 |
 | 10 | DP-V17-001 | P2 | Pending | V1.7 企业治理 RBAC/财务视图 | 企业管理员、部门管理员、财务查看员、审计员、项目管理员的权限边界和回归测试。 |
 
-## 当前开始项：DP-V14-001
+## 当前开始项：DP-V15-001
 
-下一轮进入 V1.4 SSO 组织同步方案，建议先做最小可用闭环，再逐步接真实 IdP：
+下一轮进入 V1.5 高并发和精细额度，建议按以下顺序拆分，避免额度主链路一次性改动过大：
 
-1. 复用现有企业组织、成员和审计表，新增 SSO 快照 importer 抽象。
-2. 先支持 JSON payload 快照，覆盖 org_units 和 members 的 dry-run preview。
-3. 在 preview 中返回新增/更新/分配计划和冲突列表。
-4. apply 使用事务落库，并记录 `org_sync.apply` 审计事件。
-5. 前端 Organization 页提供预览、冲突可见和应用入口。
+1. 梳理现有 `service/pre_consume_quota.go`、`service/quota.go`、`service/enterprise_policy_counter.go` 和 `model/enterprise_quota_counter.go` 的额度扣减边界。
+2. 新增 Redis 原子计数抽象，先覆盖企业策略 counter 的 request_count/quota 递增，不改变用户余额主逻辑。
+3. 增加 DB/Redis 对账和失败补偿队列，确保 Redis 不可用时可降级到现有 DB 路径。
+4. 补 token 级 hard limit 的模型、校验和回归测试。
+5. 增加轻量并发测试或压测脚本，先验证计数一致性，再扩展到真实 relay 压测。
 
 ## 当前进展
 
@@ -40,6 +40,7 @@
 - DP-OAUTH-001 已完成基础交付：新增 HStation OAuth provider、启用配置校验、登录/注册/绑定入口、系统设置页和管理员绑定查看能力。
 - DP-OAUTH-002 已完成：新增 `oauth/hstation_test.go` 和 `controller/oauth_test.go`，覆盖 HStation token/userinfo、登录、注册、绑定、当前用户解绑、取消授权、重复绑定、state 错误和 token 错误；前端个人资料页已接入 HStation 解绑；CI Backend 已纳入 `./oauth`。本地已通过 `go test ./model ./controller ./service ./router ./oauth`、`cd web/default && bun run typecheck`、`cd web/default && bun run smoke:approval-notification-links`、`cd web/default && NODE_OPTIONS=--max-old-space-size=4096 bun run build`，提交 `1f6be929` 已推送到 `normojs/main`，GitHub Actions run `27858100588` 全部通过。真实回调地址仍需在预发或 FRP 环境执行并记录到发布证据，不再作为自动化任务阻塞。
 - DP-BENCH-001/002 已完成：fusion-benchmark CLI、README、config、fresh/code 数据集、fixtures、测试文件和评估文档已收口入库；新增 `scripts/fusion-benchmark-check.sh`，离线覆盖 config 校验、fresh/code 数据集校验、内置 self-test 和常见密钥模式扫描；CI 新增 `Fusion Benchmark` job 调用该脚本。提交 `a764b6ca` 已推送到 `normojs/main`，GitHub Actions run `27857644905` 的 Frontend、Backend、Fusion Benchmark job 全部通过。
+- DP-V14-001 已完成最小可用闭环：新增 SSO 组织同步 payload importer、dry-run preview、冲突列表、apply 事务、`org_sync.apply` 审计事件和 Organization 页同步面板；支持 HStation/OIDC/GitHub 等 provider user id 映射，未冲突行可选择性应用。本地已通过 `go test ./model ./controller ./service ./router ./oauth`、`cd web/default && bun run typecheck`、`cd web/default && bun run smoke:approval-notification-links`、`cd web/default && NODE_OPTIONS=--max-old-space-size=4096 bun run build`。
 
 ## 提交和发布规则
 

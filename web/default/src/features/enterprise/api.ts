@@ -32,6 +32,8 @@ import type {
   EnterpriseNotificationPreferencePayload,
   EnterpriseOrgUnit,
   EnterpriseOrgUnitPayload,
+  EnterpriseOrgSyncPayload,
+  EnterpriseOrgSyncResult,
   EnterprisePolicyGroup,
   EnterprisePolicyGroupMembersParams,
   EnterprisePolicyGroupMembersPayload,
@@ -146,6 +148,26 @@ export async function updateEnterpriseMemberOrgUnit(
   const res = await api.put<ApiResponse<{ user_id: number }>>(
     `${ENTERPRISE_API}/members/${userId}/org-unit`,
     { org_unit_id: orgUnitId }
+  )
+  return res.data
+}
+
+export async function previewEnterpriseOrgSync(
+  payload: EnterpriseOrgSyncPayload
+) {
+  const res = await api.post<ApiResponse<EnterpriseOrgSyncResult>>(
+    `${ENTERPRISE_API}/org-sync/preview`,
+    payload
+  )
+  return res.data
+}
+
+export async function applyEnterpriseOrgSync(
+  payload: EnterpriseOrgSyncPayload
+) {
+  const res = await api.post<ApiResponse<EnterpriseOrgSyncResult>>(
+    `${ENTERPRISE_API}/org-sync/apply`,
+    payload
   )
   return res.data
 }
