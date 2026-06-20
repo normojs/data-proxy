@@ -46,6 +46,7 @@ const NEW_API_FOOTER_ATTRIBUTION_KEY = [
   'new' + 'api',
   'projectAttributionSuffix',
 ].join('.')
+const NEW_API_REPOSITORY_URL = 'https://github.com/QuantumNous/new-api'
 
 function FooterLinkItem(props: { link: FooterLink }) {
   const { t } = useTranslation()
@@ -130,7 +131,15 @@ function ProjectAttribution(props: { currentYear: number; inline?: boolean }) {
       <span className='text-foreground/70 font-medium'>
         {t('Data Proxy')}
       </span>
-      . {t(NEW_API_FOOTER_ATTRIBUTION_KEY)}
+      .{' '}
+      <a
+        href={NEW_API_REPOSITORY_URL}
+        target='_blank'
+        rel='noopener noreferrer'
+        className='hover:text-foreground transition-colors duration-200'
+      >
+        {t(NEW_API_FOOTER_ATTRIBUTION_KEY)}
+      </a>
     </span>
   )
   if (props.inline) {
