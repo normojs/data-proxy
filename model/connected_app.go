@@ -20,6 +20,12 @@ const (
 
 	ConnectedAppTokenBindingStatusActive  = "active"
 	ConnectedAppTokenBindingStatusRevoked = "revoked"
+
+	ConnectedAppDeviceSessionStatusPending    = "pending"
+	ConnectedAppDeviceSessionStatusAuthorized = "authorized"
+	ConnectedAppDeviceSessionStatusConsumed   = "consumed"
+	ConnectedAppDeviceSessionStatusExpired    = "expired"
+	ConnectedAppDeviceSessionStatusDenied     = "denied"
 )
 
 type ConnectedApp struct {
@@ -87,6 +93,33 @@ type ConnectedAppTokenBinding struct {
 
 func (ConnectedAppTokenBinding) TableName() string {
 	return "connected_app_token_bindings"
+}
+
+type ConnectedAppDeviceSession struct {
+	Id                int64  `json:"id" gorm:"primaryKey"`
+	AppId             int    `json:"app_id" gorm:"not null;index"`
+	UserId            int    `json:"user_id" gorm:"not null;default:0;index"`
+	TokenId           int    `json:"token_id" gorm:"not null;default:0;index"`
+	TokenCreated      bool   `json:"token_created" gorm:"not null;default:false"`
+	DeviceCode        string `json:"device_code" gorm:"type:varchar(128);not null;uniqueIndex"`
+	UserCode          string `json:"user_code" gorm:"type:varchar(32);not null;uniqueIndex"`
+	DeviceFingerprint string `json:"device_fingerprint" gorm:"type:varchar(128);not null;index"`
+	DeviceName        string `json:"device_name" gorm:"type:varchar(128);not null;default:''"`
+	Platform          string `json:"platform" gorm:"type:varchar(32);not null;default:'';index"`
+	AppVersion        string `json:"app_version" gorm:"type:varchar(64);not null;default:'';index"`
+	Client            string `json:"client" gorm:"type:varchar(64);not null;default:'';index"`
+	Status            string `json:"status" gorm:"type:varchar(32);not null;default:'pending';index"`
+	PollInterval      int    `json:"poll_interval" gorm:"not null;default:3"`
+	ExpiresAt         int64  `json:"expires_at" gorm:"bigint;not null;index"`
+	LastPolledAt      int64  `json:"last_polled_at" gorm:"bigint;default:0;index"`
+	AuthorizedAt      int64  `json:"authorized_at" gorm:"bigint;default:0;index"`
+	ConsumedAt        int64  `json:"consumed_at" gorm:"bigint;default:0;index"`
+	CreatedAt         int64  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt         int64  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (ConnectedAppDeviceSession) TableName() string {
+	return "connected_app_device_sessions"
 }
 
 func splitConnectedAppScopes(raw string) []string {
@@ -289,6 +322,49 @@ func TouchConnectedAppUsage(appId int, userId int, tokenId int, now int64) error
 		}
 	}
 	return nil
+}
+
+func GetConnectedAppDeviceSessionByUserCode(userCode string) (*ConnectedAppDeviceSession, error) {
+	var session ConnectedAppDeviceSession
+	err := DB.Where("user_code = ?", strings.ToUpper(strings.TrimSpace(userCode))).First(&session).Error
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func GetConnectedAppDeviceSessionByDeviceCode(deviceCode string) (*ConnectedAppDeviceSession, error) {
+	var session ConnectedAppDeviceSession
+	err := DB.Where("device_code = ?", strings.TrimSpace(deviceCode)).First(&session).Error
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func CreateConnectedAppDeviceSession(session *ConnectedAppDeviceSession) error {
+	if session == nil || session.AppId <= 0 || session.DeviceCode == "" || session.UserCode == "" || session.DeviceFingerprint == "" {
+		return errors.New("app, device code, user code and device fingerprint are required")
+	}
+	session.UserCode = strings.ToUpper(strings.TrimSpace(session.UserCode))
+	session.DeviceCode = strings.TrimSpace(session.DeviceCode)
+	session.Status = ConnectedAppDeviceSessionStatusPending
+	return DB.Create(session).Error
+}
+
+func ExpireConnectedAppDeviceSession(tx *gorm.DB, sessionId int64, now int64) error {
+	if tx == nil {
+		tx = DB
+	}
+	if sessionId <= 0 {
+		return nil
+	}
+	return tx.Model(&ConnectedAppDeviceSession{}).
+		Where("id = ? AND status = ?", sessionId, ConnectedAppDeviceSessionStatusPending).
+		Updates(map[string]any{
+			"status":     ConnectedAppDeviceSessionStatusExpired,
+			"updated_at": now,
+		}).Error
 }
 
 func RevokeConnectedAppTokenBinding(tx *gorm.DB, binding *ConnectedAppTokenBinding, now int64) error {

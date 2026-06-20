@@ -77,6 +77,39 @@ type snaplessHealthData struct {
 	Checks map[string]bool `json:"checks"`
 }
 
+type snaplessDeviceStartData struct {
+	DeviceCode      string `json:"device_code"`
+	UserCode        string `json:"user_code"`
+	VerificationURI string `json:"verification_uri"`
+	ExpiresIn       int64  `json:"expires_in"`
+	Interval        int    `json:"interval"`
+	App             struct {
+		Slug string `json:"slug"`
+	} `json:"app"`
+	Device struct {
+		Fingerprint string `json:"fingerprint"`
+		DeviceName  string `json:"device_name"`
+		Platform    string `json:"platform"`
+		AppVersion  string `json:"app_version"`
+	} `json:"device"`
+}
+
+type snaplessDeviceStatusData struct {
+	Status    string `json:"status"`
+	ExpiresAt int64  `json:"expires_at"`
+	Token     struct {
+		ID int `json:"id"`
+	} `json:"token"`
+	Device struct {
+		Fingerprint string `json:"fingerprint"`
+	} `json:"device"`
+}
+
+type snaplessDevicePollStatusData struct {
+	Status   string `json:"status"`
+	Interval int    `json:"interval"`
+}
+
 func setupSnaplessRouterTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -111,6 +144,7 @@ func setupSnaplessRouterTestDB(t *testing.T) *gorm.DB {
 		&model.ConnectedApp{},
 		&model.ConnectedAppGrant{},
 		&model.ConnectedAppTokenBinding{},
+		&model.ConnectedAppDeviceSession{},
 	))
 	require.NoError(t, model.EnsureBuiltinConnectedApps())
 	seedSnaplessRouterUserAndAbilities(t)
@@ -267,6 +301,51 @@ func TestSnaplessBuiltinAppPreservesStatus(t *testing.T) {
 	app, err := model.GetConnectedAppBySlug(model.ConnectedAppSlugSnapless)
 	require.NoError(t, err)
 	require.Equal(t, model.ConnectedAppStatusDisabled, app.Status)
+}
+
+func TestSnaplessDeviceFlowAuthorizesAndReturnsKeyOnce(t *testing.T) {
+	setupSnaplessRouterTestDB(t)
+	router := newSnaplessRouterForTest(t)
+	body := `{"device_id":"mac-device","device_name":"Alice Mac","platform":"macos","app_version":"1.1.0"}`
+
+	started := decodeSnaplessData[snaplessDeviceStartData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/start", body, nil, ""))
+	require.NotEmpty(t, started.DeviceCode)
+	require.NotEmpty(t, started.UserCode)
+	require.Contains(t, started.VerificationURI, "/snapless/device?user_code=")
+	require.Equal(t, 3, started.Interval)
+	require.Equal(t, model.ConnectedAppSlugSnapless, started.App.Slug)
+	require.Equal(t, "Alice Mac", started.Device.DeviceName)
+	require.Equal(t, "macos", started.Device.Platform)
+	require.Equal(t, "1.1.0", started.Device.AppVersion)
+
+	pending := decodeSnaplessData[snaplessDevicePollStatusData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/poll", fmt.Sprintf(`{"device_code":%q}`, started.DeviceCode), nil, ""))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusPending, pending.Status)
+	require.Equal(t, 3, pending.Interval)
+
+	cookies := loginSnaplessRouterUser(t, router)
+	status := decodeSnaplessData[snaplessDeviceStatusData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/device/status?user_code="+started.UserCode, "", cookies, ""))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusPending, status.Status)
+	require.Equal(t, started.Device.Fingerprint, status.Device.Fingerprint)
+
+	authorized := decodeSnaplessData[snaplessDeviceStatusData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/authorize", fmt.Sprintf(`{"user_code":%q,"approve":true}`, started.UserCode), cookies, ""))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusAuthorized, authorized.Status)
+	require.NotZero(t, authorized.Token.ID)
+
+	firstPoll := decodeSnaplessData[snaplessTokenData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/poll", fmt.Sprintf(`{"device_code":%q}`, started.DeviceCode), nil, ""))
+	require.True(t, firstPoll.Created)
+	require.True(t, firstPoll.APIKeyOnce)
+	require.True(t, strings.HasPrefix(firstPoll.APIKey, "sk-"))
+	require.Equal(t, authorized.Token.ID, firstPoll.Token.ID)
+	require.ElementsMatch(t, []string{"snapless-asr", "snapless-polish", "snapless-translate", "snapless-qa"}, strings.Split(firstPoll.Token.ModelLimits, ","))
+
+	secondPoll := decodeSnaplessData[snaplessDevicePollStatusData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/poll", fmt.Sprintf(`{"device_code":%q}`, started.DeviceCode), nil, ""))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusConsumed, secondPoll.Status)
+	require.Equal(t, 3, secondPoll.Interval)
+
+	health := decodeSnaplessData[snaplessHealthData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/health", "", nil, "Bearer "+firstPoll.APIKey))
+	require.True(t, health.OK)
+	require.Equal(t, "ok", health.Status)
+	require.True(t, health.Token.SnaplessBinding)
 }
 
 func TestSnaplessRotateAndHealth(t *testing.T) {

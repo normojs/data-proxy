@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net/url"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -11,6 +12,12 @@ import (
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+const (
+	snaplessDeviceCodeTTLSeconds = 10 * 60
+	snaplessDevicePollInterval   = 3
 )
 
 type snaplessDeviceRequest struct {
@@ -125,6 +132,33 @@ type snaplessModelHealth struct {
 	Available bool   `json:"available"`
 }
 
+type snaplessDeviceStartResponse struct {
+	DeviceCode      string              `json:"device_code"`
+	UserCode        string              `json:"user_code"`
+	VerificationURI string              `json:"verification_uri"`
+	ExpiresIn       int64               `json:"expires_in"`
+	Interval        int                 `json:"interval"`
+	App             snaplessAppResponse `json:"app"`
+	Device          snaplessDeviceInfo  `json:"device"`
+}
+
+type snaplessDeviceStatusResponse struct {
+	Status    string               `json:"status"`
+	ExpiresAt int64                `json:"expires_at"`
+	App       snaplessAppResponse  `json:"app"`
+	Device    snaplessDeviceInfo   `json:"device"`
+	Token     snaplessTokenSummary `json:"token"`
+}
+
+type snaplessDeviceAuthorizeRequest struct {
+	UserCode string `json:"user_code"`
+	Approve  *bool  `json:"approve"`
+}
+
+type snaplessDevicePollRequest struct {
+	DeviceCode string `json:"device_code"`
+}
+
 func GetSnaplessConfig(c *gin.Context) {
 	app, err := ensureSnaplessApp()
 	if err != nil {
@@ -163,6 +197,338 @@ func GetSnaplessConfig(c *gin.Context) {
 		"base_url":     snaplessAPIBaseURL(c),
 		"endpoints":    snaplessEndpoints(c),
 	})
+}
+
+func StartSnaplessDeviceFlow(c *gin.Context) {
+	req, err := bindSnaplessDeviceRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	app, err := ensureSnaplessApp()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if app.Status != model.ConnectedAppStatusEnabled {
+		common.ApiError(c, errors.New("Snapless 应用已停用"))
+		return
+	}
+	device := snaplessDeviceFromRequest(c, req)
+	now := common.GetTimestamp()
+	expiresAt := now + snaplessDeviceCodeTTLSeconds
+
+	var session *model.ConnectedAppDeviceSession
+	for attempt := 0; attempt < 5; attempt++ {
+		deviceCode, err := common.GenerateRandomCharsKey(64)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		userCode, err := snaplessUserCode()
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		candidate := &model.ConnectedAppDeviceSession{
+			AppId:             app.Id,
+			DeviceCode:        deviceCode,
+			UserCode:          userCode,
+			DeviceFingerprint: device.Fingerprint,
+			DeviceName:        device.DeviceName,
+			Platform:          device.Platform,
+			AppVersion:        device.AppVersion,
+			Client:            device.Client,
+			Status:            model.ConnectedAppDeviceSessionStatusPending,
+			PollInterval:      snaplessDevicePollInterval,
+			ExpiresAt:         expiresAt,
+		}
+		if err := model.CreateConnectedAppDeviceSession(candidate); err == nil {
+			session = candidate
+			break
+		} else if attempt == 4 {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	if session == nil {
+		common.ApiError(c, errors.New("创建设备授权会话失败"))
+		return
+	}
+
+	common.ApiSuccess(c, snaplessDeviceStartResponse{
+		DeviceCode:      session.DeviceCode,
+		UserCode:        session.UserCode,
+		VerificationURI: snaplessVerificationURI(c, session.UserCode),
+		ExpiresIn:       expiresAt - now,
+		Interval:        session.PollInterval,
+		App:             buildSnaplessAppResponse(app),
+		Device:          device,
+	})
+}
+
+func GetSnaplessDeviceStatus(c *gin.Context) {
+	userCode := normalizeSnaplessUserCode(firstNonEmpty(c.Query("user_code"), c.Param("user_code")))
+	session, err := model.GetConnectedAppDeviceSessionByUserCode(userCode)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiError(c, errors.New("设备授权码不存在"))
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	app, err := model.GetConnectedAppBySlug(model.ConnectedAppSlugSnapless)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	now := common.GetTimestamp()
+	if session.Status == model.ConnectedAppDeviceSessionStatusPending && session.ExpiresAt <= now {
+		_ = model.ExpireConnectedAppDeviceSession(nil, session.Id, now)
+		session.Status = model.ConnectedAppDeviceSessionStatusExpired
+	}
+	if session.UserId > 0 && session.UserId != c.GetInt("id") {
+		common.ApiError(c, errors.New("设备授权码已被其他用户授权"))
+		return
+	}
+	var tokenSummary snaplessTokenSummary
+	if session.TokenId > 0 && session.UserId == c.GetInt("id") {
+		if token, err := model.GetTokenByIds(session.TokenId, session.UserId); err == nil {
+			tokenSummary = buildSnaplessTokenSummary(token, nil)
+		}
+	}
+	common.ApiSuccess(c, snaplessDeviceStatusResponse{
+		Status:    session.Status,
+		ExpiresAt: session.ExpiresAt,
+		App:       buildSnaplessAppResponse(app),
+		Device:    snaplessDeviceInfoFromSession(session),
+		Token:     tokenSummary,
+	})
+}
+
+func AuthorizeSnaplessDevice(c *gin.Context) {
+	var req snaplessDeviceAuthorizeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	req.UserCode = normalizeSnaplessUserCode(req.UserCode)
+	if req.UserCode == "" {
+		common.ApiError(c, errors.New("设备授权码不能为空"))
+		return
+	}
+	approve := true
+	if req.Approve != nil {
+		approve = *req.Approve
+	}
+
+	app, err := ensureSnaplessApp()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if app.Status != model.ConnectedAppStatusEnabled {
+		common.ApiError(c, errors.New("Snapless 应用已停用"))
+		return
+	}
+	userId := c.GetInt("id")
+	now := common.GetTimestamp()
+
+	var response snaplessDeviceStatusResponse
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		var session model.ConnectedAppDeviceSession
+		if err := tx.Clauses(clauseLockingUpdate()).Where("user_code = ?", req.UserCode).First(&session).Error; err != nil {
+			return err
+		}
+		if session.AppId != app.Id {
+			return errors.New("设备授权码不属于 Snapless")
+		}
+		if session.Status == model.ConnectedAppDeviceSessionStatusPending && session.ExpiresAt <= now {
+			if err := model.ExpireConnectedAppDeviceSession(tx, session.Id, now); err != nil {
+				return err
+			}
+			session.Status = model.ConnectedAppDeviceSessionStatusExpired
+		}
+		if session.Status != model.ConnectedAppDeviceSessionStatusPending {
+			return snaplessDeviceFlowStatusError(session.Status)
+		}
+		if !approve {
+			result := tx.Model(&model.ConnectedAppDeviceSession{}).
+				Where("id = ? AND status = ?", session.Id, model.ConnectedAppDeviceSessionStatusPending).
+				Updates(map[string]any{
+					"user_id":    userId,
+					"status":     model.ConnectedAppDeviceSessionStatusDenied,
+					"updated_at": now,
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return errors.New("设备授权状态已更新，请刷新后重试")
+			}
+			response = snaplessDeviceStatusResponse{
+				Status:    model.ConnectedAppDeviceSessionStatusDenied,
+				ExpiresAt: session.ExpiresAt,
+				App:       buildSnaplessAppResponse(app),
+				Device:    snaplessDeviceInfoFromSession(&session),
+			}
+			return nil
+		}
+
+		tokenResponse, tokenId, err := ensureSnaplessTokenForDeviceTx(c, tx, app, userId, snaplessDeviceInfoFromSession(&session), false)
+		if err != nil {
+			return err
+		}
+		result := tx.Model(&model.ConnectedAppDeviceSession{}).
+			Where("id = ? AND status = ?", session.Id, model.ConnectedAppDeviceSessionStatusPending).
+			Updates(map[string]any{
+				"user_id":       userId,
+				"token_id":      tokenId,
+				"token_created": tokenResponse.Created,
+				"status":        model.ConnectedAppDeviceSessionStatusAuthorized,
+				"authorized_at": now,
+				"updated_at":    now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errors.New("设备授权状态已更新，请刷新后重试")
+		}
+		response = snaplessDeviceStatusResponse{
+			Status:    model.ConnectedAppDeviceSessionStatusAuthorized,
+			ExpiresAt: session.ExpiresAt,
+			App:       tokenResponse.App,
+			Device:    tokenResponse.Device,
+			Token:     tokenResponse.Token,
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiError(c, errors.New("设备授权码不存在"))
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, response)
+}
+
+func PollSnaplessDeviceFlow(c *gin.Context) {
+	var req snaplessDevicePollRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	req.DeviceCode = strings.TrimSpace(req.DeviceCode)
+	if req.DeviceCode == "" {
+		common.ApiError(c, errors.New("device_code 不能为空"))
+		return
+	}
+	now := common.GetTimestamp()
+	app, err := ensureSnaplessApp()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if app.Status != model.ConnectedAppStatusEnabled {
+		common.ApiError(c, errors.New("Snapless 应用已停用"))
+		return
+	}
+
+	response := snaplessTokenResponse{
+		App:        buildSnaplessAppResponse(app),
+		Created:    false,
+		APIKeyOnce: false,
+	}
+	var status string
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		var session model.ConnectedAppDeviceSession
+		if err := tx.Clauses(clauseLockingUpdate()).Where("device_code = ?", req.DeviceCode).First(&session).Error; err != nil {
+			return err
+		}
+		if session.AppId != app.Id {
+			status = "invalid_app"
+			return nil
+		}
+		response.Device = snaplessDeviceInfoFromSession(&session)
+		response.BaseURL = snaplessAPIBaseURL(c)
+		response.Endpoints = snaplessEndpoints(c)
+		response.Models = getSnaplessModelAliases()
+
+		if session.Status == model.ConnectedAppDeviceSessionStatusPending && session.ExpiresAt <= now {
+			if err := model.ExpireConnectedAppDeviceSession(tx, session.Id, now); err != nil {
+				return err
+			}
+			session.Status = model.ConnectedAppDeviceSessionStatusExpired
+		}
+		status = session.Status
+		if session.Status != model.ConnectedAppDeviceSessionStatusAuthorized {
+			if session.Status == model.ConnectedAppDeviceSessionStatusPending {
+				if err := tx.Model(&model.ConnectedAppDeviceSession{}).
+					Where("id = ?", session.Id).
+					Updates(map[string]any{
+						"last_polled_at": now,
+						"updated_at":     now,
+					}).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		if session.TokenId <= 0 || session.UserId <= 0 {
+			status = "missing_token"
+			return nil
+		}
+		token, err := getTokenByIdTx(tx, session.TokenId, session.UserId)
+		if err != nil {
+			return err
+		}
+		grant, err := getGrantTx(tx, app.Id, session.UserId)
+		if err != nil {
+			return err
+		}
+		binding, err := getBindingByTokenIdTx(tx, session.TokenId)
+		if err != nil {
+			return err
+		}
+		result := tx.Model(&model.ConnectedAppDeviceSession{}).
+			Where("id = ? AND status = ?", session.Id, model.ConnectedAppDeviceSessionStatusAuthorized).
+			Updates(map[string]any{
+				"status":         model.ConnectedAppDeviceSessionStatusConsumed,
+				"consumed_at":    now,
+				"last_polled_at": now,
+				"updated_at":     now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			status = model.ConnectedAppDeviceSessionStatusConsumed
+			return nil
+		}
+		response = buildSnaplessTokenResponse(c, app, grant, binding, token, getSnaplessModelAliases(), snaplessDeviceInfoFromSession(&session), token.Key, session.TokenCreated, false)
+		status = model.ConnectedAppDeviceSessionStatusAuthorized
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiSuccess(c, gin.H{"status": "not_found"})
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	if status != model.ConnectedAppDeviceSessionStatusAuthorized {
+		common.ApiSuccess(c, gin.H{
+			"status":   status,
+			"interval": snaplessDevicePollInterval,
+		})
+		return
+	}
+	common.ApiSuccess(c, response)
 }
 
 func EnsureSnaplessToken(c *gin.Context) {
@@ -399,68 +765,84 @@ func ensureSnaplessTokenForDevice(c *gin.Context, req snaplessDeviceRequest, rot
 	}
 	userId := c.GetInt("id")
 	device := snaplessDeviceFromRequest(c, req)
-	aliases := getSnaplessModelAliases()
-	modelLimits := strings.Join(aliases.All(), ",")
-	now := common.GetTimestamp()
 
 	var response snaplessTokenResponse
 	var responseTokenId int
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
-		grant, err := model.UpsertConnectedAppGrant(tx, *app, userId, app.DefaultScopeList(), now)
+		var err error
+		response, responseTokenId, err = ensureSnaplessTokenForDeviceTx(c, tx, app, userId, device, rotate)
 		if err != nil {
 			return err
 		}
-
-		var existingBinding *model.ConnectedAppTokenBinding
-		if binding, err := findSnaplessBindingTx(tx, app.Id, userId, device.Fingerprint); err == nil {
-			existingBinding = binding
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-
-		if existingBinding != nil && !rotate {
-			if token, err := getTokenByIdTx(tx, existingBinding.TokenId, userId); err == nil && snaplessTokenReusable(token, now) {
-				if err := syncSnaplessTokenModelLimits(tx, token, modelLimits); err != nil {
-					return err
-				}
-				responseTokenId = token.Id
-				response = buildSnaplessTokenResponse(c, app, grant, existingBinding, token, aliases, device, "", false, false)
-				return nil
-			} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-		}
-
-		if existingBinding != nil {
-			if err := model.DisableTokenWithTx(tx, existingBinding.TokenId, userId); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-		}
-		token, key, err := createSnaplessToken(tx, userId, device, modelLimits, now)
-		if err != nil {
-			return err
-		}
-		binding, err := model.UpsertConnectedAppTokenBinding(tx, model.ConnectedAppTokenBinding{
-			AppId:             app.Id,
-			GrantId:           grant.Id,
-			UserId:            userId,
-			TokenId:           token.Id,
-			DeviceFingerprint: device.Fingerprint,
-			DeviceName:        device.DeviceName,
-			Platform:          device.Platform,
-			AppVersion:        device.AppVersion,
-		}, now)
-		if err != nil {
-			return err
-		}
-		responseTokenId = token.Id
-		response = buildSnaplessTokenResponse(c, app, grant, binding, token, aliases, device, key, true, rotate && existingBinding != nil)
 		return nil
 	})
 	if err != nil {
 		return snaplessTokenResponse{}, 0, err
 	}
 	return response, responseTokenId, nil
+}
+
+func ensureSnaplessTokenForDeviceTx(c *gin.Context, tx *gorm.DB, app *model.ConnectedApp, userId int, device snaplessDeviceInfo, rotate bool) (snaplessTokenResponse, int, error) {
+	if app == nil {
+		return snaplessTokenResponse{}, 0, errors.New("Snapless 应用不存在")
+	}
+	if app.Status != model.ConnectedAppStatusEnabled {
+		return snaplessTokenResponse{}, 0, errors.New("Snapless 应用已停用")
+	}
+	if tx == nil {
+		tx = model.DB
+	}
+	aliases := getSnaplessModelAliases()
+	modelLimits := strings.Join(aliases.All(), ",")
+	now := common.GetTimestamp()
+
+	grant, err := model.UpsertConnectedAppGrant(tx, *app, userId, app.DefaultScopeList(), now)
+	if err != nil {
+		return snaplessTokenResponse{}, 0, err
+	}
+
+	var existingBinding *model.ConnectedAppTokenBinding
+	if binding, err := findSnaplessBindingTx(tx, app.Id, userId, device.Fingerprint); err == nil {
+		existingBinding = binding
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return snaplessTokenResponse{}, 0, err
+	}
+
+	if existingBinding != nil && !rotate {
+		if token, err := getTokenByIdTx(tx, existingBinding.TokenId, userId); err == nil && snaplessTokenReusable(token, now) {
+			if err := syncSnaplessTokenModelLimits(tx, token, modelLimits); err != nil {
+				return snaplessTokenResponse{}, 0, err
+			}
+			return buildSnaplessTokenResponse(c, app, grant, existingBinding, token, aliases, device, "", false, false), token.Id, nil
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return snaplessTokenResponse{}, 0, err
+		}
+	}
+
+	if existingBinding != nil {
+		if err := model.DisableTokenWithTx(tx, existingBinding.TokenId, userId); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return snaplessTokenResponse{}, 0, err
+		}
+	}
+	token, key, err := createSnaplessToken(tx, userId, device, modelLimits, now)
+	if err != nil {
+		return snaplessTokenResponse{}, 0, err
+	}
+	binding, err := model.UpsertConnectedAppTokenBinding(tx, model.ConnectedAppTokenBinding{
+		AppId:             app.Id,
+		GrantId:           grant.Id,
+		UserId:            userId,
+		TokenId:           token.Id,
+		DeviceFingerprint: device.Fingerprint,
+		DeviceName:        device.DeviceName,
+		Platform:          device.Platform,
+		AppVersion:        device.AppVersion,
+	}, now)
+	if err != nil {
+		return snaplessTokenResponse{}, 0, err
+	}
+	response := buildSnaplessTokenResponse(c, app, grant, binding, token, aliases, device, key, true, rotate && existingBinding != nil)
+	return response, token.Id, nil
 }
 
 func ensureSnaplessApp() (*model.ConnectedApp, error) {
@@ -633,6 +1015,22 @@ func getTokenByIdTx(tx *gorm.DB, tokenId int, userId int) (*model.Token, error) 
 	return &token, nil
 }
 
+func getGrantTx(tx *gorm.DB, appId int, userId int) (*model.ConnectedAppGrant, error) {
+	var grant model.ConnectedAppGrant
+	if err := tx.Where("app_id = ? AND user_id = ?", appId, userId).First(&grant).Error; err != nil {
+		return nil, err
+	}
+	return &grant, nil
+}
+
+func getBindingByTokenIdTx(tx *gorm.DB, tokenId int) (*model.ConnectedAppTokenBinding, error) {
+	var binding model.ConnectedAppTokenBinding
+	if err := tx.Where("token_id = ?", tokenId).First(&binding).Error; err != nil {
+		return nil, err
+	}
+	return &binding, nil
+}
+
 func syncSnaplessTokenModelLimits(tx *gorm.DB, token *model.Token, modelLimits string) error {
 	if token == nil || (token.ModelLimits == modelLimits && token.ModelLimitsEnabled) {
 		return nil
@@ -800,16 +1198,32 @@ func buildSnaplessModelHealth(aliases snaplessModelAliases, availability map[str
 	}
 }
 
-func snaplessEndpoints(c *gin.Context) map[string]string {
-	baseURL := snaplessAPIBaseURL(c)
-	return map[string]string{
-		"models":               baseURL + "/models",
-		"chat_completions":     baseURL + "/chat/completions",
-		"audio_transcriptions": baseURL + "/audio/transcriptions",
+func snaplessUserCode() (string, error) {
+	raw, err := common.GenerateRandomCharsKey(8)
+	if err != nil {
+		return "", err
 	}
+	raw = strings.ToUpper(raw)
+	return raw[:4] + "-" + raw[4:], nil
 }
 
-func snaplessAPIBaseURL(c *gin.Context) string {
+func normalizeSnaplessUserCode(userCode string) string {
+	code := strings.ToUpper(strings.TrimSpace(userCode))
+	code = strings.ReplaceAll(code, " ", "")
+	if len(code) == 8 && !strings.Contains(code, "-") {
+		return code[:4] + "-" + code[4:]
+	}
+	return code
+}
+
+func snaplessVerificationURI(c *gin.Context, userCode string) string {
+	base := snaplessServerBaseURL(c)
+	values := url.Values{}
+	values.Set("user_code", normalizeSnaplessUserCode(userCode))
+	return base + "/snapless/device?" + values.Encode()
+}
+
+func snaplessServerBaseURL(c *gin.Context) string {
 	base := strings.TrimRight(strings.TrimSpace(system_setting.ServerAddress), "/")
 	if base == "" && c != nil && c.Request != nil {
 		scheme := "http"
@@ -823,7 +1237,20 @@ func snaplessAPIBaseURL(c *gin.Context) string {
 	if base == "" {
 		base = "http://localhost:3000"
 	}
-	return strings.TrimRight(base, "/") + "/v1"
+	return strings.TrimRight(base, "/")
+}
+
+func snaplessEndpoints(c *gin.Context) map[string]string {
+	baseURL := snaplessAPIBaseURL(c)
+	return map[string]string{
+		"models":               baseURL + "/models",
+		"chat_completions":     baseURL + "/chat/completions",
+		"audio_transcriptions": baseURL + "/audio/transcriptions",
+	}
+}
+
+func snaplessAPIBaseURL(c *gin.Context) string {
+	return snaplessServerBaseURL(c) + "/v1"
 }
 
 func snaplessBearerKey(c *gin.Context) string {
@@ -857,6 +1284,38 @@ func snaplessTokenName(device snaplessDeviceInfo) string {
 func stableSnaplessFingerprint(seed string) string {
 	sum := sha256.Sum256([]byte(seed))
 	return hex.EncodeToString(sum[:])
+}
+
+func snaplessDeviceInfoFromSession(session *model.ConnectedAppDeviceSession) snaplessDeviceInfo {
+	if session == nil {
+		return snaplessDeviceInfo{}
+	}
+	return snaplessDeviceInfo{
+		Fingerprint: session.DeviceFingerprint,
+		DeviceName:  session.DeviceName,
+		Platform:    session.Platform,
+		AppVersion:  session.AppVersion,
+		Client:      session.Client,
+	}
+}
+
+func snaplessDeviceFlowStatusError(status string) error {
+	switch status {
+	case model.ConnectedAppDeviceSessionStatusAuthorized:
+		return errors.New("设备授权码已完成授权")
+	case model.ConnectedAppDeviceSessionStatusConsumed:
+		return errors.New("设备授权码已被使用")
+	case model.ConnectedAppDeviceSessionStatusExpired:
+		return errors.New("设备授权码已过期")
+	case model.ConnectedAppDeviceSessionStatusDenied:
+		return errors.New("设备授权已拒绝")
+	default:
+		return errors.New("设备授权码状态不可用")
+	}
+}
+
+func clauseLockingUpdate() clause.Locking {
+	return clause.Locking{Strength: "UPDATE"}
 }
 
 func firstNonEmpty(values ...string) string {

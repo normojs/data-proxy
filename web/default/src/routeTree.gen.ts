@@ -19,6 +19,7 @@ import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
+import { Route as SnaplessDeviceRouteImport } from './routes/snapless/device'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as ConsoleTopupRouteImport } from './routes/console/topup'
 import { Route as ConsoleLogRouteImport } from './routes/console/log'
@@ -123,6 +124,11 @@ const PricingIndexRoute = PricingIndexRouteImport.update({
 const AboutIndexRoute = AboutIndexRouteImport.update({
   id: '/about/',
   path: '/about/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SnaplessDeviceRoute = SnaplessDeviceRouteImport.update({
+  id: '/snapless/device',
+  path: '/snapless/device',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OauthProviderRoute = OauthProviderRouteImport.update({
@@ -464,6 +470,7 @@ export interface FileRoutesByFullPath {
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/snapless/device': typeof SnaplessDeviceRoute
   '/about/': typeof AboutIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
@@ -529,6 +536,7 @@ export interface FileRoutesByTo {
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/snapless/device': typeof SnaplessDeviceRoute
   '/about': typeof AboutIndexRoute
   '/pricing': typeof PricingIndexRoute
   '/rankings': typeof RankingsIndexRoute
@@ -599,6 +607,7 @@ export interface FileRoutesById {
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/snapless/device': typeof SnaplessDeviceRoute
   '/about/': typeof AboutIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
@@ -668,6 +677,7 @@ export interface FileRouteTypes {
     | '/console/log'
     | '/console/topup'
     | '/oauth/$provider'
+    | '/snapless/device'
     | '/about/'
     | '/pricing/'
     | '/rankings/'
@@ -733,6 +743,7 @@ export interface FileRouteTypes {
     | '/console/log'
     | '/console/topup'
     | '/oauth/$provider'
+    | '/snapless/device'
     | '/about'
     | '/pricing'
     | '/rankings'
@@ -802,6 +813,7 @@ export interface FileRouteTypes {
     | '/console/log'
     | '/console/topup'
     | '/oauth/$provider'
+    | '/snapless/device'
     | '/about/'
     | '/pricing/'
     | '/rankings/'
@@ -862,6 +874,7 @@ export interface RootRouteChildren {
   ConsoleLogRoute: typeof ConsoleLogRoute
   ConsoleTopupRoute: typeof ConsoleTopupRoute
   OauthProviderRoute: typeof OauthProviderRoute
+  SnaplessDeviceRoute: typeof SnaplessDeviceRoute
   AboutIndexRoute: typeof AboutIndexRoute
   PricingIndexRoute: typeof PricingIndexRoute
   RankingsIndexRoute: typeof RankingsIndexRoute
@@ -940,6 +953,13 @@ declare module '@tanstack/react-router' {
       path: '/about'
       fullPath: '/about/'
       preLoaderRoute: typeof AboutIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/snapless/device': {
+      id: '/snapless/device'
+      path: '/snapless/device'
+      fullPath: '/snapless/device'
+      preLoaderRoute: typeof SnaplessDeviceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/oauth/$provider': {
@@ -1514,6 +1534,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConsoleLogRoute: ConsoleLogRoute,
   ConsoleTopupRoute: ConsoleTopupRoute,
   OauthProviderRoute: OauthProviderRoute,
+  SnaplessDeviceRoute: SnaplessDeviceRoute,
   AboutIndexRoute: AboutIndexRoute,
   PricingIndexRoute: PricingIndexRoute,
   RankingsIndexRoute: RankingsIndexRoute,

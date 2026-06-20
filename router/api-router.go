@@ -304,10 +304,14 @@ func SetApiRouter(router *gin.Engine) {
 		snaplessRoute := apiRouter.Group("/snapless")
 		{
 			snaplessRoute.GET("/health", middleware.CriticalRateLimit(), controller.GetSnaplessHealth)
+			snaplessRoute.POST("/device/start", middleware.CriticalRateLimit(), controller.StartSnaplessDeviceFlow)
+			snaplessRoute.POST("/device/poll", middleware.CriticalRateLimit(), controller.PollSnaplessDeviceFlow)
 			snaplessUserRoute := snaplessRoute.Group("")
 			snaplessUserRoute.Use(middleware.UserAuth())
 			{
 				snaplessUserRoute.GET("/config", controller.GetSnaplessConfig)
+				snaplessUserRoute.GET("/device/status", controller.GetSnaplessDeviceStatus)
+				snaplessUserRoute.POST("/device/authorize", middleware.CriticalRateLimit(), controller.AuthorizeSnaplessDevice)
 				snaplessUserRoute.POST("/tokens/ensure", middleware.CriticalRateLimit(), controller.EnsureSnaplessToken)
 				snaplessUserRoute.POST("/tokens/rotate", middleware.CriticalRateLimit(), controller.RotateSnaplessToken)
 				snaplessUserRoute.DELETE("/tokens/current", middleware.CriticalRateLimit(), controller.RevokeCurrentSnaplessToken)
