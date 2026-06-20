@@ -13,7 +13,7 @@
 | 顺序 | ID | 优先级 | 状态 | 任务 | 验收标准 |
 | --- | --- | --- | --- | --- | --- |
 | 1 | DP-CI-001 | P0 | Done | GitHub Actions 常规 CI | `main` push、PR 和手动触发时运行 Go 测试、企业治理 smoke、前端 typecheck/build、审批通知链接 smoke、artifact/whitespace 检查。 |
-| 2 | DP-REL-001 | P0 | In progress | 发布证据和 Docker 链路固化 | 预发/生产 R0-R3 证据模板可填写；Docker tag、构建命令、镜像摘要、回滚 tag 和环境变量清单可追溯。 |
+| 2 | DP-REL-001 | P0 | Done | 发布证据和 Docker 链路固化 | 预发/生产 R0-R3 证据模板可填写；Docker tag、构建命令、镜像摘要、回滚 tag 和环境变量清单可追溯。 |
 | 3 | DP-OAUTH-001 | P0 | Done | HStation OAuth 功能收口 | 后端 provider、前端登录/绑定/系统设置、错误提示、真实回调地址验证完成；相关改动单独提交，不混入 benchmark。 |
 | 4 | DP-OAUTH-002 | P0 | Done | HStation OAuth 自动化验证 | 覆盖登录、注册、绑定、解绑、取消授权、重复绑定、回调错误；至少补后端单测和前端 typecheck。 |
 | 5 | DP-BENCH-001 | P1 | Done | fusion-benchmark 工具收口 | 明确数据文件和 fixtures 是否入库；CLI、README、测试和样例数据可复现，不泄露密钥或真实隐私数据。 |
@@ -23,19 +23,20 @@
 | 9 | DP-V16-001 | P2 | Pending | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作，并保留审计和用户提示。 |
 | 10 | DP-V17-001 | P2 | Pending | V1.7 企业治理 RBAC/财务视图 | 企业管理员、部门管理员、财务查看员、审计员、项目管理员的权限边界和回归测试。 |
 
-## 当前开始项：DP-CI-001
+## 当前开始项：DP-V14-001
 
-本轮先落地 `.github/workflows/ci.yml`，作为后续开发的保护网。CI 设计为两个 job：
+下一轮进入 V1.4 SSO 组织同步方案，建议先做最小可用闭环，再逐步接真实 IdP：
 
-- Backend：Go module 下载、artifact 检查、gofmt、`go test ./model ./controller ./service ./router ./oauth`、企业治理 rollout/controller smoke、`git diff --check`。
-- Frontend：Bun 安装、`bun run typecheck`、`bun run smoke:approval-notification-links`、`bun run build`、`git diff --check`。
-
-DP-CI-001 已新增 `.github/workflows/ci.yml`。当前已开始 DP-REL-001：新增 GHCR Docker 发布 workflow 和 Data Proxy release runbook，下一步是在真实发布环境记录 CI run、镜像 digest 和 R0-R3 演练证据。
+1. 复用现有企业组织、成员和审计表，新增 SSO 快照 importer 抽象。
+2. 先支持 JSON payload 快照，覆盖 org_units 和 members 的 dry-run preview。
+3. 在 preview 中返回新增/更新/分配计划和冲突列表。
+4. apply 使用事务落库，并记录 `org_sync.apply` 审计事件。
+5. 前端 Organization 页提供预览、冲突可见和应用入口。
 
 ## 当前进展
 
 - DP-CI-001 已完成并在 GitHub Actions 通过：Backend 覆盖 Go 测试、企业治理 smoke 和 whitespace；Frontend 覆盖 typecheck、审批通知 deep link smoke 和 build。
-- DP-REL-001 已开始：新增 `.github/workflows/data-proxy-docker.yml` 和 `docs/data-proxy-release-runbook.md`；真实镜像 digest 和 R0-R3 证据需在正式发版时补充。
+- DP-REL-001 已完成：`v1.3.0` tag 触发 GHCR Docker 发布，Docker workflow run `27858433012` 成功；镜像 digest 为 `sha256:7650bff674c4a2b070197feba382414c47285de0578ddb2749dbbb84996046ac`，发布证据已写入 `docs/data-proxy-release-runbook.md`。
 - DP-OAUTH-001 已完成基础交付：新增 HStation OAuth provider、启用配置校验、登录/注册/绑定入口、系统设置页和管理员绑定查看能力。
 - DP-OAUTH-002 已完成：新增 `oauth/hstation_test.go` 和 `controller/oauth_test.go`，覆盖 HStation token/userinfo、登录、注册、绑定、当前用户解绑、取消授权、重复绑定、state 错误和 token 错误；前端个人资料页已接入 HStation 解绑；CI Backend 已纳入 `./oauth`。本地已通过 `go test ./model ./controller ./service ./router ./oauth`、`cd web/default && bun run typecheck`、`cd web/default && bun run smoke:approval-notification-links`、`cd web/default && NODE_OPTIONS=--max-old-space-size=4096 bun run build`，提交 `1f6be929` 已推送到 `normojs/main`，GitHub Actions run `27858100588` 全部通过。真实回调地址仍需在预发或 FRP 环境执行并记录到发布证据，不再作为自动化任务阻塞。
 - DP-BENCH-001/002 已完成：fusion-benchmark CLI、README、config、fresh/code 数据集、fixtures、测试文件和评估文档已收口入库；新增 `scripts/fusion-benchmark-check.sh`，离线覆盖 config 校验、fresh/code 数据集校验、内置 self-test 和常见密钥模式扫描；CI 新增 `Fusion Benchmark` job 调用该脚本。提交 `a764b6ca` 已推送到 `normojs/main`，GitHub Actions run `27857644905` 的 Frontend、Backend、Fusion Benchmark job 全部通过。

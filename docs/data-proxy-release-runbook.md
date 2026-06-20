@@ -49,6 +49,21 @@ ghcr.io/normojs/data-proxy:latest
 
 V1.3 通知闭环的业务证据继续补到 `docs/enterprise-governance-v1.3-release-evidence.md` 或对应变更单。
 
+### V1.3.0 发布证据
+
+- commit SHA: `b1e14edab6cb0e0628141359e4f27e376f55c165`
+- git tag: `v1.3.0`
+- CI run: `https://github.com/normojs/data-proxy/actions/runs/27858373811`
+- Docker workflow run: `https://github.com/normojs/data-proxy/actions/runs/27858433012`
+- Docker image: `ghcr.io/normojs/data-proxy`
+- Published tags:
+  - `ghcr.io/normojs/data-proxy:v1.3.0`
+  - `ghcr.io/normojs/data-proxy:sha-b1e14edab6cb`
+  - `ghcr.io/normojs/data-proxy:latest`
+- Image digest: `sha256:7650bff674c4a2b070197feba382414c47285de0578ddb2749dbbb84996046ac`
+- Database migration note: V1.3 uses existing GORM auto-migration paths; no one-off SQL rollback script was required for the recorded image build.
+- Compliance note: Docker image build keeps `LICENSE`, `NOTICE` and `THIRD-PARTY-LICENSES.md` under `/licenses/`.
+
 ## 回滚
 
 优先回滚到上一个已验证镜像 digest，而不是仅依赖浮动 tag：
