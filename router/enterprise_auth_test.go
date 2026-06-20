@@ -55,6 +55,17 @@ type enterpriseQuotaRequestItemForTest struct {
 	Status          string `json:"status"`
 }
 
+type enterpriseAuditLogItemForTest struct {
+	Id             int64  `json:"id"`
+	Action         string `json:"action"`
+	TargetType     string `json:"target_type"`
+	TargetId       int    `json:"target_id"`
+	ScopeUserId    int    `json:"scope_user_id"`
+	ScopeOrgUnitId int    `json:"scope_org_unit_id"`
+	ScopeProjectId int    `json:"scope_project_id"`
+	RequestId      string `json:"request_id"`
+}
+
 type enterpriseUsageSummaryResponseForTest struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
@@ -397,6 +408,191 @@ func TestEnterpriseRBACProjectAdminFinanceScope(t *testing.T) {
 	require.Len(t, records, 2)
 	require.Equal(t, strconv.Itoa(adminProject.Id), records[1][1])
 	require.Equal(t, "120", records[1][7])
+}
+
+func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
+	setupEnterpriseRouterTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	engineeringId := seedEnterpriseOrgUnitForTest(t, enterprise.Id, 0, "Engineering", "engineering")
+	salesId := seedEnterpriseOrgUnitForTest(t, enterprise.Id, 0, "Sales", "sales")
+	departmentAdminId := 7501
+	engineerId := 7502
+	salesUserId := 7503
+	projectAdminId := 7504
+	otherProjectOwnerId := 7505
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, departmentAdminId, service.EnterpriseRoleDepartmentAdmin, engineeringId)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, engineerId, "", engineeringId)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, salesUserId, "", salesId)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, projectAdminId, service.EnterpriseRoleProjectAdmin, engineeringId)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, otherProjectOwnerId, "", salesId)
+	engineeringPolicy := seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Engineering Policy", model.PolicyTargetOrgUnit, engineeringId)
+	salesPolicy := seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Sales Policy", model.PolicyTargetOrgUnit, salesId)
+	ownedProject := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "Owned Project Audit",
+		Slug:         "owned-project-audit",
+		OwnerUserId:  projectAdminId,
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	otherProject := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "Other Project Audit",
+		Slug:         "other-project-audit",
+		OwnerUserId:  otherProjectOwnerId,
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&ownedProject).Error)
+	require.NoError(t, model.DB.Create(&otherProject).Error)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseProjectOrgUnit{
+		{EnterpriseId: enterprise.Id, ProjectId: ownedProject.Id, OrgUnitId: engineeringId},
+		{EnterpriseId: enterprise.Id, ProjectId: otherProject.Id, OrgUnitId: salesId},
+	}).Error)
+	_ = seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Owned Project Policy", model.PolicyTargetProject, ownedProject.Id)
+	otherProjectPolicy := seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Other Project Policy", model.PolicyTargetProject, otherProject.Id)
+	engineeringQuotaRequest := model.EnterpriseQuotaRequest{
+		EnterpriseId:    enterprise.Id,
+		ApplicantUserId: engineerId,
+		PolicyId:        engineeringPolicy.Id,
+		TargetType:      engineeringPolicy.TargetType,
+		TargetId:        engineeringPolicy.TargetId,
+		Metric:          engineeringPolicy.Metric,
+		Period:          engineeringPolicy.Period,
+		LimitDelta:      1,
+		Status:          model.EnterpriseQuotaRequestStatusPending,
+		EffectiveAt:     common.GetTimestamp(),
+		ExpiresAt:       common.GetTimestamp() + 3600,
+	}
+	salesQuotaRequest := model.EnterpriseQuotaRequest{
+		EnterpriseId:    enterprise.Id,
+		ApplicantUserId: salesUserId,
+		PolicyId:        salesPolicy.Id,
+		TargetType:      salesPolicy.TargetType,
+		TargetId:        salesPolicy.TargetId,
+		Metric:          salesPolicy.Metric,
+		Period:          salesPolicy.Period,
+		LimitDelta:      1,
+		Status:          model.EnterpriseQuotaRequestStatusPending,
+		EffectiveAt:     common.GetTimestamp(),
+		ExpiresAt:       common.GetTimestamp() + 3600,
+	}
+	require.NoError(t, model.DB.Create(&engineeringQuotaRequest).Error)
+	require.NoError(t, model.DB.Create(&salesQuotaRequest).Error)
+	audits := []model.EnterpriseAuditInput{
+		{
+			EnterpriseId: enterprise.Id,
+			ActorUserId:  departmentAdminId,
+			Action:       "org_unit.update",
+			TargetType:   "org_unit",
+			TargetId:     engineeringId,
+			After:        gin.H{"name": "Engineering"},
+			RequestId:    "audit-engineering-org",
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			ActorUserId:  departmentAdminId,
+			Action:       "member.update_org_unit",
+			TargetType:   "user",
+			TargetId:     engineerId,
+			After:        gin.H{"org_unit_id": engineeringId},
+			RequestId:    "audit-engineering-user",
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			ActorUserId:  departmentAdminId,
+			Action:       "quota_request.submit",
+			TargetType:   "quota_request",
+			TargetId:     engineeringQuotaRequest.Id,
+			After:        engineeringQuotaRequest,
+			RequestId:    "audit-engineering-request",
+		},
+		{
+			EnterpriseId:   enterprise.Id,
+			ActorUserId:    engineerId,
+			Action:         "enterprise_governance.hard_limit_reject",
+			TargetType:     "quota_policy",
+			TargetId:       engineeringPolicy.Id,
+			ScopeUserId:    engineerId,
+			ScopeOrgUnitId: engineeringId,
+			ScopeProjectId: ownedProject.Id,
+			After:          gin.H{"org_unit_id": engineeringId, "project_id": ownedProject.Id},
+			RequestId:      "audit-engineering-relay",
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			ActorUserId:  salesUserId,
+			Action:       "org_unit.update",
+			TargetType:   "org_unit",
+			TargetId:     salesId,
+			After:        gin.H{"name": "Sales"},
+			RequestId:    "audit-sales-org",
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			ActorUserId:  salesUserId,
+			Action:       "quota_request.submit",
+			TargetType:   "quota_request",
+			TargetId:     salesQuotaRequest.Id,
+			After:        salesQuotaRequest,
+			RequestId:    "audit-sales-request",
+		},
+		{
+			EnterpriseId:   enterprise.Id,
+			ActorUserId:    salesUserId,
+			Action:         "enterprise_governance.hard_limit_reject",
+			TargetType:     "quota_policy",
+			TargetId:       otherProjectPolicy.Id,
+			ScopeUserId:    salesUserId,
+			ScopeOrgUnitId: salesId,
+			ScopeProjectId: otherProject.Id,
+			After:          gin.H{"org_unit_id": salesId, "project_id": otherProject.Id},
+			RequestId:      "audit-other-project-relay",
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			ActorUserId:  7199,
+			Action:       "webhook.create",
+			TargetType:   "enterprise_webhook",
+			TargetId:     1,
+			After:        gin.H{"name": "global webhook"},
+			RequestId:    "audit-global-webhook",
+		},
+	}
+	for _, audit := range audits {
+		require.NoError(t, model.RecordEnterpriseAuditLog(audit))
+	}
+
+	router := newEnterpriseRouterForTest(t)
+	departmentCookies := loginEnterpriseRouterUserForTest(t, router, departmentAdminId, common.RoleCommonUser)
+	projectCookies := loginEnterpriseRouterUserForTest(t, router, projectAdminId, common.RoleCommonUser)
+
+	departmentAudit := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs?page_size=50", "", departmentCookies, departmentAdminId)
+	require.Equal(t, http.StatusOK, departmentAudit.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, departmentAudit).Success)
+	departmentAuditPage := decodeEnterprisePageResponseForTest[enterpriseAuditLogItemForTest](t, departmentAudit)
+	require.ElementsMatch(t, []string{
+		"audit-engineering-org",
+		"audit-engineering-user",
+		"audit-engineering-request",
+		"audit-engineering-relay",
+	}, enterpriseAuditRequestIdsForTest(departmentAuditPage.Data.Items))
+	for _, item := range departmentAuditPage.Data.Items {
+		require.NotEqual(t, salesId, item.ScopeOrgUnitId)
+		require.NotEqual(t, otherProject.Id, item.ScopeProjectId)
+	}
+
+	projectAudit := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs?page_size=50", "", projectCookies, projectAdminId)
+	require.Equal(t, http.StatusOK, projectAudit.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, projectAudit).Success)
+	projectAuditPage := decodeEnterprisePageResponseForTest[enterpriseAuditLogItemForTest](t, projectAudit)
+	require.ElementsMatch(t, []string{
+		"audit-engineering-relay",
+	}, enterpriseAuditRequestIdsForTest(projectAuditPage.Data.Items))
+	require.Equal(t, ownedProject.Id, projectAuditPage.Data.Items[0].ScopeProjectId)
+
+	projectOutbox := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/notification-outbox", "", projectCookies, projectAdminId)
+	require.Equal(t, http.StatusOK, projectOutbox.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, projectOutbox).Success)
 }
 
 func setupEnterpriseRouterTestDB(t *testing.T) {
@@ -758,6 +954,14 @@ func enterpriseMemberUserIdsForTest(items []enterpriseMemberItemForTest) []int {
 		ids = append(ids, item.UserId)
 	}
 	return ids
+}
+
+func enterpriseAuditRequestIdsForTest(items []enterpriseAuditLogItemForTest) []string {
+	requestIds := make([]string, 0, len(items))
+	for _, item := range items {
+		requestIds = append(requestIds, item.RequestId)
+	}
+	return requestIds
 }
 
 func requestEnterpriseForTest(t *testing.T, router *gin.Engine, method string, target string, body string, cookies []*http.Cookie, userId int) *httptest.ResponseRecorder {

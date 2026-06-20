@@ -1635,6 +1635,12 @@ func ListEnterpriseAuditLogs(c *gin.Context) {
 	}
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Model(&model.EnterpriseAuditLog{}).Where("enterprise_id = ?", enterprise.Id)
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	query = applyEnterpriseAuditScope(query, enterprise.Id, access)
 	if action := strings.TrimSpace(c.Query("action")); action != "" {
 		query = query.Where("action = ?", action)
 	}
@@ -2039,6 +2045,105 @@ func applyProjectUsageScope(params *enterpriseUsageQuery, access service.Enterpr
 	}
 	params.ProjectIds = access.ScopedProjectIds
 	return nil
+}
+
+func applyEnterpriseAuditScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	if access.HasDepartmentScope() {
+		return applyDepartmentAuditScope(query, enterpriseId, access)
+	}
+	if access.HasProjectScope() {
+		return applyProjectAuditScope(query, enterpriseId, access)
+	}
+	return query
+}
+
+func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
+		Select("user_id").
+		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
+	scopedQuotaPolicyIds := model.DB.Model(&model.EnterpriseQuotaPolicy{}).
+		Select("id").
+		Where(
+			"enterprise_id = ? AND ((target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)))",
+			enterpriseId,
+			model.PolicyTargetOrgUnit,
+			access.ScopedOrgUnitIds,
+			model.PolicyTargetUser,
+			scopedUserIds,
+		)
+	scopedQuotaRequestIds := model.DB.Model(&model.EnterpriseQuotaRequest{}).
+		Select("id").
+		Where("enterprise_id = ? AND applicant_user_id IN (?)", enterpriseId, scopedUserIds)
+	scopedProjectIds := model.DB.Model(&model.EnterpriseProjectOrgUnit{}).
+		Select("project_id").
+		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
+	scopedQuotaCounterIds := model.DB.Model(&model.EnterpriseQuotaCounter{}).
+		Select("id").
+		Where("enterprise_id = ? AND ((target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)) OR policy_id IN (?))",
+			enterpriseId,
+			model.PolicyTargetOrgUnit,
+			access.ScopedOrgUnitIds,
+			model.PolicyTargetUser,
+			scopedUserIds,
+			scopedQuotaPolicyIds,
+		)
+	return query.Where(
+		`scope_org_unit_id IN ? OR scope_user_id IN (?) OR scope_project_id IN (?) OR
+		 (target_type = ? AND target_id IN ?) OR
+		 (target_type = ? AND target_id IN (?)) OR
+		 (target_type = ? AND target_id IN (?)) OR
+		 (target_type = ? AND target_id IN (?)) OR
+		 (target_type = ? AND target_id IN (?)) OR
+		 (target_type = ? AND target_id IN (?))`,
+		access.ScopedOrgUnitIds,
+		scopedUserIds,
+		scopedProjectIds,
+		"org_unit",
+		access.ScopedOrgUnitIds,
+		"user",
+		scopedUserIds,
+		"project",
+		scopedProjectIds,
+		"quota_policy",
+		scopedQuotaPolicyIds,
+		"quota_request",
+		scopedQuotaRequestIds,
+		"quota_counter",
+		scopedQuotaCounterIds,
+	)
+}
+
+func applyProjectAuditScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	scopedQuotaPolicyIds := model.DB.Model(&model.EnterpriseQuotaPolicy{}).
+		Select("id").
+		Where("enterprise_id = ? AND target_type = ? AND target_id IN (?)", enterpriseId, model.PolicyTargetProject, access.ScopedProjectIds)
+	scopedQuotaRequestIds := model.DB.Model(&model.EnterpriseQuotaRequest{}).
+		Select("id").
+		Where("enterprise_id = ? AND target_type = ? AND target_id IN (?)", enterpriseId, model.PolicyTargetProject, access.ScopedProjectIds)
+	scopedQuotaCounterIds := model.DB.Model(&model.EnterpriseQuotaCounter{}).
+		Select("id").
+		Where("enterprise_id = ? AND ((target_type = ? AND target_id IN (?)) OR policy_id IN (?))",
+			enterpriseId,
+			model.PolicyTargetProject,
+			access.ScopedProjectIds,
+			scopedQuotaPolicyIds,
+		)
+	return query.Where(
+		`scope_project_id IN ? OR
+		 (target_type = ? AND target_id IN ?) OR
+		 (target_type = ? AND target_id IN (?)) OR
+		 (target_type = ? AND target_id IN (?)) OR
+		 (target_type = ? AND target_id IN (?))`,
+		access.ScopedProjectIds,
+		"project",
+		access.ScopedProjectIds,
+		"quota_policy",
+		scopedQuotaPolicyIds,
+		"quota_request",
+		scopedQuotaRequestIds,
+		"quota_counter",
+		scopedQuotaCounterIds,
+	)
 }
 
 func parsePathInt(c *gin.Context, name string) (int, error) {

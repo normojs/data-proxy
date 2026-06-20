@@ -353,13 +353,16 @@ func recordEnterpriseGovernanceRejectAudit(c *gin.Context, enterpriseCtx *Enterp
 		action = enterpriseGovernanceAuditActionDryRunReject
 	}
 	err := model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
-		EnterpriseId: enterpriseCtx.EnterpriseId,
-		ActorUserId:  enterpriseCtx.UserId,
-		Action:       action,
-		TargetType:   "quota_policy",
-		TargetId:     targetId,
-		After:        enterpriseGovernanceRejectAuditPayload(enterpriseCtx, req, decision),
-		RequestId:    req.RequestId,
+		EnterpriseId:   enterpriseCtx.EnterpriseId,
+		ActorUserId:    enterpriseCtx.UserId,
+		Action:         action,
+		TargetType:     "quota_policy",
+		TargetId:       targetId,
+		ScopeUserId:    enterpriseCtx.UserId,
+		ScopeOrgUnitId: enterpriseCtx.PrimaryOrgUnitId,
+		ScopeProjectId: enterpriseCtx.ProjectId,
+		After:          enterpriseGovernanceRejectAuditPayload(enterpriseCtx, req, decision),
+		RequestId:      req.RequestId,
 	})
 	if err != nil {
 		logger.LogError(c, "error recording enterprise governance reject audit: "+err.Error())
@@ -420,13 +423,16 @@ func recordEnterpriseGovernancePolicyActionAudit(c *gin.Context, enterpriseCtx *
 		return
 	}
 	err := model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
-		EnterpriseId: enterpriseCtx.EnterpriseId,
-		ActorUserId:  enterpriseCtx.UserId,
-		Action:       enterpriseGovernanceAuditActionPolicyAction,
-		TargetType:   "quota_policy",
-		TargetId:     firstEnterprisePolicyActionObservationId(decision.ActionObservations),
-		After:        enterpriseGovernancePolicyActionAuditPayload(enterpriseCtx, req, decision),
-		RequestId:    req.RequestId,
+		EnterpriseId:   enterpriseCtx.EnterpriseId,
+		ActorUserId:    enterpriseCtx.UserId,
+		Action:         enterpriseGovernanceAuditActionPolicyAction,
+		TargetType:     "quota_policy",
+		TargetId:       firstEnterprisePolicyActionObservationId(decision.ActionObservations),
+		ScopeUserId:    enterpriseCtx.UserId,
+		ScopeOrgUnitId: enterpriseCtx.PrimaryOrgUnitId,
+		ScopeProjectId: enterpriseCtx.ProjectId,
+		After:          enterpriseGovernancePolicyActionAuditPayload(enterpriseCtx, req, decision),
+		RequestId:      req.RequestId,
 	})
 	if err != nil {
 		logger.LogError(c, "error recording enterprise governance policy action audit: "+err.Error())

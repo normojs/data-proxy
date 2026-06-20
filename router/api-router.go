@@ -414,10 +414,15 @@ func SetApiRouter(router *gin.Engine) {
 				financeEnterpriseRoute.GET("/usage/breakdown/export", controller.ExportEnterpriseUsageBreakdown)
 			}
 
+			auditLogEnterpriseRoute := enterpriseRoute.Group("")
+			auditLogEnterpriseRoute.Use(middleware.EnterpriseAnyCapabilityAuth(service.EnterpriseCapabilityAuditRead, service.EnterpriseCapabilityDepartmentManage, service.EnterpriseCapabilityProjectManage))
+			{
+				auditLogEnterpriseRoute.GET("/audit-logs", controller.ListEnterpriseAuditLogs)
+			}
+
 			auditEnterpriseRoute := enterpriseRoute.Group("")
 			auditEnterpriseRoute.Use(middleware.EnterpriseCapabilityAuth(service.EnterpriseCapabilityAuditRead))
 			{
-				auditEnterpriseRoute.GET("/audit-logs", controller.ListEnterpriseAuditLogs)
 				auditEnterpriseRoute.GET("/notification-outbox", controller.ListEnterpriseNotificationOutbox)
 				auditEnterpriseRoute.GET("/notification-outbox/worker-metrics", controller.GetEnterpriseNotificationOutboxWorkerMetrics)
 			}

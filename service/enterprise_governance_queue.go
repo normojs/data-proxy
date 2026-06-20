@@ -167,13 +167,16 @@ func recordEnterpriseGovernanceQueueAudit(c *gin.Context, enterpriseCtx *Enterpr
 	}
 	requestId := enterpriseRequestIdFromRelay(c, relayInfo)
 	err := model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
-		EnterpriseId: enterpriseCtx.EnterpriseId,
-		ActorUserId:  enterpriseCtx.UserId,
-		Action:       enterpriseGovernanceAuditActionQueueAdmission,
-		TargetType:   "quota_policy",
-		TargetId:     firstEnterpriseQueuePolicyActionObservationId(decision.ActionObservations),
-		After:        enterpriseGovernanceQueueAuditPayload(c, enterpriseCtx, relayInfo, decision, result, requestId),
-		RequestId:    requestId,
+		EnterpriseId:   enterpriseCtx.EnterpriseId,
+		ActorUserId:    enterpriseCtx.UserId,
+		Action:         enterpriseGovernanceAuditActionQueueAdmission,
+		TargetType:     "quota_policy",
+		TargetId:       firstEnterpriseQueuePolicyActionObservationId(decision.ActionObservations),
+		ScopeUserId:    enterpriseCtx.UserId,
+		ScopeOrgUnitId: enterpriseCtx.PrimaryOrgUnitId,
+		ScopeProjectId: enterpriseCtx.ProjectId,
+		After:          enterpriseGovernanceQueueAuditPayload(c, enterpriseCtx, relayInfo, decision, result, requestId),
+		RequestId:      requestId,
 	})
 	if err != nil {
 		logger.LogError(c, "error recording enterprise governance queue audit: "+err.Error())

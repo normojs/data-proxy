@@ -53,10 +53,13 @@ func TestMain(m *testing.M) {
 		&Enterprise{},
 		&EnterpriseOrgUnit{},
 		&EnterpriseOrgMembership{},
+		&EnterpriseProject{},
+		&EnterpriseProjectOrgUnit{},
 		&EnterprisePolicyGroup{},
 		&EnterprisePolicyGroupMember{},
 		&EnterpriseQuotaPolicy{},
 		&EnterpriseQuotaCounter{},
+		&EnterpriseQuotaRequest{},
 		&EnterpriseUsageAttribution{},
 		&EnterpriseAuditLog{},
 	); err != nil {

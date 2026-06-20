@@ -379,13 +379,16 @@ func recordEnterpriseGovernanceAnomalyThrottleAudit(c *gin.Context, enterpriseCt
 	}
 	requestId := enterpriseRequestIdFromRelay(c, relayInfo)
 	err := model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
-		EnterpriseId: enterpriseCtx.EnterpriseId,
-		ActorUserId:  enterpriseCtx.UserId,
-		Action:       enterpriseGovernanceAuditActionAnomalyThrottle,
-		TargetType:   "enterprise",
-		TargetId:     enterpriseCtx.EnterpriseId,
-		After:        enterpriseGovernanceAnomalyThrottleAuditPayload(c, enterpriseCtx, relayInfo, result, requestId),
-		RequestId:    requestId,
+		EnterpriseId:   enterpriseCtx.EnterpriseId,
+		ActorUserId:    enterpriseCtx.UserId,
+		Action:         enterpriseGovernanceAuditActionAnomalyThrottle,
+		TargetType:     "enterprise",
+		TargetId:       enterpriseCtx.EnterpriseId,
+		ScopeUserId:    enterpriseCtx.UserId,
+		ScopeOrgUnitId: enterpriseCtx.PrimaryOrgUnitId,
+		ScopeProjectId: enterpriseCtx.ProjectId,
+		After:          enterpriseGovernanceAnomalyThrottleAuditPayload(c, enterpriseCtx, relayInfo, result, requestId),
+		RequestId:      requestId,
 	})
 	if err != nil {
 		logger.LogError(c, "error recording enterprise governance anomaly throttle audit: "+err.Error())

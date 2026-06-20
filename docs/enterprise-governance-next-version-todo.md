@@ -187,10 +187,10 @@
 | NV-0701 | P0 | Done (MVP) | 企业治理 RBAC 模型 | 已支持企业管理员、部门管理员、财务查看员、审计员、项目管理员的基础 capability 映射；系统 `admin/root` 保持全权限兼容 |
 | NV-0702 | P0 | Done (MVP) | 部门管理员权限边界 | 已支持按主部门展开本部门及子部门 scope，限制成员列表/归属更新、额度策略、临时额度审批、审批通知和用量报表；项目级细粒度边界仍待增强 |
 | NV-0703 | P1 | Done (MVP+) | 财务视图 | 已支持 `finance_viewer` 只读访问全局 usage summary/breakdown；`project_admin` 按 owner 项目 scope 查看/导出项目用量；财务视图支持按当前筛选导出 CSV |
-| NV-0704 | P1 | Done (MVP) | 审计员视图 | 已支持 `auditor` 只读访问审计日志、通知 outbox 和 worker metrics，不能修改配置 |
-| NV-0705 | P1 | Done (MVP) | 权限回归测试 | 已覆盖财务/审计只读边界、企业管理员管理能力、普通用户隔离、部门管理员跨部门越权、部门用量过滤和 scoped 审批边界 |
+| NV-0704 | P1 | Done (MVP+) | 审计员视图 | 已支持 `auditor` 只读访问审计日志、通知 outbox 和 worker metrics，不能修改配置；部门/项目管理员可查看 scope 内审计日志，notification outbox 仍保持全局审计员可见 |
+| NV-0705 | P1 | Done (MVP+) | 权限回归测试 | 已覆盖财务/审计只读边界、企业管理员管理能力、普通用户隔离、部门管理员跨部门越权、部门用量过滤、scoped 审批边界、项目管理员跨项目越权、CSV 导出和 scoped 审计可见性 |
 
-当前 V1.7 已交付最小可用 RBAC 闭环：后端企业治理 API 改为 capability 分组鉴权，前端入口和页签按 `/api/user/self` 的 `permissions.enterprise_governance` 控制；审批、财务和审计入口可分别授权；部门管理员按本部门及子部门 scope 管理成员、额度策略、审批和用量；项目管理员按 owner 项目 scope 管理项目和查看/导出项目用量；财务视图支持按筛选导出 CSV。下一步优先补审计视图过滤增强和更细的策略组授权模型。
+当前 V1.7 已交付最小可用 RBAC 闭环：后端企业治理 API 改为 capability 分组鉴权，前端入口和页签按 `/api/user/self` 的 `permissions.enterprise_governance` 控制；审批、财务和审计入口可分别授权；部门管理员按本部门及子部门 scope 管理成员、额度策略、审批、用量和审计日志；项目管理员按 owner 项目 scope 管理项目并查看/导出项目用量和项目审计日志；财务视图支持按筛选导出 CSV。下一步优先补更细的策略组授权模型。
 
 ## 推荐排期
 

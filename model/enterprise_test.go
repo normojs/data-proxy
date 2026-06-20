@@ -14,8 +14,11 @@ func clearEnterpriseTables(t *testing.T) {
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_usage_attributions").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_quota_counters").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_quota_policies").Error)
+	require.NoError(t, DB.Exec("DELETE FROM enterprise_quota_requests").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_policy_group_members").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_policy_groups").Error)
+	require.NoError(t, DB.Exec("DELETE FROM enterprise_project_org_units").Error)
+	require.NoError(t, DB.Exec("DELETE FROM enterprise_projects").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_org_memberships").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_org_units").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprises").Error)
@@ -40,10 +43,13 @@ func TestEnterpriseGovernanceTablesMigrated(t *testing.T) {
 		&Enterprise{},
 		&EnterpriseOrgUnit{},
 		&EnterpriseOrgMembership{},
+		&EnterpriseProject{},
+		&EnterpriseProjectOrgUnit{},
 		&EnterprisePolicyGroup{},
 		&EnterprisePolicyGroupMember{},
 		&EnterpriseQuotaPolicy{},
 		&EnterpriseQuotaCounter{},
+		&EnterpriseQuotaRequest{},
 		&EnterpriseUsageAttribution{},
 		&EnterpriseAuditLog{},
 	}
@@ -88,6 +94,94 @@ func TestRecordEnterpriseAuditLog(t *testing.T) {
 	assert.Equal(t, "org_unit.update", log.Action)
 	assert.JSONEq(t, `{"name":"old"}`, log.BeforeJson)
 	assert.JSONEq(t, `{"name":"new"}`, log.AfterJson)
+}
+
+func TestRecordEnterpriseAuditLogFillsScope(t *testing.T) {
+	clearEnterpriseTables(t)
+	require.NoError(t, EnsureDefaultEnterprise())
+	enterprise, err := GetDefaultEnterprise()
+	require.NoError(t, err)
+	orgUnit := EnterpriseOrgUnit{
+		EnterpriseId: enterprise.Id,
+		Name:         "Scoped Audit Engineering",
+		Slug:         "scoped-audit-engineering",
+		Path:         "/1/",
+		Status:       OrgUnitStatusEnabled,
+	}
+	require.NoError(t, DB.Create(&orgUnit).Error)
+	require.NoError(t, DB.Create(&EnterpriseOrgMembership{
+		EnterpriseId: enterprise.Id,
+		UserId:       9701,
+		OrgUnitId:    orgUnit.Id,
+		IsPrimary:    true,
+	}).Error)
+	project := EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "Scoped Audit Project",
+		Slug:         "scoped-audit-project",
+		OwnerUserId:  9701,
+		Status:       EnterpriseProjectStatusEnabled,
+	}
+	require.NoError(t, DB.Create(&project).Error)
+	policy := EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "Scoped Audit Project Policy",
+		TargetType:   PolicyTargetProject,
+		TargetId:     project.Id,
+		Metric:       PolicyMetricRequestCount,
+		Period:       PolicyPeriodDay,
+		LimitValue:   10,
+		Timezone:     DefaultEnterpriseTimezone,
+		ModelScope:   PolicyModelScopeAll,
+		ModelsJson:   "[]",
+		Action:       PolicyActionReject,
+		Status:       QuotaPolicyStatusEnabled,
+	}
+	require.NoError(t, DB.Create(&policy).Error)
+	quotaRequest := EnterpriseQuotaRequest{
+		EnterpriseId:    enterprise.Id,
+		ApplicantUserId: 9701,
+		PolicyId:        policy.Id,
+		TargetType:      policy.TargetType,
+		TargetId:        policy.TargetId,
+		Metric:          policy.Metric,
+		Period:          policy.Period,
+		LimitDelta:      1,
+		Status:          EnterpriseQuotaRequestStatusPending,
+		ExpiresAt:       common.GetTimestamp() + 3600,
+	}
+	require.NoError(t, DB.Create(&quotaRequest).Error)
+
+	require.NoError(t, RecordEnterpriseAuditLog(EnterpriseAuditInput{
+		EnterpriseId: enterprise.Id,
+		ActorUserId:  9701,
+		Action:       "quota_policy.update",
+		TargetType:   "quota_policy",
+		TargetId:     policy.Id,
+		After:        policy,
+		RequestId:    "scope-policy",
+	}))
+	require.NoError(t, RecordEnterpriseAuditLog(EnterpriseAuditInput{
+		EnterpriseId: enterprise.Id,
+		ActorUserId:  9701,
+		Action:       "quota_request.submit",
+		TargetType:   "quota_request",
+		TargetId:     quotaRequest.Id,
+		After:        quotaRequest,
+		RequestId:    "scope-request",
+	}))
+
+	var policyAudit EnterpriseAuditLog
+	require.NoError(t, DB.Where("request_id = ?", "scope-policy").First(&policyAudit).Error)
+	assert.Equal(t, project.Id, policyAudit.ScopeProjectId)
+	assert.Equal(t, 0, policyAudit.ScopeUserId)
+	assert.Equal(t, 0, policyAudit.ScopeOrgUnitId)
+
+	var requestAudit EnterpriseAuditLog
+	require.NoError(t, DB.Where("request_id = ?", "scope-request").First(&requestAudit).Error)
+	assert.Equal(t, 9701, requestAudit.ScopeUserId)
+	assert.Equal(t, orgUnit.Id, requestAudit.ScopeOrgUnitId)
+	assert.Equal(t, project.Id, requestAudit.ScopeProjectId)
 }
 
 func TestEnterpriseGovernanceOptionsDefaultDisabled(t *testing.T) {

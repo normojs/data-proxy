@@ -6046,7 +6046,10 @@ export function EnterpriseGovernance() {
   const canReadFinance =
     canManageEnterprise || enterprisePermissions?.finance_read === true
   const canReadAudit =
-    canManageEnterprise || enterprisePermissions?.audit_read === true
+    canManageEnterprise ||
+    enterprisePermissions?.audit_read === true ||
+    enterprisePermissions?.department_manage === true ||
+    enterprisePermissions?.project_manage === true
   const canApproveQuota =
     canManageEnterprise || enterprisePermissions?.quota_approve === true
   const canManageProjects =

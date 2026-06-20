@@ -573,33 +573,15 @@ func expireEnterpriseQuotaRequest(request model.EnterpriseQuotaRequest, now int6
 }
 
 func recordEnterpriseQuotaRequestExpiryAudit(tx *gorm.DB, before model.EnterpriseQuotaRequest, after model.EnterpriseQuotaRequest) (model.EnterpriseAuditLog, error) {
-	beforeJson, err := enterpriseQuotaRequestAuditJson(before)
-	if err != nil {
-		return model.EnterpriseAuditLog{}, err
-	}
-	afterJson, err := enterpriseQuotaRequestAuditJson(after)
-	if err != nil {
-		return model.EnterpriseAuditLog{}, err
-	}
-	audit := model.EnterpriseAuditLog{
+	return model.RecordEnterpriseAuditLogWithDB(tx, model.EnterpriseAuditInput{
 		EnterpriseId: before.EnterpriseId,
 		ActorUserId:  0,
 		Action:       "quota_request.expire",
 		TargetType:   "quota_request",
 		TargetId:     before.Id,
-		BeforeJson:   beforeJson,
-		AfterJson:    afterJson,
-		CreatedAt:    common.GetTimestamp(),
-	}
-	return audit, tx.Create(&audit).Error
-}
-
-func enterpriseQuotaRequestAuditJson(value model.EnterpriseQuotaRequest) (string, error) {
-	bytes, err := common.Marshal(value)
-	if err != nil {
-		return "", err
-	}
-	return string(bytes), nil
+		Before:       before,
+		After:        after,
+	})
 }
 
 func sortQuotaRequestNotificationRows(rows []quotaRequestNotificationRow) {

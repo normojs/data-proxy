@@ -149,13 +149,16 @@ func recordEnterpriseGovernanceSharedPoolAudit(c *gin.Context, enterpriseCtx *En
 	}
 	requestId := enterpriseRequestIdFromRelay(c, relayInfo)
 	err := model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
-		EnterpriseId: enterpriseCtx.EnterpriseId,
-		ActorUserId:  enterpriseCtx.UserId,
-		Action:       enterpriseGovernanceAuditActionSharedPoolReserve,
-		TargetType:   "quota_policy",
-		TargetId:     firstEnterpriseSharedPoolPolicyActionObservationId(decision.ActionObservations),
-		After:        enterpriseGovernanceSharedPoolAuditPayload(c, enterpriseCtx, relayInfo, decision, result, requestId),
-		RequestId:    requestId,
+		EnterpriseId:   enterpriseCtx.EnterpriseId,
+		ActorUserId:    enterpriseCtx.UserId,
+		Action:         enterpriseGovernanceAuditActionSharedPoolReserve,
+		TargetType:     "quota_policy",
+		TargetId:       firstEnterpriseSharedPoolPolicyActionObservationId(decision.ActionObservations),
+		ScopeUserId:    enterpriseCtx.UserId,
+		ScopeOrgUnitId: enterpriseCtx.PrimaryOrgUnitId,
+		ScopeProjectId: enterpriseCtx.ProjectId,
+		After:          enterpriseGovernanceSharedPoolAuditPayload(c, enterpriseCtx, relayInfo, decision, result, requestId),
+		RequestId:      requestId,
 	})
 	if err != nil {
 		logger.LogError(c, "error recording enterprise governance shared pool audit: "+err.Error())
