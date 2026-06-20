@@ -25,7 +25,7 @@
 | 11 | DP-V15-004 | P2 | Done | V1.5 并发压测脚本 | 提供企业额度 reserve/settle/refund 并发一致性脚本，并在文档中记录 Redis/DB 两种模式的运行方式。 |
 | 12 | DP-V15-005 | P2 | Done | V1.5 Redis-only 崩溃恢复 | 扫描 Redis-only counter key、补建缺失 DB mirror，并评估操作级幂等补偿队列。 |
 | 13 | DP-V16-001 | P2 | Done (MVP+) | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作的配置、命中观测、审计事件和响应提示；fallback_model 已能改写模型、重选渠道并按降级模型重新估算预扣费；queue 已有企业维度同步 admission queue、超时 429、响应 header 和审计事件；shared_pool 已能计算本次借用量并写入响应 header 和审计；异常检测已能基于突增、失败率和成本异常进入企业短时保护限流；持久化异步排队、独立共享池容量模型、异常阈值配置和报表归属留给后续增强。 |
-| 14 | DP-V17-001 | P2 | Done (RBAC MVP+) | V1.7 企业治理 RBAC/财务视图 | 已完成企业治理 capability 鉴权、前端入口/页签控制、财务/审计只读角色、部门管理员 scoped 边界、项目管理员 owner 项目边界、财务分摊 CSV 导出、审计 scoped 过滤和基础回归测试。 |
+| 14 | DP-V17-001 | P2 | Done (RBAC MVP+) | V1.7 企业治理 RBAC/财务视图 | 已完成企业治理 capability 鉴权、前端入口/页签控制、财务/审计只读角色、部门管理员 scoped 边界、部门 scoped 策略组授权、项目管理员 owner 项目边界、财务分摊 CSV 导出、审计 scoped 过滤和基础回归测试。 |
 
 ## 当前开始项：DP-V17-001
 
@@ -36,11 +36,12 @@ V1.7 先交付最小可用的企业治理分权闭环，避免所有企业治理
 3. 已完成：企业治理 API 按 capability 分组鉴权，企业管理员可管理配置，财务查看员只能读取财务用量，审计员只能读取审计/通知 outbox/worker metrics，项目管理员可管理项目。
 4. 已完成：`/api/user/self` 返回 `permissions.enterprise_governance`，前端侧边栏、路由入口、企业编辑按钮、页签和审批按钮按 capability 控制显示，并避免无权限页签主动请求后端。
 5. 已完成：新增路由回归测试，覆盖财务/审计只读边界、企业管理员非系统管理员管理能力、普通用户隔离和基础鉴权路径。
-6. 已完成：`department_admin` 按主部门展开本部门及子部门 scope，可管理 scope 内成员和额度策略、审批 scope 内临时额度申请、查看 scope 内用量；后端会过滤成员列表、额度策略、审批列表、审批通知和用量报表，并拒绝跨部门写入/审批。
+6. 已完成：`department_admin` 按主部门展开本部门及子部门 scope，可管理 scope 内成员、部门 scoped 策略组和额度策略、审批 scope 内临时额度申请、查看 scope 内用量；后端会过滤成员列表、策略组、额度策略、审批列表、审批通知和用量报表，并拒绝跨部门写入/审批。
 7. 已完成：财务视图支持按当前筛选导出 usage breakdown CSV，导出复用 `enterprise.finance.read` 鉴权和部门管理员 scope，字段包含维度、目标、请求数、quota、prompt/completion/total tokens。
 8. 已完成：`project_admin` 使用 `enterprise_projects.owner_user_id` 作为项目 scope，项目列表、项目管理、usage summary/breakdown 和 CSV 导出限制为自己负责的启用项目；跨项目财务查询会被拒绝。
-9. 已完成：审计日志新增结构化 scope 字段并在写入时自动推断；部门管理员只能查看本部门及子部门成员、部门策略、审批、项目和 relay 审计；项目管理员只能查看自己负责项目相关审计；notification outbox 和 worker metrics 仍仅开放给审计员/企业管理员。
-10. 后续：更细的项目/策略组授权模型仍保留为后续增强。
+9. 已完成：审计日志新增结构化 scope 字段并在写入时自动推断；部门管理员只能查看本部门及子部门成员、策略组、部门策略、审批、项目和 relay 审计；项目管理员只能查看自己负责项目相关审计；notification outbox 和 worker metrics 仍仅开放给审计员/企业管理员。
+10. 已完成：策略组新增可选部门 scope；企业管理员可继续维护全局策略组，部门管理员只能查看、创建、编辑、停用自己部门树内的 scoped 策略组，只能加入 scope 内成员，并可创建指向 scoped 策略组的额度策略；跨部门或全局策略组写入会被拒绝。
+11. 后续：更细的项目成员/策略组成员角色、策略组跨部门协作和项目内子管理员模型仍保留为后续增强。
 
 ## 已完成项：DP-V16-001
 
@@ -71,7 +72,7 @@ V1.6 高级策略动作先交付最小可用的“策略命中可见”，避免
 - DP-V15-004 已完成轻量并发压测入口：新增 `scripts/enterprise-quota-counter-stress.sh` 和 `make enterprise-quota-counter-stress`，默认跑 DB 与 Redis-code-path(fake atomic counter) 两种模式；覆盖高上限并发 reserve 后混合 settle/refund 的最终一致性，以及低上限并发抢占的成功/拒绝数量和 refund 后 reserved 归零。常用命令：`scripts/enterprise-quota-counter-stress.sh`；仅 DB：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=db scripts/enterprise-quota-counter-stress.sh`；仅 Redis 代码路径：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis scripts/enterprise-quota-counter-stress.sh`；连接真实 Redis Lua 路径：`REDIS_CONN_STRING=redis://:123456@127.0.0.1:6379/0 ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis ENTERPRISE_QUOTA_COUNTER_STRESS_REDIS_BACKEND=real scripts/enterprise-quota-counter-stress.sh`。
 - DP-V15-005 已完成最小恢复闭环：`POST /api/enterprise/quota-counters/reconcile` 新增可选 `include_redis_orphans`；后台周期 repair 默认打开 Redis-only 扫描；Redis key 会按 `enterprise_quota_counter:v1:{enterprise}:{policy}:{target_type}:{target_id}:{metric}:{period_start}` 解析，若当前 policy 维度仍匹配且 DB mirror 缺失，则 dry-run 返回 `missing_db`，repair 创建 `enterprise_quota_counters` mirror、保留 Redis used/reserved 快照并写入 `quota_counter.reconcile` 审计。操作级幂等补偿队列仍保留为后续增强项。
 - DP-V16-001 已完成增强闭环：配额策略支持 `alert`、`fallback_model`、`queue`、`shared_pool` 非阻断动作；策略命中会保留 counter 观测、响应 header 提示和 `enterprise_governance.policy_action` 审计；`fallback_model` 已从推荐升级为 relay 执行动作，会改写请求模型、重选渠道并按降级模型重新估算预扣费；`queue` 已从可见 MVP 升级为企业维度同步 admission queue，命中后先排队拿槽，超时在用户预扣费前返回 429 并记录 `enterprise_governance.queue_admission` 审计；`shared_pool` 已能计算本次借用量并记录 `enterprise_governance.shared_pool_reserve` 审计；异常检测已能基于请求突增、失败率和成本突增进入企业短时保护限流，并记录 `enterprise_governance.anomaly_throttle` 审计。持久化异步排队、独立共享池容量模型、异常阈值配置和报表归属仍保留为 V1.6 后续任务。
-- DP-V17-001 已完成 RBAC MVP+：企业治理后端 API 改为 capability 分组鉴权，前端入口和页签按企业角色权限控制；财务查看员、审计员和项目管理员获得最小只读/管理入口；部门管理员按本部门及子部门 scope 管理成员、额度策略、审批、用量和审计日志；项目管理员按 owner 项目 scope 管理项目并查看/导出项目用量和项目审计日志；财务 usage breakdown 支持按筛选导出 CSV；新增回归覆盖只读角色、企业管理员、普通用户隔离、部门管理员跨部门越权、部门用量过滤、项目管理员跨项目越权、CSV 导出和 scoped 审计可见性。
+- DP-V17-001 已完成 RBAC MVP+：企业治理后端 API 改为 capability 分组鉴权，前端入口和页签按企业角色权限控制；财务查看员、审计员和项目管理员获得最小只读/管理入口；部门管理员按本部门及子部门 scope 管理成员、策略组、额度策略、审批、用量和审计日志；项目管理员按 owner 项目 scope 管理项目并查看/导出项目用量和项目审计日志；财务 usage breakdown 支持按筛选导出 CSV；新增回归覆盖只读角色、企业管理员、普通用户隔离、部门管理员跨部门越权、部门策略组边界、部门用量过滤、项目管理员跨项目越权、CSV 导出和 scoped 审计可见性。
 
 ## 提交和发布规则
 

@@ -140,6 +140,7 @@ export type EnterpriseOrgSyncResult = {
 export type EnterprisePolicyGroup = {
   id: number
   enterprise_id: number
+  org_unit_id: number
   name: string
   slug: string
   description: string
@@ -398,6 +399,7 @@ export type EnterpriseOrgUnitPayload = {
 }
 
 export type EnterprisePolicyGroupPayload = {
+  org_unit_id?: number
   name: string
   slug: string
   description: string

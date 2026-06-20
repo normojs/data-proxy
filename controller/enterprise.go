@@ -42,6 +42,7 @@ type enterprisePolicyGroupRequest struct {
 	Name        string `json:"name"`
 	Slug        string `json:"slug"`
 	Description string `json:"description"`
+	OrgUnitId   *int   `json:"org_unit_id"`
 	Status      int    `json:"status"`
 }
 
@@ -626,8 +627,14 @@ func ListEnterprisePolicyGroups(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Model(&model.EnterprisePolicyGroup{}).Where("enterprise_id = ?", enterprise.Id)
+	query = applyDepartmentPolicyGroupScope(query, access)
 	if status, err := parseOptionalIntQuery(c, "status"); err != nil {
 		common.ApiError(c, err)
 		return
@@ -676,12 +683,23 @@ func CreateEnterprisePolicyGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	orgUnitId, err := policyGroupOrgUnitFromRequest(enterprise.Id, access, req.OrgUnitId, 0)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	status := req.Status
 	if status == 0 {
 		status = model.PolicyGroupStatusEnabled
 	}
 	group := model.EnterprisePolicyGroup{
 		EnterpriseId: enterprise.Id,
+		OrgUnitId:    orgUnitId,
 		Name:         strings.TrimSpace(req.Name),
 		Slug:         strings.TrimSpace(req.Slug),
 		Description:  req.Description,
@@ -720,7 +738,22 @@ func UpdateEnterprisePolicyGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentPolicyGroupInScope(access, group); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	orgUnitId, err := policyGroupOrgUnitFromRequest(enterprise.Id, access, req.OrgUnitId, group.OrgUnitId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	before := group
+	group.OrgUnitId = orgUnitId
 	group.Name = strings.TrimSpace(req.Name)
 	group.Slug = strings.TrimSpace(req.Slug)
 	group.Description = req.Description
@@ -746,13 +779,22 @@ func DeleteEnterprisePolicyGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if countEnterprisePoliciesForTarget(enterprise.Id, model.PolicyTargetPolicyGroup, id) > 0 {
-		common.ApiErrorMsg(c, "策略分组仍被额度策略引用，不能停用")
-		return
-	}
 	var group model.EnterprisePolicyGroup
 	if err := model.DB.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&group).Error; err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentPolicyGroupInScope(access, group); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if countEnterprisePoliciesForTarget(enterprise.Id, model.PolicyTargetPolicyGroup, id) > 0 {
+		common.ApiErrorMsg(c, "策略分组仍被额度策略引用，不能停用")
 		return
 	}
 	before := group
@@ -776,7 +818,17 @@ func ListEnterprisePolicyGroupMembers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := ensurePolicyGroupExists(enterprise.Id, groupId); err != nil {
+	group, err := findEnterprisePolicyGroup(enterprise.Id, groupId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentPolicyGroupInScope(access, group); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -785,6 +837,12 @@ func ListEnterprisePolicyGroupMembers(c *gin.Context) {
 		Select("users.id AS user_id, users.username, users.display_name, users.email, users.status").
 		Joins("JOIN users ON users.id = pgm.user_id").
 		Where("pgm.enterprise_id = ? AND pgm.policy_group_id = ?", enterprise.Id, groupId)
+	if access.HasDepartmentScope() {
+		scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
+			Select("user_id").
+			Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterprise.Id, true, access.ScopedOrgUnitIds)
+		query = query.Where("pgm.user_id IN (?)", scopedUserIds)
+	}
 	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
 		like := "%" + keyword + "%"
 		query = query.Where("users.username LIKE ? OR users.display_name LIKE ? OR users.email LIKE ?", like, like, like)
@@ -815,7 +873,17 @@ func AddEnterprisePolicyGroupMembers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := ensurePolicyGroupExists(enterprise.Id, groupId); err != nil {
+	group, err := findEnterprisePolicyGroup(enterprise.Id, groupId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentPolicyGroupInScope(access, group); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -828,17 +896,26 @@ func AddEnterprisePolicyGroupMembers(c *gin.Context) {
 		common.ApiErrorMsg(c, "用户列表不能为空")
 		return
 	}
+	seenUserIds := map[int]struct{}{}
+	userIds := make([]int, 0, len(req.UserIds))
+	for _, userId := range req.UserIds {
+		if userId <= 0 {
+			common.ApiErrorMsg(c, "用户 ID 无效")
+			return
+		}
+		if _, ok := seenUserIds[userId]; ok {
+			continue
+		}
+		if err := requireDepartmentUserInScope(enterprise.Id, access, userId); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		seenUserIds[userId] = struct{}{}
+		userIds = append(userIds, userId)
+	}
 	added := make([]int, 0, len(req.UserIds))
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
-		seen := map[int]struct{}{}
-		for _, userId := range req.UserIds {
-			if userId <= 0 {
-				return errors.New("用户 ID 无效")
-			}
-			if _, ok := seen[userId]; ok {
-				continue
-			}
-			seen[userId] = struct{}{}
+		for _, userId := range userIds {
 			var user model.User
 			if err := tx.Where("id = ?", userId).First(&user).Error; err != nil {
 				return err
@@ -876,6 +953,24 @@ func DeleteEnterprisePolicyGroupMember(c *gin.Context) {
 	}
 	enterprise, err := currentEnterprise()
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	group, err := findEnterprisePolicyGroup(enterprise.Id, groupId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentPolicyGroupInScope(access, group); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentUserInScope(enterprise.Id, access, userId); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1938,6 +2033,13 @@ func applyDepartmentOrgUnitScope(query *gorm.DB, access service.EnterpriseAccess
 	return query.Where(column+" IN ?", access.ScopedOrgUnitIds)
 }
 
+func applyDepartmentPolicyGroupScope(query *gorm.DB, access service.EnterpriseAccess) *gorm.DB {
+	if !access.HasDepartmentScope() {
+		return query
+	}
+	return query.Where("org_unit_id IN ?", access.ScopedOrgUnitIds)
+}
+
 func requireDepartmentOrgUnitInScope(access service.EnterpriseAccess, orgUnitId int) error {
 	if !access.HasDepartmentScope() {
 		return nil
@@ -1957,6 +2059,16 @@ func requireDepartmentUserInScope(enterpriseId int, access service.EnterpriseAcc
 		return err
 	}
 	if !ok {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
+func requireDepartmentPolicyGroupInScope(access service.EnterpriseAccess, group model.EnterprisePolicyGroup) error {
+	if !access.HasDepartmentScope() {
+		return nil
+	}
+	if !access.OrgUnitInScope(group.OrgUnitId) {
 		return scopedEnterpriseError()
 	}
 	return nil
@@ -1989,12 +2101,17 @@ func applyDepartmentQuotaPolicyScope(query *gorm.DB, enterpriseId int, access se
 	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
 		Select("user_id").
 		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
+	scopedPolicyGroupIds := model.DB.Model(&model.EnterprisePolicyGroup{}).
+		Select("id").
+		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
 	return query.Where(
-		"(target_type = ? AND target_id IN ?) OR (target_type = ? AND target_id IN (?))",
+		"(target_type = ? AND target_id IN ?) OR (target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?))",
 		model.PolicyTargetOrgUnit,
 		access.ScopedOrgUnitIds,
 		model.PolicyTargetUser,
 		scopedUserIds,
+		model.PolicyTargetPolicyGroup,
+		scopedPolicyGroupIds,
 	)
 }
 
@@ -2007,6 +2124,12 @@ func requireDepartmentQuotaPolicyInScope(enterpriseId int, access service.Enterp
 		return requireDepartmentOrgUnitInScope(access, policy.TargetId)
 	case model.PolicyTargetUser:
 		return requireDepartmentUserInScope(enterpriseId, access, policy.TargetId)
+	case model.PolicyTargetPolicyGroup:
+		group, err := findEnterprisePolicyGroup(enterpriseId, policy.TargetId)
+		if err != nil {
+			return err
+		}
+		return requireDepartmentPolicyGroupInScope(access, group)
 	default:
 		return scopedEnterpriseError()
 	}
@@ -2061,15 +2184,20 @@ func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.
 	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
 		Select("user_id").
 		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
+	scopedPolicyGroupIds := model.DB.Model(&model.EnterprisePolicyGroup{}).
+		Select("id").
+		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
 	scopedQuotaPolicyIds := model.DB.Model(&model.EnterpriseQuotaPolicy{}).
 		Select("id").
 		Where(
-			"enterprise_id = ? AND ((target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)))",
+			"enterprise_id = ? AND ((target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)))",
 			enterpriseId,
 			model.PolicyTargetOrgUnit,
 			access.ScopedOrgUnitIds,
 			model.PolicyTargetUser,
 			scopedUserIds,
+			model.PolicyTargetPolicyGroup,
+			scopedPolicyGroupIds,
 		)
 	scopedQuotaRequestIds := model.DB.Model(&model.EnterpriseQuotaRequest{}).
 		Select("id").
@@ -2079,17 +2207,20 @@ func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.
 		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
 	scopedQuotaCounterIds := model.DB.Model(&model.EnterpriseQuotaCounter{}).
 		Select("id").
-		Where("enterprise_id = ? AND ((target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)) OR policy_id IN (?))",
+		Where("enterprise_id = ? AND ((target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)) OR policy_id IN (?))",
 			enterpriseId,
 			model.PolicyTargetOrgUnit,
 			access.ScopedOrgUnitIds,
 			model.PolicyTargetUser,
 			scopedUserIds,
+			model.PolicyTargetPolicyGroup,
+			scopedPolicyGroupIds,
 			scopedQuotaPolicyIds,
 		)
 	return query.Where(
 		`scope_org_unit_id IN ? OR scope_user_id IN (?) OR scope_project_id IN (?) OR
 		 (target_type = ? AND target_id IN ?) OR
+		 (target_type = ? AND target_id IN (?)) OR
 		 (target_type = ? AND target_id IN (?)) OR
 		 (target_type = ? AND target_id IN (?)) OR
 		 (target_type = ? AND target_id IN (?)) OR
@@ -2104,6 +2235,8 @@ func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.
 		scopedUserIds,
 		"project",
 		scopedProjectIds,
+		"policy_group",
+		scopedPolicyGroupIds,
 		"quota_policy",
 		scopedQuotaPolicyIds,
 		"quota_request",
@@ -2722,6 +2855,35 @@ func validatePolicyGroupRequest(req enterprisePolicyGroupRequest) error {
 	return nil
 }
 
+func policyGroupOrgUnitFromRequest(enterpriseId int, access service.EnterpriseAccess, orgUnitId *int, currentOrgUnitId int) (int, error) {
+	if access.HasDepartmentScope() {
+		value := currentOrgUnitId
+		if orgUnitId != nil && *orgUnitId > 0 {
+			value = *orgUnitId
+		}
+		if value <= 0 {
+			value = access.OrgUnitId
+		}
+		if err := requireDepartmentOrgUnitInScope(access, value); err != nil {
+			return 0, err
+		}
+		if err := ensureOrgUnitExists(enterpriseId, value); err != nil {
+			return 0, err
+		}
+		return value, nil
+	}
+	if orgUnitId == nil {
+		return currentOrgUnitId, nil
+	}
+	if *orgUnitId <= 0 {
+		return 0, nil
+	}
+	if err := ensureOrgUnitExists(enterpriseId, *orgUnitId); err != nil {
+		return 0, err
+	}
+	return *orgUnitId, nil
+}
+
 func projectFromRequest(enterpriseId int, req enterpriseProjectRequest) (model.EnterpriseProject, []int, error) {
 	if strings.TrimSpace(req.Name) == "" {
 		return model.EnterpriseProject{}, nil, errors.New("项目名称不能为空")
@@ -2927,6 +3089,17 @@ func ensurePolicyGroupExists(enterpriseId int, groupId int) error {
 		return errors.New("策略分组不存在或已停用")
 	}
 	return nil
+}
+
+func findEnterprisePolicyGroup(enterpriseId int, groupId int) (model.EnterprisePolicyGroup, error) {
+	var group model.EnterprisePolicyGroup
+	if err := model.DB.Where("enterprise_id = ? AND id = ? AND status = ?", enterpriseId, groupId, model.PolicyGroupStatusEnabled).First(&group).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.EnterprisePolicyGroup{}, errors.New("策略分组不存在或已停用")
+		}
+		return model.EnterprisePolicyGroup{}, err
+	}
+	return group, nil
 }
 
 func ensureProjectExists(enterpriseId int, projectId int) error {

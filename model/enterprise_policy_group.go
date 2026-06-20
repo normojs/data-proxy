@@ -8,6 +8,7 @@ const (
 type EnterprisePolicyGroup struct {
 	Id           int    `json:"id" gorm:"primaryKey"`
 	EnterpriseId int    `json:"enterprise_id" gorm:"not null;index:idx_enterprise_policy_groups_status,priority:1;uniqueIndex:idx_enterprise_policy_groups_slug,priority:1"`
+	OrgUnitId    int    `json:"org_unit_id" gorm:"index"`
 	Name         string `json:"name" gorm:"type:varchar(128);not null"`
 	Slug         string `json:"slug" gorm:"type:varchar(64);not null;uniqueIndex:idx_enterprise_policy_groups_slug,priority:2"`
 	Description  string `json:"description" gorm:"type:text"`

@@ -6068,9 +6068,9 @@ export function EnterpriseGovernance() {
           case 'audit':
             return canReadAudit
           case 'organization':
+          case 'policy-groups':
           case 'quota-policies':
             return canManageDepartment
-          case 'policy-groups':
           case 'notifications':
           case 'webhooks':
           case 'deliveries':
@@ -6318,7 +6318,7 @@ export function EnterpriseGovernance() {
   const policyGroupsSummaryQuery = useQuery({
     queryKey: ['enterprise', 'policy-groups', 'summary'],
     queryFn: () => getEnterprisePolicyGroups({ p: 1, page_size: 1 }),
-    enabled: canManageEnterprise,
+    enabled: canManageDepartment,
   })
   const allPolicyGroupsQuery = useQuery({
     queryKey: ['enterprise', 'policy-groups', 'all'],
@@ -6328,7 +6328,7 @@ export function EnterpriseGovernance() {
         page_size: 100,
         status: ENABLED_STATUS,
       }),
-    enabled: canManageEnterprise,
+    enabled: canManageDepartment,
   })
   const policyGroupsQuery = useQuery({
     queryKey: [
@@ -6345,7 +6345,7 @@ export function EnterpriseGovernance() {
         keyword: policyGroupKeyword,
         status: policyGroupStatus,
       }),
-    enabled: canManageEnterprise,
+    enabled: canManageDepartment,
   })
   const allProjectsQuery = useQuery({
     queryKey: ['enterprise', 'projects', 'all'],

@@ -24,11 +24,11 @@
 | `finance_viewer` | 读取企业治理入口和财务用量视图 |
 | `auditor` | 读取企业治理入口和审计、通知 outbox、worker metrics |
 | `project_admin` | 读取、查看自己负责项目的财务用量和审计日志，管理自己负责的项目 |
-| `department_admin` | 读取企业治理入口，管理本部门及子部门成员和额度策略，审批本部门及子部门临时额度申请，查看本部门及子部门用量和审计日志 |
+| `department_admin` | 读取企业治理入口，管理本部门及子部门成员、策略组和额度策略，审批本部门及子部门临时额度申请，查看本部门及子部门用量和审计日志 |
 
 后端 API 按 `enterprise.read`、`enterprise.manage`、`enterprise.department.manage`、`enterprise.finance.read`、`enterprise.audit.read`、`enterprise.quota.approve`、`enterprise.project.manage` 分组鉴权。前端入口和页签使用 `/api/user/self` 返回的 `permissions.enterprise_governance` 控制可见性。
 
-部门管理员使用主部门作为 scope 根节点。后端会把 scope 展开为“本部门 + 子部门”，并在成员列表、成员归属更新、额度策略列表/创建/更新/停用、临时额度审批、审批通知、用量报表和审计日志中自动过滤跨部门数据。企业配置、SSO 同步、webhook、通知偏好、项目管理、notification outbox 和 worker metrics 仍需企业管理员、审计员或系统管理员权限。
+部门管理员使用主部门作为 scope 根节点。后端会把 scope 展开为“本部门 + 子部门”，并在成员列表、成员归属更新、策略组列表/创建/更新/停用/成员维护、额度策略列表/创建/更新/停用、临时额度审批、审批通知、用量报表和审计日志中自动过滤跨部门数据。企业配置、SSO 同步、webhook、通知偏好、项目管理、notification outbox 和 worker metrics 仍需企业管理员、审计员或系统管理员权限。
 
 项目管理员使用 `enterprise_projects.owner_user_id` 作为 scope。项目列表、用量 summary/breakdown、CSV 导出和审计日志会限制为自己负责的启用项目；创建或更新项目时 owner 必须是当前项目管理员本人。
 
@@ -88,7 +88,7 @@
 6. 输入用户 ID，支持逗号、空格或换行分隔，例如 `12, 19, 25`。
 7. 点击 `Add`。
 
-策略分组适合表达跨部门人群，例如试点用户、外包、实习生、高阶模型权限用户。
+策略分组适合表达试点用户、外包、实习生、高阶模型权限用户等特殊人群。企业管理员创建的未绑定部门策略组是全局策略组；部门管理员创建的策略组会自动绑定到自己的主部门 scope，只能加入本部门及子部门成员，也只能被本部门 scope 内的额度策略引用。
 
 ### 5. 创建额度策略
 

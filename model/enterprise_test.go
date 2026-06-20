@@ -123,7 +123,15 @@ func TestRecordEnterpriseAuditLogFillsScope(t *testing.T) {
 		Status:       EnterpriseProjectStatusEnabled,
 	}
 	require.NoError(t, DB.Create(&project).Error)
-	policy := EnterpriseQuotaPolicy{
+	policyGroup := EnterprisePolicyGroup{
+		EnterpriseId: enterprise.Id,
+		OrgUnitId:    orgUnit.Id,
+		Name:         "Scoped Audit Policy Group",
+		Slug:         "scoped-audit-policy-group",
+		Status:       PolicyGroupStatusEnabled,
+	}
+	require.NoError(t, DB.Create(&policyGroup).Error)
+	projectPolicy := EnterpriseQuotaPolicy{
 		EnterpriseId: enterprise.Id,
 		Name:         "Scoped Audit Project Policy",
 		TargetType:   PolicyTargetProject,
@@ -137,15 +145,30 @@ func TestRecordEnterpriseAuditLogFillsScope(t *testing.T) {
 		Action:       PolicyActionReject,
 		Status:       QuotaPolicyStatusEnabled,
 	}
-	require.NoError(t, DB.Create(&policy).Error)
+	require.NoError(t, DB.Create(&projectPolicy).Error)
+	policyGroupPolicy := EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "Scoped Audit Policy Group Policy",
+		TargetType:   PolicyTargetPolicyGroup,
+		TargetId:     policyGroup.Id,
+		Metric:       PolicyMetricRequestCount,
+		Period:       PolicyPeriodDay,
+		LimitValue:   10,
+		Timezone:     DefaultEnterpriseTimezone,
+		ModelScope:   PolicyModelScopeAll,
+		ModelsJson:   "[]",
+		Action:       PolicyActionReject,
+		Status:       QuotaPolicyStatusEnabled,
+	}
+	require.NoError(t, DB.Create(&policyGroupPolicy).Error)
 	quotaRequest := EnterpriseQuotaRequest{
 		EnterpriseId:    enterprise.Id,
 		ApplicantUserId: 9701,
-		PolicyId:        policy.Id,
-		TargetType:      policy.TargetType,
-		TargetId:        policy.TargetId,
-		Metric:          policy.Metric,
-		Period:          policy.Period,
+		PolicyId:        projectPolicy.Id,
+		TargetType:      projectPolicy.TargetType,
+		TargetId:        projectPolicy.TargetId,
+		Metric:          projectPolicy.Metric,
+		Period:          projectPolicy.Period,
 		LimitDelta:      1,
 		Status:          EnterpriseQuotaRequestStatusPending,
 		ExpiresAt:       common.GetTimestamp() + 3600,
@@ -157,9 +180,27 @@ func TestRecordEnterpriseAuditLogFillsScope(t *testing.T) {
 		ActorUserId:  9701,
 		Action:       "quota_policy.update",
 		TargetType:   "quota_policy",
-		TargetId:     policy.Id,
-		After:        policy,
+		TargetId:     projectPolicy.Id,
+		After:        projectPolicy,
 		RequestId:    "scope-policy",
+	}))
+	require.NoError(t, RecordEnterpriseAuditLog(EnterpriseAuditInput{
+		EnterpriseId: enterprise.Id,
+		ActorUserId:  9701,
+		Action:       "policy_group.update",
+		TargetType:   "policy_group",
+		TargetId:     policyGroup.Id,
+		After:        policyGroup,
+		RequestId:    "scope-policy-group",
+	}))
+	require.NoError(t, RecordEnterpriseAuditLog(EnterpriseAuditInput{
+		EnterpriseId: enterprise.Id,
+		ActorUserId:  9701,
+		Action:       "quota_policy.update",
+		TargetType:   "quota_policy",
+		TargetId:     policyGroupPolicy.Id,
+		After:        policyGroupPolicy,
+		RequestId:    "scope-policy-group-policy",
 	}))
 	require.NoError(t, RecordEnterpriseAuditLog(EnterpriseAuditInput{
 		EnterpriseId: enterprise.Id,
@@ -176,6 +217,18 @@ func TestRecordEnterpriseAuditLogFillsScope(t *testing.T) {
 	assert.Equal(t, project.Id, policyAudit.ScopeProjectId)
 	assert.Equal(t, 0, policyAudit.ScopeUserId)
 	assert.Equal(t, 0, policyAudit.ScopeOrgUnitId)
+
+	var policyGroupAudit EnterpriseAuditLog
+	require.NoError(t, DB.Where("request_id = ?", "scope-policy-group").First(&policyGroupAudit).Error)
+	assert.Equal(t, 0, policyGroupAudit.ScopeProjectId)
+	assert.Equal(t, 0, policyGroupAudit.ScopeUserId)
+	assert.Equal(t, orgUnit.Id, policyGroupAudit.ScopeOrgUnitId)
+
+	var policyGroupPolicyAudit EnterpriseAuditLog
+	require.NoError(t, DB.Where("request_id = ?", "scope-policy-group-policy").First(&policyGroupPolicyAudit).Error)
+	assert.Equal(t, 0, policyGroupPolicyAudit.ScopeProjectId)
+	assert.Equal(t, 0, policyGroupPolicyAudit.ScopeUserId)
+	assert.Equal(t, orgUnit.Id, policyGroupPolicyAudit.ScopeOrgUnitId)
 
 	var requestAudit EnterpriseAuditLog
 	require.NoError(t, DB.Where("request_id = ?", "scope-request").First(&requestAudit).Error)
