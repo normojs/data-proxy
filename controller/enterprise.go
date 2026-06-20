@@ -104,6 +104,11 @@ type enterpriseNotificationPreferenceRequest struct {
 	RecipientScope service.EnterpriseNotificationRecipientScope `json:"recipient_scope"`
 }
 
+type enterpriseQuotaCounterReconciliationRequest struct {
+	Limit  int  `json:"limit"`
+	Repair bool `json:"repair"`
+}
+
 type enterpriseOrgSyncRequest = service.EnterpriseOrgSyncInput
 
 type enterpriseQuotaRequestItem struct {
@@ -1133,6 +1138,31 @@ func DeleteEnterpriseQuotaPolicy(c *gin.Context) {
 	}
 	recordEnterpriseAudit(c, enterprise.Id, "quota_policy.disable", "quota_policy", id, before, policy)
 	common.ApiSuccess(c, gin.H{"id": id})
+}
+
+func ReconcileEnterpriseQuotaCounters(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterpriseQuotaCounterReconciliationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	result, err := service.ReconcileEnterpriseQuotaRedisCounters(service.EnterpriseQuotaCounterReconciliationParams{
+		EnterpriseId: enterprise.Id,
+		Limit:        req.Limit,
+		Repair:       req.Repair,
+		ActorUserId:  c.GetInt("id"),
+		RequestId:    c.GetHeader(common.RequestIdKey),
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
 }
 
 func ListEnterpriseQuotaRequests(c *gin.Context) {

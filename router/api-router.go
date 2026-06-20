@@ -372,6 +372,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminEnterpriseRoute.POST("/quota-policies", controller.CreateEnterpriseQuotaPolicy)
 				adminEnterpriseRoute.PUT("/quota-policies/:id", controller.UpdateEnterpriseQuotaPolicy)
 				adminEnterpriseRoute.DELETE("/quota-policies/:id", controller.DeleteEnterpriseQuotaPolicy)
+				adminEnterpriseRoute.POST("/quota-counters/reconcile", controller.ReconcileEnterpriseQuotaCounters)
 				adminEnterpriseRoute.POST("/quota-requests/:id/approve", controller.ApproveEnterpriseQuotaRequest)
 				adminEnterpriseRoute.POST("/quota-requests/:id/reject", controller.RejectEnterpriseQuotaRequest)
 				adminEnterpriseRoute.GET("/webhooks", controller.ListEnterpriseWebhooks)

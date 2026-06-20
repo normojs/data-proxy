@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -101,6 +102,8 @@ type enterpriseQuotaAtomicCounter interface {
 	Reserve(ctx context.Context, key string, amount int64, limit int64, ttl time.Duration, seed enterpriseQuotaCounterSnapshot) (enterpriseQuotaCounterSnapshot, bool, error)
 	Settle(ctx context.Context, key string, reserved int64, actual int64, ttl time.Duration) error
 	Refund(ctx context.Context, key string, amount int64, ttl time.Duration) error
+	Snapshot(ctx context.Context, key string) (enterpriseQuotaCounterSnapshot, bool, error)
+	SetSnapshot(ctx context.Context, key string, snapshot enterpriseQuotaCounterSnapshot, ttl time.Duration) error
 }
 
 type enterpriseQuotaRedisReservation struct {
@@ -527,6 +530,51 @@ func (redisEnterpriseQuotaAtomicCounter) Refund(ctx context.Context, key string,
 	return err
 }
 
+func (redisEnterpriseQuotaAtomicCounter) Snapshot(ctx context.Context, key string) (enterpriseQuotaCounterSnapshot, bool, error) {
+	values, err := common.RDB.HGetAll(ctx, key).Result()
+	if err != nil {
+		return enterpriseQuotaCounterSnapshot{}, false, err
+	}
+	if len(values) == 0 {
+		return enterpriseQuotaCounterSnapshot{}, false, nil
+	}
+	used, err := parseEnterpriseQuotaCounterRedisField(values, "used")
+	if err != nil {
+		return enterpriseQuotaCounterSnapshot{}, false, err
+	}
+	reserved, err := parseEnterpriseQuotaCounterRedisField(values, "reserved")
+	if err != nil {
+		return enterpriseQuotaCounterSnapshot{}, false, err
+	}
+	return enterpriseQuotaCounterSnapshot{UsedValue: used, ReservedValue: reserved}, true, nil
+}
+
+func (redisEnterpriseQuotaAtomicCounter) SetSnapshot(ctx context.Context, key string, snapshot enterpriseQuotaCounterSnapshot, ttl time.Duration) error {
+	txn := common.RDB.TxPipeline()
+	txn.HSet(ctx, key, map[string]any{
+		"used":        snapshot.UsedValue,
+		"reserved":    snapshot.ReservedValue,
+		"initialized": "1",
+	})
+	if ttl > 0 {
+		txn.Expire(ctx, key, ttl)
+	}
+	_, err := txn.Exec(ctx)
+	return err
+}
+
+func parseEnterpriseQuotaCounterRedisField(values map[string]string, field string) (int64, error) {
+	raw := values[field]
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid redis quota counter field %s=%q: %w", field, raw, err)
+	}
+	return value, nil
+}
+
 func evalEnterpriseQuotaCounterScript(ctx context.Context, script string, key string, args ...any) ([]int64, error) {
 	result, err := common.RDB.Eval(ctx, script, []string{key}, args...).Result()
 	if err != nil {
@@ -558,6 +606,10 @@ func evalEnterpriseQuotaCounterScript(ctx context.Context, script string, key st
 
 func enterpriseQuotaCounterRedisKey(policy model.EnterpriseQuotaPolicy, start time.Time) string {
 	return fmt.Sprintf("enterprise_quota_counter:v1:%d:%d:%s:%d:%s:%d", policy.EnterpriseId, policy.Id, policy.TargetType, policy.TargetId, policy.Metric, start.Unix())
+}
+
+func enterpriseQuotaCounterRedisKeyForCounter(counter model.EnterpriseQuotaCounter) string {
+	return fmt.Sprintf("enterprise_quota_counter:v1:%d:%d:%s:%d:%s:%d", counter.EnterpriseId, counter.PolicyId, counter.TargetType, counter.TargetId, counter.Metric, counter.PeriodStart)
 }
 
 func enterpriseQuotaCounterRedisTTL(periodEnd time.Time) time.Duration {

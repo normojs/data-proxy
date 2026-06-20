@@ -119,6 +119,9 @@ func main() {
 	// Enterprise notification outbox delivery task
 	service.StartEnterpriseNotificationOutboxTask()
 
+	// Enterprise quota Redis counter reconciliation task
+	service.StartEnterpriseQuotaCounterReconciliationTask()
+
 	// Billing event relation inspection task (admin-configurable)
 	service.StartBillingEventRelationInspectionTask()
 

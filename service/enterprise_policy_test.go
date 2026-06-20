@@ -650,6 +650,83 @@ func TestEnterpriseQuotaRedisCounterSeedsFromDatabase(t *testing.T) {
 	assert.EqualValues(t, 1, snapshot.ReservedValue)
 }
 
+func TestEnterpriseQuotaRedisCounterReconciliationRepairsRedisFromDB(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	common.EnterpriseQuotaRedisCounterEnabled = true
+	fakeCounter := newFakeEnterpriseQuotaAtomicCounter()
+	enterpriseQuotaCounterBackend = fakeCounter
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "企业 Redis 对账请求次数",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricRequestCount,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   10,
+		ModelScope:   model.PolicyModelScopeAll,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+	now := time.Now().UTC()
+	start, end, err := ResolveEnterprisePolicyPeriod(policy, now)
+	require.NoError(t, err)
+	counter := model.EnterpriseQuotaCounter{
+		EnterpriseId:  enterprise.Id,
+		PolicyId:      policy.Id,
+		TargetType:    policy.TargetType,
+		TargetId:      policy.TargetId,
+		Metric:        policy.Metric,
+		PeriodStart:   start.Unix(),
+		PeriodEnd:     end.Unix(),
+		UsedValue:     2,
+		ReservedValue: 1,
+	}
+	require.NoError(t, model.DB.Create(&counter).Error)
+	key := enterpriseQuotaCounterRedisKeyForCounter(counter)
+	require.NoError(t, fakeCounter.SetSnapshot(context.Background(), key, enterpriseQuotaCounterSnapshot{UsedValue: 1, ReservedValue: 0}, time.Hour))
+
+	dryRun, err := ReconcileEnterpriseQuotaRedisCounters(EnterpriseQuotaCounterReconciliationParams{
+		EnterpriseId: enterprise.Id,
+		Limit:        10,
+		Repair:       false,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, dryRun.Scanned)
+	assert.Equal(t, 1, dryRun.Mismatched)
+	assert.Equal(t, 0, dryRun.Repaired)
+	require.Len(t, dryRun.Items, 1)
+	assert.Equal(t, EnterpriseQuotaCounterReconciliationStatusMismatched, dryRun.Items[0].Status)
+	assert.EqualValues(t, 2, dryRun.Items[0].DBSnapshot.UsedValue)
+	require.NotNil(t, dryRun.Items[0].RedisSnapshot)
+	assert.EqualValues(t, 1, dryRun.Items[0].RedisSnapshot.UsedValue)
+
+	repaired, err := ReconcileEnterpriseQuotaRedisCounters(EnterpriseQuotaCounterReconciliationParams{
+		EnterpriseId: enterprise.Id,
+		Limit:        10,
+		Repair:       true,
+		ActorUserId:  777,
+		RequestId:    "quota-counter-reconcile-test",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, repaired.Scanned)
+	assert.Equal(t, 1, repaired.Mismatched)
+	assert.Equal(t, 1, repaired.Repaired)
+	require.Len(t, repaired.Items, 1)
+	assert.Equal(t, EnterpriseQuotaCounterReconciliationStatusRepaired, repaired.Items[0].Status)
+	snapshot := fakeCounter.snapshot(key)
+	assert.EqualValues(t, 2, snapshot.UsedValue)
+	assert.EqualValues(t, 1, snapshot.ReservedValue)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("action = ? AND target_type = ? AND target_id = ?", "quota_counter.reconcile", "quota_counter", counter.Id).First(&audit).Error)
+	assert.Equal(t, enterprise.Id, audit.EnterpriseId)
+	assert.Equal(t, 777, audit.ActorUserId)
+	assert.Equal(t, "quota-counter-reconcile-test", audit.RequestId)
+	assert.Contains(t, audit.BeforeJson, EnterpriseQuotaCounterReconciliationStatusMismatched)
+	assert.Contains(t, audit.AfterJson, EnterpriseQuotaCounterReconciliationStatusRepaired)
+}
+
 func TestEnterpriseReservationSettleMovesReservedToUsed(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()
@@ -797,6 +874,23 @@ func (f *fakeEnterpriseQuotaAtomicCounter) Refund(ctx context.Context, key strin
 		snapshot.ReservedValue = 0
 	}
 	f.snapshots[key] = snapshot
+	return nil
+}
+
+func (f *fakeEnterpriseQuotaAtomicCounter) Snapshot(ctx context.Context, key string) (enterpriseQuotaCounterSnapshot, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.initialized[key] {
+		return enterpriseQuotaCounterSnapshot{}, false, nil
+	}
+	return f.snapshots[key], true, nil
+}
+
+func (f *fakeEnterpriseQuotaAtomicCounter) SetSnapshot(ctx context.Context, key string, snapshot enterpriseQuotaCounterSnapshot, ttl time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.snapshots[key] = snapshot
+	f.initialized[key] = true
 	return nil
 }
 
