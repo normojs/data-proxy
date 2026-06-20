@@ -64,7 +64,7 @@ jobs:
           fi
 
       - name: Run backend tests
-        run: go test ./model ./controller ./service ./router
+        run: go test ./model ./controller ./service ./router ./oauth
 
       - name: Run enterprise governance rollout smoke
         run: go test ./service -run TestEnterpriseGovernanceRolloutRunbookR0ToR3 -count=1

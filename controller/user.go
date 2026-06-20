@@ -647,6 +647,38 @@ func AdminClearUserBinding(c *gin.Context) {
 	})
 }
 
+func ClearSelfUserBinding(c *gin.Context) {
+	id := c.GetInt("id")
+	if id == 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	bindingType := strings.ToLower(strings.TrimSpace(c.Param("binding_type")))
+	if bindingType == "" {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	user, err := model.GetUserById(id, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	if err := user.ClearBinding(bindingType); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	model.RecordLog(user.Id, model.LogTypeManage, fmt.Sprintf("user cleared %s binding for self", bindingType))
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "success",
+	})
+}
+
 func UpdateSelf(c *gin.Context) {
 	var requestData map[string]interface{}
 	err := common.DecodeJson(c.Request.Body, &requestData)

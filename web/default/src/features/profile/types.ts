@@ -168,6 +168,7 @@ export interface BindingItem {
   isBound: boolean
   isEnabled: boolean
   onBind: () => void
+  onUnbind?: () => void
 }
 
 /**

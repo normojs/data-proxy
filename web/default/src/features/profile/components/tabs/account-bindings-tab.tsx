@@ -38,6 +38,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { OAUTH_BIND_STORAGE_KEY } from '@/features/auth/constants'
 import {
   getSelfOAuthBindings,
+  unbindBuiltInOAuth,
   unbindCustomOAuth,
   type CustomOAuthBinding,
 } from '../../api'
@@ -68,6 +69,10 @@ export function AccountBindingsTab({
   const [unbindTarget, setUnbindTarget] = useState<CustomOAuthBinding | null>(
     null
   )
+  const [builtInUnbindTarget, setBuiltInUnbindTarget] = useState<{
+    id: string
+    label: string
+  } | null>(null)
   const [unbinding, setUnbinding] = useState(false)
 
   const customProviders = status?.custom_oauth_providers as
@@ -111,6 +116,29 @@ export function AccountBindingsTab({
     } finally {
       setUnbinding(false)
       setUnbindTarget(null)
+    }
+  }
+
+  const handleUnbindBuiltIn = async () => {
+    if (!builtInUnbindTarget) return
+    setUnbinding(true)
+    try {
+      const res = await unbindBuiltInOAuth(builtInUnbindTarget.id)
+      if (res.success) {
+        toast.success(
+          t('Unbound {{provider}}', {
+            provider: builtInUnbindTarget.label,
+          })
+        )
+        onUpdate()
+      } else {
+        toast.error(res.message || t('Unbind failed'))
+      }
+    } catch {
+      toast.error(t('Unbind failed'))
+    } finally {
+      setUnbinding(false)
+      setBuiltInUnbindTarget(null)
     }
   }
 
@@ -268,6 +296,11 @@ export function AccountBindingsTab({
             )
           }
         },
+        onUnbind: () =>
+          setBuiltInUnbindTarget({
+            id: 'hstation',
+            label: t('H 站'),
+          }),
       },
       {
         id: 'wechat',
@@ -314,19 +347,31 @@ export function AccountBindingsTab({
                 </p>
               </div>
             </div>
-            <Button
-              variant='outline'
-              size='sm'
-              className='h-7 shrink-0 px-2.5 text-xs'
-              onClick={binding.onBind}
-              disabled={binding.isBound && binding.id !== 'email'}
-            >
-              {binding.isBound
-                ? binding.id === 'email'
-                  ? t('Change')
-                  : t('Bound')
-                : t('Bind')}
-            </Button>
+            {binding.isBound && binding.onUnbind ? (
+              <Button
+                variant='ghost'
+                size='sm'
+                className='text-destructive hover:text-destructive h-7 shrink-0 px-2.5 text-xs'
+                onClick={binding.onUnbind}
+              >
+                <Unlink className='mr-1 h-3 w-3' />
+                {t('Unbind')}
+              </Button>
+            ) : (
+              <Button
+                variant='outline'
+                size='sm'
+                className='h-7 shrink-0 px-2.5 text-xs'
+                onClick={binding.onBind}
+                disabled={binding.isBound && binding.id !== 'email'}
+              >
+                {binding.isBound
+                  ? binding.id === 'email'
+                    ? t('Change')
+                    : t('Bound')
+                  : t('Bind')}
+              </Button>
+            )}
           </div>
         ))}
       </div>
@@ -397,6 +442,23 @@ export function AccountBindingsTab({
           </div>
         </>
       )}
+
+      {/* Built-in OAuth Unbind Confirmation */}
+      <ConfirmDialog
+        open={!!builtInUnbindTarget}
+        onOpenChange={(open) => !open && setBuiltInUnbindTarget(null)}
+        title={t('Confirm Unbind')}
+        desc={t(
+          'Are you sure you want to unbind {{provider}}? You will no longer be able to log in via this method.',
+          {
+            provider: builtInUnbindTarget?.label || '',
+          }
+        )}
+        confirmText={t('Confirm Unbind')}
+        destructive
+        handleConfirm={handleUnbindBuiltIn}
+        isLoading={unbinding}
+      />
 
       {/* Custom OAuth Unbind Confirmation */}
       <ConfirmDialog
