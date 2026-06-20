@@ -32,6 +32,7 @@ func setupEnterprisePolicyServiceTestDB(t *testing.T) {
 		&model.EnterpriseOrgMembership{},
 		&model.EnterprisePolicyGroup{},
 		&model.EnterprisePolicyGroupMember{},
+		&model.EnterprisePolicyGroupShare{},
 		&model.EnterpriseProject{},
 		&model.EnterpriseProjectOrgUnit{},
 		&model.EnterpriseProjectMember{},

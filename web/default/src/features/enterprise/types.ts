@@ -145,6 +145,9 @@ export type EnterprisePolicyGroup = {
   name: string
   slug: string
   description: string
+  shared_org_unit_ids: number[]
+  shared_org_unit_names: string[]
+  can_manage: boolean
   status: number
   created_at: number
   updated_at: number
@@ -404,6 +407,7 @@ export type EnterpriseOrgUnitPayload = {
 
 export type EnterprisePolicyGroupPayload = {
   org_unit_id?: number
+  shared_org_unit_ids?: number[]
   name: string
   slug: string
   description: string

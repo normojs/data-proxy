@@ -39,11 +39,12 @@ type enterpriseMemberOrgUnitRequest struct {
 }
 
 type enterprisePolicyGroupRequest struct {
-	Name        string `json:"name"`
-	Slug        string `json:"slug"`
-	Description string `json:"description"`
-	OrgUnitId   *int   `json:"org_unit_id"`
-	Status      int    `json:"status"`
+	Name             string `json:"name"`
+	Slug             string `json:"slug"`
+	Description      string `json:"description"`
+	OrgUnitId        *int   `json:"org_unit_id"`
+	SharedOrgUnitIds []int  `json:"shared_org_unit_ids"`
+	Status           int    `json:"status"`
 }
 
 type enterprisePolicyGroupMembersRequest struct {
@@ -144,8 +145,11 @@ type enterpriseMemberItem struct {
 
 type enterprisePolicyGroupItem struct {
 	model.EnterprisePolicyGroup
-	MemberCount int64 `json:"member_count"`
-	PolicyCount int64 `json:"policy_count"`
+	SharedOrgUnitIds   []int    `json:"shared_org_unit_ids"`
+	SharedOrgUnitNames []string `json:"shared_org_unit_names"`
+	CanManage          bool     `json:"can_manage"`
+	MemberCount        int64    `json:"member_count"`
+	PolicyCount        int64    `json:"policy_count"`
 }
 
 type enterpriseProjectItem struct {
@@ -665,13 +669,10 @@ func ListEnterprisePolicyGroups(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	items := make([]enterprisePolicyGroupItem, 0, len(groups))
-	for _, group := range groups {
-		items = append(items, enterprisePolicyGroupItem{
-			EnterprisePolicyGroup: group,
-			MemberCount:           countEnterprisePolicyGroupMembers(group.Id),
-			PolicyCount:           countEnterprisePoliciesForTarget(enterprise.Id, model.PolicyTargetPolicyGroup, group.Id),
-		})
+	items, err := buildEnterprisePolicyGroupItems(enterprise.Id, groups, access)
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(items)
@@ -703,6 +704,11 @@ func CreateEnterprisePolicyGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	sharedOrgUnitIds, err := normalizeEnterprisePolicyGroupShareOrgUnitIds(enterprise.Id, access, req.SharedOrgUnitIds)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	status := req.Status
 	if status == 0 {
 		status = model.PolicyGroupStatusEnabled
@@ -715,11 +721,16 @@ func CreateEnterprisePolicyGroup(c *gin.Context) {
 		Description:  req.Description,
 		Status:       status,
 	}
-	if err := model.DB.Create(&group).Error; err != nil {
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&group).Error; err != nil {
+			return err
+		}
+		return replaceEnterprisePolicyGroupShares(tx, enterprise.Id, group.Id, sharedOrgUnitIds)
+	}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	recordEnterpriseAudit(c, enterprise.Id, "policy_group.create", "policy_group", group.Id, nil, group)
+	recordEnterpriseAudit(c, enterprise.Id, "policy_group.create", "policy_group", group.Id, nil, gin.H{"group": group, "shared_org_unit_ids": sharedOrgUnitIds})
 	common.ApiSuccess(c, gin.H{"id": group.Id})
 }
 
@@ -757,7 +768,21 @@ func UpdateEnterprisePolicyGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := requireDepartmentPolicyGroupManageInScope(access, group); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	orgUnitId, err := policyGroupOrgUnitFromRequest(enterprise.Id, access, req.OrgUnitId, group.OrgUnitId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	sharedOrgUnitIds, err := normalizeEnterprisePolicyGroupShareOrgUnitIds(enterprise.Id, access, req.SharedOrgUnitIds)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	beforeSharedOrgUnitIds, err := enterprisePolicyGroupShareOrgUnitIds(enterprise.Id, id)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -770,11 +795,16 @@ func UpdateEnterprisePolicyGroup(c *gin.Context) {
 	if req.Status != 0 {
 		group.Status = req.Status
 	}
-	if err := model.DB.Save(&group).Error; err != nil {
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&group).Error; err != nil {
+			return err
+		}
+		return replaceEnterprisePolicyGroupShares(tx, enterprise.Id, group.Id, sharedOrgUnitIds)
+	}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	recordEnterpriseAudit(c, enterprise.Id, "policy_group.update", "policy_group", id, before, group)
+	recordEnterpriseAudit(c, enterprise.Id, "policy_group.update", "policy_group", id, gin.H{"group": before, "shared_org_unit_ids": beforeSharedOrgUnitIds}, gin.H{"group": group, "shared_org_unit_ids": sharedOrgUnitIds})
 	common.ApiSuccess(c, gin.H{"id": id})
 }
 
@@ -800,6 +830,10 @@ func DeleteEnterprisePolicyGroup(c *gin.Context) {
 		return
 	}
 	if err := requireDepartmentPolicyGroupInScope(access, group); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentPolicyGroupManageInScope(access, group); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -2209,7 +2243,7 @@ func applyDepartmentPolicyGroupScope(query *gorm.DB, access service.EnterpriseAc
 	if !access.HasDepartmentScope() {
 		return query
 	}
-	return query.Where("org_unit_id IN ?", access.ScopedOrgUnitIds)
+	return query.Where("id IN (?)", departmentScopedPolicyGroupIds(access.EnterpriseId, access))
 }
 
 func requireDepartmentOrgUnitInScope(access service.EnterpriseAccess, orgUnitId int) error {
@@ -2240,10 +2274,40 @@ func requireDepartmentPolicyGroupInScope(access service.EnterpriseAccess, group 
 	if !access.HasDepartmentScope() {
 		return nil
 	}
+	if access.OrgUnitInScope(group.OrgUnitId) {
+		return nil
+	}
+	shared := false
+	if group.Id > 0 && len(access.ScopedOrgUnitIds) > 0 {
+		var count int64
+		_ = model.DB.Model(&model.EnterprisePolicyGroupShare{}).
+			Where("policy_group_id = ? AND org_unit_id IN ?", group.Id, access.ScopedOrgUnitIds).
+			Count(&count).Error
+		shared = count > 0
+	}
+	if !shared {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
+func requireDepartmentPolicyGroupManageInScope(access service.EnterpriseAccess, group model.EnterprisePolicyGroup) error {
+	if !access.HasDepartmentScope() {
+		return nil
+	}
 	if !access.OrgUnitInScope(group.OrgUnitId) {
 		return scopedEnterpriseError()
 	}
 	return nil
+}
+
+func departmentScopedPolicyGroupIds(enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	sharedPolicyGroupIds := model.DB.Model(&model.EnterprisePolicyGroupShare{}).
+		Select("policy_group_id").
+		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
+	return model.DB.Model(&model.EnterprisePolicyGroup{}).
+		Select("id").
+		Where("enterprise_id = ? AND (org_unit_id IN ? OR id IN (?))", enterpriseId, access.ScopedOrgUnitIds, sharedPolicyGroupIds)
 }
 
 func requireProjectInScope(access service.EnterpriseAccess, projectId int) error {
@@ -2296,9 +2360,7 @@ func applyDepartmentQuotaPolicyScope(query *gorm.DB, enterpriseId int, access se
 	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
 		Select("user_id").
 		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
-	scopedPolicyGroupIds := model.DB.Model(&model.EnterprisePolicyGroup{}).
-		Select("id").
-		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
+	scopedPolicyGroupIds := departmentScopedPolicyGroupIds(enterpriseId, access)
 	return query.Where(
 		"(target_type = ? AND target_id IN ?) OR (target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?))",
 		model.PolicyTargetOrgUnit,
@@ -2383,9 +2445,7 @@ func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.
 	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
 		Select("user_id").
 		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
-	scopedPolicyGroupIds := model.DB.Model(&model.EnterprisePolicyGroup{}).
-		Select("id").
-		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
+	scopedPolicyGroupIds := departmentScopedPolicyGroupIds(enterpriseId, access)
 	scopedQuotaPolicyIds := model.DB.Model(&model.EnterpriseQuotaPolicy{}).
 		Select("id").
 		Where(
@@ -3057,6 +3117,32 @@ func validatePolicyGroupRequest(req enterprisePolicyGroupRequest) error {
 	return nil
 }
 
+func normalizeEnterprisePolicyGroupShareOrgUnitIds(enterpriseId int, access service.EnterpriseAccess, orgUnitIds []int) ([]int, error) {
+	if len(orgUnitIds) == 0 {
+		return []int{}, nil
+	}
+	seen := map[int]struct{}{}
+	ids := make([]int, 0, len(orgUnitIds))
+	for _, orgUnitId := range orgUnitIds {
+		if orgUnitId <= 0 {
+			return nil, errors.New("共享部门无效")
+		}
+		if _, ok := seen[orgUnitId]; ok {
+			continue
+		}
+		if access.HasDepartmentScope() && !access.OrgUnitInScope(orgUnitId) {
+			return nil, scopedEnterpriseError()
+		}
+		if err := ensureOrgUnitExists(enterpriseId, orgUnitId); err != nil {
+			return nil, err
+		}
+		seen[orgUnitId] = struct{}{}
+		ids = append(ids, orgUnitId)
+	}
+	sort.Ints(ids)
+	return ids, nil
+}
+
 func policyGroupOrgUnitFromRequest(enterpriseId int, access service.EnterpriseAccess, orgUnitId *int, currentOrgUnitId int) (int, error) {
 	if access.HasDepartmentScope() {
 		value := currentOrgUnitId
@@ -3084,6 +3170,35 @@ func policyGroupOrgUnitFromRequest(enterpriseId int, access service.EnterpriseAc
 		return 0, err
 	}
 	return *orgUnitId, nil
+}
+
+func replaceEnterprisePolicyGroupShares(tx *gorm.DB, enterpriseId int, groupId int, orgUnitIds []int) error {
+	if err := tx.Where("enterprise_id = ? AND policy_group_id = ?", enterpriseId, groupId).Delete(&model.EnterprisePolicyGroupShare{}).Error; err != nil {
+		return err
+	}
+	for _, orgUnitId := range orgUnitIds {
+		share := model.EnterprisePolicyGroupShare{
+			EnterpriseId:  enterpriseId,
+			PolicyGroupId: groupId,
+			OrgUnitId:     orgUnitId,
+		}
+		if err := tx.Create(&share).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func enterprisePolicyGroupShareOrgUnitIds(enterpriseId int, groupId int) ([]int, error) {
+	var shares []model.EnterprisePolicyGroupShare
+	if err := model.DB.Where("enterprise_id = ? AND policy_group_id = ?", enterpriseId, groupId).Order("org_unit_id asc").Find(&shares).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]int, 0, len(shares))
+	for _, share := range shares {
+		ids = append(ids, share.OrgUnitId)
+	}
+	return ids, nil
 }
 
 func projectFromRequest(enterpriseId int, req enterpriseProjectRequest) (model.EnterpriseProject, []int, error) {
@@ -3201,6 +3316,45 @@ func buildEnterpriseProjectItems(enterpriseId int, projects []model.EnterprisePr
 		})
 	}
 	return items, nil
+}
+
+func buildEnterprisePolicyGroupItems(enterpriseId int, groups []model.EnterprisePolicyGroup, access service.EnterpriseAccess) ([]enterprisePolicyGroupItem, error) {
+	orgUnitNames, err := enterpriseOrgUnitNames(enterpriseId)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]enterprisePolicyGroupItem, 0, len(groups))
+	for _, group := range groups {
+		sharedOrgUnitIds, err := enterprisePolicyGroupShareOrgUnitIds(enterpriseId, group.Id)
+		if err != nil {
+			return nil, err
+		}
+		sharedOrgUnitNames := make([]string, 0, len(sharedOrgUnitIds))
+		for _, orgUnitId := range sharedOrgUnitIds {
+			if name := orgUnitNames[orgUnitId]; name != "" {
+				sharedOrgUnitNames = append(sharedOrgUnitNames, name)
+			}
+		}
+		items = append(items, enterprisePolicyGroupItem{
+			EnterprisePolicyGroup: group,
+			SharedOrgUnitIds:      sharedOrgUnitIds,
+			SharedOrgUnitNames:    sharedOrgUnitNames,
+			CanManage:             enterprisePolicyGroupCanManage(access, group),
+			MemberCount:           countEnterprisePolicyGroupMembers(group.Id),
+			PolicyCount:           countEnterprisePoliciesForTarget(enterpriseId, model.PolicyTargetPolicyGroup, group.Id),
+		})
+	}
+	return items, nil
+}
+
+func enterprisePolicyGroupCanManage(access service.EnterpriseAccess, group model.EnterprisePolicyGroup) bool {
+	if access.SystemAdmin || access.Permissions.Manage {
+		return true
+	}
+	if !access.HasDepartmentScope() {
+		return false
+	}
+	return access.OrgUnitInScope(group.OrgUnitId)
 }
 
 func enterpriseProjectMemberRoles(enterpriseId int, projects []model.EnterpriseProject, userId int) (map[int]string, error) {

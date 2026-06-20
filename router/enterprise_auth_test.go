@@ -46,8 +46,10 @@ type enterpriseQuotaPolicyItemForTest struct {
 }
 
 type enterprisePolicyGroupItemForTest struct {
-	Id        int `json:"id"`
-	OrgUnitId int `json:"org_unit_id"`
+	Id               int   `json:"id"`
+	OrgUnitId        int   `json:"org_unit_id"`
+	SharedOrgUnitIds []int `json:"shared_org_unit_ids"`
+	CanManage        bool  `json:"can_manage"`
 }
 
 type enterpriseProjectItemForTest struct {
@@ -281,6 +283,7 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	}).Error)
 
 	router := newEnterpriseRouterForTest(t)
+	enterpriseAdminCookies := loginEnterpriseRouterUserForTest(t, router, 1, common.RoleAdminUser)
 	departmentCookies := loginEnterpriseRouterUserForTest(t, router, departmentAdminId, common.RoleCommonUser)
 
 	members := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/members?page_size=20", "", departmentCookies, departmentAdminId)
@@ -299,6 +302,25 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	policyGroupPage := decodeEnterprisePageResponseForTest[enterprisePolicyGroupItemForTest](t, policyGroups)
 	require.ElementsMatch(t, []int{engineeringGroup.Id}, enterprisePolicyGroupIdsForTest(policyGroupPage.Data.Items))
 	require.Equal(t, engineeringId, policyGroupPage.Data.Items[0].OrgUnitId)
+	require.True(t, policyGroupPage.Data.Items[0].CanManage)
+
+	shareSalesGroup := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id), `{
+    "name": "Sales Pilot",
+    "slug": "sales-pilot",
+    "description": "shared with engineering",
+    "shared_org_unit_ids": [`+strconv.Itoa(engineeringId)+`],
+    "status": 1
+  }`, enterpriseAdminCookies, 1)
+	require.True(t, decodeEnterpriseAuthResponse(t, shareSalesGroup).Success)
+
+	sharedPolicyGroups := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-groups?page_size=20", "", departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, sharedPolicyGroups).Success)
+	sharedPolicyGroupPage := decodeEnterprisePageResponseForTest[enterprisePolicyGroupItemForTest](t, sharedPolicyGroups)
+	require.ElementsMatch(t, []int{engineeringGroup.Id, salesGroup.Id}, enterprisePolicyGroupIdsForTest(sharedPolicyGroupPage.Data.Items))
+	sharedGroupsById := enterprisePolicyGroupsByIdForTest(sharedPolicyGroupPage.Data.Items)
+	require.True(t, sharedGroupsById[engineeringGroup.Id].CanManage)
+	require.False(t, sharedGroupsById[salesGroup.Id].CanManage)
+	require.ElementsMatch(t, []int{engineeringId}, sharedGroupsById[salesGroup.Id].SharedOrgUnitIds)
 
 	createPolicyGroup := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups", `{
     "name": "Department Created",
@@ -343,8 +365,8 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.Equal(t, model.PolicyGroupMemberRoleViewer, scopedMembersById[platformUserId].Role)
 
 	addCrossMember := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(departmentGroup.Id)+"/members", `{
-	    "user_ids": [`+strconv.Itoa(salesUserId)+`]
-  }`, departmentCookies, departmentAdminId)
+		    "user_ids": [`+strconv.Itoa(salesUserId)+`]
+	  }`, departmentCookies, departmentAdminId)
 	addCrossMemberResponse := decodeEnterpriseAuthResponse(t, addCrossMember)
 	require.False(t, addCrossMemberResponse.Success)
 	require.Contains(t, addCrossMemberResponse.Message, "权限范围外")
@@ -358,6 +380,19 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	updateCrossGroupResponse := decodeEnterpriseAuthResponse(t, updateCrossGroup)
 	require.False(t, updateCrossGroupResponse.Success)
 	require.Contains(t, updateCrossGroupResponse.Message, "权限范围外")
+
+	addSharedGroupMember := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id)+"/members", `{
+    "user_ids": [`+strconv.Itoa(engineerId)+`],
+    "role": "viewer"
+  }`, departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, addSharedGroupMember).Success)
+
+	addSharedGroupCrossMember := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id)+"/members", `{
+    "user_ids": [`+strconv.Itoa(salesUserId)+`]
+  }`, departmentCookies, departmentAdminId)
+	addSharedGroupCrossMemberResponse := decodeEnterpriseAuthResponse(t, addSharedGroupCrossMember)
+	require.False(t, addSharedGroupCrossMemberResponse.Success)
+	require.Contains(t, addSharedGroupCrossMemberResponse.Message, "权限范围外")
 
 	updateGlobalGroup := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/policy-groups/"+strconv.Itoa(globalGroup.Id), `{
     "name": "Global Cross Update",
@@ -398,7 +433,7 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.True(t, decodeEnterpriseAuthResponse(t, createPolicyGroupPolicy).Success)
 
 	createCrossPolicyGroupPolicy := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-policies", `{
-    "name": "Sales Group Cross",
+    "name": "Sales Group Shared",
     "target_type": "policy_group",
     "target_id": `+strconv.Itoa(salesGroup.Id)+`,
     "metric": "request_count",
@@ -408,10 +443,25 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
     "model_scope": "all",
     "action": "reject",
     "status": 1
-  }`, departmentCookies, departmentAdminId)
+	  }`, departmentCookies, departmentAdminId)
 	createCrossPolicyGroupPolicyResponse := decodeEnterpriseAuthResponse(t, createCrossPolicyGroupPolicy)
-	require.False(t, createCrossPolicyGroupPolicyResponse.Success)
-	require.Contains(t, createCrossPolicyGroupPolicyResponse.Message, "权限范围外")
+	require.True(t, createCrossPolicyGroupPolicyResponse.Success, createCrossPolicyGroupPolicyResponse.Message)
+
+	createGlobalPolicyGroupPolicy := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-policies", `{
+    "name": "Global Group Cross",
+    "target_type": "policy_group",
+    "target_id": `+strconv.Itoa(globalGroup.Id)+`,
+    "metric": "request_count",
+    "period": "day",
+    "limit_value": 5,
+    "timezone": "Asia/Shanghai",
+    "model_scope": "all",
+    "action": "reject",
+    "status": 1
+  }`, departmentCookies, departmentAdminId)
+	createGlobalPolicyGroupPolicyResponse := decodeEnterpriseAuthResponse(t, createGlobalPolicyGroupPolicy)
+	require.False(t, createGlobalPolicyGroupPolicyResponse.Success)
+	require.Contains(t, createGlobalPolicyGroupPolicyResponse.Message, "权限范围外")
 
 	createCrossPolicy := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-policies", `{
     "name": "Sales Cross",
@@ -946,6 +996,7 @@ func setupEnterpriseRouterTestDB(t *testing.T) {
 		&model.EnterpriseOrgMembership{},
 		&model.EnterprisePolicyGroup{},
 		&model.EnterprisePolicyGroupMember{},
+		&model.EnterprisePolicyGroupShare{},
 		&model.EnterpriseProject{},
 		&model.EnterpriseProjectOrgUnit{},
 		&model.EnterpriseProjectMember{},
@@ -1306,6 +1357,14 @@ func enterprisePolicyGroupIdsForTest(items []enterprisePolicyGroupItemForTest) [
 		ids = append(ids, item.Id)
 	}
 	return ids
+}
+
+func enterprisePolicyGroupsByIdForTest(items []enterprisePolicyGroupItemForTest) map[int]enterprisePolicyGroupItemForTest {
+	groups := map[int]enterprisePolicyGroupItemForTest{}
+	for _, item := range items {
+		groups[item.Id] = item
+	}
+	return groups
 }
 
 func enterpriseProjectItemsByIdForTest(items []enterpriseProjectItemForTest) map[int]enterpriseProjectItemForTest {

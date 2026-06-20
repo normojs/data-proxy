@@ -1705,6 +1705,7 @@ function PolicyGroupsTab(props: {
             <TableHeader>
               <TableRow>
                 <TableHead>{t('Name')}</TableHead>
+                <TableHead>{t('Shared')}</TableHead>
                 <TableHead>{t('Members')}</TableHead>
                 <TableHead>{t('Policies')}</TableHead>
                 <TableHead>{t('Status')}</TableHead>
@@ -1723,6 +1724,9 @@ function PolicyGroupsTab(props: {
                       </div>
                     </div>
                   </TableCell>
+                  <TableCell>
+                    <ProjectOrgUnitList names={group.shared_org_unit_names} />
+                  </TableCell>
                   <TableCell>{formatNumber(group.member_count)}</TableCell>
                   <TableCell>{formatNumber(group.policy_count)}</TableCell>
                   <TableCell>
@@ -1739,23 +1743,27 @@ function PolicyGroupsTab(props: {
                         <Users className='size-3.5' />
                         <span className='sr-only'>{t('Members')}</span>
                       </Button>
-                      <Button
-                        variant='ghost'
-                        size='icon-sm'
-                        onClick={() => props.onEdit(group)}
-                      >
-                        <Pencil className='size-3.5' />
-                        <span className='sr-only'>{t('Edit')}</span>
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='icon-sm'
-                        disabled={group.status === DISABLED_STATUS}
-                        onClick={() => props.onDisable(group)}
-                      >
-                        <Ban className='size-3.5' />
-                        <span className='sr-only'>{t('Disable')}</span>
-                      </Button>
+                      {group.can_manage ? (
+                        <>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
+                            onClick={() => props.onEdit(group)}
+                          >
+                            <Pencil className='size-3.5' />
+                            <span className='sr-only'>{t('Edit')}</span>
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
+                            disabled={group.status === DISABLED_STATUS}
+                            onClick={() => props.onDisable(group)}
+                          >
+                            <Ban className='size-3.5' />
+                            <span className='sr-only'>{t('Disable')}</span>
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -4881,20 +4889,24 @@ type PolicyGroupFormState = {
   name: string
   slug: string
   description: string
+  shared_org_unit_ids: string[]
   status: string
 }
 
 function PolicyGroupDialog(props: {
   open: boolean
   group?: EnterprisePolicyGroup | null
+  orgUnits: EnterpriseOrgUnit[]
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const orgOptions = buildOrgOptions(props.orgUnits)
   const [form, setForm] = useState<PolicyGroupFormState>(() => ({
     name: props.group?.name ?? '',
     slug: props.group?.slug ?? '',
     description: props.group?.description ?? '',
+    shared_org_unit_ids: (props.group?.shared_org_unit_ids ?? []).map(String),
     status: String(props.group?.status ?? ENABLED_STATUS),
   }))
   const editing = Boolean(props.group)
@@ -4903,6 +4915,7 @@ function PolicyGroupDialog(props: {
     name: form.name.trim(),
     slug: (form.slug.trim() || slugify(form.name)).trim(),
     description: form.description,
+    shared_org_unit_ids: form.shared_org_unit_ids.map(Number),
     status: Number(form.status),
   })
 
@@ -4989,7 +5002,43 @@ function PolicyGroupDialog(props: {
                   description: event.target.value,
                 }))
               }
-            />
+              />
+          </Field>
+          <Field label='Shared Org Units'>
+            <div className='max-h-44 space-y-2 overflow-y-auto rounded-md border p-2'>
+              {orgOptions.length === 0 ? (
+                <p className='text-muted-foreground text-sm'>
+                  {t('No org units')}
+                </p>
+              ) : (
+                orgOptions.map((option) => (
+                  <label
+                    key={option.value}
+                    className='flex items-center gap-2 text-sm'
+                  >
+                    <Checkbox
+                      checked={form.shared_org_unit_ids.includes(option.value)}
+                      onCheckedChange={(checked) =>
+                        setForm((current) => ({
+                          ...current,
+                          shared_org_unit_ids: checked
+                            ? Array.from(
+                                new Set([
+                                  ...current.shared_org_unit_ids,
+                                  option.value,
+                                ])
+                              )
+                            : current.shared_org_unit_ids.filter(
+                                (item) => item !== option.value
+                              ),
+                        }))
+                      }
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))
+              )}
+            </div>
           </Field>
           <DialogFooter>
             <Button type='submit' disabled={mutation.isPending}>
@@ -7291,6 +7340,7 @@ export function EnterpriseGovernance() {
           key={`policy-group:${editingPolicyGroup?.id ?? 'new'}`}
           open={policyGroupDialogOpen}
           group={editingPolicyGroup}
+          orgUnits={orgUnits}
           onOpenChange={setPolicyGroupDialogOpen}
         />
       ) : null}
