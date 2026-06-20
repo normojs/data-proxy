@@ -301,6 +301,19 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
 		}
 
+		snaplessRoute := apiRouter.Group("/snapless")
+		{
+			snaplessRoute.GET("/health", middleware.CriticalRateLimit(), controller.GetSnaplessHealth)
+			snaplessUserRoute := snaplessRoute.Group("")
+			snaplessUserRoute.Use(middleware.UserAuth())
+			{
+				snaplessUserRoute.GET("/config", controller.GetSnaplessConfig)
+				snaplessUserRoute.POST("/tokens/ensure", middleware.CriticalRateLimit(), controller.EnsureSnaplessToken)
+				snaplessUserRoute.POST("/tokens/rotate", middleware.CriticalRateLimit(), controller.RotateSnaplessToken)
+				snaplessUserRoute.DELETE("/tokens/current", middleware.CriticalRateLimit(), controller.RevokeCurrentSnaplessToken)
+			}
+		}
+
 		usageRoute := apiRouter.Group("/usage")
 		usageRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{

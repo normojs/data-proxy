@@ -172,7 +172,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
+		baseQuery = baseQuery.Where(commonKeyColumn()+" LIKE ? ESCAPE '!'", tokenPattern)
 	}
 
 	// 先查匹配总数（用于分页，受 maxTokens 上限保护，避免全表 COUNT）
@@ -278,7 +278,7 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Where(commonKeyCol+" = ?", key).First(&token).Error
+	err = DB.Where(commonKeyColumn()+" = ?", key).First(&token).Error
 	return token, err
 }
 
@@ -318,6 +318,13 @@ func (token *Token) SelectUpdate() (err error) {
 	}()
 	// This can update zero values
 	return DB.Model(token).Select("accessed_time", "status").Updates(token).Error
+}
+
+func InvalidateTokenCacheByKey(key string) error {
+	if !common.RedisEnabled || key == "" {
+		return nil
+	}
+	return cacheDeleteToken(key)
 }
 
 func (token *Token) Delete() (err error) {
@@ -512,7 +519,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", commonKeyCol).
+	err := DB.Select("id", commonKeyColumn()).
 		Where("user_id = ? AND id IN (?)", userId, ids).
 		Find(&tokens).Error
 	return tokens, err
@@ -530,7 +537,7 @@ func InvalidateUserTokensCache(userId int) error {
 	}
 	var tokens []Token
 	if err := DB.Unscoped().
-		Select("id", commonKeyCol).
+		Select("id", commonKeyColumn()).
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {
 		return err

@@ -28,6 +28,16 @@ var logGroupCol string
 
 var sqliteDecimalDDLPattern = regexp.MustCompile(`(?i)decimal\s*\(\s*\d+\s*,\s*\d+\s*\)`)
 
+func commonKeyColumn() string {
+	if commonKeyCol != "" {
+		return commonKeyCol
+	}
+	if common.UsingPostgreSQL {
+		return `"key"`
+	}
+	return "`key`"
+}
+
 func initCol() {
 	// init common column names
 	if common.UsingPostgreSQL {
@@ -271,6 +281,9 @@ func migrateDB() error {
 	err := DB.AutoMigrate(
 		&Channel{},
 		&Token{},
+		&ConnectedApp{},
+		&ConnectedAppGrant{},
+		&ConnectedAppTokenBinding{},
 		&User{},
 		&PasskeyCredential{},
 		&Option{},
@@ -341,6 +354,9 @@ func migrateDB() error {
 	if err := EnsureDefaultEnterprise(); err != nil {
 		return err
 	}
+	if err := EnsureBuiltinConnectedApps(); err != nil {
+		return err
+	}
 	if err := migrateMCPToolOpenAPIUrlColumn(); err != nil {
 		return err
 	}
@@ -378,6 +394,9 @@ func migrateDBFast() error {
 	}{
 		{&Channel{}, "Channel"},
 		{&Token{}, "Token"},
+		{&ConnectedApp{}, "ConnectedApp"},
+		{&ConnectedAppGrant{}, "ConnectedAppGrant"},
+		{&ConnectedAppTokenBinding{}, "ConnectedAppTokenBinding"},
 		{&User{}, "User"},
 		{&PasskeyCredential{}, "PasskeyCredential"},
 		{&Option{}, "Option"},
@@ -464,6 +483,9 @@ func migrateDBFast() error {
 		}
 	}
 	if err := EnsureDefaultEnterprise(); err != nil {
+		return err
+	}
+	if err := EnsureBuiltinConnectedApps(); err != nil {
 		return err
 	}
 	if err := migrateMCPToolOpenAPIUrlColumn(); err != nil {

@@ -74,6 +74,7 @@ func InitOptionMap() {
 	common.OptionMap["Footer"] = common.Footer
 	common.OptionMap["SystemName"] = common.SystemName
 	common.OptionMap["Logo"] = common.Logo
+	common.OptionMap["SnaplessModels"] = `{"asr":"snapless-asr","chat":"snapless-polish","polish":"snapless-polish","translate":"snapless-translate","qa":"snapless-qa"}`
 	common.OptionMap["ServerAddress"] = ""
 	common.OptionMap["WorkerUrl"] = system_setting.WorkerUrl
 	common.OptionMap["WorkerValidKey"] = system_setting.WorkerValidKey
