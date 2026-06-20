@@ -14,8 +14,8 @@
 | --- | --- | --- | --- | --- | --- |
 | 1 | DP-CI-001 | P0 | Done | GitHub Actions 常规 CI | `main` push、PR 和手动触发时运行 Go 测试、企业治理 smoke、前端 typecheck/build、审批通知链接 smoke、artifact/whitespace 检查。 |
 | 2 | DP-REL-001 | P0 | In progress | 发布证据和 Docker 链路固化 | 预发/生产 R0-R3 证据模板可填写；Docker tag、构建命令、镜像摘要、回滚 tag 和环境变量清单可追溯。 |
-| 3 | DP-OAUTH-001 | P0 | Pending | HStation OAuth 功能收口 | 后端 provider、前端登录/绑定/系统设置、错误提示、真实回调地址验证完成；相关改动单独提交，不混入 benchmark。 |
-| 4 | DP-OAUTH-002 | P0 | Pending | HStation OAuth 自动化验证 | 覆盖登录、注册、绑定、解绑、取消授权、重复绑定、回调错误；至少补后端单测和前端 typecheck。 |
+| 3 | DP-OAUTH-001 | P0 | Done | HStation OAuth 功能收口 | 后端 provider、前端登录/绑定/系统设置、错误提示、真实回调地址验证完成；相关改动单独提交，不混入 benchmark。 |
+| 4 | DP-OAUTH-002 | P0 | In progress | HStation OAuth 自动化验证 | 覆盖登录、注册、绑定、解绑、取消授权、重复绑定、回调错误；至少补后端单测和前端 typecheck。 |
 | 5 | DP-BENCH-001 | P1 | Pending | fusion-benchmark 工具收口 | 明确数据文件和 fixtures 是否入库；CLI、README、测试和样例数据可复现，不泄露密钥或真实隐私数据。 |
 | 6 | DP-BENCH-002 | P1 | Pending | fusion-benchmark CI/文档策略 | 若工具进入主仓库，增加轻量测试命令和文档；若不进入主仓库，迁移到独立仓库或保持未提交。 |
 | 7 | DP-V14-001 | P1 | Pending | V1.4 SSO 组织同步方案 | 设计 importer 抽象、增量同步、dry-run、冲突处理 UI、同步审计和回滚边界。 |
@@ -31,6 +31,13 @@
 - Frontend：Bun 安装、`bun run typecheck`、`bun run smoke:approval-notification-links`、`bun run build`、`git diff --check`。
 
 DP-CI-001 已新增 `.github/workflows/ci.yml`。当前已开始 DP-REL-001：新增 GHCR Docker 发布 workflow 和 Data Proxy release runbook，下一步是在真实发布环境记录 CI run、镜像 digest 和 R0-R3 演练证据。
+
+## 当前进展
+
+- DP-CI-001 已完成并在 GitHub Actions 通过：Backend 覆盖 Go 测试、企业治理 smoke 和 whitespace；Frontend 覆盖 typecheck、审批通知 deep link smoke 和 build。
+- DP-REL-001 已开始：新增 `.github/workflows/data-proxy-docker.yml` 和 `docs/data-proxy-release-runbook.md`；真实镜像 digest 和 R0-R3 证据需在正式发版时补充。
+- DP-OAUTH-001 已完成基础交付：新增 HStation OAuth provider、启用配置校验、登录/注册/绑定入口、系统设置页和管理员绑定查看能力。
+- DP-OAUTH-002 已完成第一批自动化：新增 `oauth/hstation_test.go`，覆盖 token 表单、userinfo 映射和缺少 provider user id 的错误路径；本地已通过 `go test ./controller ./oauth` 和 `cd web/default && bun run typecheck`。真实回调地址验证仍需在预发或 FRP 环境执行并记录。
 
 ## 提交和发布规则
 
