@@ -133,6 +133,7 @@ const (
 	MsgEnterpriseGovernanceUserQuotaExceeded  = "enterprise_governance.user_quota_exceeded"
 	MsgEnterpriseGovernanceModelNotAllowed    = "enterprise_governance.model_not_allowed"
 	MsgEnterpriseGovernanceQueueTimeout       = "enterprise_governance.queue_timeout"
+	MsgEnterpriseGovernanceAnomalyThrottled   = "enterprise_governance.anomaly_throttled"
 )
 
 // Subscription related messages

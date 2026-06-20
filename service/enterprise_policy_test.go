@@ -43,18 +43,22 @@ func setupEnterprisePolicyServiceTestDB(t *testing.T) {
 		&model.EnterpriseNotificationOutbox{},
 		&model.EnterpriseUsageAttribution{},
 		&model.EnterpriseAuditLog{},
+		&model.Log{},
 	))
 	originalDB := model.DB
+	originalLogDB := model.LOG_DB
 	originalEnabled := common.EnterpriseGovernanceEnabled
 	originalDryRun := common.EnterpriseGovernanceDryRunEnabled
 	originalRedisCounterEnabled := common.EnterpriseQuotaRedisCounterEnabled
 	originalCounterBackend := enterpriseQuotaCounterBackend
 	model.DB = db
+	model.LOG_DB = db
 	common.EnterpriseGovernanceEnabled = true
 	common.EnterpriseGovernanceDryRunEnabled = false
 	common.EnterpriseQuotaRedisCounterEnabled = false
 	t.Cleanup(func() {
 		model.DB = originalDB
+		model.LOG_DB = originalLogDB
 		common.EnterpriseGovernanceEnabled = originalEnabled
 		common.EnterpriseGovernanceDryRunEnabled = originalDryRun
 		common.EnterpriseQuotaRedisCounterEnabled = originalRedisCounterEnabled

@@ -187,6 +187,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}
 
+	if apiErr := applyEnterpriseGovernanceAnomalyThrottle(c, relayInfo); apiErr != nil {
+		newAPIError = apiErr
+		return
+	}
+
 	queueRelease, apiErr := applyEnterpriseGovernanceQueue(c, relayInfo)
 	if apiErr != nil {
 		newAPIError = apiErr
@@ -422,6 +427,23 @@ func applyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 		)
 	}
 	return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+}
+
+func applyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	_, err := service.ApplyEnterpriseGovernanceAnomalyThrottle(c, relayInfo)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, service.ErrEnterpriseGovernanceAnomalyThrottled) {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("%s", common.TranslateMessage(c, i18n.MsgEnterpriseGovernanceAnomalyThrottled)),
+			types.ErrorCodeEnterpriseGovernanceAnomalyThrottled,
+			http.StatusTooManyRequests,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
+	}
+	return types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 }
 
 func applyEnterpriseGovernanceSharedPool(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {

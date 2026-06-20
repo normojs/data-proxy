@@ -24,7 +24,7 @@
 | 10 | DP-V15-003 | P2 | Done | V1.5 token 级 hard limit | token 模型支持硬额度上限；relay 前置校验、超限错误、结算回滚和单测覆盖完整。 |
 | 11 | DP-V15-004 | P2 | Done | V1.5 并发压测脚本 | 提供企业额度 reserve/settle/refund 并发一致性脚本，并在文档中记录 Redis/DB 两种模式的运行方式。 |
 | 12 | DP-V15-005 | P2 | Done | V1.5 Redis-only 崩溃恢复 | 扫描 Redis-only counter key、补建缺失 DB mirror，并评估操作级幂等补偿队列。 |
-| 13 | DP-V16-001 | P2 | Done (MVP+) | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作的配置、命中观测、审计事件和响应提示；fallback_model 已能改写模型、重选渠道并按降级模型重新估算预扣费；queue 已有企业维度同步 admission queue、超时 429、响应 header 和审计事件；shared_pool 已能计算本次借用量并写入响应 header 和审计；持久化异步排队、独立共享池容量模型和报表归属留给后续增强。 |
+| 13 | DP-V16-001 | P2 | Done (MVP+) | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作的配置、命中观测、审计事件和响应提示；fallback_model 已能改写模型、重选渠道并按降级模型重新估算预扣费；queue 已有企业维度同步 admission queue、超时 429、响应 header 和审计事件；shared_pool 已能计算本次借用量并写入响应 header 和审计；异常检测已能基于突增、失败率和成本异常进入企业短时保护限流；持久化异步排队、独立共享池容量模型、异常阈值配置和报表归属留给后续增强。 |
 | 14 | DP-V17-001 | P2 | Pending | V1.7 企业治理 RBAC/财务视图 | 企业管理员、部门管理员、财务查看员、审计员、项目管理员的权限边界和回归测试。 |
 
 ## 当前开始项：DP-V16-001
@@ -39,7 +39,8 @@ V1.6 高级策略动作先交付最小可用的“策略命中可见”，避免
 6. 已完成：`fallback_model` 命中后会同步改写 relay 模型、JSON 请求体和 context 原始模型，按降级模型重选渠道，并在用户预扣费前重新估算 token 与价格；用量归因沿用降级后的模型。
 7. 已完成：`queue` 命中后会按企业维度进入同步 admission queue，拿到队列槽后继续 relay 并在请求结束释放；等待超时会在用户预扣费前返回 429，响应写入 `X-Data-Proxy-Enterprise-Queue-Status`、`X-Data-Proxy-Enterprise-Queue-Wait-Ms`、`X-Data-Proxy-Enterprise-Queue-Timeout-Ms`，同时记录 `enterprise_governance.queue_admission` 审计。
 8. 已完成：`shared_pool` 配额超限命中后会基于结构化 action observation 计算本次请求实际超出软限的借用量，响应写入 `X-Data-Proxy-Enterprise-Shared-Pool-Status`、`X-Data-Proxy-Enterprise-Shared-Pool-Borrowed-Quota`、`X-Data-Proxy-Enterprise-Shared-Pool-Borrowed-Requests`，并记录 `enterprise_governance.shared_pool_reserve` 审计。
-9. 后续：`queue` 的持久化异步执行/后台重试/取消语义仍需独立增强；`shared_pool` 需要独立共享池容量模型、借用上限、归还和报表归属。
+9. 已完成：异常检测会基于企业最近窗口与基线窗口的请求突增、quota 成本突增，以及 consume/error 日志中的异常失败率进入短时内存保护；触发后在用户预扣费前返回 429，响应写入 `X-Data-Proxy-Enterprise-Anomaly-Status`、`X-Data-Proxy-Enterprise-Anomaly-Reason`、`X-Data-Proxy-Enterprise-Anomaly-Protected-Until`、`X-Data-Proxy-Enterprise-Anomaly-Cooldown-Seconds`，并记录 `enterprise_governance.anomaly_throttle` 审计；dry-run 模式只写 would-throttle 观测，不阻断请求。
+10. 后续：`queue` 的持久化异步执行/后台重试/取消语义仍需独立增强；`shared_pool` 需要独立共享池容量模型、借用上限、归还和报表归属；异常检测需要管理员阈值配置、持久化保护状态、按项目/部门的细粒度动作编排和趋势报表。
 
 ## 当前进展
 
@@ -54,7 +55,7 @@ V1.6 高级策略动作先交付最小可用的“策略命中可见”，避免
 - DP-V15-003 已完成最小可用闭环：新增 `quota_hard_limit_enabled` token 字段；API Key 控制台支持 unlimited token 配置硬上限；relay hard limit 会禁用信任额度旁路、前置拒绝超限并在正向补扣时先锁定 token 额度；MCP 继续只按 `price_per_call` 进行按次扣费，并把该按次额度纳入 token hard limit 预检、结算和退款；新增 controller/service 回归测试。
 - DP-V15-004 已完成轻量并发压测入口：新增 `scripts/enterprise-quota-counter-stress.sh` 和 `make enterprise-quota-counter-stress`，默认跑 DB 与 Redis-code-path(fake atomic counter) 两种模式；覆盖高上限并发 reserve 后混合 settle/refund 的最终一致性，以及低上限并发抢占的成功/拒绝数量和 refund 后 reserved 归零。常用命令：`scripts/enterprise-quota-counter-stress.sh`；仅 DB：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=db scripts/enterprise-quota-counter-stress.sh`；仅 Redis 代码路径：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis scripts/enterprise-quota-counter-stress.sh`；连接真实 Redis Lua 路径：`REDIS_CONN_STRING=redis://:123456@127.0.0.1:6379/0 ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis ENTERPRISE_QUOTA_COUNTER_STRESS_REDIS_BACKEND=real scripts/enterprise-quota-counter-stress.sh`。
 - DP-V15-005 已完成最小恢复闭环：`POST /api/enterprise/quota-counters/reconcile` 新增可选 `include_redis_orphans`；后台周期 repair 默认打开 Redis-only 扫描；Redis key 会按 `enterprise_quota_counter:v1:{enterprise}:{policy}:{target_type}:{target_id}:{metric}:{period_start}` 解析，若当前 policy 维度仍匹配且 DB mirror 缺失，则 dry-run 返回 `missing_db`，repair 创建 `enterprise_quota_counters` mirror、保留 Redis used/reserved 快照并写入 `quota_counter.reconcile` 审计。操作级幂等补偿队列仍保留为后续增强项。
-- DP-V16-001 已完成增强闭环：配额策略支持 `alert`、`fallback_model`、`queue`、`shared_pool` 非阻断动作；策略命中会保留 counter 观测、响应 header 提示和 `enterprise_governance.policy_action` 审计；`fallback_model` 已从推荐升级为 relay 执行动作，会改写请求模型、重选渠道并按降级模型重新估算预扣费；`queue` 已从可见 MVP 升级为企业维度同步 admission queue，命中后先排队拿槽，超时在用户预扣费前返回 429 并记录 `enterprise_governance.queue_admission` 审计；`shared_pool` 已能计算本次借用量并记录 `enterprise_governance.shared_pool_reserve` 审计。持久化异步排队、独立共享池容量模型和报表归属仍保留为 V1.6 后续任务。
+- DP-V16-001 已完成增强闭环：配额策略支持 `alert`、`fallback_model`、`queue`、`shared_pool` 非阻断动作；策略命中会保留 counter 观测、响应 header 提示和 `enterprise_governance.policy_action` 审计；`fallback_model` 已从推荐升级为 relay 执行动作，会改写请求模型、重选渠道并按降级模型重新估算预扣费；`queue` 已从可见 MVP 升级为企业维度同步 admission queue，命中后先排队拿槽，超时在用户预扣费前返回 429 并记录 `enterprise_governance.queue_admission` 审计；`shared_pool` 已能计算本次借用量并记录 `enterprise_governance.shared_pool_reserve` 审计；异常检测已能基于请求突增、失败率和成本突增进入企业短时保护限流，并记录 `enterprise_governance.anomaly_throttle` 审计。持久化异步排队、独立共享池容量模型、异常阈值配置和报表归属仍保留为 V1.6 后续任务。
 
 ## 提交和发布规则
 
