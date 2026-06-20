@@ -1,0 +1,48 @@
+{"id":"pilot-instruction-001","category":"instruction_following","prompt":"请严格按要求回答：只输出一个 JSON 对象，字段 status 的值是 ok，字段 count 的值是 3。不要 Markdown，不要解释。","scoring":{"type":"regex","pattern":"^\\s*\\{\\s*\"status\"\\s*:\\s*\"ok\"\\s*,\\s*\"count\"\\s*:\\s*3\\s*\\}\\s*$"},"max_tokens":80}
+{"id":"pilot-instruction-002","category":"instruction_following","prompt":"从下面三个编号中提取数字，按从小到大排序，并只输出用英文分号连接的结果：CN-31、CN-17、CN-24。","scoring":{"type":"exact","answer":"17;24;31"},"max_tokens":40}
+{"id":"pilot-instruction-003","category":"instruction_following","prompt":"回答必须恰好包含两个中文词，中间用一个英文逗号连接。第一个词表示低风险，第二个词表示高优先级。不要加任何其他字符。","scoring":{"type":"regex","pattern":"^[\\u4e00-\\u9fff]+,[\\u4e00-\\u9fff]+$"},"max_tokens":40}
+{"id":"pilot-instruction-004","category":"instruction_following","prompt":"请只输出 5 个汉字，依次表达：稳定、准确、快速、节省、创新。不要标点。","scoring":{"type":"exact","answer":"稳准快省新"},"max_tokens":40}
+{"id":"pilot-instruction-005","category":"instruction_following","prompt":"把 A=可用、B=降级 两个键值对输出为两行。第一行必须是 A:可用，第二行必须是 B:降级。不要其他内容。","scoring":{"type":"regex","pattern":"^A:可用\\s*\\nB:降级$"},"max_tokens":60}
+{"id":"pilot-instruction-006","category":"instruction_following","prompt":"如果一句话里同时出现“预算不足”和“质量达标”，按规则输出 KEEP；如果只出现预算不足输出 CUT；如果只出现质量达标输出 SCALE。句子：预算不足，但质量达标。只输出规则结果。","scoring":{"type":"exact","answer":"KEEP"},"max_tokens":20}
+{"id":"pilot-reasoning-001","category":"reasoning","prompt":"三个任务 X、Y、Z 串行执行。X 必须在 Y 前，Y 必须在 Z 前。Z 在 18:10 完成，每个任务耗时 25 分钟，中间无间隔。X 什么时候开始？只输出 HH:MM。","scoring":{"type":"exact","answer":"16:55"},"max_tokens":60}
+{"id":"pilot-reasoning-002","category":"reasoning","prompt":"四个人排队：甲不在第一，乙紧挨着丙左边，丁在最后。唯一满足条件的从左到右顺序是什么？只输出四个名字，用英文逗号连接。","scoring":{"type":"exact","answer":"乙,丙,甲,丁"},"max_tokens":80}
+{"id":"pilot-reasoning-003","category":"reasoning","prompt":"一个系统有三个开关 A、B、C。只有当 A 为真且 B、C 中恰好一个为真时告警。现在 A=true，B=false，C=true。是否告警？只输出 yes 或 no。","scoring":{"type":"exact","answer":"yes"},"max_tokens":20}
+{"id":"pilot-reasoning-004","category":"reasoning","prompt":"盒子里有红球、蓝球、绿球。已知红球比蓝球多 2 个，绿球是蓝球的 2 倍，总数 18 个。红球有几个？只输出数字。","scoring":{"type":"exact","answer":"6"},"max_tokens":40}
+{"id":"pilot-reasoning-005","category":"reasoning","prompt":"若所有通过灰度的版本都必须先通过回归测试；版本 R 没有通过回归测试；版本 R 是否可能已经通过灰度？只输出 yes 或 no。","scoring":{"type":"exact","answer":"no"},"max_tokens":20}
+{"id":"pilot-reasoning-006","category":"reasoning","prompt":"A、B、C 三个接口分别返回 2、5、9。规则：如果最大值减最小值大于 6，则触发人工复核；否则自动通过。是否触发人工复核？只输出 yes 或 no。","scoring":{"type":"exact","answer":"yes"},"max_tokens":20}
+{"id":"pilot-data-001","category":"data_analysis","prompt":"给定 CSV：date,revenue,cost\\n2026-06-01,230,120\\n2026-06-02,210,90\\n2026-06-03,260,180\\n利润=revenue-cost。利润最高的是哪一天？只输出日期。","scoring":{"type":"exact","answer":"2026-06-02"},"max_tokens":80}
+{"id":"pilot-data-002","category":"data_analysis","prompt":"给定数据：渠道A 访问 1000 转化 43；渠道B 访问 800 转化 40；渠道C 访问 1200 转化 54。转化率最高的渠道是哪个？只输出渠道名。","scoring":{"type":"exact","answer":"渠道B"},"max_tokens":80}
+{"id":"pilot-data-003","category":"data_analysis","prompt":"一组延迟毫秒值为 120, 80, 200, 160, 100。按升序后的中位数是多少？只输出数字。","scoring":{"type":"exact","answer":"120"},"max_tokens":40}
+{"id":"pilot-data-004","category":"data_analysis","prompt":"某实验组 50 人中 9 人流失，对照组 40 人中 10 人流失。哪个组流失率更低？只输出 实验组 或 对照组。","scoring":{"type":"exact","answer":"实验组"},"max_tokens":40}
+{"id":"pilot-data-005","category":"data_analysis","prompt":"给定订单金额：88、120、120、64、208。去重后的订单金额总和是多少？只输出数字。","scoring":{"type":"exact","answer":"480"},"max_tokens":40}
+{"id":"pilot-data-006","category":"data_analysis","prompt":"表格：产品P1 销量12 单价9；P2 销量8 单价15；P3 销量20 单价5。销售额最高的产品是哪个？只输出产品编号。","scoring":{"type":"exact","answer":"P2"},"max_tokens":60}
+{"id":"pilot-coding-001","category":"coding","prompt":"JavaScript 表达式 ['b','a','c'].sort().join('') 的结果是什么？只输出结果字符串，不要引号。","scoring":{"type":"exact","answer":"abc"},"max_tokens":40}
+{"id":"pilot-coding-002","category":"coding","prompt":"Python 代码 list(filter(lambda x: x % 3 == 0, range(1, 10))) 的结果是什么？只输出 Python 列表字面量。","scoring":{"type":"exact","answer":"[3, 6, 9]"},"max_tokens":80}
+{"id":"pilot-coding-003","category":"coding","prompt":"SQL 中 WHERE status = 'paid' AND amount >= 100。三行数据：(paid,99)、(paid,100)、(refund,200)。满足条件的行数是多少？只输出数字。","scoring":{"type":"exact","answer":"1"},"max_tokens":40}
+{"id":"pilot-coding-004","category":"coding","prompt":"TypeScript 类型 Exclude<'a' | 'b' | 'c', 'b'> 的结果联合类型是什么？只输出 a|c，按字母顺序且不要空格。","scoring":{"type":"exact","answer":"a|c"},"max_tokens":40}
+{"id":"pilot-coding-005","category":"coding","prompt":"正则表达式 /^api\\/(v[0-9]+)\\/users$/ 匹配字符串 api/v2/users 时，第一个捕获组是什么？只输出捕获组。","scoring":{"type":"exact","answer":"v2"},"max_tokens":40}
+{"id":"pilot-coding-006","category":"coding","prompt":"Git 命令 git merge --no-ff feature 的含义更接近哪一个：A 保留合并提交；B 强制变基；C 删除分支。只输出选项字母。","scoring":{"type":"exact","answer":"A"},"max_tokens":20}
+{"id":"pilot-business-001","category":"business_reasoning","prompt":"一个 Fusion 请求同时调用 3 个 panel 模型和 1 个 final 模型。如果要降低成本，优先考虑的工程策略是：A 增加 panel 数量；B 对简单题早停；C 每题都用更贵 judge。只输出选项字母。","scoring":{"type":"exact","answer":"B"},"max_tokens":20}
+{"id":"pilot-business-002","category":"business_reasoning","prompt":"SLA 要求 p95 延迟低于 8 秒。某方案 p50=3 秒，p95=12 秒，成功率 99.9%。它是否满足延迟 SLA？只输出 yes 或 no。","scoring":{"type":"exact","answer":"no"},"max_tokens":20}
+{"id":"pilot-business-003","category":"business_reasoning","prompt":"模型 A 单题成本 0.004 美元，正确率 78%；模型 B 单题成本 0.010 美元，正确率 82%。若目标是最低 cost per solved，选择哪个？只输出 A 或 B。","scoring":{"type":"exact","answer":"A"},"max_tokens":20}
+{"id":"pilot-business-004","category":"business_reasoning","prompt":"国内中转站不返回单请求账单，只能读评测前后余额。这个余额差额更适合作为：A 单题精确成本；B 一批请求的真实账单；C 模型能力分数。只输出选项字母。","scoring":{"type":"exact","answer":"B"},"max_tokens":20}
+{"id":"pilot-business-005","category":"business_reasoning","prompt":"如果 Fusion 总分没有超过最佳单模型，且成本和延迟都更高，下一步更合理的是：A 继续做生产 Fusion API；B 改做 model routing；C 删除 benchmark。只输出选项字母。","scoring":{"type":"exact","answer":"B"},"max_tokens":20}
+{"id":"pilot-business-006","category":"business_reasoning","prompt":"一次 A/B 测试中，新方案收入 +2%，但退款率 +9%，客服工单 +15%。若只看短期收入会忽略什么风险？只输出一个最贴切的中文词：质量风险、汇率风险、库存风险。","scoring":{"type":"exact","answer":"质量风险"},"max_tokens":40}
+{"id":"pilot-long-001","category":"long_context","prompt":"阅读事实并回答。事实：Alpha 负责支付链路；Beta 负责搜索链路；Gamma 负责风控链路；Delta 负责推荐链路；Epsilon 负责账单链路。问题：谁负责风控链路？只输出名字。","scoring":{"type":"exact","answer":"Gamma"},"max_tokens":60}
+{"id":"pilot-long-002","category":"long_context","prompt":"备忘录：一号仓在杭州，二号仓在成都，三号仓在武汉，四号仓在青岛。冷链库存只放在三号仓，普通库存放在一号和四号仓。问题：冷链库存在哪个城市？只输出城市。","scoring":{"type":"exact","answer":"武汉"},"max_tokens":80}
+{"id":"pilot-long-003","category":"long_context","prompt":"日志摘要：09:00 创建任务 T17；09:05 T17 进入队列；09:11 T18 进入队列；09:20 T17 执行失败，错误码 E42；09:30 T18 成功。问题：T17 的错误码是什么？只输出错误码。","scoring":{"type":"exact","answer":"E42"},"max_tokens":60}
+{"id":"pilot-long-004","category":"long_context","prompt":"产品说明：银牌套餐含 20GB 存储和邮件支持；金牌套餐含 80GB 存储和在线支持；铂金套餐含 200GB 存储、在线支持和审计日志。问题：哪个套餐包含审计日志？只输出套餐名。","scoring":{"type":"exact","answer":"铂金套餐"},"max_tokens":80}
+{"id":"pilot-long-005","category":"long_context","prompt":"请记住映射：北区负责人=林岚；南区负责人=周青；东区负责人=何川；西区负责人=赵岳。新规则：若问题涉及东区，必须找对应负责人确认。问题：东区找谁确认？只输出姓名。","scoring":{"type":"exact","answer":"何川"},"max_tokens":60}
+{"id":"pilot-long-006","category":"long_context","prompt":"会议记录：张敏负责清洗数据，李锐负责训练模型，王珂负责部署服务，陈宁负责监控告警。下周二先做部署服务，再做监控告警。问题：下周二第二项工作负责人是谁？只输出姓名。","scoring":{"type":"exact","answer":"陈宁"},"max_tokens":80}
+{"id":"pilot-language-001","category":"language","prompt":"“降低延迟”的反义表达更接近哪一个：A 提升吞吐；B 增加时延；C 减少成本。只输出选项字母。","scoring":{"type":"exact","answer":"B"},"max_tokens":20}
+{"id":"pilot-language-002","category":"language","prompt":"把“模型路由”翻译成英文技术短语，常见写法是什么？只输出两个英文单词，小写。","scoring":{"type":"exact","answer":"model routing"},"max_tokens":40}
+{"id":"pilot-language-003","category":"language","prompt":"“可复现评测闭环”这句话里的核心名词短语是哪一个：A 可复现；B 评测闭环；C 这句话。只输出选项字母。","scoring":{"type":"exact","answer":"B"},"max_tokens":20}
+{"id":"pilot-language-004","category":"language","prompt":"将“成本/延迟/质量”改写为三个并列中文词，用中文顿号连接，顺序不变。只输出结果。","scoring":{"type":"exact","answer":"成本、延迟、质量"},"max_tokens":40}
+{"id":"pilot-language-005","category":"language","prompt":"判断语气：“这个方案可能不适合进入生产。”更接近 A 确定批准；B 谨慎否定；C 强制命令。只输出选项字母。","scoring":{"type":"exact","answer":"B"},"max_tokens":20}
+{"id":"pilot-language-006","category":"language","prompt":"从“账单要分为估算账单和中转站真实账单”中抽取两个账单类型，用英文逗号连接。只输出抽取结果。","scoring":{"type":"exact","answer":"估算账单,中转站真实账单"},"max_tokens":60}
+{"id":"pilot-math-001","category":"math","prompt":"计算 (37 + 58) * 4 - 120。只输出数字。","scoring":{"type":"exact","answer":"260"},"max_tokens":40}
+{"id":"pilot-math-002","category":"math","prompt":"一个数除以 7 余 3，且在 40 到 50 之间。这个数是多少？只输出数字。","scoring":{"type":"exact","answer":"45"},"max_tokens":40}
+{"id":"pilot-math-003","category":"math","prompt":"成本从 80 增加到 100，增长率是多少百分比？只输出百分数，例如 12.5%。","scoring":{"type":"exact","answer":"25%"},"max_tokens":40}
+{"id":"pilot-math-004","category":"math","prompt":"若 3x + 5 = 26，则 x 等于多少？只输出数字。","scoring":{"type":"exact","answer":"7"},"max_tokens":40}
+{"id":"pilot-math-005","category":"math","prompt":"一个矩形长 13，宽 8。面积减去周长等于多少？只输出数字。","scoring":{"type":"exact","answer":"62"},"max_tokens":40}
+{"id":"pilot-math-006","category":"math","prompt":"数列 4, 9, 19, 39 的下一个数是多少？规律是每次乘 2 再加 1。只输出数字。","scoring":{"type":"exact","answer":"79"},"max_tokens":40}

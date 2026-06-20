@@ -8,6 +8,17 @@ It provides three pieces:
 - A small objective fresh-eval runner for local JSONL datasets.
 - A Markdown report generator for score, cost, latency, degradation, and GPT-5.5 comparison.
 
+Planning docs:
+
+- `evaluation-plan.md`: long-form benchmark design.
+- `v2-evaluation-rollout.md`: concrete v2 plan for public benchmark anchors,
+  private isomorphic tasks, runnable coding, and Fusion-vs-GPT-5.5 decision
+  thresholds.
+- `fusion-v3-roadmap.md`: roadmap for turning Fusion into a stronger
+  model-like virtual model with task-aware routing, ranking, verification, and
+  anti-degradation guards rather than an open-ended agent.
+- `implementation-backlog.md`: implementation milestones.
+
 ## Commands
 
 Validate local config and key-file loading:
@@ -28,6 +39,14 @@ node tools/fusion-benchmark.mjs models-probe \
   --env-file tools/fusion-benchmark/.env.local \
   --upstream default \
   --filter 'qwen|kimi|moonshot|deepseek|minimax|gpt|claude|gemini'
+```
+
+Probe whether an upstream can provide relay/provider billing signals:
+
+```bash
+node tools/fusion-benchmark.mjs billing-probe \
+  --env-file tools/fusion-benchmark/.env.local \
+  --upstream all
 ```
 
 Measure baseline relay latency without running a full benchmark:
@@ -70,6 +89,9 @@ node tools/fusion-benchmark.mjs livebench-import \
 Run the sample fresh eval:
 
 ```bash
+node tools/fusion-benchmark.mjs fresh-validate \
+  --dataset tools/fusion-benchmark/data/fresh-eval.example.jsonl
+
 node tools/fusion-benchmark.mjs fresh-run \
   --api-base http://127.0.0.1:8787/v1 \
   --env-file tools/fusion-benchmark/.env.local \
@@ -81,6 +103,107 @@ node tools/fusion-benchmark.mjs fresh-run \
 
 Omit `--category` and `--limit` for a full run. Use `--offset` with `--limit` to run a larger fresh dataset in batches.
 
+For a cheap balanced pilot, use one or a few questions from each category:
+
+```bash
+node tools/fusion-benchmark.mjs fresh-run \
+  --env-file tools/fusion-benchmark/.env.local \
+  --dataset tools/fusion-benchmark/data/fresh-eval.v1-differentiated.jsonl \
+  --per-category-limit 1 \
+  --models qwen/qwen3.7-plus,moonshotai/kimi-k2.6,deepseek/deepseek-v4-pro,openai/gpt-5.5,fusion-cn-budget \
+  --out tools/fusion-benchmark/runs/fresh-v1-diff-balanced-1.jsonl
+```
+
+`--per-category-limit` is applied per difficulty and category when the dataset has a `difficulty` field. Use `--difficulty simple` for simple-only smoke, `--difficulty hard` for harder separation runs, or omit it for mixed simple+hard.
+
+Run the v2 non-code pilot. `fresh-eval.v2-pilot.jsonl` contains 88 objective
+hard/very-hard tasks: 30 reasoning, 18 Chinese, 18 English, 10 long-context, and
+12 instruction-following rows. Each row has `module`, `source_family`, and
+`visibility` metadata for authority/source splits in reports. The corrected v3
+pilot evidence has only run the first 30 non-code rows; the new non-code rows
+still need a paid model run before they count as evidence.
+
+For Fusion presets, objective rows (`exact`, `contains`, `regex`) use Objective
+Fusion: panel answers are scored locally, passing candidates are grouped, and a
+passing candidate is returned directly instead of being rewritten by final
+synthesis. The record keeps `fusion_metrics.policy=objective` and the selected
+underlying model.
+
+```bash
+node tools/fusion-benchmark.mjs fresh-validate \
+  --dataset tools/fusion-benchmark/data/fresh-eval.v2-pilot.jsonl
+
+node tools/fusion-benchmark.mjs fresh-run \
+  --env-file tools/fusion-benchmark/.env.local \
+  --dataset tools/fusion-benchmark/data/fresh-eval.v2-pilot.jsonl \
+  --models fusion-cn-budget,openai/gpt-5.5,deepseek/deepseek-v4-pro,qwen/qwen3.7-plus,moonshotai/kimi-k2.6,minimax/minimax-m3 \
+  --out tools/fusion-benchmark/runs/fresh-v2-pilot.jsonl
+```
+
+Validate and run executable coding tasks:
+
+```bash
+node tools/fusion-benchmark.mjs code-validate \
+  --dataset tools/fusion-benchmark/data/code-eval.example.jsonl
+
+node tools/fusion-benchmark.mjs code-run \
+  --env-file tools/fusion-benchmark/.env.local \
+  --dataset tools/fusion-benchmark/data/code-eval.example.jsonl \
+  --models fusion-cn-budget,openai/gpt-5.5,qwen/qwen3.7-plus \
+  --request-timeout-ms 120000 \
+  --out tools/fusion-benchmark/runs/code-example.jsonl
+```
+
+Run the current hard coding set. `code-eval.v1.jsonl` now has 53 runnable
+tasks: 44 `code_exec` tasks, 9 `patch_exec` tasks, and 8 `very_hard` rows.
+The corrected v3 pilot report has only run the first 20 of these; the new
+coding tasks still need a paid model run before they count as evidence.
+
+```bash
+node tools/fusion-benchmark.mjs code-validate \
+  --dataset tools/fusion-benchmark/data/code-eval.v1.jsonl
+
+node tools/fusion-benchmark.mjs code-run \
+  --env-file tools/fusion-benchmark/.env.local \
+  --dataset tools/fusion-benchmark/data/code-eval.v1.jsonl \
+  --models fusion-cn-budget \
+  --request-timeout-ms 180000 \
+  --out tools/fusion-benchmark/runs/code-v1-fusion-complete.jsonl
+```
+
+`code-run` executes model outputs instead of judging them by text. `code_exec`
+tasks write the extracted implementation into a temporary workspace and run the
+configured test command. `patch_exec` tasks copy a fixture repository, apply the
+model's unified diff with `git apply`, and then run the fixture tests. Per-task
+execution logs are written next to the JSONL output under an ignored artifacts
+directory.
+
+For Fusion presets, `code-run` uses bounded Verified Coding Fusion: it runs each
+panel candidate once in an isolated workspace, selects a candidate that passes
+the configured tests, and returns that candidate directly. If all primary panel
+calls fail, or if no primary candidate passes the verifier, the runner may add a
+single explicitly configured fallback panel candidate and verify it the same
+way. If no candidate passes after that bounded step, the runner falls back to the
+normal panel/judge/final synthesis path. This is verification and selection
+only; it does not explore the repository, write to the user's project, use
+GPT-5.5 as an internal fallback, or run a repair loop.
+
+Use `--request-timeout-ms` as the per-upstream-call timeout. For ordinary
+baseline models this is the model request timeout; for Fusion presets this is the
+timeout for each panel, judge, and final synthesis call. Official Fusion scoring
+runs are never truncated by `--overall-request-timeout-ms`: Fusion is a
+multi-model pipeline, so the runner lets the whole task finish and records the
+full `latency_ms`. Use `--fusion-overall-request-timeout-ms` only for smoke tests
+or operational diagnostics where an intentionally truncated Fusion run is
+acceptable. Local test timeouts are still controlled per task by `timeout_ms`.
+
+The example dataset includes both supported executable task types:
+
+- `code_exec`: extracts a single-file implementation, writes it to `solution.py`,
+  and runs the configured Python `unittest` command.
+- `patch_exec`: extracts a unified diff, applies it to a fixture repository, and
+  runs `node --test`.
+
 Generate a report:
 
 ```bash
@@ -89,9 +212,63 @@ node tools/fusion-benchmark.mjs report \
   --out tools/fusion-benchmark/reports/fresh-example.md
 ```
 
-Fusion reports include cost, solved rate, p50/p95 latency, early-exit rate,
-panel max latency, judge latency, final latency, judge JSON validity, and panel
-failure rates when the input records contain Fusion metrics.
+Fusion reports separate two billing views:
+
+- Estimated cost: calculated from `config.json` token pricing and response `usage`.
+- Actual relay bill: extracted only from relay response body/header fields. If the relay does not return a bill field, the value stays blank and is not filled with an estimate.
+
+Reports also include solved rate, p50/p95 latency, early-exit rate, panel max
+latency, judge latency, final latency, judge JSON validity, panel failure
+rates, Wilson confidence intervals, severe-error counts, and Fusion policy
+splits when the input records contain Fusion metrics. Capability scores are
+computed on valid samples, excluding provider/network failures and upstream
+request timeouts; `raw_score` keeps those failures as zero so reliability
+remains visible. Local code-test timeouts remain model failures and are not
+excluded. Formal claims should rerun provider-error and request-timeout rows or
+mark the affected comparison incomplete. Main Fusion verdicts and leaderboard
+tables use only Fusion, the reliable strongest non-Fusion baseline in the same
+run, and the per-question single-model oracle used for anti-degradation checks.
+Weaker or unreliable single models remain diagnostics and router-learning
+signals only.
+Reports also split `public_anchor`, `private_isomorphic`, and
+`business_realistic` rows when datasets include `visibility`, plus a
+`source_family` split for benchmark-family diagnostics.
+
+Current v3 corrected pilot artifacts:
+
+- `runs/code-v3-pilot-fusion-corrected.jsonl`: 20/20 coding tasks pass after
+  fixing the `filter_rows` prompt ambiguity and rerunning the `sliding_top_k`
+  row.
+- `runs/fusion-v3-merged-comparison-corrected.jsonl`: 50-task corrected merge.
+- `reports/fusion-v3-merged-comparison-corrected.md`: corrected report showing
+  `fusion-cn-budget` at 100.0%, a stronger point estimate than the reliable
+  strongest single baseline, zero degradation versus the per-question
+  strongest-single oracle on comparable rows, and no GPT-5.5 losses on valid
+  GPT-5.5 comparison rows. The 50-task pilot is evidence to expand, not a final
+  public superiority claim.
+
+Check whether a merged JSONL is pilot-, architecture-, or public-claim-ready:
+
+```bash
+node tools/fusion-benchmark.mjs production-gate \
+  --inputs tools/fusion-benchmark/runs/fusion-v3-merged-comparison-corrected.jsonl \
+  --target fusion-cn-budget
+```
+
+The current corrected pilot returns `pilot_ready_expand`; it does not pass the
+100-question architecture gate or the 141-question public-claim gate.
+
+Check pinned dataset coverage separately from already-run evidence:
+
+```bash
+node tools/fusion-benchmark.mjs run-inventory \
+  --inputs tools/fusion-benchmark/data/fresh-eval.v2-pilot.jsonl,tools/fusion-benchmark/data/code-eval.v1.jsonl
+```
+
+Current pinned dataset coverage is 141/141: coding 53/53, reasoning 30/30,
+Chinese 18/18, English 18/18, long-context 10/10, and
+instruction-following 12/12. These extra rows are inventory, not evidence,
+until the paid model run is completed.
 
 Run pairwise open-ended eval:
 
@@ -113,7 +290,11 @@ Each JSONL row must contain:
 ```json
 {
   "id": "unique-question-id",
+  "module": "reasoning",
   "category": "reasoning",
+  "difficulty": "hard",
+  "source_family": "gpqa_style_private",
+  "visibility": "private_isomorphic",
   "prompt": "Question text",
   "scoring": { "type": "exact", "answer": "42" },
   "max_tokens": 512
@@ -127,6 +308,18 @@ Supported scoring types:
 - `regex`: JavaScript regular expression.
 
 The included `fresh-eval.example.jsonl` is only a smoke dataset. The real spike should replace it with 100-300 recent, objective questions.
+
+For v2-style reports, set `source_family` and `visibility` on every row.
+Supported visibility values are `public_anchor`, `private_isomorphic`, and
+`business_realistic`. Public leaderboard originals should stay a small authority
+anchor; private isomorphic rows are the main anti-contamination scoring set.
+
+Use `fresh-validate` before a paid run:
+
+```bash
+node tools/fusion-benchmark.mjs fresh-validate \
+  --dataset tools/fusion-benchmark/data/fresh-eval.v1-pilot.jsonl
+```
 
 ## Pairwise Dataset Format
 
@@ -191,6 +384,60 @@ node tools/fusion-benchmark.mjs models-probe --env-file tools/fusion-benchmark/.
 
 Some relay models need extra request options. Put those under `modelOptions` in `config.json`; for example, Qwen thinking models may return only `reasoning_content` unless `enable_thinking` is disabled for short-answer benchmarks.
 
+## Billing Sources
+
+The benchmark writes both `estimated_cost_usd` and `actual_cost_usd` to JSONL records. `cost_usd` is kept as a backward-compatible alias for estimated cost. The field name `actual_cost_usd` means "relay-attributed cost or account-balance burn"; it is not automatically the same as cash paid.
+
+Domestic model billing should be treated as relay billing only. Do not use public provider pricing as the real bill for Qwen, Kimi, DeepSeek, or MiniMax. The tool extracts relay bills from common response fields such as `usage.cost_usd`, `billing.cost_usd`, `usage.quota`, and common cost/quota headers. If your relay uses a custom field or header, add it to `billing.actualCostSources`:
+
+```json
+{
+  "billing": {
+    "quotaPerUsd": 500000,
+    "actualCostSources": [
+      { "type": "body", "path": "usage.cost_usd", "unit": "usd" },
+      { "type": "header", "name": "x-oneapi-used-quota", "unit": "quota" }
+    ]
+  }
+}
+```
+
+Supported units are `usd`, `quota`, and `cny`. `quota` is converted through `billing.quotaPerUsd`; `cny` requires `billing.cnyPerUsd`.
+
+SiliconFlow-specific finding: the public docs point usage bills to the console page `https://cloud.siliconflow.cn/bills`. The chat completion response only exposes token `usage`, not per-request money. The API endpoint `GET /v1/user/info` does expose account balance fields such as `data.balance`, `data.chargeBalance`, and `data.totalBalance`, so the benchmark can optionally use before/after balance delta as an account-deduction signal:
+
+- Use `data.chargeBalance` to approximate paid/recharged balance consumption.
+- Use `data.totalBalance` to measure total account credit consumption, including vouchers or promotional balance.
+- If calls are paid by vouchers, `data.totalBalance` may decrease while real cash consumption is zero. In that case, do not call total-balance delta "cash cost"; keep it as voucher/account-credit burn.
+
+```json
+{
+  "billing": {
+    "cnyPerUsd": 7.25,
+    "balanceDelta": {
+      "enabled": false,
+      "path": "/user/info",
+      "balancePath": "data.chargeBalance",
+      "unit": "cny",
+      "upstreams": ["qwen", "moonshot", "deepseek", "minimax"]
+    },
+    "runBalanceDelta": {
+      "enabled": true,
+      "path": "/user/info",
+      "balancePath": "data.chargeBalance",
+      "unit": "cny",
+      "upstreams": ["qwen", "moonshot", "deepseek", "minimax"]
+    }
+  }
+}
+```
+
+Keep `balanceDelta.enabled` off for normal runs. When enabled, requests sharing the same upstream account are serialized so the before/after balance delta is attributable to one request.
+
+For SiliconFlow, prefer `runBalanceDelta.enabled=true`. `fresh-run` and `pairwise-run` write `billing_summary` records at the end of the JSONL output. These records contain only the account-balance delta per upstream, not the raw before/after balance values. The report shows them in a separate "中转站账户扣减汇总" table.
+
+Batch balance deltas are account-level account-credit burns. They are useful for checking the whole domestic run against relay/account consumption, but they cannot be directly attributed to one baseline model or one Fusion preset unless the run isolates that model/preset in a separate batch. The model summary table only shows per-request attributed cost when the relay returns attributable body/header billing fields.
+
 Fusion presets can use conservative early exit:
 
 ```json
@@ -236,7 +483,7 @@ Early exits are reported in `fusion_metrics.early_exit`, and the skipped judge/f
 ## What You Need To Do
 
 1. Put the required upstream base URLs and keys into `tools/fusion-benchmark/.env.local`.
-2. Run `validate-config`, then run `models-list` and `models-probe` per upstream.
+2. Run `validate-config`, then run `models-list`, `models-probe`, and `billing-probe` per upstream.
 3. Start the local proxy with `serve`.
 4. Clone or update LiveBench separately and run the commands printed by `livebench-plan`.
 5. Import LiveBench `ground_truth_judgment.jsonl` files with `livebench-import`.
