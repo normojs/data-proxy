@@ -321,6 +321,21 @@ func SetApiRouter(router *gin.Engine) {
 			connectedAppRequestRoute.POST("", middleware.CriticalRateLimit(), controller.SubmitConnectedAppRequest)
 		}
 
+		connectedAppDeviceRoute := apiRouter.Group("/connected-apps/:slug")
+		{
+			connectedAppDeviceRoute.POST("/device/start", middleware.CriticalRateLimit(), controller.StartConnectedAppDeviceFlow)
+			connectedAppDeviceRoute.POST("/device/poll", middleware.CriticalRateLimit(), controller.PollConnectedAppDeviceFlow)
+			connectedAppUserRoute := connectedAppDeviceRoute.Group("")
+			connectedAppUserRoute.Use(middleware.UserAuth())
+			{
+				connectedAppUserRoute.GET("/device/status", controller.GetConnectedAppDeviceStatus)
+				connectedAppUserRoute.POST("/device/authorize", middleware.CriticalRateLimit(), controller.AuthorizeConnectedAppDevice)
+				connectedAppUserRoute.GET("/developer/config", controller.GetConnectedAppDeveloperConfig)
+				connectedAppUserRoute.GET("/developer/authorizations", controller.ListConnectedAppDeveloperAuthorizations)
+				connectedAppUserRoute.GET("/developer/device-sessions", controller.ListConnectedAppDeveloperDeviceSessions)
+			}
+		}
+
 		snaplessRoute := apiRouter.Group("/snapless")
 		{
 			snaplessRoute.GET("/health", middleware.CriticalRateLimit(), controller.GetSnaplessHealth)

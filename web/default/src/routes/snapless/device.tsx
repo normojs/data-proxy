@@ -60,6 +60,7 @@ import {
 
 const searchSchema = z.object({
   user_code: z.string().optional(),
+  app_slug: z.string().optional(),
 })
 
 export const Route = createFileRoute('/snapless/device')({
@@ -90,7 +91,7 @@ function statusMeta(status: SnaplessDeviceStatus | undefined): StatusMeta {
         label: 'Approved',
         variant: 'success',
         icon: ShieldCheck,
-        actionText: 'Snapless Desktop can continue.',
+        actionText: 'The app can continue.',
       }
     case 'consumed':
       return {
@@ -131,30 +132,54 @@ function normalizeUserCode(value: string) {
   return cleaned
 }
 
+function normalizeAppSlug(value?: string) {
+  const slug = value?.trim()
+  if (!slug || slug === 'snapless') return undefined
+  return slug
+}
+
+function authorizationTitle(isConnectedApp: boolean) {
+  return isConnectedApp
+    ? 'Connected app device authorization'
+    : 'Snapless device authorization'
+}
+
+function fallbackAppName(isConnectedApp: boolean) {
+  return isConnectedApp ? 'Connected app' : 'Snapless Desktop'
+}
+
 function SnaplessDevicePage() {
   const { t } = useTranslation()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const queryClient = useQueryClient()
   const userCode = normalizeUserCode(search.user_code ?? '')
+  const appSlug = normalizeAppSlug(search.app_slug)
+  const isConnectedApp = appSlug != null
+  const title = authorizationTitle(isConnectedApp)
+  const deviceStatusQueryKey = [
+    'snapless-device-status',
+    appSlug ?? 'snapless',
+    userCode,
+  ]
   const [manualCode, setManualCode] = useState(userCode)
 
   const statusQuery = useQuery({
-    queryKey: ['snapless-device-status', userCode],
-    queryFn: () => getSnaplessDeviceStatus(userCode),
+    queryKey: deviceStatusQueryKey,
+    queryFn: () => getSnaplessDeviceStatus(userCode, appSlug),
     enabled: userCode.length > 0,
     retry: false,
   })
 
   const mutation = useMutation({
     mutationFn: (approve: boolean) =>
-      authorizeSnaplessDevice({ user_code: userCode, approve }),
+      authorizeSnaplessDevice({ user_code: userCode, approve }, appSlug),
     onSuccess: (data) => {
-      queryClient.setQueryData(['snapless-device-status', userCode], data)
+      queryClient.setQueryData(deviceStatusQueryKey, data)
       toast.success(
         data.status === 'authorized'
-          ? t('Snapless device approved')
-          : t('Snapless device denied')
+          ? t('Device authorization approved')
+          : t('Device authorization denied')
       )
     },
   })
@@ -162,7 +187,12 @@ function SnaplessDevicePage() {
   const submitManualCode = () => {
     const nextCode = normalizeUserCode(manualCode)
     if (!nextCode) return
-    navigate({ search: { user_code: nextCode } })
+    navigate({
+      search: {
+        user_code: nextCode,
+        ...(appSlug ? { app_slug: appSlug } : {}),
+      },
+    })
   }
 
   return (
@@ -176,6 +206,7 @@ function SnaplessDevicePage() {
         <div className='w-full max-w-[560px]'>
           {!userCode ? (
             <MissingCodeCard
+              title={title}
               manualCode={manualCode}
               onManualCodeChange={setManualCode}
               onSubmit={submitManualCode}
@@ -183,7 +214,7 @@ function SnaplessDevicePage() {
           ) : statusQuery.isLoading ? (
             <Card>
               <CardHeader>
-                <CardTitle>{t('Snapless device authorization')}</CardTitle>
+                <CardTitle>{t(title)}</CardTitle>
                 <CardDescription>
                   {t('Checking authorization code')}
                 </CardDescription>
@@ -205,6 +236,8 @@ function SnaplessDevicePage() {
             <DeviceAuthorizationCard
               data={statusQuery.data}
               userCode={userCode}
+              title={title}
+              fallbackAppName={fallbackAppName(isConnectedApp)}
               isRefreshing={statusQuery.isFetching}
               isMutating={mutation.isPending}
               mutationError={mutation.error}
@@ -220,6 +253,7 @@ function SnaplessDevicePage() {
 }
 
 function MissingCodeCard(props: {
+  title: string
   manualCode: string
   onManualCodeChange: (value: string) => void
   onSubmit: () => void
@@ -228,7 +262,7 @@ function MissingCodeCard(props: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('Snapless device authorization')}</CardTitle>
+        <CardTitle>{t(props.title)}</CardTitle>
         <CardDescription>{t('Authorization code is required')}</CardDescription>
       </CardHeader>
       <CardContent className='space-y-3'>
@@ -254,6 +288,8 @@ function MissingCodeCard(props: {
 function DeviceAuthorizationCard(props: {
   data?: SnaplessDeviceStatusResponse
   userCode: string
+  title: string
+  fallbackAppName: string
   isRefreshing: boolean
   isMutating: boolean
   mutationError: Error | null
@@ -263,6 +299,7 @@ function DeviceAuthorizationCard(props: {
 }) {
   const { t } = useTranslation()
   const data = props.data
+  const appName = data?.app.name ?? props.fallbackAppName
   const meta = statusMeta(data?.status)
   const StatusIcon = meta.icon
   const canAct = data?.status === 'pending'
@@ -280,10 +317,8 @@ function DeviceAuthorizationCard(props: {
             <Monitor className='size-4' />
           </div>
           <div className='min-w-0'>
-            <CardTitle>{t('Snapless device authorization')}</CardTitle>
-            <CardDescription className='truncate'>
-              {data?.app.name ?? 'Snapless Desktop'}
-            </CardDescription>
+            <CardTitle>{t(props.title)}</CardTitle>
+            <CardDescription className='truncate'>{appName}</CardDescription>
           </div>
         </div>
         <CardAction>
@@ -301,7 +336,7 @@ function DeviceAuthorizationCard(props: {
           <InfoRow label={t('Expires')} value={expiresAt} />
           <InfoRow
             label={t('Device')}
-            value={data?.device.device_name || 'Snapless Desktop'}
+            value={data?.device.device_name || appName}
           />
           <InfoRow label={t('Platform')} value={data?.device.platform || '-'} />
         </div>
@@ -313,7 +348,11 @@ function DeviceAuthorizationCard(props: {
         <div className='flex items-start gap-3 text-sm'>
           <KeyRound className='text-muted-foreground mt-0.5 size-4 shrink-0' />
           <div className='min-w-0 space-y-1'>
-            <p className='font-medium'>{t(meta.actionText)}</p>
+            <p className='font-medium'>
+              {data?.status === 'authorized'
+                ? t('{{appName}} can continue.', { appName })
+                : t(meta.actionText)}
+            </p>
             <p className='text-muted-foreground'>
               {t(
                 'Approval creates or reuses one native token for this device.'

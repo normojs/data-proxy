@@ -11,6 +11,7 @@
 - `connected_app_token_bindings`：记录 app、用户、设备和原生 Token 的绑定。
 - `connected_app_device_sessions`：记录 Device Code Flow 的 device code、user code、设备信息、授权状态和一次性消费状态。
 - 用户控制台 Profile 页提供 Snapless Connected App 卡片，可查看 grant、设备、最近使用时间、token 状态，并可轮换或撤销单台设备。
+- 获批第三方 connected app 可通过开发者 API 查询自身配置、允许 endpoint、授权列表和 device session，并使用通用 device code flow 接入。
 
 内置 Snapless scopes：
 
@@ -137,7 +138,50 @@ Device Code Flow：
 - 通知弹层的 `Approvals` 页签会合并企业额度审批和 connected app 审批通知。
 - 管理员点击 connected app pending 通知会进入 `/system-settings/operations/connected-apps?tab=requests&connected_app_request_id=...`。
 - 管理员可从通知进入 `Audit` 页签查看对应 request 的审计事件。
-- 申请人看到批准/拒绝通知后可进入 Profile 查看自身连接状态；后续 `SNAPLESS-007` 会补应用开发者 API 和更完整的开发者视图。
+- 申请人看到批准/拒绝通知后可进入 Profile 查看自身连接状态；获批应用可继续使用开发者 API 查询配置、endpoint 和授权状态。
+
+## 应用开发者 API
+
+`SNAPLESS-007` 提供获批应用的最小开发者 API。访问边界：
+
+- 系统管理员可查看任意 app。
+- 普通用户只能访问自己提交且已批准的 app。
+- 公开 device flow 只允许 `status=enabled`、`trusted=true` 且 `authorization_flow=device_code` 的 app。
+- 所有授权、设备和 session 查询都按当前 app 过滤，不返回其他 app 的 grant/binding/session。
+
+开发者接口：
+
+- `GET /api/connected-apps/:slug/developer/config`
+  - 登录接口。
+  - 返回 app 信息、`base_url`、按 scope 映射的 `api_endpoints`、device flow 端点和 `scopes`。
+- `GET /api/connected-apps/:slug/developer/authorizations`
+  - 登录接口。
+  - 分页返回该 app 下的授权用户、grant 状态和设备/token 摘要。
+- `GET /api/connected-apps/:slug/developer/device-sessions`
+  - 登录接口。
+  - 分页返回该 app 的 device sessions，支持 `status=pending|authorized|consumed|expired|denied` 过滤。
+
+通用 device code flow：
+
+- `POST /api/connected-apps/:slug/device/start`
+  - 公开接口，由 connected app 客户端调用。
+  - 返回 `verification_uri=/snapless/device?user_code=...&app_slug=:slug`，复用现有浏览器授权页。
+- `GET /api/connected-apps/:slug/device/status`
+  - 登录用户接口，按 `user_code` 查询该 app 的授权状态。
+- `POST /api/connected-apps/:slug/device/authorize`
+  - 登录用户接口，批准时创建或复用 new-api 原生 token。
+- `POST /api/connected-apps/:slug/device/poll`
+  - 公开接口，由持有 `device_code` 的客户端轮询。
+  - 首次消费 `authorized` session 时返回一次性 `api_key`；重复 poll 只返回 `consumed`。
+
+通用 connected app token 仍然是 new-api 原生 `tokens`。非 Snapless app 默认 `unlimited_quota=true`、`quota_hard_limit_enabled=false`、`model_limits_enabled=false`；Snapless 内置 app 继续保留 Snapless 模型限制。
+
+Scope 到 endpoint 的当前映射：
+
+- `openai.models` -> `/v1/models`
+- `openai.chat` -> `/v1/chat/completions`
+- `openai.audio.transcriptions` -> `/v1/audio/transcriptions`
+- `quota.read` -> `/api/usage/token`
 
 ## 可操作状态
 
@@ -193,6 +237,6 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 应用开发者 API：获批应用可以创建自己的 device sessions、查看授权状态并查询允许的 API endpoints。
-2. 应用级权限边界和开发者视图：只暴露与自身 app 相关的 grant/binding/session，并补充自助排障状态。
-3. 邮件/Webhook 通知扩展：在站内通知和审计可见后再扩展外部通知渠道。
+1. 邮件/Webhook 通知扩展：在站内通知和审计可见后再扩展外部通知渠道。
+2. 开发者视图：在 API 稳定后补自助排障 UI，展示 app endpoints、授权用户、设备 session 和最近错误。
+3. Scope 强约束：如需把 scope 从“允许 endpoint 描述”升级为 relay 层硬限制，再增加 token/app scope 校验。

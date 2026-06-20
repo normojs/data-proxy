@@ -93,6 +93,52 @@ type connectedAppNotificationPageData struct {
 	HasMore     bool                           `json:"has_more"`
 }
 
+type connectedAppDeveloperConfigData struct {
+	App struct {
+		Slug string `json:"slug"`
+		Name string `json:"name"`
+	} `json:"app"`
+	Owner        bool              `json:"owner"`
+	BaseURL      string            `json:"base_url"`
+	APIEndpoints map[string]string `json:"api_endpoints"`
+	DeviceFlow   map[string]string `json:"device_flow"`
+	Scopes       []string          `json:"scopes"`
+}
+
+type connectedAppDeveloperAuthorizationData struct {
+	UserID   int    `json:"user_id"`
+	UserName string `json:"user_name"`
+	Grant    struct {
+		Status string   `json:"status"`
+		Scopes []string `json:"scopes"`
+	} `json:"grant"`
+	Devices []struct {
+		Status string `json:"status"`
+		Device struct {
+			Fingerprint string `json:"fingerprint"`
+			DeviceName  string `json:"device_name"`
+		} `json:"device"`
+		Token struct {
+			ID                 int  `json:"id"`
+			UnlimitedQuota     bool `json:"unlimited_quota"`
+			ModelLimitsEnabled bool `json:"model_limits_enabled"`
+		} `json:"token"`
+	} `json:"devices"`
+}
+
+type connectedAppDeveloperSessionData struct {
+	ID           int64  `json:"id"`
+	Status       string `json:"status"`
+	UserID       int    `json:"user_id"`
+	UserName     string `json:"user_name"`
+	TokenID      int    `json:"token_id"`
+	TokenCreated bool   `json:"token_created"`
+	Device       struct {
+		Fingerprint string `json:"fingerprint"`
+		DeviceName  string `json:"device_name"`
+	} `json:"device"`
+}
+
 func newConnectedAppAdminRouterForTest(t *testing.T) *gin.Engine {
 	t.Helper()
 
@@ -422,6 +468,191 @@ func TestConnectedAppRequestApprovalCreatesAppAuditAndNotifications(t *testing.T
 	))
 	require.Equal(t, 0, developerUnreadOnly.UnreadCount)
 	require.Empty(t, developerUnreadOnly.Items)
+}
+
+func TestConnectedAppDeveloperAPIAndDeviceFlow(t *testing.T) {
+	setupSnaplessRouterTestDB(t)
+	router := newConnectedAppAdminRouterForTest(t)
+	adminCookies := loginConnectedAppAdmin(t, router)
+	developerCookies := loginConnectedAppDeveloper(t, router)
+
+	submitted := decodeConnectedAppData[connectedAppRequestMutationData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-app-requests",
+		`{"slug":"snapless-addon","name":"Snapless Addon","description":"Addon desktop client","requested_scopes":["openai.models","openai.chat","quota.read"],"default_scopes":["openai.chat"],"authorization_flow":"device_code","homepage_url":"https://snapless.example","reason":"desktop integration"}`,
+		developerCookies,
+	))
+
+	approved := decodeConnectedAppData[connectedAppRequestMutationData](t, requestConnectedAppAdmin(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/requests/"+strconv.Itoa(submitted.Request.ID)+"/review",
+		`{"decision":"approved","review_note":"approved for device flow","allowed_scopes":["openai.models","openai.chat","quota.read"],"default_scopes":["openai.chat"]}`,
+		adminCookies,
+	))
+	require.Equal(t, model.ConnectedAppRequestStatusApproved, approved.Request.Status)
+	require.Equal(t, "snapless-addon", approved.App.Slug)
+
+	config := decodeConnectedAppData[connectedAppDeveloperConfigData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/snapless-addon/developer/config",
+		"",
+		developerCookies,
+	))
+	require.True(t, config.Owner)
+	require.Equal(t, "snapless-addon", config.App.Slug)
+	require.Equal(t, "https://data-proxy.test/v1", config.BaseURL)
+	require.ElementsMatch(t, []string{"openai.models", "openai.chat", "quota.read"}, config.Scopes)
+	require.Equal(t, "https://data-proxy.test/v1/models", config.APIEndpoints["models"])
+	require.Equal(t, "https://data-proxy.test/v1/chat/completions", config.APIEndpoints["chat_completions"])
+	require.Equal(t, "https://data-proxy.test/api/usage/token", config.APIEndpoints["token_usage"])
+	require.Contains(t, config.DeviceFlow["start"], "/api/connected-apps/snapless-addon/device/start")
+
+	forbidden := decodeConnectedAppFailure(t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/snapless/developer/config",
+		"",
+		developerCookies,
+	))
+	require.Contains(t, forbidden, "developer access")
+
+	started := decodeConnectedAppData[snaplessDeviceStartData](t, requestConnectedAppUser(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/snapless-addon/device/start",
+		`{"device_id":"addon-device","device_name":"Addon Mac","platform":"macos","app_version":"2.0.0","client":"snapless-addon"}`,
+		nil,
+		0,
+	))
+	require.NotEmpty(t, started.DeviceCode)
+	require.NotEmpty(t, started.UserCode)
+	require.Equal(t, "snapless-addon", started.App.Slug)
+	require.Equal(t, "Addon Mac", started.Device.DeviceName)
+	require.Contains(t, started.VerificationURI, "/snapless/device?")
+	require.Contains(t, started.VerificationURI, "app_slug=snapless-addon")
+	require.Contains(t, started.VerificationURI, "user_code=")
+
+	pending := decodeConnectedAppData[snaplessDevicePollStatusData](t, requestConnectedAppUser(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/snapless-addon/device/poll",
+		`{"device_code":`+strconv.Quote(started.DeviceCode)+`}`,
+		nil,
+		0,
+	))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusPending, pending.Status)
+	require.Equal(t, 3, pending.Interval)
+
+	status := decodeConnectedAppData[snaplessDeviceStatusData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/snapless-addon/device/status?user_code="+started.UserCode,
+		"",
+		developerCookies,
+	))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusPending, status.Status)
+	require.True(t, status.Readiness.OK)
+
+	authorized := decodeConnectedAppData[snaplessDeviceStatusData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/snapless-addon/device/authorize",
+		`{"user_code":`+strconv.Quote(started.UserCode)+`,"approve":true}`,
+		developerCookies,
+	))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusAuthorized, authorized.Status)
+	require.NotZero(t, authorized.Token.ID)
+
+	firstPoll := decodeConnectedAppData[snaplessTokenData](t, requestConnectedAppUser(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/snapless-addon/device/poll",
+		`{"device_code":`+strconv.Quote(started.DeviceCode)+`}`,
+		nil,
+		0,
+	))
+	require.True(t, firstPoll.Created)
+	require.True(t, firstPoll.APIKeyOnce)
+	require.True(t, strings.HasPrefix(firstPoll.APIKey, "sk-"))
+	require.Equal(t, authorized.Token.ID, firstPoll.Token.ID)
+	require.True(t, firstPoll.Token.UnlimitedQuota)
+	require.False(t, firstPoll.Token.ModelLimitsEnabled)
+
+	secondPoll := decodeConnectedAppData[snaplessDevicePollStatusData](t, requestConnectedAppUser(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/snapless-addon/device/poll",
+		`{"device_code":`+strconv.Quote(started.DeviceCode)+`}`,
+		nil,
+		0,
+	))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusConsumed, secondPoll.Status)
+
+	authorizations := decodeConnectedAppData[connectedAppPageData[connectedAppDeveloperAuthorizationData]](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/snapless-addon/developer/authorizations",
+		"",
+		developerCookies,
+	))
+	require.EqualValues(t, 1, authorizations.Total)
+	require.Len(t, authorizations.Items, 1)
+	require.Equal(t, connectedAppRouterDeveloperUserId, authorizations.Items[0].UserID)
+	require.Equal(t, model.ConnectedAppGrantStatusAuthorized, authorizations.Items[0].Grant.Status)
+	require.ElementsMatch(t, []string{"openai.chat"}, authorizations.Items[0].Grant.Scopes)
+	require.Len(t, authorizations.Items[0].Devices, 1)
+	require.Equal(t, model.ConnectedAppTokenBindingStatusActive, authorizations.Items[0].Devices[0].Status)
+	require.Equal(t, firstPoll.Token.ID, authorizations.Items[0].Devices[0].Token.ID)
+	require.False(t, authorizations.Items[0].Devices[0].Token.ModelLimitsEnabled)
+
+	sessions := decodeConnectedAppData[connectedAppPageData[connectedAppDeveloperSessionData]](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/snapless-addon/developer/device-sessions?status=consumed",
+		"",
+		developerCookies,
+	))
+	require.EqualValues(t, 1, sessions.Total)
+	require.Len(t, sessions.Items, 1)
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusConsumed, sessions.Items[0].Status)
+	require.Equal(t, connectedAppRouterDeveloperUserId, sessions.Items[0].UserID)
+	require.Equal(t, firstPoll.Token.ID, sessions.Items[0].TokenID)
+	require.Equal(t, "Addon Mac", sessions.Items[0].Device.DeviceName)
+
+	untrusted := decodeConnectedAppData[connectedAppData](t, requestConnectedAppAdmin(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps",
+		`{"slug":"untrusted-client","name":"Untrusted Client","allowed_scopes":["openai.chat"],"default_scopes":["openai.chat"],"trusted":false,"status":1}`,
+		adminCookies,
+	))
+	require.False(t, untrusted.Trusted)
+	untrustedStart := decodeConnectedAppFailure(t, requestConnectedAppUser(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/untrusted-client/device/start",
+		`{"device_id":"untrusted-device"}`,
+		nil,
+		0,
+	))
+	require.Contains(t, untrustedStart, "not trusted")
 }
 
 func TestConnectedAppRequestRejectsDuplicateAndInvalidReview(t *testing.T) {

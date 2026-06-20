@@ -11,6 +11,7 @@
 - 已完成 Snapless 状态与充值闭环：health/config/devices/device status 返回可操作 `actions`，前端可提示余额不足、用户禁用和模型不可用并跳转对应入口。
 - 已完成 Connected App 应用管理 MVP：管理员可在系统设置中查看、新增、编辑、停用应用，并配置 allowed/default scopes 与 trusted 状态。
 - 已完成应用申请和权限审批 MVP：第三方应用可提交接入申请，管理员可审批并生成 trusted app，审批状态进入站内通知和 connected app 审计。
+- 已完成应用开发者 API MVP：获批申请人可查看自身 app 配置、允许 endpoint、授权用户/设备和 device session 状态；trusted app 可使用通用 device code flow 创建设备授权。
 - MCP 计费语义不改，仍按工具调用次数和 `price_per_call` 扣费。
 
 ## 开发顺序
@@ -23,11 +24,11 @@
 | 4 | SNAPLESS-004 | P1 | Done | 余额和充值闭环 | health/config 返回余额不足、用户禁用、模型不可用等可操作状态；前端在 Snapless 卡片和授权页显示明确状态，并能跳到充值或设置入口。 |
 | 5 | SNAPLESS-005 | P1 | Done | Connected App 应用管理 MVP | 管理员可新增/停用应用、配置 allowed/default scopes、trusted 状态和授权方式；Snapless 从内置 app 过渡为可管理 app，保留 migration 兼容。 |
 | 6 | SNAPLESS-006 | P2 | Done | 应用申请和权限审批 | 第三方应用可提交接入申请；管理员审核 scopes、回调/设备流能力和展示信息；审批结果写入审计和站内通知。 |
-| 7 | SNAPLESS-007 | P2 | Next | 应用开发者 API | 获批应用可创建自己的 device sessions、查看授权状态和查询允许的 API endpoints；只暴露与自身 app 相关的 grant/binding/session。 |
-| 8 | SNAPLESS-008 | P2 | Planned | 邮件/Webhook 通知扩展 | 在站内通知和审计可见后，再为应用授权、撤销、异常 health 状态补邮件或 webhook。 |
+| 7 | SNAPLESS-007 | P2 | Done | 应用开发者 API | 获批应用可创建自己的 device sessions、查看授权状态和查询允许的 API endpoints；只暴露与自身 app 相关的 grant/binding/session。 |
+| 8 | SNAPLESS-008 | P2 | Next | 邮件/Webhook 通知扩展 | 在站内通知和审计可见后，再为应用授权、撤销、异常 health 状态补邮件或 webhook。 |
 
 ## 立即下一步
 
-1. 开发 `SNAPLESS-007`：为获批 connected app 提供开发者 API，用于创建自身 device sessions、查询授权状态和可用 endpoint。
-2. 收紧应用级权限边界：所有 developer API 必须按 app、applicant/owner 和 scopes 过滤，不能越权读取其他应用的 grant/binding/session。
-3. `SNAPLESS-007` 稳定后再进入 `SNAPLESS-008`，把应用授权、撤销和异常 health 状态接入 email/webhook outbox。
+1. 进入 `SNAPLESS-008`：设计 email/webhook outbox，覆盖应用审批结果、设备授权完成/拒绝、授权异常 health 状态等事件。
+2. 保持站内通知和审计为主链路，email/webhook 只作为扩展投递通道，失败时必须可重试、可审计且不阻断授权流程。
+3. 开始前先确认 webhook secret、重试策略、事件 payload 版本和管理员开关位置。

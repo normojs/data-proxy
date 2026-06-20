@@ -185,11 +185,20 @@ function unwrap<T>(response: ApiEnvelope<T>): T {
   return response.data
 }
 
+function getDeviceFlowBasePath(appSlug?: string) {
+  const normalized = appSlug?.trim()
+  if (!normalized || normalized === 'snapless') {
+    return '/api/snapless'
+  }
+  return `/api/connected-apps/${encodeURIComponent(normalized)}`
+}
+
 export async function getSnaplessDeviceStatus(
-  userCode: string
+  userCode: string,
+  appSlug?: string
 ): Promise<SnaplessDeviceStatusResponse> {
   const res = await api.get<ApiEnvelope<SnaplessDeviceStatusResponse>>(
-    '/api/snapless/device/status',
+    `${getDeviceFlowBasePath(appSlug)}/device/status`,
     {
       params: { user_code: userCode },
       skipBusinessError: true,
@@ -198,12 +207,15 @@ export async function getSnaplessDeviceStatus(
   return unwrap(res.data)
 }
 
-export async function authorizeSnaplessDevice(input: {
-  user_code: string
-  approve: boolean
-}): Promise<SnaplessDeviceStatusResponse> {
+export async function authorizeSnaplessDevice(
+  input: {
+    user_code: string
+    approve: boolean
+  },
+  appSlug?: string
+): Promise<SnaplessDeviceStatusResponse> {
   const res = await api.post<ApiEnvelope<SnaplessDeviceStatusResponse>>(
-    '/api/snapless/device/authorize',
+    `${getDeviceFlowBasePath(appSlug)}/device/authorize`,
     input,
     { skipBusinessError: true }
   )
