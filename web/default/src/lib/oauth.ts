@@ -69,6 +69,29 @@ export function buildLinuxDOOAuthUrl(clientId: string, state: string): string {
   return `https://connect.linux.do/oauth2/authorize?response_type=code&client_id=${clientId}&state=${state}`
 }
 
+/**
+ * Build H Station OAuth URL
+ */
+export function buildHStationOAuthUrl(
+  authUrl: string,
+  clientId: string,
+  state: string,
+  scopes?: string
+): string {
+  const url = new URL(authUrl)
+  url.searchParams.set('client_id', clientId)
+  url.searchParams.set(
+    'redirect_uri',
+    `${window.location.origin}/oauth/hstation`
+  )
+  url.searchParams.set('response_type', 'code')
+  url.searchParams.set('state', state)
+  if (scopes) {
+    url.searchParams.set('scope', scopes)
+  }
+  return url.toString()
+}
+
 // ============================================================================
 // OAuth Helper Functions
 // ============================================================================
@@ -140,5 +163,20 @@ export async function handleLinuxDOOAuth(clientId: string): Promise<void> {
   if (!state) return
 
   const url = buildLinuxDOOAuthUrl(clientId, state)
+  window.open(url, '_blank')
+}
+
+/**
+ * Handle H Station OAuth binding/login
+ */
+export async function handleHStationOAuth(
+  authUrl: string,
+  clientId: string,
+  scopes?: string
+): Promise<void> {
+  const state = await getOAuthState()
+  if (!state) return
+
+  const url = buildHStationOAuthUrl(authUrl, clientId, state, scopes)
   window.open(url, '_blank')
 }

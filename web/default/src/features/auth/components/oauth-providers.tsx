@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 import {
   IconDiscord,
   IconGithub,
+  IconHStation,
   IconLinuxDo,
   IconWeChat,
 } from '@/assets/brand-icons'
@@ -61,21 +62,12 @@ export function OAuthProviders({
     handleDiscordLogin,
     handleOIDCLogin,
     handleLinuxDOLogin,
+    handleHStationLogin,
     handleTelegramLogin,
     handleCustomOAuthLogin,
   } = useOAuthLogin(status)
 
   const providerButtons: ProviderButton[] = []
-
-  if (status?.wechat_login && onWeChatLogin) {
-    providerButtons.push({
-      key: 'wechat',
-      label: t('Continue with WeChat'),
-      onClick: onWeChatLogin,
-      icon: <IconWeChat className='h-4 w-4' />,
-      disabled: isWeChatLoading,
-    })
-  }
 
   if (status?.github_oauth) {
     providerButtons.push({
@@ -110,6 +102,25 @@ export function OAuthProviders({
       label: t('Continue with LinuxDO'),
       onClick: handleLinuxDOLogin,
       icon: <IconLinuxDo className='h-4 w-4' />,
+    })
+  }
+
+  if (status?.hstation_oauth) {
+    providerButtons.push({
+      key: 'hstation',
+      label: t('Continue with H 站'),
+      onClick: handleHStationLogin,
+      icon: <IconHStation className='h-4 w-4' />,
+    })
+  }
+
+  if (status?.wechat_login && onWeChatLogin) {
+    providerButtons.push({
+      key: 'wechat',
+      label: t('Continue with WeChat'),
+      onClick: onWeChatLogin,
+      icon: <IconWeChat className='h-4 w-4' />,
+      disabled: isWeChatLoading,
     })
   }
 

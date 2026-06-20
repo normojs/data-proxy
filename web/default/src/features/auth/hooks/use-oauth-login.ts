@@ -28,6 +28,7 @@ import {
   buildDiscordOAuthUrl,
   buildOIDCOAuthUrl,
   buildLinuxDOOAuthUrl,
+  buildHStationOAuthUrl,
 } from '../lib/oauth'
 import type { SystemStatus, CustomOAuthProviderInfo } from '../types'
 
@@ -185,6 +186,33 @@ export function useOAuthLogin(status: SystemStatus | null) {
     }
   }
 
+  const handleHStationLogin = async () => {
+    if (!status?.hstation_authorization_endpoint || !status?.hstation_client_id)
+      return
+
+    setIsLoading(true)
+    try {
+      await resetSession()
+      const state = await getOAuthState()
+      if (!state) {
+        toast.error(t('Failed to initialize OAuth'))
+        return
+      }
+
+      const url = buildHStationOAuthUrl(
+        status.hstation_authorization_endpoint,
+        status.hstation_client_id,
+        state,
+        status.hstation_scopes
+      )
+      window.open(url, '_self')
+    } catch (_error) {
+      toast.error(t('Failed to start H 站 login'))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleTelegramLogin = () => {
     toast.info(t('Telegram login requires widget integration; coming soon'))
   }
@@ -229,6 +257,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
     handleDiscordLogin,
     handleOIDCLogin,
     handleLinuxDOLogin,
+    handleHStationLogin,
     handleTelegramLogin,
     handleCustomOAuthLogin,
   }

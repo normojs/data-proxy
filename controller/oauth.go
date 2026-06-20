@@ -307,12 +307,13 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 			// Set the provider user ID on the user model and update
 			provider.SetProviderUserID(user, oauthUser.ProviderUserID)
 			if err := tx.Model(user).Updates(map[string]interface{}{
-				"github_id":   user.GitHubId,
-				"discord_id":  user.DiscordId,
-				"oidc_id":     user.OidcId,
-				"linux_do_id": user.LinuxDOId,
-				"wechat_id":   user.WeChatId,
-				"telegram_id": user.TelegramId,
+				"github_id":    user.GitHubId,
+				"discord_id":   user.DiscordId,
+				"oidc_id":      user.OidcId,
+				"h_station_id": user.HStationId,
+				"linux_do_id":  user.LinuxDOId,
+				"wechat_id":    user.WeChatId,
+				"telegram_id":  user.TelegramId,
 			}).Error; err != nil {
 				return err
 			}

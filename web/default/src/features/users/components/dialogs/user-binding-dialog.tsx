@@ -84,6 +84,7 @@ interface StatusInfo {
   wechat_login?: boolean
   telegram_oauth?: boolean
   linuxdo_oauth?: boolean
+  hstation_oauth?: boolean
   custom_oauth_providers?: Array<{
     id: string
     name: string
@@ -120,13 +121,6 @@ const BUILTIN_BINDINGS: ReadonlyArray<{
     statusKey: 'discord_oauth',
   },
   {
-    key: 'wechat_id',
-    field: 'wechat_id',
-    label: 'WeChat',
-    icon: <MessageCircle className='h-4 w-4' />,
-    statusKey: 'wechat_login',
-  },
-  {
     key: 'oidc_id',
     field: 'oidc_id',
     label: 'OIDC',
@@ -146,6 +140,20 @@ const BUILTIN_BINDINGS: ReadonlyArray<{
     label: 'LinuxDO',
     icon: <Globe className='h-4 w-4' />,
     statusKey: 'linuxdo_oauth',
+  },
+  {
+    key: 'hstation',
+    field: 'h_station_id',
+    label: 'H 站',
+    icon: <Globe className='h-4 w-4' />,
+    statusKey: 'hstation_oauth',
+  },
+  {
+    key: 'wechat_id',
+    field: 'wechat_id',
+    label: 'WeChat',
+    icon: <MessageCircle className='h-4 w-4' />,
+    statusKey: 'wechat_login',
   },
 ]
 

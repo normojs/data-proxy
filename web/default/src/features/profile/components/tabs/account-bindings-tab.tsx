@@ -21,12 +21,13 @@ import { Mail, Shield, Send, Link2, Unlink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { SiGithub, SiWechat, SiLinux } from 'react-icons/si'
 import { toast } from 'sonner'
-import { IconDiscord } from '@/assets/brand-icons'
+import { IconDiscord, IconHStation } from '@/assets/brand-icons'
 import {
   handleGitHubOAuth,
   handleOIDCOAuth,
   handleDiscordOAuth,
   handleLinuxDOOAuth,
+  handleHStationOAuth,
 } from '@/lib/oauth'
 import { useDialogs } from '@/hooks/use-dialog'
 import { useStatus } from '@/hooks/use-status'
@@ -161,17 +162,6 @@ export function AccountBindingsTab({
         onBind: () => dialogs.open('email'),
       },
       {
-        id: 'wechat',
-        label: t('WeChat'),
-        icon: SiWechat as React.ComponentType<{ className?: string }>,
-        value: undefined,
-        isBound: Boolean(
-          (profile as unknown as Record<string, unknown>).wechat_id
-        ),
-        isEnabled: status?.wechat_login || false,
-        onBind: () => dialogs.open('wechat'),
-      },
-      {
         id: 'github',
         label: t('GitHub'),
         icon: SiGithub,
@@ -254,6 +244,41 @@ export function AccountBindingsTab({
             handleLinuxDOOAuth(status.linuxdo_client_id)
           }
         },
+      },
+      {
+        id: 'hstation',
+        label: t('H 站'),
+        icon: IconHStation,
+        value: (profile as unknown as Record<string, unknown>).h_station_id as
+          | string
+          | undefined,
+        isBound: Boolean(
+          (profile as unknown as Record<string, unknown>).h_station_id
+        ),
+        isEnabled: status?.hstation_oauth || false,
+        onBind: () => {
+          if (
+            status?.hstation_authorization_endpoint &&
+            status?.hstation_client_id
+          ) {
+            handleHStationOAuth(
+              status.hstation_authorization_endpoint,
+              status.hstation_client_id,
+              status.hstation_scopes
+            )
+          }
+        },
+      },
+      {
+        id: 'wechat',
+        label: t('WeChat'),
+        icon: SiWechat as React.ComponentType<{ className?: string }>,
+        value: undefined,
+        isBound: Boolean(
+          (profile as unknown as Record<string, unknown>).wechat_id
+        ),
+        isEnabled: status?.wechat_login || false,
+        onBind: () => dialogs.open('wechat'),
       },
     ].filter((binding) => binding.isEnabled)
     // eslint-disable-next-line react-hooks/exhaustive-deps

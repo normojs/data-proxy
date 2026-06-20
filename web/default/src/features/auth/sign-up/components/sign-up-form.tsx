@@ -110,6 +110,17 @@ export function SignUpForm({
     status?.data?.oauth_register_enabled ??
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
+  const hasOAuthLogin = Boolean(
+    status?.github_oauth ||
+    status?.discord_oauth ||
+    status?.oidc_enabled ||
+    status?.linuxdo_oauth ||
+    status?.hstation_oauth ||
+    status?.telegram_oauth ||
+    (status?.custom_oauth_providers?.length ?? 0) > 0
+  )
+  const hasOAuthRegister =
+    oauthRegisterEnabled && (hasWeChatLogin || hasOAuthLogin)
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
 
   const wechatQrCodeUrl = useMemo(() => {
@@ -372,7 +383,7 @@ export function SignUpForm({
           {t('Create account')}
         </Button>
 
-        {oauthRegisterEnabled && (
+        {hasOAuthRegister && (
           <OAuthProviders
             status={status}
             disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}

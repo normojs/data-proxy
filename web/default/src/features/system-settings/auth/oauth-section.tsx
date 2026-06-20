@@ -77,6 +77,13 @@ const oauthSchema = z.object({
   LinuxDOClientId: z.string(),
   LinuxDOClientSecret: z.string(),
   LinuxDOMinimumTrustLevel: z.string(),
+  HStationOAuthEnabled: z.boolean(),
+  HStationClientId: z.string(),
+  HStationClientSecret: z.string(),
+  HStationAuthorizationEndpoint: z.string(),
+  HStationTokenEndpoint: z.string(),
+  HStationUserInfoEndpoint: z.string(),
+  HStationScopes: z.string(),
   WeChatAuthEnabled: z.boolean(),
   WeChatServerAddress: z.string(),
   WeChatServerToken: z.string(),
@@ -106,6 +113,13 @@ type FlatOAuthDefaults = {
   LinuxDOClientId: string
   LinuxDOClientSecret: string
   LinuxDOMinimumTrustLevel: string
+  HStationOAuthEnabled: boolean
+  HStationClientId: string
+  HStationClientSecret: string
+  HStationAuthorizationEndpoint: string
+  HStationTokenEndpoint: string
+  HStationUserInfoEndpoint: string
+  HStationScopes: string
   WeChatAuthEnabled: boolean
   WeChatServerAddress: string
   WeChatServerToken: string
@@ -140,6 +154,13 @@ const buildFormDefaults = (defaults: FlatOAuthDefaults): OAuthFormValues => ({
   LinuxDOClientId: defaults.LinuxDOClientId ?? '',
   LinuxDOClientSecret: defaults.LinuxDOClientSecret ?? '',
   LinuxDOMinimumTrustLevel: defaults.LinuxDOMinimumTrustLevel ?? '',
+  HStationOAuthEnabled: defaults.HStationOAuthEnabled,
+  HStationClientId: defaults.HStationClientId ?? '',
+  HStationClientSecret: defaults.HStationClientSecret ?? '',
+  HStationAuthorizationEndpoint: defaults.HStationAuthorizationEndpoint ?? '',
+  HStationTokenEndpoint: defaults.HStationTokenEndpoint ?? '',
+  HStationUserInfoEndpoint: defaults.HStationUserInfoEndpoint ?? '',
+  HStationScopes: defaults.HStationScopes ?? 'read:profile',
   WeChatAuthEnabled: defaults.WeChatAuthEnabled,
   WeChatServerAddress: defaults.WeChatServerAddress ?? '',
   WeChatServerToken: defaults.WeChatServerToken ?? '',
@@ -167,11 +188,48 @@ const normalizeFormValues = (values: OAuthFormValues): FlatOAuthDefaults => ({
   LinuxDOClientId: values.LinuxDOClientId,
   LinuxDOClientSecret: values.LinuxDOClientSecret,
   LinuxDOMinimumTrustLevel: values.LinuxDOMinimumTrustLevel,
+  HStationOAuthEnabled: values.HStationOAuthEnabled,
+  HStationClientId: values.HStationClientId,
+  HStationClientSecret: values.HStationClientSecret,
+  HStationAuthorizationEndpoint: values.HStationAuthorizationEndpoint,
+  HStationTokenEndpoint: values.HStationTokenEndpoint,
+  HStationUserInfoEndpoint: values.HStationUserInfoEndpoint,
+  HStationScopes: values.HStationScopes,
   WeChatAuthEnabled: values.WeChatAuthEnabled,
   WeChatServerAddress: values.WeChatServerAddress,
   WeChatServerToken: values.WeChatServerToken,
   WeChatAccountQRCodeImageURL: values.WeChatAccountQRCodeImageURL,
 })
+
+const oauthEnabledKeys = new Set<keyof FlatOAuthDefaults>([
+  'GitHubOAuthEnabled',
+  'discord.enabled',
+  'oidc.enabled',
+  'TelegramOAuthEnabled',
+  'LinuxDOOAuthEnabled',
+  'HStationOAuthEnabled',
+  'WeChatAuthEnabled',
+])
+
+const sortChangedOAuthKeys = (
+  keys: Array<keyof FlatOAuthDefaults>,
+  values: FlatOAuthDefaults
+) =>
+  [...keys].sort((left, right) => {
+    const leftIsEnabledKey = oauthEnabledKeys.has(left)
+    const rightIsEnabledKey = oauthEnabledKeys.has(right)
+    if (leftIsEnabledKey !== rightIsEnabledKey) {
+      return leftIsEnabledKey ? 1 : -1
+    }
+    if (leftIsEnabledKey && rightIsEnabledKey) {
+      const leftEnables = values[left] === true
+      const rightEnables = values[right] === true
+      if (leftEnables !== rightEnables) {
+        return leftEnables ? 1 : -1
+      }
+    }
+    return 0
+  })
 
 type OAuthSectionProps = {
   defaultValues: FlatOAuthDefaults
@@ -252,9 +310,12 @@ export function OAuthSection(props: OAuthSectionProps) {
     }
 
     const normalized = normalizeFormValues(finalValues)
-    const changedKeys = (
-      Object.keys(normalized) as Array<keyof FlatOAuthDefaults>
-    ).filter((key) => normalized[key] !== baselineRef.current[key])
+    const changedKeys = sortChangedOAuthKeys(
+      (Object.keys(normalized) as Array<keyof FlatOAuthDefaults>).filter(
+        (key) => normalized[key] !== baselineRef.current[key]
+      ),
+      normalized
+    )
 
     if (changedKeys.length === 0) {
       toast.info(t('No changes to save'))
@@ -310,6 +371,9 @@ export function OAuthSection(props: OAuthSectionProps) {
                   </TabsTrigger>
                   <TabsTrigger value='linuxdo' className='min-w-20'>
                     {t('LinuxDO')}
+                  </TabsTrigger>
+                  <TabsTrigger value='hstation' className='min-w-20'>
+                    {t('H 站')}
                   </TabsTrigger>
                   <TabsTrigger value='wechat' className='min-w-20'>
                     {t('WeChat')}
@@ -805,6 +869,180 @@ export function OAuthSection(props: OAuthSectionProps) {
                       </FormControl>
                       <FormDescription>
                         {t('Minimum LinuxDO trust level required')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </TabsContent>
+
+              <TabsContent
+                value='hstation'
+                className={oauthTabContentClassName}
+              >
+                <FormField
+                  control={form.control}
+                  name='HStationOAuthEnabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Enable H 站 OAuth')}</FormLabel>
+                        <FormDescription>
+                          {t('Allow users to sign in with dc.hhhl.cc')}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='HStationClientId'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Client ID')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder='dc-hhhl-app-auth'
+                          autoComplete='off'
+                          value={field.value ?? ''}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='HStationClientSecret'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Client Secret')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='password'
+                          placeholder={t('H 站 OAuth Client Secret')}
+                          autoComplete='new-password'
+                          value={field.value ?? ''}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='HStationAuthorizationEndpoint'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Authorization Endpoint')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder='https://newapi.tunnel.runna.cc/dc-oauth/authorize'
+                          autoComplete='off'
+                          value={field.value ?? ''}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='HStationTokenEndpoint'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Token Endpoint')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder='https://newapi.tunnel.runna.cc/dc-oauth/token'
+                          autoComplete='off'
+                          value={field.value ?? ''}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='HStationUserInfoEndpoint'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('User Info Endpoint')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder='https://newapi.tunnel.runna.cc/dc-oauth/userinfo'
+                          autoComplete='off'
+                          value={field.value ?? ''}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='HStationScopes'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Scopes')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder='read:profile'
+                          autoComplete='off'
+                          value={field.value ?? ''}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t('Space-separated OAuth scopes')}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

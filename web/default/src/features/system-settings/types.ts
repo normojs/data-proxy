@@ -124,6 +124,13 @@ export type AuthSettings = {
   LinuxDOClientId: string
   LinuxDOClientSecret: string
   LinuxDOMinimumTrustLevel: string
+  HStationOAuthEnabled: boolean
+  HStationClientId: string
+  HStationClientSecret: string
+  HStationAuthorizationEndpoint: string
+  HStationTokenEndpoint: string
+  HStationUserInfoEndpoint: string
+  HStationScopes: string
   WeChatAuthEnabled: boolean
   WeChatServerAddress: string
   WeChatServerToken: string

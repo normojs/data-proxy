@@ -23,6 +23,7 @@ export {
   buildDiscordOAuthUrl,
   buildOIDCOAuthUrl,
   buildLinuxDOOAuthUrl,
+  buildHStationOAuthUrl,
 } from '@/lib/oauth'
 
 // ============================================================================
@@ -76,6 +77,16 @@ export function getAvailableOAuthProviders(
     })
   }
 
+  if (status.hstation_oauth) {
+    providers.push({
+      name: 'H 站',
+      type: 'hstation',
+      enabled: true,
+      clientId: status.hstation_client_id,
+      authEndpoint: status.hstation_authorization_endpoint,
+    })
+  }
+
   if (status.telegram_oauth) {
     providers.push({
       name: 'Telegram',
@@ -97,6 +108,7 @@ export function hasOAuthProviders(status: SystemStatus | null): boolean {
     status.discord_oauth ||
     status.oidc_enabled ||
     status.linuxdo_oauth ||
+    status.hstation_oauth ||
     status.telegram_oauth ||
     status.wechat_login
   )
