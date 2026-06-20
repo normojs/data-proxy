@@ -1089,6 +1089,7 @@ func setupEnterpriseRouterTestDB(t *testing.T) {
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseUsageAttribution{},
 		&model.EnterpriseGovernanceQueueAdmission{},
+		&model.EnterpriseGovernanceAnomalyProtection{},
 		&model.EnterpriseAuditLog{},
 		&model.EnterpriseNotificationRead{},
 		&model.EnterpriseNotificationPreference{},

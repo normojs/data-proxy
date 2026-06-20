@@ -59,6 +59,13 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleRequestSpikeAuditsAndProtects(t
 	require.True(t, ok)
 	assert.Equal(t, enterpriseAnomalyReasonRequestSpike, trigger["reason"])
 
+	var protection model.EnterpriseGovernanceAnomalyProtection
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND protection_key = ? AND status = ?", enterprise.Id, enterpriseAnomalyProtectionKey(&EnterpriseContext{EnterpriseId: enterprise.Id}), model.EnterpriseGovernanceAnomalyProtectionStatusActive).
+		First(&protection).Error)
+	assert.Equal(t, enterpriseAnomalyReasonRequestSpike, protection.Reason)
+	assert.Equal(t, result.ProtectedUntil, protection.ProtectedUntil)
+	assert.NotEmpty(t, protection.PayloadJson)
+
 	protectedRelayInfo := *relayInfo
 	protectedRelayInfo.RequestId = "req-enterprise-anomaly-protected"
 	protectedCtx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-anomaly-protected", 732)
@@ -67,6 +74,39 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleRequestSpikeAuditsAndProtects(t
 	assert.True(t, errors.Is(err, ErrEnterpriseGovernanceAnomalyThrottled))
 	assert.True(t, protected.Applied)
 	assert.Equal(t, result.ProtectedUntil, protected.ProtectedUntil)
+}
+
+func TestApplyEnterpriseGovernanceAnomalyThrottleRestoresProtectionFromDB(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseAnomalyThrottleForTest(t)
+	gin.SetMode(gin.TestMode)
+
+	enterprise, relayInfo := prepareEnterpriseAnomalyThrottleRequest(t, "req-enterprise-anomaly-db-restore", 1043, 133)
+	now := time.Now()
+	seedEnterpriseAnomalyUsageAttributions(t, enterprise.Id, 1043, []time.Time{
+		now.Add(-15 * time.Minute),
+		now.Add(-4 * time.Minute),
+		now.Add(-3 * time.Minute),
+		now.Add(-2 * time.Minute),
+		now.Add(-time.Minute),
+	}, 10)
+
+	ctx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-anomaly-db-restore", 735)
+	result, err := ApplyEnterpriseGovernanceAnomalyThrottle(ctx, relayInfo)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrEnterpriseGovernanceAnomalyThrottled))
+	require.True(t, result.Applied)
+
+	enterpriseAnomalyProtections = sync.Map{}
+	restoredRelayInfo := *relayInfo
+	restoredRelayInfo.RequestId = "req-enterprise-anomaly-db-restored"
+	restoredCtx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-anomaly-db-restored", 736)
+	restored, err := ApplyEnterpriseGovernanceAnomalyThrottle(restoredCtx, &restoredRelayInfo)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrEnterpriseGovernanceAnomalyThrottled))
+	assert.Equal(t, result.ProtectedUntil, restored.ProtectedUntil)
+	assert.Equal(t, enterpriseAnomalyReasonRequestSpike, restored.Reason)
+	assert.Equal(t, enterpriseAnomalyStatusThrottled, restoredCtx.Writer.Header().Get(enterpriseAnomalyStatusHeader))
 }
 
 func TestApplyEnterpriseGovernanceAnomalyThrottleFailureRate(t *testing.T) {

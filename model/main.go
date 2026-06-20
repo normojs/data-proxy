@@ -332,6 +332,7 @@ func migrateDB() error {
 		&EnterpriseWebhook{},
 		&EnterpriseUsageAttribution{},
 		&EnterpriseGovernanceQueueAdmission{},
+		&EnterpriseGovernanceAnomalyProtection{},
 		&EnterpriseAuditLog{},
 	)
 	if err != nil {
@@ -436,6 +437,7 @@ func migrateDBFast() error {
 		{&EnterpriseWebhook{}, "EnterpriseWebhook"},
 		{&EnterpriseUsageAttribution{}, "EnterpriseUsageAttribution"},
 		{&EnterpriseGovernanceQueueAdmission{}, "EnterpriseGovernanceQueueAdmission"},
+		{&EnterpriseGovernanceAnomalyProtection{}, "EnterpriseGovernanceAnomalyProtection"},
 		{&EnterpriseAuditLog{}, "EnterpriseAuditLog"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大

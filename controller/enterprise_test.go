@@ -151,6 +151,7 @@ func setupEnterpriseControllerTestDB(t *testing.T) {
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseUsageAttribution{},
 		&model.EnterpriseGovernanceQueueAdmission{},
+		&model.EnterpriseGovernanceAnomalyProtection{},
 		&model.EnterpriseAuditLog{},
 		&model.EnterpriseNotificationPreference{},
 		&model.EnterpriseNotificationOutbox{},

@@ -15,6 +15,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const (
@@ -92,6 +93,15 @@ type enterpriseAnomalyProtection struct {
 	ProtectedUntil int64
 }
 
+type enterpriseAnomalyProtectionPayload struct {
+	Reason         string                                   `json:"reason"`
+	Triggers       []EnterpriseGovernanceAnomalyTrigger     `json:"triggers"`
+	Current        EnterpriseGovernanceAnomalyUsageSnapshot `json:"current"`
+	Baseline       EnterpriseGovernanceAnomalyUsageSnapshot `json:"baseline"`
+	DetectedAt     int64                                    `json:"detected_at"`
+	ProtectedUntil int64                                    `json:"protected_until"`
+}
+
 func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relaycommon.RelayInfo) (EnterpriseGovernanceAnomalyThrottleResult, error) {
 	result := EnterpriseGovernanceAnomalyThrottleResult{}
 	if !common.EnterpriseGovernanceEnabled || !enterpriseAnomalyThrottleEnabled || c == nil || relayInfo == nil {
@@ -111,7 +121,7 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 
 	now := time.Now()
 	protectionKey := enterpriseAnomalyProtectionKey(enterpriseCtx)
-	if protection, ok := loadEnterpriseAnomalyProtection(protectionKey, now); ok {
+	if protection, ok := loadEnterpriseAnomalyProtection(enterpriseCtx, protectionKey, now); ok {
 		result = enterpriseAnomalyResultFromProtection(protection, enterpriseCtx.DryRun)
 		setEnterpriseAnomalyThrottleHeaders(c, result)
 		recordEnterpriseGovernanceAnomalyThrottleAudit(c, enterpriseCtx, relayInfo, result)
@@ -137,14 +147,16 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 		return result, nil
 	}
 
-	enterpriseAnomalyProtections.Store(protectionKey, enterpriseAnomalyProtection{
+	protection := enterpriseAnomalyProtection{
 		Reason:         result.Reason,
 		Triggers:       append([]EnterpriseGovernanceAnomalyTrigger(nil), result.Triggers...),
 		Current:        result.Current,
 		Baseline:       result.Baseline,
 		DetectedAt:     result.DetectedAt,
 		ProtectedUntil: result.ProtectedUntil,
-	})
+	}
+	enterpriseAnomalyProtections.Store(protectionKey, protection)
+	persistEnterpriseAnomalyProtection(c, enterpriseCtx, protectionKey, protection)
 	setEnterpriseAnomalyThrottleHeaders(c, result)
 	recordEnterpriseGovernanceAnomalyThrottleAudit(c, enterpriseCtx, relayInfo, result)
 	logger.LogWarn(c, fmt.Sprintf("enterprise governance anomaly throttle activated: reason=%s protected_until=%d", result.Reason, result.ProtectedUntil))
@@ -320,17 +332,110 @@ func enterpriseAnomalyUserIds(enterpriseCtx *EnterpriseContext) ([]int, error) {
 	return userIds, nil
 }
 
-func loadEnterpriseAnomalyProtection(key string, now time.Time) (enterpriseAnomalyProtection, bool) {
+func loadEnterpriseAnomalyProtection(enterpriseCtx *EnterpriseContext, key string, now time.Time) (enterpriseAnomalyProtection, bool) {
 	value, ok := enterpriseAnomalyProtections.Load(key)
 	if !ok {
-		return enterpriseAnomalyProtection{}, false
+		return loadEnterpriseAnomalyProtectionFromDB(enterpriseCtx, key, now)
 	}
 	protection, ok := value.(enterpriseAnomalyProtection)
 	if !ok || protection.ProtectedUntil <= now.Unix() {
 		enterpriseAnomalyProtections.Delete(key)
+		expireEnterpriseAnomalyProtection(enterpriseCtx, key, now)
 		return enterpriseAnomalyProtection{}, false
 	}
 	return protection, true
+}
+
+func persistEnterpriseAnomalyProtection(c *gin.Context, enterpriseCtx *EnterpriseContext, key string, protection enterpriseAnomalyProtection) {
+	if enterpriseCtx == nil || enterpriseCtx.EnterpriseId <= 0 || model.DB == nil {
+		return
+	}
+	payload := enterpriseAnomalyProtectionPayload{
+		Reason:         protection.Reason,
+		Triggers:       append([]EnterpriseGovernanceAnomalyTrigger(nil), protection.Triggers...),
+		Current:        protection.Current,
+		Baseline:       protection.Baseline,
+		DetectedAt:     protection.DetectedAt,
+		ProtectedUntil: protection.ProtectedUntil,
+	}
+	payloadBytes, err := common.Marshal(payload)
+	if err != nil {
+		logger.LogError(c, "error marshaling enterprise anomaly protection: "+err.Error())
+		return
+	}
+	now := common.GetTimestamp()
+	if err := model.DB.Model(&model.EnterpriseGovernanceAnomalyProtection{}).
+		Where("enterprise_id = ? AND protection_key = ? AND status = ?", enterpriseCtx.EnterpriseId, key, model.EnterpriseGovernanceAnomalyProtectionStatusActive).
+		Updates(map[string]any{
+			"status":     model.EnterpriseGovernanceAnomalyProtectionStatusExpired,
+			"updated_at": now,
+		}).Error; err != nil {
+		logger.LogError(c, "error expiring previous enterprise anomaly protections: "+err.Error())
+	}
+	row := model.EnterpriseGovernanceAnomalyProtection{
+		EnterpriseId:   enterpriseCtx.EnterpriseId,
+		ProtectionKey:  key,
+		Reason:         protection.Reason,
+		Status:         model.EnterpriseGovernanceAnomalyProtectionStatusActive,
+		DetectedAt:     protection.DetectedAt,
+		ProtectedUntil: protection.ProtectedUntil,
+		PayloadJson:    string(payloadBytes),
+	}
+	if err := model.DB.Create(&row).Error; err != nil {
+		logger.LogError(c, "error recording enterprise anomaly protection: "+err.Error())
+	}
+}
+
+func loadEnterpriseAnomalyProtectionFromDB(enterpriseCtx *EnterpriseContext, key string, now time.Time) (enterpriseAnomalyProtection, bool) {
+	if enterpriseCtx == nil || enterpriseCtx.EnterpriseId <= 0 || model.DB == nil {
+		return enterpriseAnomalyProtection{}, false
+	}
+	var row model.EnterpriseGovernanceAnomalyProtection
+	if err := model.DB.Where(
+		"enterprise_id = ? AND protection_key = ? AND status = ? AND protected_until > ?",
+		enterpriseCtx.EnterpriseId,
+		key,
+		model.EnterpriseGovernanceAnomalyProtectionStatusActive,
+		now.Unix(),
+	).Order("protected_until desc, id desc").First(&row).Error; err != nil {
+		if err != gorm.ErrRecordNotFound {
+			common.SysError("error loading enterprise anomaly protection: " + err.Error())
+		}
+		expireEnterpriseAnomalyProtection(enterpriseCtx, key, now)
+		return enterpriseAnomalyProtection{}, false
+	}
+	var payload enterpriseAnomalyProtectionPayload
+	if err := common.Unmarshal([]byte(row.PayloadJson), &payload); err != nil {
+		common.SysError("error unmarshaling enterprise anomaly protection: " + err.Error())
+		expireEnterpriseAnomalyProtection(enterpriseCtx, key, now)
+		return enterpriseAnomalyProtection{}, false
+	}
+	protection := enterpriseAnomalyProtection{
+		Reason:         payload.Reason,
+		Triggers:       append([]EnterpriseGovernanceAnomalyTrigger(nil), payload.Triggers...),
+		Current:        payload.Current,
+		Baseline:       payload.Baseline,
+		DetectedAt:     payload.DetectedAt,
+		ProtectedUntil: payload.ProtectedUntil,
+	}
+	if protection.ProtectedUntil <= now.Unix() {
+		expireEnterpriseAnomalyProtection(enterpriseCtx, key, now)
+		return enterpriseAnomalyProtection{}, false
+	}
+	enterpriseAnomalyProtections.Store(key, protection)
+	return protection, true
+}
+
+func expireEnterpriseAnomalyProtection(enterpriseCtx *EnterpriseContext, key string, now time.Time) {
+	if enterpriseCtx == nil || enterpriseCtx.EnterpriseId <= 0 || key == "" || model.DB == nil {
+		return
+	}
+	_ = model.DB.Model(&model.EnterpriseGovernanceAnomalyProtection{}).
+		Where("enterprise_id = ? AND protection_key = ? AND status = ? AND protected_until <= ?", enterpriseCtx.EnterpriseId, key, model.EnterpriseGovernanceAnomalyProtectionStatusActive, now.Unix()).
+		Updates(map[string]any{
+			"status":     model.EnterpriseGovernanceAnomalyProtectionStatusExpired,
+			"updated_at": now.Unix(),
+		}).Error
 }
 
 func enterpriseAnomalyResultFromProtection(protection enterpriseAnomalyProtection, dryRun bool) EnterpriseGovernanceAnomalyThrottleResult {
