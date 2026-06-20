@@ -66,6 +66,25 @@ Device Code Flow：
 
 `ensure` 会为同一用户、同一设备复用已有 active binding。只有首次创建或 rotate 时返回 `api_key` 明文；复用已有 binding 时只返回 token 摘要。Device Code Flow 不把 API key 放入 URL，只允许桌面端凭 `device_code` 轮询一次获取。
 
+## Connected App 管理
+
+管理员接口：
+
+- `GET /api/connected-apps`
+  - 返回全部 connected apps，包含 `allowed_scopes`、`default_scopes`、`trusted`、`status`、`authorization_flow`、grant 数量和设备数量。
+- `POST /api/connected-apps`
+  - 新增应用。`slug` 只允许小写字母、数字、下划线和连字符；`allowed_scopes` 至少包含一个 scope；`default_scopes` 必须是 `allowed_scopes` 子集。
+- `PUT /api/connected-apps/:id`
+  - 更新应用展示信息、allowed/default scopes、trusted 状态和启用状态。
+
+前端入口：
+
+- `/system-settings/operations/connected-apps`
+  - 以表格展示应用状态、trusted 状态、scope、grant/device 数量和更新时间。
+  - 使用右侧 Sheet 新增或编辑应用；内置 Snapless app 的 `slug=snapless` 保持不变。
+
+内置 seed 仍由 `EnsureBuiltinConnectedApps()` 维护 Snapless 的默认名称、描述、scopes 和 trusted 标记，但保留管理员设置的 `status`，避免升级时把手动停用的 Snapless 重新启用。
+
 ## 可操作状态
 
 Snapless 响应里的 `actions` 采用统一结构：
@@ -120,6 +139,6 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 应用管理：把内置 Snapless 方案抽象成可配置 Connected App，支持应用申请权限、管理员审核和按 scopes 发放能力。
-2. 多应用扩展：复用 Connected App grant、token binding 和 Device Code Flow，支持 Snapless 以外的可信或第三方应用。
+1. 应用申请和权限审批：第三方应用提交接入申请，管理员审核 scopes、展示信息和设备流能力，审批结果写入审计和站内通知。
+2. 应用开发者 API：获批应用可以创建自己的 device sessions、查看授权状态并查询允许的 API endpoints。
 3. 邮件/Webhook 通知扩展：在站内通知和审计可见后再扩展外部通知渠道。

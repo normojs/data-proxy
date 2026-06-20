@@ -15,6 +15,8 @@ const (
 	ConnectedAppStatusEnabled  = 1
 	ConnectedAppStatusDisabled = 2
 
+	ConnectedAppAuthorizationFlowDeviceCode = "device_code"
+
 	ConnectedAppGrantStatusAuthorized = "authorized"
 	ConnectedAppGrantStatusRevoked    = "revoked"
 
@@ -29,16 +31,17 @@ const (
 )
 
 type ConnectedApp struct {
-	Id            int    `json:"id" gorm:"primaryKey"`
-	Slug          string `json:"slug" gorm:"type:varchar(64);not null;uniqueIndex"`
-	Name          string `json:"name" gorm:"type:varchar(128);not null"`
-	Description   string `json:"description" gorm:"type:varchar(512);not null;default:''"`
-	AllowedScopes string `json:"allowed_scopes" gorm:"type:varchar(512);not null;default:''"`
-	DefaultScopes string `json:"default_scopes" gorm:"type:varchar(512);not null;default:''"`
-	Trusted       bool   `json:"trusted" gorm:"not null;default:false"`
-	Status        int    `json:"status" gorm:"not null;default:1;index"`
-	CreatedAt     int64  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt     int64  `json:"updated_at" gorm:"autoUpdateTime"`
+	Id                int    `json:"id" gorm:"primaryKey"`
+	Slug              string `json:"slug" gorm:"type:varchar(64);not null;uniqueIndex"`
+	Name              string `json:"name" gorm:"type:varchar(128);not null"`
+	Description       string `json:"description" gorm:"type:varchar(512);not null;default:''"`
+	AllowedScopes     string `json:"allowed_scopes" gorm:"type:varchar(512);not null;default:''"`
+	DefaultScopes     string `json:"default_scopes" gorm:"type:varchar(512);not null;default:''"`
+	AuthorizationFlow string `json:"authorization_flow" gorm:"type:varchar(32);not null;default:'device_code'"`
+	Trusted           bool   `json:"trusted" gorm:"not null;default:false"`
+	Status            int    `json:"status" gorm:"not null;default:1;index"`
+	CreatedAt         int64  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt         int64  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (ConnectedApp) TableName() string {
@@ -147,17 +150,18 @@ func EnsureBuiltinConnectedApps() error {
 		return errors.New("database is not initialized")
 	}
 	app := ConnectedApp{
-		Slug:          ConnectedAppSlugSnapless,
-		Name:          "Snapless Desktop",
-		Description:   "Desktop speech input, text processing, translation and selected-text Q&A through Data Proxy.",
-		AllowedScopes: "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
-		DefaultScopes: "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
-		Trusted:       true,
-		Status:        ConnectedAppStatusEnabled,
+		Slug:              ConnectedAppSlugSnapless,
+		Name:              "Snapless Desktop",
+		Description:       "Desktop speech input, text processing, translation and selected-text Q&A through Data Proxy.",
+		AllowedScopes:     "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
+		DefaultScopes:     "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
+		AuthorizationFlow: ConnectedAppAuthorizationFlowDeviceCode,
+		Trusted:           true,
+		Status:            ConnectedAppStatusEnabled,
 	}
 	return DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "slug"}},
-		DoUpdates: clause.AssignmentColumns([]string{"name", "description", "allowed_scopes", "default_scopes", "trusted", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"name", "description", "allowed_scopes", "default_scopes", "authorization_flow", "trusted", "updated_at"}),
 	}).Create(&app).Error
 }
 
@@ -167,6 +171,30 @@ func GetConnectedAppBySlug(slug string) (*ConnectedApp, error) {
 		return nil, err
 	}
 	return &app, nil
+}
+
+func ListConnectedApps() ([]ConnectedApp, error) {
+	var apps []ConnectedApp
+	if err := DB.Order("slug ASC").Find(&apps).Error; err != nil {
+		return nil, err
+	}
+	return apps, nil
+}
+
+func GetConnectedAppByID(id int) (*ConnectedApp, error) {
+	var app ConnectedApp
+	if err := DB.Where("id = ?", id).First(&app).Error; err != nil {
+		return nil, err
+	}
+	return &app, nil
+}
+
+func CreateConnectedApp(app *ConnectedApp) error {
+	return DB.Create(app).Error
+}
+
+func UpdateConnectedApp(app *ConnectedApp) error {
+	return DB.Save(app).Error
 }
 
 func UpsertConnectedAppGrant(tx *gorm.DB, app ConnectedApp, userId int, scopes []string, now int64) (*ConnectedAppGrant, error) {
@@ -227,6 +255,10 @@ func normalizeConnectedAppScopes(scopes []string) []string {
 		result = append(result, normalized)
 	}
 	return result
+}
+
+func NormalizeConnectedAppScopes(scopes []string) []string {
+	return normalizeConnectedAppScopes(scopes)
 }
 
 func FindActiveConnectedAppTokenBinding(appId int, userId int, deviceFingerprint string) (*ConnectedAppTokenBinding, error) {

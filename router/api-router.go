@@ -301,6 +301,14 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
 		}
 
+		connectedAppRoute := apiRouter.Group("/connected-apps")
+		connectedAppRoute.Use(middleware.AdminAuth())
+		{
+			connectedAppRoute.GET("", controller.ListConnectedApps)
+			connectedAppRoute.POST("", controller.CreateConnectedApp)
+			connectedAppRoute.PUT("/:id", controller.UpdateConnectedApp)
+		}
+
 		snaplessRoute := apiRouter.Group("/snapless")
 		{
 			snaplessRoute.GET("/health", middleware.CriticalRateLimit(), controller.GetSnaplessHealth)
