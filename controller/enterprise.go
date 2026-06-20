@@ -47,7 +47,8 @@ type enterprisePolicyGroupRequest struct {
 }
 
 type enterprisePolicyGroupMembersRequest struct {
-	UserIds []int `json:"user_ids"`
+	UserIds []int  `json:"user_ids"`
+	Role    string `json:"role"`
 }
 
 type enterpriseProjectRequest struct {
@@ -843,7 +844,7 @@ func ListEnterprisePolicyGroupMembers(c *gin.Context) {
 	}
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Table("enterprise_policy_group_members pgm").
-		Select("users.id AS user_id, users.username, users.display_name, users.email, users.status").
+		Select("users.id AS user_id, users.username, users.display_name, users.email, users.status, CASE WHEN pgm.role = '' THEN ? ELSE pgm.role END AS role", model.PolicyGroupMemberRoleViewer).
 		Joins("JOIN users ON users.id = pgm.user_id").
 		Where("pgm.enterprise_id = ? AND pgm.policy_group_id = ?", enterprise.Id, groupId)
 	if access.HasDepartmentScope() {
@@ -905,6 +906,11 @@ func AddEnterprisePolicyGroupMembers(c *gin.Context) {
 		common.ApiErrorMsg(c, "用户列表不能为空")
 		return
 	}
+	role, err := normalizeEnterprisePolicyGroupMemberRole(req.Role)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	seenUserIds := map[int]struct{}{}
 	userIds := make([]int, 0, len(req.UserIds))
 	for _, userId := range req.UserIds {
@@ -923,6 +929,7 @@ func AddEnterprisePolicyGroupMembers(c *gin.Context) {
 		userIds = append(userIds, userId)
 	}
 	added := make([]int, 0, len(req.UserIds))
+	changes := make([]gin.H, 0, len(req.UserIds))
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		for _, userId := range userIds {
 			var user model.User
@@ -933,11 +940,18 @@ func AddEnterprisePolicyGroupMembers(c *gin.Context) {
 				EnterpriseId:  enterprise.Id,
 				PolicyGroupId: groupId,
 				UserId:        userId,
+				Role:          role,
 			}
-			if err := tx.Where("policy_group_id = ? AND user_id = ?", groupId, userId).FirstOrCreate(&member).Error; err != nil {
+			var before model.EnterprisePolicyGroupMember
+			_ = tx.Where("policy_group_id = ? AND user_id = ?", groupId, userId).First(&before).Error
+			if err := tx.Where("policy_group_id = ? AND user_id = ?", groupId, userId).
+				Assign(model.EnterprisePolicyGroupMember{Role: role}).
+				FirstOrCreate(&member).Error; err != nil {
 				return err
 			}
+			beforeRole := normalizeEnterprisePolicyGroupMemberRoleOrDefault(before.Role)
 			added = append(added, userId)
+			changes = append(changes, gin.H{"user_id": userId, "before_role": beforeRole, "role": role})
 		}
 		return nil
 	})
@@ -945,8 +959,8 @@ func AddEnterprisePolicyGroupMembers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	recordEnterpriseAudit(c, enterprise.Id, "policy_group.members.add", "policy_group", groupId, nil, gin.H{"user_ids": added})
-	common.ApiSuccess(c, gin.H{"id": groupId, "user_ids": added})
+	recordEnterpriseAudit(c, enterprise.Id, "policy_group.members.add", "policy_group", groupId, nil, gin.H{"user_ids": added, "role": role, "changes": changes})
+	common.ApiSuccess(c, gin.H{"id": groupId, "user_ids": added, "role": role})
 }
 
 func DeleteEnterprisePolicyGroupMember(c *gin.Context) {
@@ -3239,6 +3253,24 @@ func normalizeEnterpriseProjectMemberRole(role string) (string, error) {
 	default:
 		return "", errors.New("项目成员角色无效")
 	}
+}
+
+func normalizeEnterprisePolicyGroupMemberRole(role string) (string, error) {
+	role = normalizeEnterprisePolicyGroupMemberRoleOrDefault(role)
+	switch role {
+	case model.PolicyGroupMemberRoleEditor, model.PolicyGroupMemberRoleViewer:
+		return role, nil
+	default:
+		return "", errors.New("策略组成员角色无效")
+	}
+}
+
+func normalizeEnterprisePolicyGroupMemberRoleOrDefault(role string) string {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		return model.PolicyGroupMemberRoleViewer
+	}
+	return role
 }
 
 func enterpriseProjectOwnerNames(projects []model.EnterpriseProject) (map[int]string, error) {

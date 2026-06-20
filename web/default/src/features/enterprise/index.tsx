@@ -5012,6 +5012,7 @@ function PolicyGroupMembersDialog(props: {
   const [page, setPage] = useState(1)
   const [keyword, setKeyword] = useState('')
   const [userIds, setUserIds] = useState('')
+  const [role, setRole] = useState('viewer')
   const groupId = props.group?.id ?? 0
 
   const membersQuery = useQuery({
@@ -5036,6 +5037,7 @@ function PolicyGroupMembersDialog(props: {
     mutationFn: () =>
       addEnterprisePolicyGroupMembers(groupId, {
         user_ids: parseUserIdList(userIds),
+        role,
       }),
     onSuccess: (response) => {
       if (!response.success) return
@@ -5089,6 +5091,24 @@ function PolicyGroupMembersDialog(props: {
               className='min-w-64'
             />
           </Field>
+          <Field label='Role'>
+            <Select
+              value={role}
+              onValueChange={(value) =>
+                setRole(normalizeSelectValue(value) || 'viewer')
+              }
+            >
+              <SelectTrigger className='w-40'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value='viewer'>{t('Viewer')}</SelectItem>
+                  <SelectItem value='editor'>{t('Editor')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
           <Button type='submit' disabled={addMutation.isPending}>
             <UserPlus className='size-3.5' />
             {t('Add')}
@@ -5122,6 +5142,7 @@ function PolicyGroupMembersDialog(props: {
             <TableHeader>
               <TableRow>
                 <TableHead>{t('User')}</TableHead>
+                <TableHead>{t('Role')}</TableHead>
                 <TableHead>{t('Status')}</TableHead>
                 <TableHead className='text-right'>{t('Actions')}</TableHead>
               </TableRow>
@@ -5138,6 +5159,11 @@ function PolicyGroupMembersDialog(props: {
                         #{member.user_id} · {member.email || member.username}
                       </div>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant='secondary'>
+                      {t(member.role === 'editor' ? 'Editor' : 'Viewer')}
+                    </Badge>
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={member.status} />

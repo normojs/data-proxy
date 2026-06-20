@@ -34,8 +34,9 @@ type enterprisePageResponseForTest[T any] struct {
 }
 
 type enterpriseMemberItemForTest struct {
-	UserId    int `json:"user_id"`
-	OrgUnitId int `json:"org_unit_id"`
+	UserId    int    `json:"user_id"`
+	OrgUnitId int    `json:"org_unit_id"`
+	Role      string `json:"role"`
 }
 
 type enterpriseQuotaPolicyItemForTest struct {
@@ -319,12 +320,30 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.True(t, decodeEnterpriseAuthResponse(t, updateScopedGroup).Success)
 
 	addScopedMember := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(departmentGroup.Id)+"/members", `{
-    "user_ids": [`+strconv.Itoa(engineerId)+`, `+strconv.Itoa(platformUserId)+`]
-  }`, departmentCookies, departmentAdminId)
+	    "user_ids": [`+strconv.Itoa(engineerId)+`, `+strconv.Itoa(platformUserId)+`]
+	  }`, departmentCookies, departmentAdminId)
 	require.True(t, decodeEnterpriseAuthResponse(t, addScopedMember).Success)
+	var viewerMember model.EnterprisePolicyGroupMember
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND policy_group_id = ? AND user_id = ?", enterprise.Id, departmentGroup.Id, engineerId).First(&viewerMember).Error)
+	require.Equal(t, model.PolicyGroupMemberRoleViewer, viewerMember.Role)
+
+	updateScopedMemberRole := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(departmentGroup.Id)+"/members", `{
+    "user_ids": [`+strconv.Itoa(engineerId)+`],
+    "role": "editor"
+  }`, departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, updateScopedMemberRole).Success)
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND policy_group_id = ? AND user_id = ?", enterprise.Id, departmentGroup.Id, engineerId).First(&viewerMember).Error)
+	require.Equal(t, model.PolicyGroupMemberRoleEditor, viewerMember.Role)
+
+	scopedMembers := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-groups/"+strconv.Itoa(departmentGroup.Id)+"/members?page_size=20", "", departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, scopedMembers).Success)
+	scopedMemberPage := decodeEnterprisePageResponseForTest[enterpriseMemberItemForTest](t, scopedMembers)
+	scopedMembersById := enterpriseMembersByIdForTest(scopedMemberPage.Data.Items)
+	require.Equal(t, model.PolicyGroupMemberRoleEditor, scopedMembersById[engineerId].Role)
+	require.Equal(t, model.PolicyGroupMemberRoleViewer, scopedMembersById[platformUserId].Role)
 
 	addCrossMember := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(departmentGroup.Id)+"/members", `{
-    "user_ids": [`+strconv.Itoa(salesUserId)+`]
+	    "user_ids": [`+strconv.Itoa(salesUserId)+`]
   }`, departmentCookies, departmentAdminId)
 	addCrossMemberResponse := decodeEnterpriseAuthResponse(t, addCrossMember)
 	require.False(t, addCrossMemberResponse.Success)
@@ -1271,6 +1290,14 @@ func enterpriseMemberUserIdsForTest(items []enterpriseMemberItemForTest) []int {
 		ids = append(ids, item.UserId)
 	}
 	return ids
+}
+
+func enterpriseMembersByIdForTest(items []enterpriseMemberItemForTest) map[int]enterpriseMemberItemForTest {
+	members := map[int]enterpriseMemberItemForTest{}
+	for _, item := range items {
+		members[item.UserId] = item
+	}
+	return members
 }
 
 func enterprisePolicyGroupIdsForTest(items []enterprisePolicyGroupItemForTest) []int {

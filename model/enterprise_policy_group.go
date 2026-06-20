@@ -3,6 +3,9 @@ package model
 const (
 	PolicyGroupStatusEnabled  = 1
 	PolicyGroupStatusDisabled = 2
+
+	PolicyGroupMemberRoleEditor = "editor"
+	PolicyGroupMemberRoleViewer = "viewer"
 )
 
 type EnterprisePolicyGroup struct {
@@ -22,11 +25,13 @@ func (EnterprisePolicyGroup) TableName() string {
 }
 
 type EnterprisePolicyGroupMember struct {
-	Id            int   `json:"id" gorm:"primaryKey"`
-	EnterpriseId  int   `json:"enterprise_id" gorm:"not null;index"`
-	PolicyGroupId int   `json:"policy_group_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_members_user,priority:1;index"`
-	UserId        int   `json:"user_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_members_user,priority:2;index"`
-	CreatedAt     int64 `json:"created_at" gorm:"autoCreateTime;index"`
+	Id            int    `json:"id" gorm:"primaryKey"`
+	EnterpriseId  int    `json:"enterprise_id" gorm:"not null;index"`
+	PolicyGroupId int    `json:"policy_group_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_members_user,priority:1;index"`
+	UserId        int    `json:"user_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_members_user,priority:2;index"`
+	Role          string `json:"role" gorm:"type:varchar(32);not null;default:'viewer';index"`
+	CreatedAt     int64  `json:"created_at" gorm:"autoCreateTime;index"`
+	UpdatedAt     int64  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (EnterprisePolicyGroupMember) TableName() string {

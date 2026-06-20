@@ -30,6 +30,8 @@
 
 部门管理员使用主部门作为 scope 根节点。后端会把 scope 展开为“本部门 + 子部门”，并在成员列表、成员归属更新、策略组列表/创建/更新/停用/成员维护、额度策略列表/创建/更新/停用、临时额度审批、审批通知、用量报表和审计日志中自动过滤跨部门数据。企业配置、SSO 同步、webhook、通知偏好、项目管理、notification outbox 和 worker metrics 仍需企业管理员、审计员或系统管理员权限。
 
+策略组成员支持 `viewer` 和 `editor` 角色。旧版或未传角色的成员添加请求默认写入 `viewer`；重复添加同一成员会更新 role。当前额度策略匹配仍按“用户是否在策略组内”判断，`viewer/editor` 用于治理可见性和后续协作权限扩展，不改变已有策略命中语义。
+
 项目管理员使用 `enterprise_projects.owner_user_id` 和 `enterprise_project_members` 作为 scope。项目 `member` 只进入只读 scope，可查看项目列表、项目成员、项目用量 summary/breakdown、CSV 导出和项目审计日志；项目 owner 或项目 `admin` 成员进入管理 scope，可编辑/停用项目并维护项目成员。创建项目时 owner 必须是当前项目管理员本人；更新项目时可保持原 owner，不允许转移给 scope 外用户。没有任何项目 scope 的项目管理员只会看到空项目和空用量。
 
 系统开关：

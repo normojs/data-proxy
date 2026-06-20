@@ -412,6 +412,7 @@ export type EnterprisePolicyGroupPayload = {
 
 export type EnterprisePolicyGroupMembersPayload = {
   user_ids: number[]
+  role?: string
 }
 
 export type EnterpriseProjectPayload = {
