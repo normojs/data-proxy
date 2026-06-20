@@ -397,9 +397,14 @@ func SetApiRouter(router *gin.Engine) {
 				projectEnterpriseRoute.POST("/projects", controller.CreateEnterpriseProject)
 				projectEnterpriseRoute.PUT("/projects/:id", controller.UpdateEnterpriseProject)
 				projectEnterpriseRoute.DELETE("/projects/:id", controller.DeleteEnterpriseProject)
-				projectEnterpriseRoute.GET("/projects/:id/members", controller.ListEnterpriseProjectMembers)
 				projectEnterpriseRoute.PUT("/projects/:id/members", controller.UpsertEnterpriseProjectMember)
 				projectEnterpriseRoute.DELETE("/projects/:id/members/:user_id", controller.DeleteEnterpriseProjectMember)
+			}
+
+			projectReadEnterpriseRoute := enterpriseRoute.Group("")
+			projectReadEnterpriseRoute.Use(middleware.EnterpriseAnyCapabilityAuth(service.EnterpriseCapabilityManage, service.EnterpriseCapabilityProjectRead, service.EnterpriseCapabilityProjectManage))
+			{
+				projectReadEnterpriseRoute.GET("/projects/:id/members", controller.ListEnterpriseProjectMembers)
 			}
 
 			quotaApprovalEnterpriseRoute := enterpriseRoute.Group("")
@@ -410,7 +415,7 @@ func SetApiRouter(router *gin.Engine) {
 			}
 
 			financeEnterpriseRoute := enterpriseRoute.Group("")
-			financeEnterpriseRoute.Use(middleware.EnterpriseCapabilityAuth(service.EnterpriseCapabilityFinanceRead))
+			financeEnterpriseRoute.Use(middleware.EnterpriseAnyCapabilityAuth(service.EnterpriseCapabilityFinanceRead, service.EnterpriseCapabilityProjectRead))
 			{
 				financeEnterpriseRoute.GET("/usage/summary", controller.GetEnterpriseUsageSummary)
 				financeEnterpriseRoute.GET("/usage/breakdown", controller.GetEnterpriseUsageBreakdown)
@@ -418,7 +423,7 @@ func SetApiRouter(router *gin.Engine) {
 			}
 
 			auditLogEnterpriseRoute := enterpriseRoute.Group("")
-			auditLogEnterpriseRoute.Use(middleware.EnterpriseAnyCapabilityAuth(service.EnterpriseCapabilityAuditRead, service.EnterpriseCapabilityDepartmentManage, service.EnterpriseCapabilityProjectManage))
+			auditLogEnterpriseRoute.Use(middleware.EnterpriseAnyCapabilityAuth(service.EnterpriseCapabilityAuditRead, service.EnterpriseCapabilityDepartmentManage, service.EnterpriseCapabilityProjectRead, service.EnterpriseCapabilityProjectManage))
 			{
 				auditLogEnterpriseRoute.GET("/audit-logs", controller.ListEnterpriseAuditLogs)
 			}

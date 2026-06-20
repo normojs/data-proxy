@@ -50,9 +50,11 @@ type enterprisePolicyGroupItemForTest struct {
 }
 
 type enterpriseProjectItemForTest struct {
-	Id          int   `json:"id"`
-	OwnerUserId int   `json:"owner_user_id"`
-	MemberCount int64 `json:"member_count"`
+	Id          int    `json:"id"`
+	OwnerUserId int    `json:"owner_user_id"`
+	MemberRole  string `json:"member_role"`
+	CanManage   bool   `json:"can_manage"`
+	MemberCount int64  `json:"member_count"`
 }
 
 type enterpriseQuotaRequestItemForTest struct {
@@ -509,6 +511,7 @@ func TestEnterpriseRBACProjectAdminFinanceScope(t *testing.T) {
 	projectPage := decodeEnterprisePageResponseForTest[enterpriseProjectItemForTest](t, projects)
 	require.Len(t, projectPage.Data.Items, 1)
 	require.Equal(t, adminProject.Id, projectPage.Data.Items[0].Id)
+	require.True(t, projectPage.Data.Items[0].CanManage)
 
 	summary := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100", "", projectAdminCookies, projectAdminId)
 	summaryResponse := decodeEnterpriseUsageSummaryResponseForTest(t, summary)
@@ -600,8 +603,127 @@ func TestEnterpriseRBACProjectAdminMemberScope(t *testing.T) {
 	memberOnlyProjects := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/projects?page_size=20", "", projectMemberCookies, projectMemberId)
 	require.True(t, decodeEnterpriseAuthResponse(t, memberOnlyProjects).Success)
 	memberOnlyProjectPage := decodeEnterprisePageResponseForTest[enterpriseProjectItemForTest](t, memberOnlyProjects)
-	require.Len(t, memberOnlyProjectPage.Data.Items, 1)
-	require.Equal(t, adminProject.Id, memberOnlyProjectPage.Data.Items[0].Id)
+	require.Len(t, memberOnlyProjectPage.Data.Items, 2)
+	memberProjectsById := enterpriseProjectItemsByIdForTest(memberOnlyProjectPage.Data.Items)
+	require.True(t, memberProjectsById[adminProject.Id].CanManage)
+	require.Equal(t, model.EnterpriseProjectMemberRoleAdmin, memberProjectsById[adminProject.Id].MemberRole)
+	require.False(t, memberProjectsById[otherProject.Id].CanManage)
+	require.Equal(t, model.EnterpriseProjectMemberRoleMember, memberProjectsById[otherProject.Id].MemberRole)
+}
+
+func TestEnterpriseRBACProjectMemberReadOnlyScope(t *testing.T) {
+	setupEnterpriseRouterTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	projectReaderId := 7461
+	projectAdminId := 7462
+	ownerUserId := 7463
+	otherOwnerId := 7464
+	noProjectAdminId := 7465
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, projectReaderId, service.EnterpriseRoleProjectAdmin)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, projectAdminId, service.EnterpriseRoleProjectAdmin)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, ownerUserId, "")
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, otherOwnerId, "")
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, noProjectAdminId, service.EnterpriseRoleProjectAdmin)
+	readOnlyProject := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "Read Only Project",
+		Slug:         "read-only-project",
+		OwnerUserId:  ownerUserId,
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	otherProject := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "Hidden Project",
+		Slug:         "hidden-project",
+		OwnerUserId:  otherOwnerId,
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&readOnlyProject).Error)
+	require.NoError(t, model.DB.Create(&otherProject).Error)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseProjectMember{
+		{EnterpriseId: enterprise.Id, ProjectId: readOnlyProject.Id, UserId: projectReaderId, Role: model.EnterpriseProjectMemberRoleMember},
+		{EnterpriseId: enterprise.Id, ProjectId: readOnlyProject.Id, UserId: projectAdminId, Role: model.EnterpriseProjectMemberRoleAdmin},
+	}).Error)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseUsageAttribution{
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "reader-project-usage",
+			UserId:       projectReaderId,
+			ProjectId:    readOnlyProject.Id,
+			ModelName:    "gpt-4o",
+			Quota:        33,
+			Status:       "succeeded",
+			CreatedAt:    1000,
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "hidden-project-usage",
+			UserId:       otherOwnerId,
+			ProjectId:    otherProject.Id,
+			ModelName:    "gpt-4o",
+			Quota:        77,
+			Status:       "succeeded",
+			CreatedAt:    1000,
+		},
+	}).Error)
+
+	router := newEnterpriseRouterForTest(t)
+	readerCookies := loginEnterpriseRouterUserForTest(t, router, projectReaderId, common.RoleCommonUser)
+	adminCookies := loginEnterpriseRouterUserForTest(t, router, projectAdminId, common.RoleCommonUser)
+	noProjectCookies := loginEnterpriseRouterUserForTest(t, router, noProjectAdminId, common.RoleCommonUser)
+
+	readerProjects := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/projects?page_size=20", "", readerCookies, projectReaderId)
+	require.True(t, decodeEnterpriseAuthResponse(t, readerProjects).Success)
+	readerProjectPage := decodeEnterprisePageResponseForTest[enterpriseProjectItemForTest](t, readerProjects)
+	require.Len(t, readerProjectPage.Data.Items, 1)
+	require.Equal(t, readOnlyProject.Id, readerProjectPage.Data.Items[0].Id)
+	require.Equal(t, model.EnterpriseProjectMemberRoleMember, readerProjectPage.Data.Items[0].MemberRole)
+	require.False(t, readerProjectPage.Data.Items[0].CanManage)
+
+	readerMembers := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/projects/"+strconv.Itoa(readOnlyProject.Id)+"/members", "", readerCookies, projectReaderId)
+	require.True(t, decodeEnterpriseAuthResponse(t, readerMembers).Success)
+	readerMembersPage := decodeEnterprisePageResponseForTest[enterpriseProjectMemberItemForTest](t, readerMembers)
+	require.Len(t, readerMembersPage.Data.Items, 2)
+
+	readerSummary := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100", "", readerCookies, projectReaderId)
+	readerSummaryResponse := decodeEnterpriseUsageSummaryResponseForTest(t, readerSummary)
+	require.True(t, readerSummaryResponse.Success, readerSummaryResponse.Message)
+	require.EqualValues(t, 1, readerSummaryResponse.Data.Total.RequestCount)
+	require.EqualValues(t, 33, readerSummaryResponse.Data.Total.Quota)
+
+	readerCrossProject := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100&project_id="+strconv.Itoa(otherProject.Id), "", readerCookies, projectReaderId)
+	require.False(t, decodeEnterpriseUsageSummaryResponseForTest(t, readerCrossProject).Success)
+
+	readerUpdateMember := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/projects/"+strconv.Itoa(readOnlyProject.Id)+"/members", `{
+    "user_id": `+strconv.Itoa(otherOwnerId)+`,
+    "role": "member"
+  }`, readerCookies, projectReaderId)
+	require.False(t, decodeEnterpriseAuthResponse(t, readerUpdateMember).Success)
+
+	readerEditProject := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/projects/"+strconv.Itoa(readOnlyProject.Id), `{
+    "name": "Reader Cannot Edit",
+    "slug": "reader-cannot-edit",
+    "owner_user_id": `+strconv.Itoa(ownerUserId)+`,
+    "status": 1
+  }`, readerCookies, projectReaderId)
+	require.False(t, decodeEnterpriseAuthResponse(t, readerEditProject).Success)
+
+	adminUpdateMember := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/projects/"+strconv.Itoa(readOnlyProject.Id)+"/members", `{
+    "user_id": `+strconv.Itoa(otherOwnerId)+`,
+    "role": "member"
+  }`, adminCookies, projectAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, adminUpdateMember).Success)
+
+	noProjectList := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/projects?page_size=20", "", noProjectCookies, noProjectAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, noProjectList).Success)
+	noProjectPage := decodeEnterprisePageResponseForTest[enterpriseProjectItemForTest](t, noProjectList)
+	require.Empty(t, noProjectPage.Data.Items)
+
+	noProjectSummary := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100", "", noProjectCookies, noProjectAdminId)
+	noProjectSummaryResponse := decodeEnterpriseUsageSummaryResponseForTest(t, noProjectSummary)
+	require.True(t, noProjectSummaryResponse.Success, noProjectSummaryResponse.Message)
+	require.EqualValues(t, 0, noProjectSummaryResponse.Data.Total.RequestCount)
 }
 
 func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
@@ -1157,6 +1279,14 @@ func enterprisePolicyGroupIdsForTest(items []enterprisePolicyGroupItemForTest) [
 		ids = append(ids, item.Id)
 	}
 	return ids
+}
+
+func enterpriseProjectItemsByIdForTest(items []enterpriseProjectItemForTest) map[int]enterpriseProjectItemForTest {
+	projects := map[int]enterpriseProjectItemForTest{}
+	for _, item := range items {
+		projects[item.Id] = item
+	}
+	return projects
 }
 
 func enterpriseAuditRequestIdsForTest(items []enterpriseAuditLogItemForTest) []string {

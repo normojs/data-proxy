@@ -25,7 +25,7 @@
 | 11 | DP-V15-004 | P2 | Done | V1.5 并发压测脚本 | 提供企业额度 reserve/settle/refund 并发一致性脚本，并在文档中记录 Redis/DB 两种模式的运行方式。 |
 | 12 | DP-V15-005 | P2 | Done | V1.5 Redis-only 崩溃恢复 | 扫描 Redis-only counter key、补建缺失 DB mirror，并评估操作级幂等补偿队列。 |
 | 13 | DP-V16-001 | P2 | Done (MVP+) | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作的配置、命中观测、审计事件和响应提示；fallback_model 已能改写模型、重选渠道并按降级模型重新估算预扣费；queue 已有企业维度同步 admission queue、超时 429、响应 header 和审计事件；shared_pool 已能计算本次借用量并写入响应 header 和审计；异常检测已能基于突增、失败率和成本异常进入企业短时保护限流；持久化异步排队、独立共享池容量模型、异常阈值配置和报表归属留给后续增强。 |
-| 14 | DP-V17-001 | P2 | Done (RBAC MVP+) | V1.7 企业治理 RBAC/财务视图 | 已完成企业治理 capability 鉴权、前端入口/页签控制、财务/审计只读角色、部门管理员 scoped 边界、部门 scoped 策略组授权、项目管理员 owner 项目边界、财务分摊 CSV 导出、审计 scoped 过滤和基础回归测试。 |
+| 14 | DP-V17-001 | P2 | Done (RBAC MVP+) | V1.7 企业治理 RBAC/财务视图 | 已完成企业治理 capability 鉴权、前端入口/页签控制、财务/审计只读角色、部门管理员 scoped 边界、部门 scoped 策略组授权、项目成员 read/admin 权限矩阵、财务分摊 CSV 导出、审计 scoped 过滤和基础回归测试。 |
 
 ## 当前开始项：DP-V17-001
 
@@ -41,8 +41,9 @@ V1.7 先交付最小可用的企业治理分权闭环，避免所有企业治理
 8. 已完成：`project_admin` 使用 `enterprise_projects.owner_user_id` 作为项目 scope，项目列表、项目管理、usage summary/breakdown 和 CSV 导出限制为自己负责的启用项目；跨项目财务查询会被拒绝。
 9. 已完成：审计日志新增结构化 scope 字段并在写入时自动推断；部门管理员只能查看本部门及子部门成员、策略组、部门策略、审批、项目和 relay 审计；项目管理员只能查看自己负责项目相关审计；notification outbox 和 worker metrics 仍仅开放给审计员/企业管理员。
 10. 已完成：策略组新增可选部门 scope；企业管理员可继续维护全局策略组，部门管理员只能查看、创建、编辑、停用自己部门树内的 scoped 策略组，只能加入 scope 内成员，并可创建指向 scoped 策略组的额度策略；跨部门或全局策略组写入会被拒绝。
-11. 已完成：项目成员新增 `admin/member` 角色；项目 owner 或项目 `admin` 成员可维护项目成员，`project_admin` 的项目 scope 已从 owner 项目扩展为 owner 或项目 `admin` 成员项目，项目列表、用量、审计和项目管理沿用同一 scope。
-12. 后续：更细的项目成员权限矩阵、策略组成员角色和策略组跨部门协作仍保留为后续增强。
+11. 已完成：项目成员新增 `admin/member` 角色；项目 owner 或项目 `admin` 成员可维护项目成员，`project_admin` 的项目 scope 已从 owner 项目扩展为 owner 或项目 `admin` 成员项目。
+12. 已完成：项目成员权限矩阵最小闭环，`member` 只获得项目列表、项目成员列表、项目用量和项目审计的 scoped 只读权限；`admin`/owner 才获得项目编辑、停用和成员维护权限；没有任何项目 scope 的 `project_admin` 返回空项目/空用量，不会落回全局数据。
+13. 后续：策略组成员角色和策略组跨部门协作仍保留为后续增强。
 
 ## 已完成项：DP-V16-001
 
@@ -73,7 +74,7 @@ V1.6 高级策略动作先交付最小可用的“策略命中可见”，避免
 - DP-V15-004 已完成轻量并发压测入口：新增 `scripts/enterprise-quota-counter-stress.sh` 和 `make enterprise-quota-counter-stress`，默认跑 DB 与 Redis-code-path(fake atomic counter) 两种模式；覆盖高上限并发 reserve 后混合 settle/refund 的最终一致性，以及低上限并发抢占的成功/拒绝数量和 refund 后 reserved 归零。常用命令：`scripts/enterprise-quota-counter-stress.sh`；仅 DB：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=db scripts/enterprise-quota-counter-stress.sh`；仅 Redis 代码路径：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis scripts/enterprise-quota-counter-stress.sh`；连接真实 Redis Lua 路径：`REDIS_CONN_STRING=redis://:123456@127.0.0.1:6379/0 ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis ENTERPRISE_QUOTA_COUNTER_STRESS_REDIS_BACKEND=real scripts/enterprise-quota-counter-stress.sh`。
 - DP-V15-005 已完成最小恢复闭环：`POST /api/enterprise/quota-counters/reconcile` 新增可选 `include_redis_orphans`；后台周期 repair 默认打开 Redis-only 扫描；Redis key 会按 `enterprise_quota_counter:v1:{enterprise}:{policy}:{target_type}:{target_id}:{metric}:{period_start}` 解析，若当前 policy 维度仍匹配且 DB mirror 缺失，则 dry-run 返回 `missing_db`，repair 创建 `enterprise_quota_counters` mirror、保留 Redis used/reserved 快照并写入 `quota_counter.reconcile` 审计。操作级幂等补偿队列仍保留为后续增强项。
 - DP-V16-001 已完成增强闭环：配额策略支持 `alert`、`fallback_model`、`queue`、`shared_pool` 非阻断动作；策略命中会保留 counter 观测、响应 header 提示和 `enterprise_governance.policy_action` 审计；`fallback_model` 已从推荐升级为 relay 执行动作，会改写请求模型、重选渠道并按降级模型重新估算预扣费；`queue` 已从可见 MVP 升级为企业维度同步 admission queue，命中后先排队拿槽，超时在用户预扣费前返回 429 并记录 `enterprise_governance.queue_admission` 审计；`shared_pool` 已能计算本次借用量并记录 `enterprise_governance.shared_pool_reserve` 审计；异常检测已能基于请求突增、失败率和成本突增进入企业短时保护限流，并记录 `enterprise_governance.anomaly_throttle` 审计。持久化异步排队、独立共享池容量模型、异常阈值配置和报表归属仍保留为 V1.6 后续任务。
-- DP-V17-001 已完成 RBAC MVP+：企业治理后端 API 改为 capability 分组鉴权，前端入口和页签按企业角色权限控制；财务查看员、审计员和项目管理员获得最小只读/管理入口；部门管理员按本部门及子部门 scope 管理成员、策略组、额度策略、审批、用量和审计日志；项目管理员按 owner 或项目 admin 成员 scope 管理项目并查看/导出项目用量和项目审计日志；财务 usage breakdown 支持按筛选导出 CSV；新增回归覆盖只读角色、企业管理员、普通用户隔离、部门管理员跨部门越权、部门策略组边界、项目成员管理员边界、部门用量过滤、项目管理员跨项目越权、CSV 导出和 scoped 审计可见性。
+- DP-V17-001 已完成 RBAC MVP+：企业治理后端 API 改为 capability 分组鉴权，前端入口和页签按企业角色权限控制；财务查看员、审计员和项目管理员获得最小只读/管理入口；部门管理员按本部门及子部门 scope 管理成员、策略组、额度策略、审批、用量和审计日志；项目管理员按 owner 或项目 admin 成员 scope 管理项目并查看/导出项目用量和项目审计日志，项目 member 成员仅能 scoped 只读查看项目、成员、用量和审计；财务 usage breakdown 支持按筛选导出 CSV；新增回归覆盖只读角色、企业管理员、普通用户隔离、部门管理员跨部门越权、部门策略组边界、项目成员管理员边界、项目成员只读边界、空项目 scope 防泄漏、部门用量过滤、项目管理员跨项目越权、CSV 导出和 scoped 审计可见性。
 
 ## 提交和发布规则
 

@@ -30,6 +30,7 @@ export type EnterprisePermissions = {
   finance_read?: boolean
   audit_read?: boolean
   quota_approve?: boolean
+  project_read?: boolean
   project_manage?: boolean
   department_manage?: boolean
 }

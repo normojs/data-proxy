@@ -27,6 +27,7 @@ const (
 	EnterpriseCapabilityFinanceRead      = "enterprise.finance.read"
 	EnterpriseCapabilityAuditRead        = "enterprise.audit.read"
 	EnterpriseCapabilityQuotaApprove     = "enterprise.quota.approve"
+	EnterpriseCapabilityProjectRead      = "enterprise.project.read"
 	EnterpriseCapabilityProjectManage    = "enterprise.project.manage"
 	EnterpriseCapabilityDepartmentManage = "enterprise.department.manage"
 )
@@ -37,18 +38,22 @@ type EnterpriseUserPermissions struct {
 	FinanceRead      bool `json:"finance_read"`
 	AuditRead        bool `json:"audit_read"`
 	QuotaApprove     bool `json:"quota_approve"`
+	ProjectRead      bool `json:"project_read"`
 	ProjectManage    bool `json:"project_manage"`
 	DepartmentManage bool `json:"department_manage"`
 }
 
 type EnterpriseAccess struct {
-	EnterpriseId     int
-	Role             string
-	OrgUnitId        int
-	ScopedOrgUnitIds []int
-	ScopedProjectIds []int
-	Permissions      EnterpriseUserPermissions
-	SystemAdmin      bool
+	UserId                   int
+	EnterpriseId             int
+	Role                     string
+	OrgUnitId                int
+	ScopedOrgUnitIds         []int
+	ScopedProjectIds         []int
+	ScopedProjectManageIds   []int
+	ScopedProjectReadOnlyIds []int
+	Permissions              EnterpriseUserPermissions
+	SystemAdmin              bool
 }
 
 func UserHasEnterpriseCapability(userId int, systemRole int, capability string) (bool, error) {
@@ -73,12 +78,14 @@ func EnterprisePermissionsForUser(userId int, systemRole int) (EnterpriseUserPer
 func EnterpriseAccessForUser(userId int, systemRole int) (EnterpriseAccess, error) {
 	if systemRole >= common.RoleAdminUser {
 		return EnterpriseAccess{
+			UserId: userId,
 			Permissions: EnterpriseUserPermissions{
 				Read:             true,
 				Manage:           true,
 				FinanceRead:      true,
 				AuditRead:        true,
 				QuotaApprove:     true,
+				ProjectRead:      true,
 				ProjectManage:    true,
 				DepartmentManage: true,
 			},
@@ -105,6 +112,7 @@ func EnterpriseAccessForUser(userId int, systemRole int) (EnterpriseAccess, erro
 	}
 	permissions := EnterprisePermissionsForRole(membership.Role)
 	access := EnterpriseAccess{
+		UserId:       userId,
 		EnterpriseId: enterprise.Id,
 		Role:         normalizeEnterpriseRole(membership.Role),
 		OrgUnitId:    membership.OrgUnitId,
@@ -130,11 +138,14 @@ func EnterpriseAccessForUser(userId int, systemRole int) (EnterpriseAccess, erro
 		access.ScopedOrgUnitIds = scopeIds
 	}
 	if normalizeEnterpriseRole(membership.Role) == EnterpriseRoleProjectAdmin {
-		projectIds, err := EnterpriseManagedProjectIds(enterprise.Id, userId)
+		readProjectIds, manageProjectIds, readOnlyProjectIds, err := EnterpriseProjectScopeIds(enterprise.Id, userId)
 		if err != nil {
 			return EnterpriseAccess{}, err
 		}
-		access.ScopedProjectIds = projectIds
+		access.ScopedProjectIds = readProjectIds
+		access.ScopedProjectManageIds = manageProjectIds
+		access.ScopedProjectReadOnlyIds = readOnlyProjectIds
+		access.Permissions.ProjectManage = len(manageProjectIds) > 0
 	}
 	return access, nil
 }
@@ -146,6 +157,7 @@ func EnterprisePermissionsForRole(role string) EnterpriseUserPermissions {
 		FinanceRead:      EnterpriseRoleHasCapability(role, EnterpriseCapabilityFinanceRead),
 		AuditRead:        EnterpriseRoleHasCapability(role, EnterpriseCapabilityAuditRead),
 		QuotaApprove:     EnterpriseRoleHasCapability(role, EnterpriseCapabilityQuotaApprove),
+		ProjectRead:      EnterpriseRoleHasCapability(role, EnterpriseCapabilityProjectRead),
 		ProjectManage:    EnterpriseRoleHasCapability(role, EnterpriseCapabilityProjectManage),
 		DepartmentManage: EnterpriseRoleHasCapability(role, EnterpriseCapabilityDepartmentManage),
 	}
@@ -163,6 +175,8 @@ func (access EnterpriseAccess) HasCapability(capability string) bool {
 		return access.Permissions.AuditRead
 	case EnterpriseCapabilityQuotaApprove:
 		return access.Permissions.QuotaApprove
+	case EnterpriseCapabilityProjectRead:
+		return access.Permissions.ProjectRead
 	case EnterpriseCapabilityProjectManage:
 		return access.Permissions.ProjectManage
 	case EnterpriseCapabilityDepartmentManage:
@@ -177,7 +191,11 @@ func (access EnterpriseAccess) HasDepartmentScope() bool {
 }
 
 func (access EnterpriseAccess) HasProjectScope() bool {
-	return !access.SystemAdmin && access.Role == EnterpriseRoleProjectAdmin && access.Permissions.ProjectManage && !access.Permissions.Manage
+	return !access.SystemAdmin && access.Role == EnterpriseRoleProjectAdmin && !access.Permissions.Manage
+}
+
+func (access EnterpriseAccess) HasProjectManageScope() bool {
+	return !access.SystemAdmin && access.Role == EnterpriseRoleProjectAdmin && !access.Permissions.Manage
 }
 
 func (access EnterpriseAccess) OrgUnitInScope(orgUnitId int) bool {
@@ -186,6 +204,10 @@ func (access EnterpriseAccess) OrgUnitInScope(orgUnitId int) bool {
 
 func (access EnterpriseAccess) ProjectInScope(projectId int) bool {
 	return EnterpriseProjectInScope(projectId, access.ScopedProjectIds)
+}
+
+func (access EnterpriseAccess) ProjectManageInScope(projectId int) bool {
+	return EnterpriseProjectInScope(projectId, access.ScopedProjectManageIds)
 }
 
 func EnterpriseRoleHasCapability(role string, capability string) bool {
@@ -211,6 +233,7 @@ func enterpriseCapabilitiesForRole(role string) []string {
 			EnterpriseCapabilityFinanceRead,
 			EnterpriseCapabilityAuditRead,
 			EnterpriseCapabilityQuotaApprove,
+			EnterpriseCapabilityProjectRead,
 			EnterpriseCapabilityProjectManage,
 		}
 	case EnterpriseRoleFinanceViewer:
@@ -226,7 +249,7 @@ func enterpriseCapabilitiesForRole(role string) []string {
 	case EnterpriseRoleProjectAdmin:
 		return []string{
 			EnterpriseCapabilityRead,
-			EnterpriseCapabilityFinanceRead,
+			EnterpriseCapabilityProjectRead,
 			EnterpriseCapabilityProjectManage,
 		}
 	case EnterpriseRoleDepartmentAdmin:
@@ -281,32 +304,54 @@ func EnterpriseOwnedProjectIds(enterpriseId int, ownerUserId int) ([]int, error)
 }
 
 func EnterpriseManagedProjectIds(enterpriseId int, userId int) ([]int, error) {
+	_, manageIds, _, err := EnterpriseProjectScopeIds(enterpriseId, userId)
+	return manageIds, err
+}
+
+func EnterpriseProjectScopeIds(enterpriseId int, userId int) ([]int, []int, []int, error) {
 	if enterpriseId <= 0 || userId <= 0 {
-		return []int{}, nil
+		return []int{}, []int{}, []int{}, nil
 	}
-	ids := map[int]struct{}{}
+	readIds := map[int]struct{}{}
+	manageIds := map[int]struct{}{}
 	ownedIds, err := EnterpriseOwnedProjectIds(enterpriseId, userId)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	for _, projectId := range ownedIds {
-		ids[projectId] = struct{}{}
+		readIds[projectId] = struct{}{}
+		manageIds[projectId] = struct{}{}
 	}
 	var memberships []model.EnterpriseProjectMember
-	if err := model.DB.Select("project_id").
-		Where("enterprise_id = ? AND user_id = ? AND role = ?", enterpriseId, userId, model.EnterpriseProjectMemberRoleAdmin).
+	if err := model.DB.Select("project_id, role").
+		Where("enterprise_id = ? AND user_id = ?", enterpriseId, userId).
 		Find(&memberships).Error; err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	for _, membership := range memberships {
-		ids[membership.ProjectId] = struct{}{}
+		readIds[membership.ProjectId] = struct{}{}
+		if membership.Role == model.EnterpriseProjectMemberRoleAdmin {
+			manageIds[membership.ProjectId] = struct{}{}
+		}
 	}
+	readResult := sortedEnterpriseProjectScopeIds(readIds)
+	manageResult := sortedEnterpriseProjectScopeIds(manageIds)
+	readOnlyIds := map[int]struct{}{}
+	for projectId := range readIds {
+		if _, ok := manageIds[projectId]; !ok {
+			readOnlyIds[projectId] = struct{}{}
+		}
+	}
+	return readResult, manageResult, sortedEnterpriseProjectScopeIds(readOnlyIds), nil
+}
+
+func sortedEnterpriseProjectScopeIds(ids map[int]struct{}) []int {
 	result := make([]int, 0, len(ids))
 	for projectId := range ids {
 		result = append(result, projectId)
 	}
 	sort.Ints(result)
-	return result, nil
+	return result
 }
 
 func EnterpriseOrgUnitInScope(orgUnitId int, scopeIds []int) bool {

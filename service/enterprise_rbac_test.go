@@ -16,6 +16,8 @@ func TestEnterpriseRoleCapabilityMapping(t *testing.T) {
 	require.True(t, EnterpriseRoleHasCapability(EnterpriseRoleAuditor, EnterpriseCapabilityAuditRead))
 	require.False(t, EnterpriseRoleHasCapability(EnterpriseRoleAuditor, EnterpriseCapabilityManage))
 	require.True(t, EnterpriseRoleHasCapability("project-admin", EnterpriseCapabilityProjectManage))
+	require.True(t, EnterpriseRoleHasCapability("project-admin", EnterpriseCapabilityProjectRead))
+	require.False(t, EnterpriseRoleHasCapability("project-admin", EnterpriseCapabilityFinanceRead))
 	require.True(t, EnterpriseRoleHasCapability(EnterpriseRoleDepartmentAdmin, EnterpriseCapabilityRead))
 	require.False(t, EnterpriseRoleHasCapability(EnterpriseRoleDepartmentAdmin, EnterpriseCapabilityManage))
 }

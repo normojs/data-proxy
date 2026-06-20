@@ -162,6 +162,8 @@ export type EnterpriseProject = {
   owner_name: string
   org_unit_ids: number[]
   org_unit_names: string[]
+  member_role?: string
+  can_manage: boolean
   member_count: number
   policy_count: number
   status: number

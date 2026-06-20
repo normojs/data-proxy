@@ -1792,6 +1792,7 @@ function ProjectsTab(props: {
   onManageMembers: (project: EnterpriseProject) => void
   onDisable: (project: EnterpriseProject) => void
   onViewUsage: (project: EnterpriseProject) => void
+  canCreateProject: boolean
 }) {
   const { t } = useTranslation()
   const [confirmProject, setConfirmProject] =
@@ -1803,10 +1804,12 @@ function ProjectsTab(props: {
         title='Projects'
         description='Cost centers and application scopes for API Key defaults, request attribution, and project limits.'
         actions={
-          <Button size='sm' onClick={props.onCreate}>
-            <Plus className='size-3.5' />
-            {t('Project')}
-          </Button>
+          props.canCreateProject ? (
+            <Button size='sm' onClick={props.onCreate}>
+              <Plus className='size-3.5' />
+              {t('Project')}
+            </Button>
+          ) : null
         }
       >
         <div className='space-y-3'>
@@ -1915,23 +1918,27 @@ function ProjectsTab(props: {
                           <Users className='size-3.5' />
                           <span className='sr-only'>{t('Members')}</span>
                         </Button>
-                        <Button
-                          variant='ghost'
-                          size='icon-sm'
-                          onClick={() => props.onEdit(project)}
-                        >
-                          <Pencil className='size-3.5' />
-                          <span className='sr-only'>{t('Edit')}</span>
-                        </Button>
-                        <Button
-                          variant='ghost'
-                          size='icon-sm'
-                          disabled={project.status === DISABLED_STATUS}
-                          onClick={() => setConfirmProject(project)}
-                        >
-                          <Ban className='size-3.5' />
-                          <span className='sr-only'>{t('Disable')}</span>
-                        </Button>
+                        {project.can_manage ? (
+                          <>
+                            <Button
+                              variant='ghost'
+                              size='icon-sm'
+                              onClick={() => props.onEdit(project)}
+                            >
+                              <Pencil className='size-3.5' />
+                              <span className='sr-only'>{t('Edit')}</span>
+                            </Button>
+                            <Button
+                              variant='ghost'
+                              size='icon-sm'
+                              disabled={project.status === DISABLED_STATUS}
+                              onClick={() => setConfirmProject(project)}
+                            >
+                              <Ban className='size-3.5' />
+                              <span className='sr-only'>{t('Disable')}</span>
+                            </Button>
+                          </>
+                        ) : null}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -2038,6 +2045,7 @@ function ProjectMembersDialog(props: {
   open: boolean
   project?: EnterpriseProject | null
   onOpenChange: (open: boolean) => void
+  canManage: boolean
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -2101,39 +2109,44 @@ function ProjectMembersDialog(props: {
           </DialogDescription>
         </DialogHeader>
 
-        <form className='flex flex-wrap items-end gap-2' onSubmit={handleSubmit}>
-          <Field label='User ID'>
-            <Input
-              type='number'
-              value={userId}
-              onChange={(event) => setUserId(event.target.value)}
-              placeholder={t('User ID')}
-              className='w-36'
-            />
-          </Field>
-          <Field label='Role'>
-            <Select
-              value={role}
-              onValueChange={(value) =>
-                setRole(normalizeSelectValue(value) || 'member')
-              }
-            >
-              <SelectTrigger className='w-40'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectGroup>
-                  <SelectItem value='member'>{t('Member')}</SelectItem>
-                  <SelectItem value='admin'>{t('Admin')}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Button type='submit' disabled={upsertMutation.isPending}>
-            <UserPlus className='size-3.5' />
-            {t('Save')}
-          </Button>
-        </form>
+        {props.canManage ? (
+          <form
+            className='flex flex-wrap items-end gap-2'
+            onSubmit={handleSubmit}
+          >
+            <Field label='User ID'>
+              <Input
+                type='number'
+                value={userId}
+                onChange={(event) => setUserId(event.target.value)}
+                placeholder={t('User ID')}
+                className='w-36'
+              />
+            </Field>
+            <Field label='Role'>
+              <Select
+                value={role}
+                onValueChange={(value) =>
+                  setRole(normalizeSelectValue(value) || 'member')
+                }
+              >
+                <SelectTrigger className='w-40'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    <SelectItem value='member'>{t('Member')}</SelectItem>
+                    <SelectItem value='admin'>{t('Admin')}</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Button type='submit' disabled={upsertMutation.isPending}>
+              <UserPlus className='size-3.5' />
+              {t('Save')}
+            </Button>
+          </form>
+        ) : null}
 
         <FilterBar>
           <SearchInput
@@ -2164,7 +2177,9 @@ function ProjectMembersDialog(props: {
                 <TableHead>{t('User')}</TableHead>
                 <TableHead>{t('Role')}</TableHead>
                 <TableHead>{t('Status')}</TableHead>
-                <TableHead className='text-right'>{t('Actions')}</TableHead>
+                {props.canManage ? (
+                  <TableHead className='text-right'>{t('Actions')}</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -2188,19 +2203,21 @@ function ProjectMembersDialog(props: {
                   <TableCell>
                     <StatusBadge status={member.status} />
                   </TableCell>
-                  <TableCell>
-                    <div className='flex justify-end'>
-                      <Button
-                        variant='ghost'
-                        size='icon-sm'
-                        disabled={deleteMutation.isPending}
-                        onClick={() => deleteMutation.mutate(member.user_id)}
-                      >
-                        <Trash2 className='size-3.5' />
-                        <span className='sr-only'>{t('Remove')}</span>
-                      </Button>
-                    </div>
-                  </TableCell>
+                  {props.canManage ? (
+                    <TableCell>
+                      <div className='flex justify-end'>
+                        <Button
+                          variant='ghost'
+                          size='icon-sm'
+                          disabled={deleteMutation.isPending}
+                          onClick={() => deleteMutation.mutate(member.user_id)}
+                        >
+                          <Trash2 className='size-3.5' />
+                          <span className='sr-only'>{t('Remove')}</span>
+                        </Button>
+                      </div>
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>
@@ -6241,16 +6258,21 @@ export function EnterpriseGovernance() {
   const canManageDepartment =
     canManageEnterprise || enterprisePermissions?.department_manage === true
   const canReadFinance =
-    canManageEnterprise || enterprisePermissions?.finance_read === true
+    canManageEnterprise ||
+    enterprisePermissions?.finance_read === true ||
+    enterprisePermissions?.project_read === true
   const canReadAudit =
     canManageEnterprise ||
     enterprisePermissions?.audit_read === true ||
     enterprisePermissions?.department_manage === true ||
+    enterprisePermissions?.project_read === true ||
     enterprisePermissions?.project_manage === true
   const canApproveQuota =
     canManageEnterprise || enterprisePermissions?.quota_approve === true
   const canManageProjects =
     canManageEnterprise || enterprisePermissions?.project_manage === true
+  const canReadProjects =
+    canManageProjects || enterprisePermissions?.project_read === true
   const availableTabs = useMemo(
     () =>
       tabs.filter((tab) => {
@@ -6259,7 +6281,7 @@ export function EnterpriseGovernance() {
           case 'quota-requests':
             return canReadEnterprise
           case 'projects':
-            return canManageProjects
+            return canReadProjects
           case 'usage':
             return canReadFinance
           case 'audit':
@@ -6280,6 +6302,7 @@ export function EnterpriseGovernance() {
       canManageEnterprise,
       canManageDepartment,
       canManageProjects,
+      canReadProjects,
       canReadAudit,
       canReadEnterprise,
       canReadFinance,
@@ -6579,7 +6602,7 @@ export function EnterpriseGovernance() {
         status: projectStatus,
         org_unit_id: projectOrgUnitIdValue,
       }),
-    enabled: canManageProjects,
+    enabled: canReadProjects,
   })
   const quotaPoliciesSummaryQuery = useQuery({
     queryKey: ['enterprise', 'quota-policies', 'summary'],
@@ -6993,6 +7016,7 @@ export function EnterpriseGovernance() {
                     setUsagePage(1)
                     setActiveTab('usage')
                   }}
+                  canCreateProject={canManageProjects}
                 />
               </TabsContent>
 
@@ -7267,6 +7291,7 @@ export function EnterpriseGovernance() {
           open={projectMembersDialogOpen}
           project={memberProject}
           onOpenChange={setProjectMembersDialogOpen}
+          canManage={memberProject?.can_manage === true}
         />
       ) : null}
       {quotaPolicyDialogOpen ? (

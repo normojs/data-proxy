@@ -152,6 +152,8 @@ type enterpriseProjectItem struct {
 	OwnerName    string   `json:"owner_name"`
 	OrgUnitIds   []int    `json:"org_unit_ids"`
 	OrgUnitNames []string `json:"org_unit_names"`
+	MemberRole   string   `json:"member_role,omitempty"`
+	CanManage    bool     `json:"can_manage"`
 	MemberCount  int64    `json:"member_count"`
 	PolicyCount  int64    `json:"policy_count"`
 }
@@ -1011,7 +1013,11 @@ func ListEnterpriseProjects(c *gin.Context) {
 		query = query.Where("id IN (?)", scopedProjectIds)
 	}
 	if access.HasProjectScope() {
-		query = query.Where("id IN ?", access.ScopedProjectIds)
+		if len(access.ScopedProjectIds) == 0 {
+			query = query.Where("1 = 0")
+		} else {
+			query = query.Where("id IN ?", access.ScopedProjectIds)
+		}
 	}
 	if status, err := parseOptionalIntQuery(c, "status"); err != nil {
 		common.ApiError(c, err)
@@ -1046,7 +1052,7 @@ func ListEnterpriseProjects(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	items, err := buildEnterpriseProjectItems(enterprise.Id, projects)
+	items, err := buildEnterpriseProjectItems(enterprise.Id, projects, access)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -1130,10 +1136,10 @@ func UpdateEnterpriseProject(c *gin.Context) {
 		if err := tx.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&before).Error; err != nil {
 			return err
 		}
-		if err := requireProjectInScope(access, before.Id); err != nil {
+		if err := requireProjectManageInScope(access, before.Id); err != nil {
 			return err
 		}
-		if err := requireProjectOwnerInScope(c, access, next); err != nil {
+		if err := requireProjectOwnerUpdateInScope(c, access, before, next); err != nil {
 			return err
 		}
 		next.Id = before.Id
@@ -1175,7 +1181,7 @@ func DeleteEnterpriseProject(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := requireProjectInScope(access, project.Id); err != nil {
+	if err := requireProjectManageInScope(access, project.Id); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1249,7 +1255,7 @@ func UpsertEnterpriseProjectMember(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := requireProjectInScope(access, projectId); err != nil {
+	if err := requireProjectManageInScope(access, projectId); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1318,7 +1324,7 @@ func DeleteEnterpriseProjectMember(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := requireProjectInScope(access, projectId); err != nil {
+	if err := requireProjectManageInScope(access, projectId); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -2236,11 +2242,34 @@ func requireProjectInScope(access service.EnterpriseAccess, projectId int) error
 	return nil
 }
 
+func requireProjectManageInScope(access service.EnterpriseAccess, projectId int) error {
+	if !access.HasProjectManageScope() {
+		return nil
+	}
+	if !access.ProjectManageInScope(projectId) {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
 func requireProjectOwnerInScope(c *gin.Context, access service.EnterpriseAccess, project model.EnterpriseProject) error {
-	if !access.HasProjectScope() {
+	if !access.HasProjectManageScope() {
 		return nil
 	}
 	if project.OwnerUserId != c.GetInt("id") {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
+func requireProjectOwnerUpdateInScope(c *gin.Context, access service.EnterpriseAccess, before model.EnterpriseProject, after model.EnterpriseProject) error {
+	if !access.HasProjectManageScope() {
+		return nil
+	}
+	if before.OwnerUserId == after.OwnerUserId {
+		return nil
+	}
+	if after.OwnerUserId != c.GetInt("id") {
 		return scopedEnterpriseError()
 	}
 	return nil
@@ -2316,6 +2345,10 @@ func applyProjectUsageScope(params *enterpriseUsageQuery, access service.Enterpr
 		if !access.ProjectInScope(params.ProjectId) {
 			return scopedEnterpriseError()
 		}
+		return nil
+	}
+	if len(access.ScopedProjectIds) == 0 {
+		params.ProjectIds = []int{-1}
 		return nil
 	}
 	params.ProjectIds = access.ScopedProjectIds
@@ -2399,6 +2432,9 @@ func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.
 }
 
 func applyProjectAuditScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	if len(access.ScopedProjectIds) == 0 {
+		return query.Where("1 = 0")
+	}
 	scopedQuotaPolicyIds := model.DB.Model(&model.EnterpriseQuotaPolicy{}).
 		Select("id").
 		Where("enterprise_id = ? AND target_type = ? AND target_id IN (?)", enterpriseId, model.PolicyTargetProject, access.ScopedProjectIds)
@@ -3114,12 +3150,16 @@ func enterpriseProjectOrgUnitIds(enterpriseId int, projectId int) ([]int, error)
 	return ids, nil
 }
 
-func buildEnterpriseProjectItems(enterpriseId int, projects []model.EnterpriseProject) ([]enterpriseProjectItem, error) {
+func buildEnterpriseProjectItems(enterpriseId int, projects []model.EnterpriseProject, access service.EnterpriseAccess) ([]enterpriseProjectItem, error) {
 	ownerNames, err := enterpriseProjectOwnerNames(projects)
 	if err != nil {
 		return nil, err
 	}
 	orgUnitNames, err := enterpriseOrgUnitNames(enterpriseId)
+	if err != nil {
+		return nil, err
+	}
+	memberRoles, err := enterpriseProjectMemberRoles(enterpriseId, projects, access.UserId)
 	if err != nil {
 		return nil, err
 	}
@@ -3140,11 +3180,52 @@ func buildEnterpriseProjectItems(enterpriseId int, projects []model.EnterprisePr
 			OwnerName:         ownerNames[project.OwnerUserId],
 			OrgUnitIds:        orgUnitIds,
 			OrgUnitNames:      names,
+			MemberRole:        enterpriseProjectMemberRoleForAccess(access, project, memberRoles[project.Id]),
+			CanManage:         enterpriseProjectCanManage(access, project.Id),
 			MemberCount:       countEnterpriseProjectMembers(project.Id),
 			PolicyCount:       countEnterprisePoliciesForTarget(enterpriseId, model.PolicyTargetProject, project.Id),
 		})
 	}
 	return items, nil
+}
+
+func enterpriseProjectMemberRoles(enterpriseId int, projects []model.EnterpriseProject, userId int) (map[int]string, error) {
+	roles := map[int]string{}
+	if enterpriseId <= 0 || userId <= 0 || len(projects) == 0 {
+		return roles, nil
+	}
+	projectIds := make([]int, 0, len(projects))
+	for _, project := range projects {
+		projectIds = append(projectIds, project.Id)
+	}
+	var members []model.EnterpriseProjectMember
+	if err := model.DB.Select("project_id, role").Where("enterprise_id = ? AND user_id = ? AND project_id IN ?", enterpriseId, userId, projectIds).Find(&members).Error; err != nil {
+		return nil, err
+	}
+	for _, member := range members {
+		roles[member.ProjectId] = member.Role
+	}
+	return roles, nil
+}
+
+func enterpriseProjectMemberRoleForAccess(access service.EnterpriseAccess, project model.EnterpriseProject, explicitRole string) string {
+	if explicitRole != "" {
+		return explicitRole
+	}
+	if access.UserId > 0 && project.OwnerUserId == access.UserId {
+		return model.EnterpriseProjectMemberRoleAdmin
+	}
+	return ""
+}
+
+func enterpriseProjectCanManage(access service.EnterpriseAccess, projectId int) bool {
+	if access.SystemAdmin || access.Permissions.Manage {
+		return true
+	}
+	if !access.HasProjectManageScope() {
+		return false
+	}
+	return access.ProjectManageInScope(projectId)
 }
 
 func normalizeEnterpriseProjectMemberRole(role string) (string, error) {
