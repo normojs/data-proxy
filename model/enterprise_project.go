@@ -3,6 +3,9 @@ package model
 const (
 	EnterpriseProjectStatusEnabled  = 1
 	EnterpriseProjectStatusDisabled = 2
+
+	EnterpriseProjectMemberRoleAdmin  = "admin"
+	EnterpriseProjectMemberRoleMember = "member"
 )
 
 type EnterpriseProject struct {
@@ -32,4 +35,18 @@ type EnterpriseProjectOrgUnit struct {
 
 func (EnterpriseProjectOrgUnit) TableName() string {
 	return "enterprise_project_org_units"
+}
+
+type EnterpriseProjectMember struct {
+	Id           int    `json:"id" gorm:"primaryKey"`
+	EnterpriseId int    `json:"enterprise_id" gorm:"not null;index"`
+	ProjectId    int    `json:"project_id" gorm:"not null;uniqueIndex:idx_enterprise_project_members_user,priority:1;index"`
+	UserId       int    `json:"user_id" gorm:"not null;uniqueIndex:idx_enterprise_project_members_user,priority:2;index"`
+	Role         string `json:"role" gorm:"type:varchar(32);not null;default:'member';index"`
+	CreatedAt    int64  `json:"created_at" gorm:"autoCreateTime;index"`
+	UpdatedAt    int64  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (EnterpriseProjectMember) TableName() string {
+	return "enterprise_project_members"
 }

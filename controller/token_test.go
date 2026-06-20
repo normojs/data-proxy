@@ -112,6 +112,7 @@ func migrateTokenControllerTestDB(t *testing.T, db *gorm.DB) {
 		&model.EnterpriseOrgMembership{},
 		&model.EnterpriseProject{},
 		&model.EnterpriseProjectOrgUnit{},
+		&model.EnterpriseProjectMember{},
 		&model.EnterpriseAuditLog{},
 	); err != nil {
 		t.Fatalf("failed to migrate token table: %v", err)

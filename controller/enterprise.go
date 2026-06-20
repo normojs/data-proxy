@@ -59,6 +59,11 @@ type enterpriseProjectRequest struct {
 	Status      int    `json:"status"`
 }
 
+type enterpriseProjectMemberRequest struct {
+	UserId int    `json:"user_id"`
+	Role   string `json:"role"`
+}
+
 type enterpriseQuotaPolicyRequest struct {
 	Name          string   `json:"name"`
 	Description   string   `json:"description"`
@@ -132,6 +137,7 @@ type enterpriseMemberItem struct {
 	Status           int    `json:"status"`
 	OrgUnitId        int    `json:"org_unit_id"`
 	OrgUnitName      string `json:"org_unit_name"`
+	Role             string `json:"role,omitempty"`
 	PolicyGroupCount int64  `json:"policy_group_count"`
 }
 
@@ -146,6 +152,7 @@ type enterpriseProjectItem struct {
 	OwnerName    string   `json:"owner_name"`
 	OrgUnitIds   []int    `json:"org_unit_ids"`
 	OrgUnitNames []string `json:"org_unit_names"`
+	MemberCount  int64    `json:"member_count"`
 	PolicyCount  int64    `json:"policy_count"`
 }
 
@@ -1180,6 +1187,151 @@ func DeleteEnterpriseProject(c *gin.Context) {
 	}
 	recordEnterpriseAudit(c, enterprise.Id, "project.disable", "project", id, before, project)
 	common.ApiSuccess(c, gin.H{"id": id})
+}
+
+func ListEnterpriseProjectMembers(c *gin.Context) {
+	projectId, err := parsePathInt(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireProjectInScope(access, projectId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	query := model.DB.Table("enterprise_project_members epm").
+		Select("epm.user_id, epm.role, users.username, users.display_name, users.email, users.status").
+		Joins("JOIN users ON users.id = epm.user_id").
+		Where("epm.enterprise_id = ? AND epm.project_id = ?", enterprise.Id, projectId)
+	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("users.username LIKE ? OR users.display_name LIKE ? OR users.email LIKE ?", like, like, like)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var items []enterpriseMemberItem
+	if err := query.Order("users.id asc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Scan(&items).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(items)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func UpsertEnterpriseProjectMember(c *gin.Context) {
+	projectId, err := parsePathInt(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireProjectInScope(access, projectId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterpriseProjectMemberRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	role, err := normalizeEnterpriseProjectMemberRole(req.Role)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.UserId <= 0 {
+		common.ApiErrorMsg(c, "用户 ID 无效")
+		return
+	}
+	if err := ensureProjectExists(enterprise.Id, projectId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := ensureUserExists(req.UserId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := ensureEnterpriseMemberExists(enterprise.Id, req.UserId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	member := model.EnterpriseProjectMember{
+		EnterpriseId: enterprise.Id,
+		ProjectId:    projectId,
+		UserId:       req.UserId,
+		Role:         role,
+	}
+	var before model.EnterpriseProjectMember
+	_ = model.DB.Where("enterprise_id = ? AND project_id = ? AND user_id = ?", enterprise.Id, projectId, req.UserId).First(&before).Error
+	if err := model.DB.Where("enterprise_id = ? AND project_id = ? AND user_id = ?", enterprise.Id, projectId, req.UserId).
+		Assign(model.EnterpriseProjectMember{Role: role}).
+		FirstOrCreate(&member).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordEnterpriseAudit(c, enterprise.Id, "project.members.upsert", "project", projectId, before, member)
+	common.ApiSuccess(c, gin.H{"id": projectId, "user_id": req.UserId, "role": role})
+}
+
+func DeleteEnterpriseProjectMember(c *gin.Context) {
+	projectId, err := parsePathInt(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userId, err := parsePathInt(c, "user_id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireProjectInScope(access, projectId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var before model.EnterpriseProjectMember
+	_ = model.DB.Where("enterprise_id = ? AND project_id = ? AND user_id = ?", enterprise.Id, projectId, userId).First(&before).Error
+	result := model.DB.Where("enterprise_id = ? AND project_id = ? AND user_id = ?", enterprise.Id, projectId, userId).
+		Delete(&model.EnterpriseProjectMember{})
+	if result.Error != nil {
+		common.ApiError(c, result.Error)
+		return
+	}
+	recordEnterpriseAudit(c, enterprise.Id, "project.members.delete", "project", projectId, before, nil)
+	common.ApiSuccess(c, gin.H{"id": projectId, "user_id": userId})
 }
 
 func ListEnterpriseQuotaPolicies(c *gin.Context) {
@@ -2988,10 +3140,24 @@ func buildEnterpriseProjectItems(enterpriseId int, projects []model.EnterprisePr
 			OwnerName:         ownerNames[project.OwnerUserId],
 			OrgUnitIds:        orgUnitIds,
 			OrgUnitNames:      names,
+			MemberCount:       countEnterpriseProjectMembers(project.Id),
 			PolicyCount:       countEnterprisePoliciesForTarget(enterpriseId, model.PolicyTargetProject, project.Id),
 		})
 	}
 	return items, nil
+}
+
+func normalizeEnterpriseProjectMemberRole(role string) (string, error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		role = model.EnterpriseProjectMemberRoleMember
+	}
+	switch role {
+	case model.EnterpriseProjectMemberRoleAdmin, model.EnterpriseProjectMemberRoleMember:
+		return role, nil
+	default:
+		return "", errors.New("项目成员角色无效")
+	}
 }
 
 func enterpriseProjectOwnerNames(projects []model.EnterpriseProject) (map[int]string, error) {
@@ -3078,6 +3244,19 @@ func ensureOrgUnitExists(enterpriseId int, orgUnitId int) error {
 	return nil
 }
 
+func ensureEnterpriseMemberExists(enterpriseId int, userId int) error {
+	var count int64
+	if err := model.DB.Model(&model.EnterpriseOrgMembership{}).
+		Where("enterprise_id = ? AND user_id = ? AND is_primary = ?", enterpriseId, userId, true).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return errors.New("企业成员不存在")
+	}
+	return nil
+}
+
 func ensurePolicyGroupExists(enterpriseId int, groupId int) error {
 	var count int64
 	if err := model.DB.Model(&model.EnterprisePolicyGroup{}).
@@ -3131,6 +3310,12 @@ func fillEnterpriseMemberPolicyGroupCounts(enterpriseId int, items []enterpriseM
 func countEnterprisePolicyGroupMembers(groupId int) int64 {
 	var count int64
 	_ = model.DB.Model(&model.EnterprisePolicyGroupMember{}).Where("policy_group_id = ?", groupId).Count(&count).Error
+	return count
+}
+
+func countEnterpriseProjectMembers(projectId int) int64 {
+	var count int64
+	_ = model.DB.Model(&model.EnterpriseProjectMember{}).Where("project_id = ?", projectId).Count(&count).Error
 	return count
 }
 

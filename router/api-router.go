@@ -397,6 +397,9 @@ func SetApiRouter(router *gin.Engine) {
 				projectEnterpriseRoute.POST("/projects", controller.CreateEnterpriseProject)
 				projectEnterpriseRoute.PUT("/projects/:id", controller.UpdateEnterpriseProject)
 				projectEnterpriseRoute.DELETE("/projects/:id", controller.DeleteEnterpriseProject)
+				projectEnterpriseRoute.GET("/projects/:id/members", controller.ListEnterpriseProjectMembers)
+				projectEnterpriseRoute.PUT("/projects/:id/members", controller.UpsertEnterpriseProjectMember)
+				projectEnterpriseRoute.DELETE("/projects/:id/members/:user_id", controller.DeleteEnterpriseProjectMember)
 			}
 
 			quotaApprovalEnterpriseRoute := enterpriseRoute.Group("")

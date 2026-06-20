@@ -130,7 +130,7 @@ func EnterpriseAccessForUser(userId int, systemRole int) (EnterpriseAccess, erro
 		access.ScopedOrgUnitIds = scopeIds
 	}
 	if normalizeEnterpriseRole(membership.Role) == EnterpriseRoleProjectAdmin {
-		projectIds, err := EnterpriseOwnedProjectIds(enterprise.Id, userId)
+		projectIds, err := EnterpriseManagedProjectIds(enterprise.Id, userId)
 		if err != nil {
 			return EnterpriseAccess{}, err
 		}
@@ -278,6 +278,35 @@ func EnterpriseOwnedProjectIds(enterpriseId int, ownerUserId int) ([]int, error)
 	}
 	sort.Ints(ids)
 	return ids, nil
+}
+
+func EnterpriseManagedProjectIds(enterpriseId int, userId int) ([]int, error) {
+	if enterpriseId <= 0 || userId <= 0 {
+		return []int{}, nil
+	}
+	ids := map[int]struct{}{}
+	ownedIds, err := EnterpriseOwnedProjectIds(enterpriseId, userId)
+	if err != nil {
+		return nil, err
+	}
+	for _, projectId := range ownedIds {
+		ids[projectId] = struct{}{}
+	}
+	var memberships []model.EnterpriseProjectMember
+	if err := model.DB.Select("project_id").
+		Where("enterprise_id = ? AND user_id = ? AND role = ?", enterpriseId, userId, model.EnterpriseProjectMemberRoleAdmin).
+		Find(&memberships).Error; err != nil {
+		return nil, err
+	}
+	for _, membership := range memberships {
+		ids[membership.ProjectId] = struct{}{}
+	}
+	result := make([]int, 0, len(ids))
+	for projectId := range ids {
+		result = append(result, projectId)
+	}
+	sort.Ints(result)
+	return result, nil
 }
 
 func EnterpriseOrgUnitInScope(orgUnitId int, scopeIds []int) bool {

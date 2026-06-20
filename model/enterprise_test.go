@@ -45,6 +45,7 @@ func TestEnterpriseGovernanceTablesMigrated(t *testing.T) {
 		&EnterpriseOrgMembership{},
 		&EnterpriseProject{},
 		&EnterpriseProjectOrgUnit{},
+		&EnterpriseProjectMember{},
 		&EnterprisePolicyGroup{},
 		&EnterprisePolicyGroupMember{},
 		&EnterpriseQuotaPolicy{},

@@ -50,14 +50,20 @@ type enterprisePolicyGroupItemForTest struct {
 }
 
 type enterpriseProjectItemForTest struct {
-	Id          int `json:"id"`
-	OwnerUserId int `json:"owner_user_id"`
+	Id          int   `json:"id"`
+	OwnerUserId int   `json:"owner_user_id"`
+	MemberCount int64 `json:"member_count"`
 }
 
 type enterpriseQuotaRequestItemForTest struct {
 	Id              int    `json:"id"`
 	ApplicantUserId int    `json:"applicant_user_id"`
 	Status          string `json:"status"`
+}
+
+type enterpriseProjectMemberItemForTest struct {
+	UserId int    `json:"user_id"`
+	Role   string `json:"role"`
 }
 
 type enterpriseAuditLogItemForTest struct {
@@ -525,6 +531,79 @@ func TestEnterpriseRBACProjectAdminFinanceScope(t *testing.T) {
 	require.Equal(t, "120", records[1][7])
 }
 
+func TestEnterpriseRBACProjectAdminMemberScope(t *testing.T) {
+	setupEnterpriseRouterTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	projectAdminId := 7451
+	projectMemberId := 7452
+	ownerUserId := 7453
+	otherProjectOwnerId := 7454
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, projectAdminId, service.EnterpriseRoleProjectAdmin)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, projectMemberId, service.EnterpriseRoleProjectAdmin)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, ownerUserId, "")
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, otherProjectOwnerId, "")
+	adminProject := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "Member Admin Project",
+		Slug:         "member-admin-project",
+		OwnerUserId:  ownerUserId,
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	otherProject := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "Other Member Project",
+		Slug:         "other-member-project",
+		OwnerUserId:  otherProjectOwnerId,
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&adminProject).Error)
+	require.NoError(t, model.DB.Create(&otherProject).Error)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseProjectMember{
+		{EnterpriseId: enterprise.Id, ProjectId: adminProject.Id, UserId: projectAdminId, Role: model.EnterpriseProjectMemberRoleAdmin},
+		{EnterpriseId: enterprise.Id, ProjectId: otherProject.Id, UserId: projectMemberId, Role: model.EnterpriseProjectMemberRoleMember},
+	}).Error)
+
+	router := newEnterpriseRouterForTest(t)
+	projectAdminCookies := loginEnterpriseRouterUserForTest(t, router, projectAdminId, common.RoleCommonUser)
+	projectMemberCookies := loginEnterpriseRouterUserForTest(t, router, projectMemberId, common.RoleCommonUser)
+
+	projects := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/projects?page_size=20", "", projectAdminCookies, projectAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, projects).Success)
+	projectPage := decodeEnterprisePageResponseForTest[enterpriseProjectItemForTest](t, projects)
+	require.Len(t, projectPage.Data.Items, 1)
+	require.Equal(t, adminProject.Id, projectPage.Data.Items[0].Id)
+	require.EqualValues(t, 1, projectPage.Data.Items[0].MemberCount)
+
+	members := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/projects/"+strconv.Itoa(adminProject.Id)+"/members", "", projectAdminCookies, projectAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, members).Success)
+	memberPage := decodeEnterprisePageResponseForTest[enterpriseProjectMemberItemForTest](t, members)
+	require.Len(t, memberPage.Data.Items, 1)
+	require.Equal(t, projectAdminId, memberPage.Data.Items[0].UserId)
+	require.Equal(t, model.EnterpriseProjectMemberRoleAdmin, memberPage.Data.Items[0].Role)
+
+	upsertMember := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/projects/"+strconv.Itoa(adminProject.Id)+"/members", `{
+    "user_id": `+strconv.Itoa(projectMemberId)+`,
+    "role": "admin"
+  }`, projectAdminCookies, projectAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, upsertMember).Success)
+
+	var promotedMember model.EnterpriseProjectMember
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND project_id = ? AND user_id = ?", enterprise.Id, adminProject.Id, projectMemberId).First(&promotedMember).Error)
+	require.Equal(t, model.EnterpriseProjectMemberRoleAdmin, promotedMember.Role)
+
+	crossMembers := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/projects/"+strconv.Itoa(otherProject.Id)+"/members", "", projectAdminCookies, projectAdminId)
+	crossMembersResponse := decodeEnterpriseAuthResponse(t, crossMembers)
+	require.False(t, crossMembersResponse.Success)
+	require.Contains(t, crossMembersResponse.Message, "权限范围外")
+
+	memberOnlyProjects := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/projects?page_size=20", "", projectMemberCookies, projectMemberId)
+	require.True(t, decodeEnterpriseAuthResponse(t, memberOnlyProjects).Success)
+	memberOnlyProjectPage := decodeEnterprisePageResponseForTest[enterpriseProjectItemForTest](t, memberOnlyProjects)
+	require.Len(t, memberOnlyProjectPage.Data.Items, 1)
+	require.Equal(t, adminProject.Id, memberOnlyProjectPage.Data.Items[0].Id)
+}
+
 func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
 	setupEnterpriseRouterTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()
@@ -728,6 +807,7 @@ func setupEnterpriseRouterTestDB(t *testing.T) {
 		&model.EnterprisePolicyGroupMember{},
 		&model.EnterpriseProject{},
 		&model.EnterpriseProjectOrgUnit{},
+		&model.EnterpriseProjectMember{},
 		&model.EnterpriseQuotaPolicy{},
 		&model.EnterpriseQuotaCounter{},
 		&model.EnterpriseQuotaRequest{},

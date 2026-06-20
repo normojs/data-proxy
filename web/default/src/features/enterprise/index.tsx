@@ -108,6 +108,7 @@ import {
   addEnterprisePolicyGroupMembers,
   approveEnterpriseQuotaRequest,
   deleteEnterprisePolicyGroupMember,
+  deleteEnterpriseProjectMember,
   disableEnterpriseWebhook,
   disableEnterpriseOrgUnit,
   disableEnterprisePolicyGroup,
@@ -122,6 +123,7 @@ import {
   getEnterpriseOrgUnits,
   getEnterprisePolicyGroupMembers,
   getEnterprisePolicyGroups,
+  getEnterpriseProjectMembers,
   getEnterpriseProjects,
   getEnterpriseQuotaPolicies,
   getEnterpriseQuotaRequests,
@@ -137,6 +139,7 @@ import {
   updateEnterpriseMemberOrgUnit,
   updateEnterpriseOrgUnit,
   updateEnterprisePolicyGroup,
+  upsertEnterpriseProjectMember,
   updateEnterpriseProject,
   updateEnterpriseQuotaPolicy,
   rejectEnterpriseQuotaRequest,
@@ -1786,6 +1789,7 @@ function ProjectsTab(props: {
   setOrgUnitId: (value: string) => void
   onCreate: () => void
   onEdit: (project: EnterpriseProject) => void
+  onManageMembers: (project: EnterpriseProject) => void
   onDisable: (project: EnterpriseProject) => void
   onViewUsage: (project: EnterpriseProject) => void
 }) {
@@ -1858,6 +1862,7 @@ function ProjectsTab(props: {
                   <TableHead>{t('Project')}</TableHead>
                   <TableHead>{t('Org Units')}</TableHead>
                   <TableHead>{t('Owner')}</TableHead>
+                  <TableHead>{t('Members')}</TableHead>
                   <TableHead>{t('Policies')}</TableHead>
                   <TableHead>{t('Status')}</TableHead>
                   <TableHead>{t('Updated')}</TableHead>
@@ -1886,6 +1891,7 @@ function ProjectsTab(props: {
                           ? `#${project.owner_user_id}`
                           : '-')}
                     </TableCell>
+                    <TableCell>{formatNumber(project.member_count)}</TableCell>
                     <TableCell>{formatNumber(project.policy_count)}</TableCell>
                     <TableCell>
                       <StatusBadge status={project.status} />
@@ -1900,6 +1906,14 @@ function ProjectsTab(props: {
                         >
                           <Gauge className='size-3.5' />
                           <span className='sr-only'>{t('Usage')}</span>
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='icon-sm'
+                          onClick={() => props.onManageMembers(project)}
+                        >
+                          <Users className='size-3.5' />
+                          <span className='sr-only'>{t('Members')}</span>
                         </Button>
                         <Button
                           variant='ghost'
@@ -2017,6 +2031,189 @@ function ProjectDisableDialog(props: {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+function ProjectMembersDialog(props: {
+  open: boolean
+  project?: EnterpriseProject | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const projectId = props.project?.id ?? 0
+  const [userId, setUserId] = useState('')
+  const [role, setRole] = useState('member')
+  const [keyword, setKeyword] = useState('')
+  const [page, setPage] = useState(1)
+
+  const membersQuery = useQuery({
+    queryKey: ['enterprise', 'projects', projectId, 'members', page, keyword],
+    queryFn: () =>
+      getEnterpriseProjectMembers(projectId, {
+        p: page,
+        page_size: PAGE_SIZE,
+        keyword,
+      }),
+    enabled: props.open && projectId > 0,
+  })
+  const members = getPageItems(membersQuery.data)
+  const total = getPageTotal(membersQuery.data)
+
+  const upsertMutation = useMutation({
+    mutationFn: () =>
+      upsertEnterpriseProjectMember(projectId, {
+        user_id: Number(userId),
+        role,
+      }),
+    onSuccess: (response) => {
+      if (!response.success) return
+      toast.success(t('Saved'))
+      setUserId('')
+      queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+    },
+  })
+  const deleteMutation = useMutation({
+    mutationFn: (targetUserId: number) =>
+      deleteEnterpriseProjectMember(projectId, targetUserId),
+    onSuccess: (response) => {
+      if (!response.success) return
+      toast.success(t('Removed'))
+      queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+    },
+  })
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!Number(userId)) return
+    upsertMutation.mutate()
+  }
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className='max-h-[85vh] overflow-y-auto sm:max-w-3xl'>
+        <DialogHeader>
+          <DialogTitle>{t('Project Members')}</DialogTitle>
+          <DialogDescription>
+            {props.project?.name
+              ? t('Manage members for {{name}}.', { name: props.project.name })
+              : t('Manage project members.')}
+          </DialogDescription>
+        </DialogHeader>
+
+        <form className='flex flex-wrap items-end gap-2' onSubmit={handleSubmit}>
+          <Field label='User ID'>
+            <Input
+              type='number'
+              value={userId}
+              onChange={(event) => setUserId(event.target.value)}
+              placeholder={t('User ID')}
+              className='w-36'
+            />
+          </Field>
+          <Field label='Role'>
+            <Select
+              value={role}
+              onValueChange={(value) =>
+                setRole(normalizeSelectValue(value) || 'member')
+              }
+            >
+              <SelectTrigger className='w-40'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value='member'>{t('Member')}</SelectItem>
+                  <SelectItem value='admin'>{t('Admin')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Button type='submit' disabled={upsertMutation.isPending}>
+            <UserPlus className='size-3.5' />
+            {t('Save')}
+          </Button>
+        </form>
+
+        <FilterBar>
+          <SearchInput
+            value={keyword}
+            onChange={(value) => {
+              setKeyword(value)
+              setPage(1)
+            }}
+            placeholder='Search members'
+          />
+        </FilterBar>
+
+        <QueryState
+          query={{
+            data: membersQuery.data,
+            isLoading: membersQuery.isLoading,
+            isError: membersQuery.isError,
+            error: membersQuery.error,
+            refetch: membersQuery.refetch,
+          }}
+          empty={members.length === 0}
+          emptyTitle='No members'
+          emptyDescription='Add users by ID to delegate project access.'
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('User')}</TableHead>
+                <TableHead>{t('Role')}</TableHead>
+                <TableHead>{t('Status')}</TableHead>
+                <TableHead className='text-right'>{t('Actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {members.map((member) => (
+                <TableRow key={member.user_id}>
+                  <TableCell>
+                    <div className='min-w-0'>
+                      <div className='truncate font-medium'>
+                        {member.display_name || member.username}
+                      </div>
+                      <div className='text-muted-foreground truncate text-xs'>
+                        #{member.user_id} · {member.email || member.username}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant='secondary'>
+                      {t(member.role === 'admin' ? 'Admin' : 'Member')}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={member.status} />
+                  </TableCell>
+                  <TableCell>
+                    <div className='flex justify-end'>
+                      <Button
+                        variant='ghost'
+                        size='icon-sm'
+                        disabled={deleteMutation.isPending}
+                        onClick={() => deleteMutation.mutate(member.user_id)}
+                      >
+                        <Trash2 className='size-3.5' />
+                        <span className='sr-only'>{t('Remove')}</span>
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <Pager
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onPageChange={setPage}
+          />
+        </QueryState>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -6125,6 +6322,11 @@ export function EnterpriseGovernance() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   const [editingProject, setEditingProject] =
     useState<EnterpriseProject | null>(null)
+  const [projectMembersDialogOpen, setProjectMembersDialogOpen] =
+    useState(false)
+  const [memberProject, setMemberProject] = useState<EnterpriseProject | null>(
+    null
+  )
   const [quotaPolicyDialogOpen, setQuotaPolicyDialogOpen] = useState(false)
   const [editingQuotaPolicy, setEditingQuotaPolicy] =
     useState<EnterpriseQuotaPolicy | null>(null)
@@ -6778,6 +6980,10 @@ export function EnterpriseGovernance() {
                     setEditingProject(project)
                     setProjectDialogOpen(true)
                   }}
+                  onManageMembers={(project) => {
+                    setMemberProject(project)
+                    setProjectMembersDialogOpen(true)
+                  }}
                   onDisable={(project) => {
                     disableProjectMutation.mutate(project.id)
                   }}
@@ -7053,6 +7259,14 @@ export function EnterpriseGovernance() {
           project={editingProject}
           orgUnits={orgUnits}
           onOpenChange={setProjectDialogOpen}
+        />
+      ) : null}
+      {projectMembersDialogOpen ? (
+        <ProjectMembersDialog
+          key={`project-members:${memberProject?.id ?? 'none'}`}
+          open={projectMembersDialogOpen}
+          project={memberProject}
+          onOpenChange={setProjectMembersDialogOpen}
         />
       ) : null}
       {quotaPolicyDialogOpen ? (

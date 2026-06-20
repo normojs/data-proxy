@@ -63,6 +63,7 @@ export type EnterpriseMember = {
   status: number
   org_unit_id: number
   org_unit_name: string
+  role?: string
   policy_group_count: number
 }
 
@@ -161,6 +162,7 @@ export type EnterpriseProject = {
   owner_name: string
   org_unit_ids: number[]
   org_unit_names: string[]
+  member_count: number
   policy_count: number
   status: number
   created_at: number
@@ -417,6 +419,11 @@ export type EnterpriseProjectPayload = {
   owner_user_id: number
   org_unit_ids: number[]
   status: number
+}
+
+export type EnterpriseProjectMemberPayload = {
+  user_id: number
+  role: string
 }
 
 export type EnterpriseQuotaPolicyPayload = {

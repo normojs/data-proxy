@@ -39,6 +39,7 @@ import type {
   EnterprisePolicyGroupMembersPayload,
   EnterprisePolicyGroupPayload,
   EnterpriseProject,
+  EnterpriseProjectMemberPayload,
   EnterpriseProjectPayload,
   EnterpriseProjectsParams,
   EnterpriseQuotaPoliciesParams,
@@ -273,6 +274,36 @@ export async function updateEnterpriseProject(
 export async function disableEnterpriseProject(id: number) {
   const res = await api.delete<ApiResponse<{ id: number }>>(
     `${ENTERPRISE_API}/projects/${id}`
+  )
+  return res.data
+}
+
+export async function getEnterpriseProjectMembers(
+  id: number,
+  params: EnterpriseListParams = {}
+) {
+  const res = await api.get<ApiResponse<PageInfo<EnterpriseMember>>>(
+    withQuery(`${ENTERPRISE_API}/projects/${id}/members`, params)
+  )
+  return res.data
+}
+
+export async function upsertEnterpriseProjectMember(
+  id: number,
+  payload: EnterpriseProjectMemberPayload
+) {
+  const res = await api.put<
+    ApiResponse<{ id: number; user_id: number; role: string }>
+  >(`${ENTERPRISE_API}/projects/${id}/members`, payload)
+  return res.data
+}
+
+export async function deleteEnterpriseProjectMember(
+  id: number,
+  userId: number
+) {
+  const res = await api.delete<ApiResponse<{ id: number; user_id: number }>>(
+    `${ENTERPRISE_API}/projects/${id}/members/${userId}`
   )
   return res.data
 }

@@ -141,6 +141,7 @@ func setupEnterpriseControllerTestDB(t *testing.T) {
 		&model.EnterpriseOrgMembership{},
 		&model.EnterpriseProject{},
 		&model.EnterpriseProjectOrgUnit{},
+		&model.EnterpriseProjectMember{},
 		&model.EnterprisePolicyGroup{},
 		&model.EnterprisePolicyGroupMember{},
 		&model.EnterpriseQuotaPolicy{},

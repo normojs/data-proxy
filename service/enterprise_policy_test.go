@@ -34,6 +34,7 @@ func setupEnterprisePolicyServiceTestDB(t *testing.T) {
 		&model.EnterprisePolicyGroupMember{},
 		&model.EnterpriseProject{},
 		&model.EnterpriseProjectOrgUnit{},
+		&model.EnterpriseProjectMember{},
 		&model.EnterpriseQuotaPolicy{},
 		&model.EnterpriseQuotaCounter{},
 		&model.EnterpriseQuotaRequest{},

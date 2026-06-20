@@ -55,6 +55,7 @@ func TestMain(m *testing.M) {
 		&EnterpriseOrgMembership{},
 		&EnterpriseProject{},
 		&EnterpriseProjectOrgUnit{},
+		&EnterpriseProjectMember{},
 		&EnterprisePolicyGroup{},
 		&EnterprisePolicyGroupMember{},
 		&EnterpriseQuotaPolicy{},
