@@ -239,7 +239,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                       tabIndex={link.disabled ? -1 : undefined}
                       onClick={(event) => handleNavLinkClick(event, link)}
                       className={cn(
-                        'text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-200',
+                        'text-muted-foreground hover:text-foreground inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors duration-200',
                         link.disabled && 'pointer-events-none opacity-50'
                       )}
                     >
@@ -256,7 +256,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                     disabled={link.disabled}
                     onClick={(event) => handleNavLinkClick(event, link)}
                     className={cn(
-                      'rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-200',
+                      'shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors duration-200',
                       isActive
                         ? 'text-foreground'
                         : 'text-muted-foreground hover:text-foreground',
@@ -269,7 +269,7 @@ export function PublicHeader(props: PublicHeaderProps) {
               })}
 
               <ServiceStatusIndicator
-                buttonClassName='max-w-none'
+                buttonClassName='max-w-none whitespace-nowrap'
                 labelClassName='hidden md:inline'
                 labelMode='title'
               />
@@ -291,12 +291,33 @@ export function PublicHeader(props: PublicHeaderProps) {
                   onTabChange={notifications.setActiveTab}
                   notice={notifications.notice}
                   announcements={notifications.announcements}
+                  approvalNotifications={notifications.approvalNotifications}
+                  showApprovals={notifications.approvalNotificationsEnabled}
+                  showApprovalAuditLinks={
+                    notifications.approvalAuditLinksEnabled
+                  }
                   loading={notifications.loading}
+                  approvalsLoading={notifications.approvalsLoading}
+                  approvalsUnreadOnly={notifications.approvalsUnreadOnly}
+                  approvalsHasMore={notifications.hasMoreApprovalNotifications}
+                  approvalsLoadingMore={notifications.approvalsFetchingNextPage}
                   onMarkAllAnnouncementsAsRead={() =>
                     notifications.markAnnouncementsAsRead()
                   }
                   onMarkAnnouncementRead={(key) =>
                     notifications.markAnnouncementsAsRead([key])
+                  }
+                  onMarkAllApprovalsAsRead={() =>
+                    notifications.markApprovalsAsRead()
+                  }
+                  onMarkApprovalRead={(key) =>
+                    notifications.markApprovalsAsRead([key])
+                  }
+                  onApprovalsUnreadOnlyChange={
+                    notifications.setApprovalsUnreadOnly
+                  }
+                  onLoadMoreApprovals={() =>
+                    notifications.loadMoreApprovalNotifications()
                   }
                 />
               )}

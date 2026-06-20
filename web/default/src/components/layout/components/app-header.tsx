@@ -140,12 +140,31 @@ export function AppHeader({
                 onTabChange={notifications.setActiveTab}
                 notice={notifications.notice}
                 announcements={notifications.announcements}
+                approvalNotifications={notifications.approvalNotifications}
+                showApprovals={notifications.approvalNotificationsEnabled}
+                showApprovalAuditLinks={notifications.approvalAuditLinksEnabled}
                 loading={notifications.loading}
+                approvalsLoading={notifications.approvalsLoading}
+                approvalsUnreadOnly={notifications.approvalsUnreadOnly}
+                approvalsHasMore={notifications.hasMoreApprovalNotifications}
+                approvalsLoadingMore={notifications.approvalsFetchingNextPage}
                 onMarkAllAnnouncementsAsRead={() =>
                   notifications.markAnnouncementsAsRead()
                 }
                 onMarkAnnouncementRead={(key) =>
                   notifications.markAnnouncementsAsRead([key])
+                }
+                onMarkAllApprovalsAsRead={() =>
+                  notifications.markApprovalsAsRead()
+                }
+                onMarkApprovalRead={(key) =>
+                  notifications.markApprovalsAsRead([key])
+                }
+                onApprovalsUnreadOnlyChange={
+                  notifications.setApprovalsUnreadOnly
+                }
+                onLoadMoreApprovals={() =>
+                  notifications.loadMoreApprovalNotifications()
                 }
               />
             )}
