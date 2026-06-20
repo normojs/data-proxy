@@ -426,6 +426,7 @@ func SetApiRouter(router *gin.Engine) {
 			auditLogEnterpriseRoute.Use(middleware.EnterpriseAnyCapabilityAuth(service.EnterpriseCapabilityAuditRead, service.EnterpriseCapabilityDepartmentManage, service.EnterpriseCapabilityProjectRead, service.EnterpriseCapabilityProjectManage))
 			{
 				auditLogEnterpriseRoute.GET("/audit-logs", controller.ListEnterpriseAuditLogs)
+				auditLogEnterpriseRoute.GET("/queue-admissions", controller.ListEnterpriseGovernanceQueueAdmissions)
 			}
 
 			auditEnterpriseRoute := enterpriseRoute.Group("")

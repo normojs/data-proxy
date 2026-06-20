@@ -174,7 +174,7 @@
 | --- | --- | --- | --- |
 | NV-0601 | P1 | 策略 action 扩展 | MVP 已支持 reject、alert、fallback_model、queue、shared_pool 的配置、命中观测、响应提示和审计；unknown action 保守按 reject 处理 |
 | NV-0602 | P1 | 模型自动降级 | 已完成基础交付：fallback_model 命中后会改写 relay 模型、JSON 请求体、重选渠道并按降级模型重新估算预扣费；审计和响应 header 保留降级提示 |
-| NV-0603 | P1 | 低优先级排队 | 已完成基础交付：queue 命中后进入企业维度同步 admission queue，拿到队列槽后继续 relay，等待超时返回 429，并写入队列审计、响应 header 和 `enterprise_governance_queue_admissions` 持久化 admission 记录；真正的异步执行队列、取消、重试和后台延迟执行仍保留为后续增强 |
+| NV-0603 | P1 | 低优先级排队 | 已完成基础交付：queue 命中后进入企业维度同步 admission queue，拿到队列槽后继续 relay，等待超时返回 429，并写入队列审计、响应 header 和 `enterprise_governance_queue_admissions` 持久化 admission 记录；企业治理 API 和审计页已可查看最近 admission/timeout/canceled 记录；真正的异步执行队列、取消、重试和后台延迟执行仍保留为后续增强 |
 | NV-0604 | P2 | 企业共享池 | 已完成基础交付：shared_pool 配额超限命中后计算本次请求实际借用量，写入响应 header 和 `enterprise_governance.shared_pool_reserve` 审计；独立共享池容量模型、借用上限、归还和报表归属仍保留为后续增强 |
 | NV-0605 | P2 | 异常检测后自动限流 | 已完成基础交付：基于企业最近窗口和基线窗口检测请求突增、quota 成本突增，以及 consume/error 日志中的异常失败率；命中后进入企业维度短时内存保护，返回 429、写入异常响应 header 和 `enterprise_governance.anomaly_throttle` 审计；dry-run 只记录 would-throttle 观测。管理员阈值配置、持久化保护状态、按项目/部门动作编排和趋势报表仍保留为后续增强 |
 

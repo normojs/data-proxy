@@ -150,6 +150,7 @@ func setupEnterpriseControllerTestDB(t *testing.T) {
 		&model.EnterpriseQuotaRequest{},
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseUsageAttribution{},
+		&model.EnterpriseGovernanceQueueAdmission{},
 		&model.EnterpriseAuditLog{},
 		&model.EnterpriseNotificationPreference{},
 		&model.EnterpriseNotificationOutbox{},
@@ -637,6 +638,65 @@ func TestEnterpriseAuditLogFilters(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "quota_policy.create", item["action"])
 	assert.Equal(t, "req-audit-1", item["request_id"])
+}
+
+func TestEnterpriseQueueAdmissionFilters(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceQueueAdmission{
+		{
+			EnterpriseId:   enterprise.Id,
+			RequestId:      "req-queue-admitted",
+			UserId:         9101,
+			TokenId:        101,
+			PolicyId:       11,
+			ModelName:      "gpt-4o",
+			ChannelId:      701,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusAdmitted,
+			WaitMs:         5,
+			TimeoutMs:      30000,
+			UserMessageKey: "enterprise_governance.policy_action_observed",
+			CreatedAt:      1000,
+		},
+		{
+			EnterpriseId:   enterprise.Id,
+			RequestId:      "req-queue-timeout",
+			UserId:         9102,
+			TokenId:        102,
+			PolicyId:       12,
+			ModelName:      "gpt-4o-mini",
+			ChannelId:      702,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusTimeout,
+			WaitMs:         30000,
+			TimeoutMs:      30000,
+			UserMessageKey: "enterprise_governance.queue_timeout",
+			CreatedAt:      2000,
+		},
+	}).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(
+		t,
+		http.MethodGet,
+		"/api/enterprise/queue-admissions?status=timeout&request_id=req-queue-timeout&start_time=1500&end_time=2500",
+		"",
+	)
+	ListEnterpriseGovernanceQueueAdmissions(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	assert.EqualValues(t, 1, response.Data["total"])
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "timeout", item["status"])
+	assert.Equal(t, "req-queue-timeout", item["request_id"])
+	assert.Equal(t, "gpt-4o-mini", item["model_name"])
+	assert.EqualValues(t, 12, item["policy_id"])
 }
 
 func TestEnterpriseQuotaRequestSubmitApproveListAndAudit(t *testing.T) {

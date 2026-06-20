@@ -82,6 +82,15 @@ type enterpriseAuditLogItemForTest struct {
 	RequestId      string `json:"request_id"`
 }
 
+type enterpriseQueueAdmissionItemForTest struct {
+	Id        int64  `json:"id"`
+	RequestId string `json:"request_id"`
+	Status    string `json:"status"`
+	OrgUnitId int    `json:"org_unit_id"`
+	ProjectId int    `json:"project_id"`
+	PolicyId  int    `json:"policy_id"`
+}
+
 type enterpriseUsageSummaryResponseForTest struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
@@ -138,6 +147,10 @@ func TestEnterpriseRBACReadOnlyRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK, financeAudit.Code)
 	require.False(t, decodeEnterpriseAuthResponse(t, financeAudit).Success)
 
+	financeQueueAdmissions := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/queue-admissions", "", financeCookies, financeUserId)
+	require.Equal(t, http.StatusOK, financeQueueAdmissions.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, financeQueueAdmissions).Success)
+
 	financeManage := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/current", `{
     "name": "finance cannot manage",
     "timezone": "Asia/Shanghai",
@@ -149,6 +162,10 @@ func TestEnterpriseRBACReadOnlyRoles(t *testing.T) {
 	auditLogs := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs", "", auditCookies, auditUserId)
 	require.Equal(t, http.StatusOK, auditLogs.Code)
 	require.True(t, decodeEnterpriseAuthResponse(t, auditLogs).Success)
+
+	auditQueueAdmissions := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/queue-admissions", "", auditCookies, auditUserId)
+	require.Equal(t, http.StatusOK, auditQueueAdmissions.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, auditQueueAdmissions).Success)
 
 	auditUsage := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary", "", auditCookies, auditUserId)
 	require.Equal(t, http.StatusOK, auditUsage.Code)
@@ -833,7 +850,7 @@ func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
 		{EnterpriseId: enterprise.Id, ProjectId: ownedProject.Id, OrgUnitId: engineeringId},
 		{EnterpriseId: enterprise.Id, ProjectId: otherProject.Id, OrgUnitId: salesId},
 	}).Error)
-	_ = seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Owned Project Policy", model.PolicyTargetProject, ownedProject.Id)
+	ownedProjectPolicy := seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Owned Project Policy", model.PolicyTargetProject, ownedProject.Id)
 	otherProjectPolicy := seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Other Project Policy", model.PolicyTargetProject, otherProject.Id)
 	engineeringQuotaRequest := model.EnterpriseQuotaRequest{
 		EnterpriseId:    enterprise.Id,
@@ -946,6 +963,54 @@ func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
 	for _, audit := range audits {
 		require.NoError(t, model.RecordEnterpriseAuditLog(audit))
 	}
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceQueueAdmission{
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "queue-engineering-relay",
+			UserId:       engineerId,
+			OrgUnitId:    engineeringId,
+			ProjectId:    ownedProject.Id,
+			PolicyId:     engineeringPolicy.Id,
+			ModelName:    "gpt-4o",
+			QueueKey:     "enterprise:1",
+			Status:       model.EnterpriseGovernanceQueueAdmissionStatusAdmitted,
+			CreatedAt:    1000,
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "queue-owned-project-policy",
+			UserId:       projectAdminId,
+			OrgUnitId:    0,
+			ProjectId:    0,
+			PolicyId:     ownedProjectPolicy.Id,
+			ModelName:    "gpt-4o",
+			QueueKey:     "enterprise:1",
+			Status:       model.EnterpriseGovernanceQueueAdmissionStatusTimeout,
+			CreatedAt:    1001,
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "queue-sales-relay",
+			UserId:       salesUserId,
+			OrgUnitId:    salesId,
+			ProjectId:    otherProject.Id,
+			PolicyId:     otherProjectPolicy.Id,
+			ModelName:    "gpt-4o-mini",
+			QueueKey:     "enterprise:1",
+			Status:       model.EnterpriseGovernanceQueueAdmissionStatusTimeout,
+			CreatedAt:    1002,
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "queue-global",
+			UserId:       7199,
+			PolicyId:     0,
+			ModelName:    "gpt-4o",
+			QueueKey:     "global",
+			Status:       model.EnterpriseGovernanceQueueAdmissionStatusAdmitted,
+			CreatedAt:    1003,
+		},
+	}).Error)
 
 	router := newEnterpriseRouterForTest(t)
 	departmentCookies := loginEnterpriseRouterUserForTest(t, router, departmentAdminId, common.RoleCommonUser)
@@ -974,6 +1039,24 @@ func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
 		"audit-engineering-relay",
 	}, enterpriseAuditRequestIdsForTest(projectAuditPage.Data.Items))
 	require.Equal(t, ownedProject.Id, projectAuditPage.Data.Items[0].ScopeProjectId)
+
+	departmentAdmissions := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/queue-admissions?page_size=50", "", departmentCookies, departmentAdminId)
+	require.Equal(t, http.StatusOK, departmentAdmissions.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, departmentAdmissions).Success)
+	departmentAdmissionPage := decodeEnterprisePageResponseForTest[enterpriseQueueAdmissionItemForTest](t, departmentAdmissions)
+	require.ElementsMatch(t, []string{
+		"queue-engineering-relay",
+		"queue-owned-project-policy",
+	}, enterpriseQueueAdmissionRequestIdsForTest(departmentAdmissionPage.Data.Items))
+
+	projectAdmissions := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/queue-admissions?page_size=50", "", projectCookies, projectAdminId)
+	require.Equal(t, http.StatusOK, projectAdmissions.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, projectAdmissions).Success)
+	projectAdmissionPage := decodeEnterprisePageResponseForTest[enterpriseQueueAdmissionItemForTest](t, projectAdmissions)
+	require.ElementsMatch(t, []string{
+		"queue-engineering-relay",
+		"queue-owned-project-policy",
+	}, enterpriseQueueAdmissionRequestIdsForTest(projectAdmissionPage.Data.Items))
 
 	projectOutbox := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/notification-outbox", "", projectCookies, projectAdminId)
 	require.Equal(t, http.StatusOK, projectOutbox.Code)
@@ -1005,6 +1088,7 @@ func setupEnterpriseRouterTestDB(t *testing.T) {
 		&model.EnterpriseQuotaRequest{},
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseUsageAttribution{},
+		&model.EnterpriseGovernanceQueueAdmission{},
 		&model.EnterpriseAuditLog{},
 		&model.EnterpriseNotificationRead{},
 		&model.EnterpriseNotificationPreference{},
@@ -1376,6 +1460,14 @@ func enterpriseProjectItemsByIdForTest(items []enterpriseProjectItemForTest) map
 }
 
 func enterpriseAuditRequestIdsForTest(items []enterpriseAuditLogItemForTest) []string {
+	requestIds := make([]string, 0, len(items))
+	for _, item := range items {
+		requestIds = append(requestIds, item.RequestId)
+	}
+	return requestIds
+}
+
+func enterpriseQueueAdmissionRequestIdsForTest(items []enterpriseQueueAdmissionItemForTest) []string {
 	requestIds := make([]string, 0, len(items))
 	for _, item := range items {
 		requestIds = append(requestIds, item.RequestId)

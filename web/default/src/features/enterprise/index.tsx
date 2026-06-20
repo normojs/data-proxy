@@ -127,6 +127,7 @@ import {
   getEnterpriseProjects,
   getEnterpriseQuotaPolicies,
   getEnterpriseQuotaRequests,
+  getEnterpriseQueueAdmissions,
   getEnterpriseUsageBreakdown,
   getEnterpriseUsageSummary,
   getEnterpriseWebhooks,
@@ -172,6 +173,7 @@ import type {
   EnterpriseQuotaRequestDecisionPayload,
   EnterpriseQuotaRequestPayload,
   EnterpriseQuotaRequestStatus,
+  EnterpriseQueueAdmission,
   EnterpriseUsageBreakdownItem,
   EnterpriseUsageSummary,
   EnterpriseWebhook,
@@ -3048,8 +3050,10 @@ function UsageTab(props: {
 function AuditTab(props: {
   logs: EnterpriseAuditLog[]
   dryRunObservations: EnterpriseAuditLog[]
+  queueAdmissions: EnterpriseQueueAdmission[]
   query: QueryResult<PageInfo<EnterpriseAuditLog>>
   dryRunQuery: QueryResult<PageInfo<EnterpriseAuditLog>>
+  queueAdmissionsQuery: QueryResult<PageInfo<EnterpriseQueueAdmission>>
   page: number
   total: number
   setPage: (page: number) => void
@@ -3085,6 +3089,10 @@ function AuditTab(props: {
           query={props.dryRunQuery}
           onView={setSelectedLog}
           onRequestQuota={props.onRequestQuota}
+        />
+        <QueueAdmissionsPanel
+          admissions={props.queueAdmissions}
+          query={props.queueAdmissionsQuery}
         />
         <FilterBar>
           <Input
@@ -3356,6 +3364,101 @@ function DryRunObservationsPanel(props: {
                   </TableRow>
                 )
               })}
+            </TableBody>
+          </Table>
+        </QueryState>
+      </div>
+    </div>
+  )
+}
+
+function QueueAdmissionsPanel(props: {
+  admissions: EnterpriseQueueAdmission[]
+  query: QueryResult<PageInfo<EnterpriseQueueAdmission>>
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <div className='bg-muted/20 rounded-lg border'>
+      <div className='flex flex-wrap items-start justify-between gap-3 border-b px-3 py-2.5'>
+        <div className='min-w-0'>
+          <h4 className='text-sm font-semibold'>{t('Queue Admissions')}</h4>
+          <p className='text-muted-foreground mt-1 text-xs'>
+            {t('Recent enterprise queue admissions, timeouts, and cancellations.')}
+          </p>
+        </div>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={props.query.refetch}
+          disabled={props.query.isLoading}
+        >
+          <RefreshCcw className='size-4' />
+          {t('Refresh')}
+        </Button>
+      </div>
+      <div className='p-3'>
+        <QueryState
+          query={props.query}
+          empty={props.admissions.length === 0}
+          emptyTitle='No queue admissions'
+          emptyDescription='Queue action admissions will appear here after matching traffic.'
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('Time')}</TableHead>
+                <TableHead>{t('Status')}</TableHead>
+                <TableHead>{t('Request ID')}</TableHead>
+                <TableHead>{t('Model')}</TableHead>
+                <TableHead>{t('Policy')}</TableHead>
+                <TableHead>{t('Scope')}</TableHead>
+                <TableHead className='text-right'>{t('Wait')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {props.admissions.map((admission) => (
+                <TableRow key={admission.id}>
+                  <TableCell>{formatDateTime(admission.created_at)}</TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        admission.status === 'timeout'
+                          ? 'destructive'
+                          : 'outline'
+                      }
+                    >
+                      {admission.status || '-'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <span className='text-muted-foreground font-mono text-xs'>
+                      {admission.request_id || '-'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className='font-mono text-xs'>
+                      {admission.model_name || '-'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {admission.policy_id ? `#${admission.policy_id}` : '-'}
+                  </TableCell>
+                  <TableCell>
+                    <div className='text-muted-foreground flex flex-wrap gap-2 text-xs'>
+                      <span>{t('User')} #{admission.user_id || '-'}</span>
+                      <span>{t('Org')} #{admission.org_unit_id || '-'}</span>
+                      <span>{t('Project')} #{admission.project_id || '-'}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className='text-right'>
+                    <span className='font-mono text-xs'>
+                      {admission.wait_ms} / {admission.timeout_ms} ms
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </QueryState>
@@ -6872,6 +6975,22 @@ export function EnterpriseGovernance() {
       }),
     enabled: canReadAudit,
   })
+  const queueAdmissionsQuery = useQuery({
+    queryKey: [
+      'enterprise',
+      'queue-admissions',
+      dryRunObservationStartTime,
+      dryRunObservationEndTime,
+    ],
+    queryFn: () =>
+      getEnterpriseQueueAdmissions({
+        p: 1,
+        page_size: 10,
+        start_time: dryRunObservationStartTime,
+        end_time: dryRunObservationEndTime,
+      }),
+    enabled: canReadAudit,
+  })
 
   const enterprise = currentQuery.data?.data
   const orgUnits = orgUnitsQuery.data?.data ?? EMPTY_ORG_UNITS
@@ -6887,6 +7006,7 @@ export function EnterpriseGovernance() {
   const usageBreakdown = getPageItems(usageBreakdownQuery.data)
   const auditLogs = getPageItems(auditLogsQuery.data)
   const dryRunObservations = getPageItems(dryRunObservationsQuery.data)
+  const queueAdmissions = getPageItems(queueAdmissionsQuery.data)
 
   const disableOrgMutation = useMutation({
     mutationFn: disableEnterpriseOrgUnit,
@@ -7275,6 +7395,7 @@ export function EnterpriseGovernance() {
                 <AuditTab
                   logs={auditLogs}
                   dryRunObservations={dryRunObservations}
+                  queueAdmissions={queueAdmissions}
                   query={{
                     data: auditLogsQuery.data,
                     isLoading: auditLogsQuery.isLoading,
@@ -7288,6 +7409,13 @@ export function EnterpriseGovernance() {
                     isError: dryRunObservationsQuery.isError,
                     error: dryRunObservationsQuery.error,
                     refetch: dryRunObservationsQuery.refetch,
+                  }}
+                  queueAdmissionsQuery={{
+                    data: queueAdmissionsQuery.data,
+                    isLoading: queueAdmissionsQuery.isLoading,
+                    isError: queueAdmissionsQuery.isError,
+                    error: queueAdmissionsQuery.error,
+                    refetch: queueAdmissionsQuery.refetch,
                   }}
                   page={auditPage}
                   total={getPageTotal(auditLogsQuery.data)}

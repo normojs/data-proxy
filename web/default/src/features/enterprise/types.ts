@@ -296,6 +296,30 @@ export type EnterpriseAuditLog = {
   created_at: number
 }
 
+export type EnterpriseQueueAdmission = {
+  id: number
+  request_id: string
+  enterprise_id: number
+  user_id: number
+  token_id: number
+  org_unit_id: number
+  project_id: number
+  policy_id: number
+  policy_ids_json: string
+  policy_group_ids_json: string
+  model_name: string
+  channel_id: number
+  relay_mode: number
+  queue_key: string
+  status: 'admitted' | 'timeout' | 'canceled' | string
+  wait_ms: number
+  timeout_ms: number
+  dry_run: boolean
+  policy_actions_json: string
+  user_message_key: string
+  created_at: number
+}
+
 export type EnterpriseWebhook = {
   id: number
   enterprise_id: number
@@ -547,6 +571,22 @@ export type EnterpriseAuditLogParams = {
   target_id?: number
   actor_user_id?: number
   request_id?: string
+  start_time?: number
+  end_time?: number
+}
+
+export type EnterpriseQueueAdmissionParams = {
+  p?: number
+  page_size?: number
+  status?: string
+  request_id?: string
+  model_name?: string
+  user_id?: number
+  token_id?: number
+  org_unit_id?: number
+  project_id?: number
+  policy_id?: number
+  channel_id?: number
   start_time?: number
   end_time?: number
 }

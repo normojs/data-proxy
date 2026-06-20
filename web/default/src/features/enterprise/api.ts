@@ -42,6 +42,8 @@ import type {
   EnterpriseProjectMemberPayload,
   EnterpriseProjectPayload,
   EnterpriseProjectsParams,
+  EnterpriseQueueAdmission,
+  EnterpriseQueueAdmissionParams,
   EnterpriseQuotaPoliciesParams,
   EnterpriseQuotaPolicy,
   EnterpriseQuotaPolicyPayload,
@@ -439,6 +441,15 @@ export async function getEnterpriseAuditLogs(
 ) {
   const res = await api.get<ApiResponse<PageInfo<EnterpriseAuditLog>>>(
     withQuery(`${ENTERPRISE_API}/audit-logs`, params)
+  )
+  return res.data
+}
+
+export async function getEnterpriseQueueAdmissions(
+  params: EnterpriseQueueAdmissionParams = {}
+) {
+  const res = await api.get<ApiResponse<PageInfo<EnterpriseQueueAdmission>>>(
+    withQuery(`${ENTERPRISE_API}/queue-admissions`, params)
   )
   return res.data
 }
