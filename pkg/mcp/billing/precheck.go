@@ -10,15 +10,16 @@ import (
 )
 
 type PrecheckInput struct {
-	UserId          int
-	TokenId         int
-	TokenKey        string
-	TokenUnlimited  bool
-	TokenQuota      int
-	UsingGroup      string
-	PricePerCall    float64
-	PriceUnit       string
-	FreeQuotaActive bool
+	UserId                     int
+	TokenId                    int
+	TokenKey                   string
+	TokenUnlimited             bool
+	TokenQuotaHardLimitEnabled bool
+	TokenQuota                 int
+	UsingGroup                 string
+	PricePerCall               float64
+	PriceUnit                  string
+	FreeQuotaActive            bool
 }
 
 type PrecheckResult struct {
@@ -57,7 +58,7 @@ func Precheck(input PrecheckInput) (PrecheckResult, error) {
 		}
 	}
 
-	if !input.TokenUnlimited && input.TokenQuota < result.Quota {
+	if (!input.TokenUnlimited || input.TokenQuotaHardLimitEnabled) && input.TokenQuota < result.Quota {
 		return result, &PrecheckError{
 			Code:    "INSUFFICIENT_TOKEN_QUOTA",
 			Message: fmt.Sprintf("token quota is insufficient, remaining=%d required=%d", input.TokenQuota, result.Quota),
@@ -83,21 +84,13 @@ func Estimate(input PrecheckInput) PrecheckResult {
 			Cost:       0,
 			Quota:      0,
 			GroupRatio: groupRatio,
-			PriceUnit:  input.PriceUnit,
+			PriceUnit:  model.MCPToolPriceUnitPerCall,
 			FreeUsed:   true,
 		}
 	}
 
-	cost := 0.0
-	quota := 0
-	switch input.PriceUnit {
-	case "", model.MCPToolPriceUnitPerCall:
-		cost = input.PricePerCall
-		quota = int(math.Round(cost * common.QuotaPerUnit * groupRatio))
-	default:
-		cost = input.PricePerCall
-		quota = int(math.Round(cost * common.QuotaPerUnit * groupRatio))
-	}
+	cost := input.PricePerCall
+	quota := int(math.Round(cost * common.QuotaPerUnit * groupRatio))
 	if quota < 0 {
 		quota = 0
 	}
@@ -105,6 +98,6 @@ func Estimate(input PrecheckInput) PrecheckResult {
 		Cost:       cost,
 		Quota:      quota,
 		GroupRatio: groupRatio,
-		PriceUnit:  input.PriceUnit,
+		PriceUnit:  model.MCPToolPriceUnitPerCall,
 	}
 }

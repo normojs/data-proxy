@@ -7,12 +7,13 @@ import (
 )
 
 type SettleInput struct {
-	CallId         int64
-	UserId         int
-	TokenId        int
-	TokenUnlimited bool
-	PriceUnit      string
-	Result         PrecheckResult
+	CallId                     int64
+	UserId                     int
+	TokenId                    int
+	TokenUnlimited             bool
+	TokenQuotaHardLimitEnabled bool
+	PriceUnit                  string
+	Result                     PrecheckResult
 }
 
 type SettleResult struct {
@@ -40,6 +41,7 @@ func Settle(input SettleInput) (SettleResult, error) {
 		input.Result.Cost,
 		input.TokenUnlimited,
 		input.PriceUnit,
+		input.TokenQuotaHardLimitEnabled,
 	)
 	if err != nil {
 		return result, err

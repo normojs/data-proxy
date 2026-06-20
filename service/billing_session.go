@@ -55,16 +55,29 @@ func (s *BillingSession) Settle(actualQuota int) error {
 		s.settled = true
 		return nil
 	}
+	tokenAdjustedBeforeFunding := false
+	if delta > 0 && s.relayInfo.TokenQuotaHardLimitEnabled && !s.relayInfo.IsPlayground {
+		if err := model.DecreaseTokenQuotaWithLimit(s.relayInfo.TokenId, s.relayInfo.TokenKey, delta); err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		tokenAdjustedBeforeFunding = true
+	}
 	// 1) 调整资金来源（仅在尚未提交时执行，防止重复调用）
 	if !s.fundingSettled {
 		if err := s.funding.Settle(delta); err != nil {
+			if tokenAdjustedBeforeFunding {
+				if rollbackErr := model.IncreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, delta); rollbackErr != nil {
+					common.SysLog(fmt.Sprintf("error rolling back token hard limit reservation (userId=%d, tokenId=%d, delta=%d, fundingErr=%s): %s",
+						s.relayInfo.UserId, s.relayInfo.TokenId, delta, err.Error(), rollbackErr.Error()))
+				}
+			}
 			return err
 		}
 		s.fundingSettled = true
 	}
 	// 2) 调整令牌额度
 	var tokenErr error
-	if !s.relayInfo.IsPlayground {
+	if !s.relayInfo.IsPlayground && !tokenAdjustedBeforeFunding {
 		if delta > 0 {
 			tokenErr = model.DecreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, delta)
 		} else {
@@ -287,6 +300,9 @@ func (s *BillingSession) reserveToken(delta int) error {
 func (s *BillingSession) shouldTrust(c *gin.Context) bool {
 	// 异步任务（ForcePreConsume=true）必须预扣全额，不允许信任旁路
 	if s.relayInfo.ForcePreConsume {
+		return false
+	}
+	if s.relayInfo.TokenQuotaHardLimitEnabled {
 		return false
 	}
 

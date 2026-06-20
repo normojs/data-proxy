@@ -21,7 +21,7 @@
 | 7 | DP-V14-001 | P1 | Done | V1.4 SSO 组织同步方案 | 设计 importer 抽象、增量同步、dry-run、冲突处理 UI、同步审计和回滚边界。 |
 | 8 | DP-V15-001 | P2 | Done | V1.5 Redis 原子企业额度计数 MVP | 默认关闭的 `EnterpriseQuotaRedisCounterEnabled` 开关、Redis Lua 原子 reserve/settle/refund、DB seed、防 Redis 异常降级和回归测试。 |
 | 9 | DP-V15-002 | P2 | Done | V1.5 DB/Redis 对账补偿 MVP | 管理员 dry-run/repair API、主节点周期对账任务、Redis 快照幂等修复、审计日志和回归测试。 |
-| 10 | DP-V15-003 | P2 | Pending | V1.5 token 级 hard limit | token 模型支持硬额度上限；relay 前置校验、超限错误、结算回滚和单测覆盖完整。 |
+| 10 | DP-V15-003 | P2 | Done | V1.5 token 级 hard limit | token 模型支持硬额度上限；relay 前置校验、超限错误、结算回滚和单测覆盖完整。 |
 | 11 | DP-V15-004 | P2 | Pending | V1.5 并发压测脚本 | 提供企业额度 reserve/settle/refund 并发一致性脚本，并在文档中记录 Redis/DB 两种模式的运行方式。 |
 | 12 | DP-V15-005 | P2 | Pending | V1.5 Redis-only 崩溃恢复 | 扫描 Redis-only counter key、补建缺失 DB mirror，并评估操作级幂等补偿队列。 |
 | 13 | DP-V16-001 | P2 | Pending | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作，并保留审计和用户提示。 |
@@ -34,8 +34,8 @@ V1.5 高并发和精细额度继续按以下顺序拆分，避免额度主链路
 1. 已完成：梳理 `service/pre_consume_quota.go`、`service/quota.go`、`service/enterprise_policy_counter.go` 和 `model/enterprise_quota_counter.go` 的额度扣减边界，先把企业策略 counter 抽成可切换实现。
 2. 已完成：新增 Redis 原子计数抽象，先覆盖企业策略 counter 的 request_count/quota reserve/settle/refund，不改变用户余额主逻辑。
 3. 已完成：增加 DB/Redis 对账补偿 MVP，管理员可 dry-run/repair，主节点周期任务可将 Redis 快照幂等修复到 DB 当前值，并写入 `quota_counter.reconcile` 审计。
-4. 下一步：补 token 级 hard limit 的模型、校验和回归测试。
-5. 后续：增加轻量并发测试或压测脚本，先验证计数一致性，再扩展到真实 relay 压测。
+4. 已完成：补 token 级 hard limit 的模型、relay/MCP 校验、结算回滚和回归测试；MCP 保持按次扣费，只把每次调用费用纳入 token hard limit 判断。
+5. 下一步：增加轻量并发测试或压测脚本，先验证计数一致性，再扩展到真实 relay 压测。
 6. 后续：补 Redis-only 崩溃恢复，扫描 Redis 里存在但 DB mirror 缺失的 counter key，并评估是否需要操作级幂等补偿队列。
 
 ## 当前进展
@@ -48,6 +48,7 @@ V1.5 高并发和精细额度继续按以下顺序拆分，避免额度主链路
 - DP-V14-001 已完成最小可用闭环：新增 SSO 组织同步 payload importer、dry-run preview、冲突列表、apply 事务、`org_sync.apply` 审计事件和 Organization 页同步面板；支持 HStation/OIDC/GitHub 等 provider user id 映射，未冲突行可选择性应用。本地已通过 `go test ./model ./controller ./service ./router ./oauth`、`cd web/default && bun run typecheck`、`cd web/default && bun run smoke:approval-notification-links`、`cd web/default && NODE_OPTIONS=--max-old-space-size=4096 bun run build`。
 - DP-V15-001 已完成最小可用闭环：新增默认关闭的 `EnterpriseQuotaRedisCounterEnabled` 配置项；企业额度 reserve 优先走 Redis Lua 原子计数，quota exceeded 保持硬拒绝，Redis/后端异常时降级 DB 原路径；Redis 首次 key 使用 DB counter seed，避免中途启用后从零计数；reserve 成功后同步 DB counter 用于审计、可见性和后续对账；settle/refund 会同步 Redis 和 DB。新增回归覆盖默认关闭配置、Redis reserve/settle/refund、DB seed 和现有并发 DB 限额。
 - DP-V15-002 已完成最小可用闭环：新增 `POST /api/enterprise/quota-counters/reconcile`，支持管理员 dry-run 和 repair；新增主节点周期任务，在 `EnterpriseQuotaRedisCounterEnabled` 且 Redis 可用时每 5 分钟对账活跃 DB counter；repair 使用 Redis `SetSnapshot` 幂等修复到 DB 当前快照，并写入 `quota_counter.reconcile` 审计；新增回归覆盖差异发现、修复和审计可见性。Redis-only 崩溃恢复和操作级补偿队列拆到 DP-V15-005。
+- DP-V15-003 已完成最小可用闭环：新增 `quota_hard_limit_enabled` token 字段；API Key 控制台支持 unlimited token 配置硬上限；relay hard limit 会禁用信任额度旁路、前置拒绝超限并在正向补扣时先锁定 token 额度；MCP 继续只按 `price_per_call` 进行按次扣费，并把该按次额度纳入 token hard limit 预检、结算和退款；新增 controller/service 回归测试。
 
 ## 提交和发布规则
 

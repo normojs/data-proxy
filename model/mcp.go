@@ -460,10 +460,11 @@ func SettleMCPToolCall(id int64, quota int) (bool, error) {
 	return result.RowsAffected > 0, result.Error
 }
 
-func SettleMCPToolCallQuota(callId int64, userId int, tokenId int, quota int, cost float64, tokenUnlimited bool, priceUnit string) (bool, error) {
+func SettleMCPToolCallQuota(callId int64, userId int, tokenId int, quota int, cost float64, tokenUnlimited bool, priceUnit string, tokenQuotaHardLimitEnabled ...bool) (bool, error) {
 	if callId <= 0 {
 		return false, nil
 	}
+	tokenQuotaLimited := !tokenUnlimited || optionalBool(tokenQuotaHardLimitEnabled)
 	now := common.GetTimestamp()
 	settled := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -504,7 +505,7 @@ func SettleMCPToolCallQuota(callId int64, userId int, tokenId int, quota int, co
 		if userResult.RowsAffected == 0 {
 			return ErrMCPUserQuotaInsufficient
 		}
-		if !tokenUnlimited && tokenId > 0 {
+		if tokenQuotaLimited && tokenId > 0 {
 			tokenResult := tx.Model(&Token{}).Where("id = ? AND remain_quota >= ?", tokenId, quota).Updates(map[string]any{
 				"remain_quota":  gorm.Expr("remain_quota - ?", quota),
 				"used_quota":    gorm.Expr("used_quota + ?", quota),
@@ -526,15 +527,16 @@ func SettleMCPToolCallQuota(callId int64, userId int, tokenId int, quota int, co
 		return false, err
 	}
 	if settled && quota > 0 {
-		afterMCPToolCallQuotaSettled(userId, tokenId, quota, tokenUnlimited)
+		afterMCPToolCallQuotaSettled(userId, tokenId, quota, tokenQuotaLimited)
 	}
 	return settled, nil
 }
 
-func RefundMCPToolCallQuota(callId int64, userId int, tokenId int, quota int, tokenUnlimited bool, reason string) (bool, error) {
+func RefundMCPToolCallQuota(callId int64, userId int, tokenId int, quota int, tokenUnlimited bool, reason string, tokenQuotaHardLimitEnabled ...bool) (bool, error) {
 	if callId <= 0 || quota <= 0 {
 		return false, nil
 	}
+	tokenQuotaLimited := !tokenUnlimited || optionalBool(tokenQuotaHardLimitEnabled)
 	refunded := false
 	refundQuota := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -567,7 +569,7 @@ func RefundMCPToolCallQuota(callId int64, userId int, tokenId int, quota int, to
 		}).Error; err != nil {
 			return err
 		}
-		if !tokenUnlimited && tokenId > 0 {
+		if tokenQuotaLimited && tokenId > 0 {
 			if err := tx.Model(&Token{}).Where("id = ?", tokenId).Updates(map[string]any{
 				"remain_quota":  gorm.Expr("remain_quota + ?", refundQuota),
 				"used_quota":    gorm.Expr("CASE WHEN used_quota >= ? THEN used_quota - ? ELSE 0 END", refundQuota, refundQuota),
@@ -592,9 +594,13 @@ func RefundMCPToolCallQuota(callId int64, userId int, tokenId int, quota int, to
 		return false, err
 	}
 	if refunded {
-		afterMCPToolCallQuotaRefunded(userId, tokenId, refundQuota, tokenUnlimited)
+		afterMCPToolCallQuotaRefunded(userId, tokenId, refundQuota, tokenQuotaLimited)
 	}
 	return refunded, nil
+}
+
+func optionalBool(values []bool) bool {
+	return len(values) > 0 && values[0]
 }
 
 func recordMCPToolCallBillingEvent(tx *gorm.DB, call MCPToolCall, userId int, tokenId int, quota int, priceUnit string) error {

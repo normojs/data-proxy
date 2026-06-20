@@ -45,7 +45,7 @@ func PreConsumeQuota(c *gin.Context, preConsumedQuota int, relayInfo *relaycommo
 	trustQuota := common.GetTrustQuota()
 
 	relayInfo.UserQuota = userQuota
-	if userQuota > trustQuota {
+	if userQuota > trustQuota && !relayInfo.TokenQuotaHardLimitEnabled {
 		// 用户额度充足，判断令牌额度是否充足
 		if !relayInfo.TokenUnlimited {
 			// 非无限令牌，判断令牌额度是否充足

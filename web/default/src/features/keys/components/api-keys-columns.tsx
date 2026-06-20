@@ -141,7 +141,7 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
       ),
       cell: ({ row }) => {
         const apiKey = row.original
-        if (apiKey.unlimited_quota) {
+        if (apiKey.unlimited_quota && !apiKey.quota_hard_limit_enabled) {
           return (
             <StatusBadge
               label={t('Unlimited')}
@@ -155,6 +155,8 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
         const remaining = apiKey.remain_quota
         const total = used + remaining
         const percentage = total > 0 ? (remaining / total) * 100 : 0
+        const hardLimitedUnlimited =
+          apiKey.unlimited_quota && apiKey.quota_hard_limit_enabled
 
         return (
           <Tooltip>
@@ -164,7 +166,9 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
                   {formatQuota(remaining)}
                 </span>
                 <span className='text-muted-foreground tabular-nums'>
-                  {formatQuota(total)}
+                  {hardLimitedUnlimited
+                    ? t('Hard limit')
+                    : formatQuota(total)}
                 </span>
               </div>
               <Progress
@@ -184,6 +188,11 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
                 <div>
                   {t('Total:')} {formatQuota(total)}
                 </div>
+                {hardLimitedUnlimited && (
+                  <div>
+                    {t('Type:')} {t('Token Hard Limit')}
+                  </div>
+                )}
               </div>
             </TooltipContent>
           </Tooltip>

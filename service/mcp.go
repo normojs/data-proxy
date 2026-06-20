@@ -65,16 +65,17 @@ func HasMCPTool(name string) (bool, error) {
 }
 
 type MCPToolCallRequest struct {
-	Context        context.Context
-	UserId         int
-	TokenId        int
-	TokenKey       string
-	TokenUnlimited bool
-	TokenQuota     int
-	UsingGroup     string
-	RequestId      string
-	RequestIP      string
-	Params         dto.MCPToolCallParams
+	Context                    context.Context
+	UserId                     int
+	TokenId                    int
+	TokenKey                   string
+	TokenUnlimited             bool
+	TokenQuotaHardLimitEnabled bool
+	TokenQuota                 int
+	UsingGroup                 string
+	RequestId                  string
+	RequestIP                  string
+	Params                     dto.MCPToolCallParams
 }
 
 type MCPToolCallResponse struct {
@@ -169,15 +170,16 @@ func CallMCPTool(req MCPToolCallRequest) (*MCPToolCallResponse, error) {
 	call.FreeUsed = freeQuotaActive
 
 	billingResult, billingErr := mcpbilling.Precheck(mcpbilling.PrecheckInput{
-		UserId:          req.UserId,
-		TokenId:         req.TokenId,
-		TokenKey:        req.TokenKey,
-		TokenUnlimited:  req.TokenUnlimited,
-		TokenQuota:      req.TokenQuota,
-		UsingGroup:      req.UsingGroup,
-		PricePerCall:    tool.PricePerCall,
-		PriceUnit:       tool.PriceUnit,
-		FreeQuotaActive: freeQuotaActive,
+		UserId:                     req.UserId,
+		TokenId:                    req.TokenId,
+		TokenKey:                   req.TokenKey,
+		TokenUnlimited:             req.TokenUnlimited,
+		TokenQuotaHardLimitEnabled: req.TokenQuotaHardLimitEnabled,
+		TokenQuota:                 req.TokenQuota,
+		UsingGroup:                 req.UsingGroup,
+		PricePerCall:               tool.PricePerCall,
+		PriceUnit:                  tool.PriceUnit,
+		FreeQuotaActive:            freeQuotaActive,
 	})
 	if billingErr != nil {
 		errorCode := "BILLING_PRECHECK_FAILED"
@@ -213,12 +215,13 @@ func CallMCPTool(req MCPToolCallRequest) (*MCPToolCallResponse, error) {
 		ctx = context.Background()
 	}
 	settleResult, settleErr := mcpbilling.Settle(mcpbilling.SettleInput{
-		CallId:         call.Id,
-		UserId:         req.UserId,
-		TokenId:        req.TokenId,
-		TokenUnlimited: req.TokenUnlimited,
-		PriceUnit:      billingResult.PriceUnit,
-		Result:         billingResult,
+		CallId:                     call.Id,
+		UserId:                     req.UserId,
+		TokenId:                    req.TokenId,
+		TokenUnlimited:             req.TokenUnlimited,
+		TokenQuotaHardLimitEnabled: req.TokenQuotaHardLimitEnabled,
+		PriceUnit:                  billingResult.PriceUnit,
+		Result:                     billingResult,
 	})
 	if settleErr != nil {
 		freeUsed := false
@@ -403,7 +406,7 @@ func updateMCPToolCallWithExecutorError(call *model.MCPToolCall, tool model.MCPT
 	if refundReason == "" {
 		refundReason = "executor_failed"
 	}
-	refunded, refundErr := model.RefundMCPToolCallQuota(call.Id, req.UserId, req.TokenId, billingResult.Quota, req.TokenUnlimited, refundReason)
+	refunded, refundErr := model.RefundMCPToolCallQuota(call.Id, req.UserId, req.TokenId, billingResult.Quota, req.TokenUnlimited, refundReason, req.TokenQuotaHardLimitEnabled)
 	if refundErr != nil {
 		errorCode = "BILLING_REFUND_FAILED"
 		errorMessage = execErr.Error() + "; refund failed: " + refundErr.Error()

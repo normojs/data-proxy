@@ -97,16 +97,17 @@ func handleMCPToolCall(c *gin.Context, req dto.MCPRequest) {
 	}
 	requestId := common.JsonRawMessageToString(req.ID)
 	callResp, err := service.CallMCPTool(service.MCPToolCallRequest{
-		Context:        c.Request.Context(),
-		UserId:         c.GetInt("id"),
-		TokenId:        c.GetInt("token_id"),
-		TokenKey:       c.GetString("token_key"),
-		TokenUnlimited: c.GetBool("token_unlimited_quota"),
-		TokenQuota:     c.GetInt("token_quota"),
-		UsingGroup:     common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
-		RequestId:      requestId,
-		RequestIP:      c.ClientIP(),
-		Params:         params,
+		Context:                    c.Request.Context(),
+		UserId:                     c.GetInt("id"),
+		TokenId:                    c.GetInt("token_id"),
+		TokenKey:                   c.GetString("token_key"),
+		TokenUnlimited:             c.GetBool("token_unlimited_quota"),
+		TokenQuotaHardLimitEnabled: c.GetBool("token_quota_hard_limit_enabled"),
+		TokenQuota:                 c.GetInt("token_quota"),
+		UsingGroup:                 common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
+		RequestId:                  requestId,
+		RequestIP:                  c.ClientIP(),
+		Params:                     params,
 	})
 	if err != nil {
 		c.JSON(http.StatusOK, mcpErrorResponse(req.ID, dto.MCPErrorCodeInternalError, "Internal error", err.Error()))

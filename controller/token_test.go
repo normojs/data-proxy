@@ -32,10 +32,13 @@ type tokenPageResponse struct {
 }
 
 type tokenResponseItem struct {
-	ID     int    `json:"id"`
-	Name   string `json:"name"`
-	Key    string `json:"key"`
-	Status int    `json:"status"`
+	ID                    int    `json:"id"`
+	Name                  string `json:"name"`
+	Key                   string `json:"key"`
+	Status                int    `json:"status"`
+	RemainQuota           int    `json:"remain_quota"`
+	UnlimitedQuota        bool   `json:"unlimited_quota"`
+	QuotaHardLimitEnabled bool   `json:"quota_hard_limit_enabled"`
 }
 
 type tokenKeyResponse struct {
@@ -563,6 +566,74 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("update response leaked raw token key: %s", recorder.Body.String())
+	}
+}
+
+func TestAddAndUpdateTokenQuotaHardLimit(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	if err := db.Create(&model.User{Id: 1, Username: "user-1", Status: common.UserStatusEnabled, AffCode: "aff-1"}).Error; err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+
+	createBody := map[string]any{
+		"name":                     "hard-limit-token",
+		"expired_time":             -1,
+		"remain_quota":             123,
+		"unlimited_quota":          true,
+		"quota_hard_limit_enabled": true,
+		"model_limits_enabled":     false,
+		"model_limits":             "",
+		"group":                    "default",
+		"cross_group_retry":        false,
+	}
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", createBody, 1)
+	AddToken(ctx)
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected add token success, got message: %s", response.Message)
+	}
+
+	var created model.Token
+	if err := db.Where("name = ?", "hard-limit-token").First(&created).Error; err != nil {
+		t.Fatalf("failed to load created token: %v", err)
+	}
+	if !created.QuotaHardLimitEnabled {
+		t.Fatal("expected created token hard limit to be enabled")
+	}
+	if created.RemainQuota != 123 {
+		t.Fatalf("expected created hard limit quota 123, got %d", created.RemainQuota)
+	}
+
+	updateBody := map[string]any{
+		"id":                       created.Id,
+		"name":                     "hard-limit-token-updated",
+		"expired_time":             -1,
+		"remain_quota":             456,
+		"unlimited_quota":          true,
+		"quota_hard_limit_enabled": true,
+		"model_limits_enabled":     false,
+		"model_limits":             "",
+		"group":                    "default",
+		"cross_group_retry":        false,
+	}
+	ctx, recorder = newAuthenticatedContext(t, http.MethodPut, "/api/token/", updateBody, 1)
+	UpdateToken(ctx)
+	response = decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected update token success, got message: %s", response.Message)
+	}
+	var detail tokenResponseItem
+	if err := common.Unmarshal(response.Data, &detail); err != nil {
+		t.Fatalf("failed to decode token update response: %v", err)
+	}
+	if !detail.QuotaHardLimitEnabled {
+		t.Fatal("expected update response hard limit to be enabled")
+	}
+	if !detail.UnlimitedQuota {
+		t.Fatal("expected update response unlimited quota to remain enabled")
+	}
+	if detail.RemainQuota != 456 {
+		t.Fatalf("expected update response quota 456, got %d", detail.RemainQuota)
 	}
 }
 

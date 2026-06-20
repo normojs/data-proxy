@@ -264,6 +264,7 @@ export function ApiKeysMutateDrawer({
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
   const selectedGroup = form.watch('group')
   const unlimitedQuota = form.watch('unlimited_quota')
+  const hardLimitEnabled = form.watch('quota_hard_limit_enabled')
 
   return (
     <Sheet
@@ -487,7 +488,7 @@ export function ApiKeysMutateDrawer({
                 description={t('Set quota amount and limits')}
                 icon={<WalletCards className='size-4' />}
               />
-              {!unlimitedQuota && (
+              {(!unlimitedQuota || hardLimitEnabled) && (
                 <FormField
                   control={form.control}
                   name='remain_quota_dollars'
@@ -529,6 +530,31 @@ export function ApiKeysMutateDrawer({
                       </FormLabel>
                       <FormDescription className='text-xs'>
                         {t('Enable unlimited quota for this API key')}
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='quota_hard_limit_enabled'
+                render={({ field }) => (
+                  <FormItem className={sideDrawerSwitchItemClassName()}>
+                    <div className='flex flex-col gap-0.5'>
+                      <FormLabel className='text-sm'>
+                        {t('Token Hard Limit')}
+                      </FormLabel>
+                      <FormDescription className='text-xs'>
+                        {t(
+                          'Stop this API key when its configured quota is exhausted'
+                        )}
                       </FormDescription>
                     </div>
                     <FormControl>

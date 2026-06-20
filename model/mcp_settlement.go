@@ -5,7 +5,7 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 )
 
-func afterMCPToolCallQuotaSettled(userId int, tokenId int, quota int, tokenUnlimited bool) {
+func afterMCPToolCallQuotaSettled(userId int, tokenId int, quota int, tokenQuotaLimited bool) {
 	if quota <= 0 {
 		return
 	}
@@ -14,7 +14,7 @@ func afterMCPToolCallQuotaSettled(userId int, tokenId int, quota int, tokenUnlim
 			common.SysLog("failed to decrease user quota after MCP settlement: " + err.Error())
 		}
 	})
-	if common.RedisEnabled && !tokenUnlimited && tokenId > 0 {
+	if common.RedisEnabled && tokenQuotaLimited && tokenId > 0 {
 		gopool.Go(func() {
 			token, err := GetTokenById(tokenId)
 			if err != nil {
@@ -28,7 +28,7 @@ func afterMCPToolCallQuotaSettled(userId int, tokenId int, quota int, tokenUnlim
 	}
 }
 
-func afterMCPToolCallQuotaRefunded(userId int, tokenId int, quota int, tokenUnlimited bool) {
+func afterMCPToolCallQuotaRefunded(userId int, tokenId int, quota int, tokenQuotaLimited bool) {
 	if quota <= 0 {
 		return
 	}
@@ -37,7 +37,7 @@ func afterMCPToolCallQuotaRefunded(userId int, tokenId int, quota int, tokenUnli
 			common.SysLog("failed to increase user quota after MCP refund: " + err.Error())
 		}
 	})
-	if common.RedisEnabled && !tokenUnlimited && tokenId > 0 {
+	if common.RedisEnabled && tokenQuotaLimited && tokenId > 0 {
 		gopool.Go(func() {
 			token, err := GetTokenById(tokenId)
 			if err != nil {

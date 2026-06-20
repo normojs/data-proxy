@@ -194,14 +194,16 @@ function ApiKeysMobileList({
 
             <div className='flex items-center justify-between gap-2 text-xs'>
               <span className='text-muted-foreground'>{t('Quota')}</span>
-              {apiKey.unlimited_quota ? (
+              {apiKey.unlimited_quota && !apiKey.quota_hard_limit_enabled ? (
                 <span className='font-medium'>{t('Unlimited')}</span>
               ) : (
                 <span className='font-medium tabular-nums'>
                   {formatQuota(apiKey.remain_quota)}
                   <span className='text-muted-foreground font-normal'>
                     {' / '}
-                    {formatQuota(total)}
+                    {apiKey.unlimited_quota && apiKey.quota_hard_limit_enabled
+                      ? t('Hard limit')
+                      : formatQuota(total)}
                   </span>
                 </span>
               )}

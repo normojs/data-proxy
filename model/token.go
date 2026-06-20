@@ -12,28 +12,33 @@ import (
 )
 
 type Token struct {
-	Id                 int            `json:"id"`
-	UserId             int            `json:"user_id" gorm:"index"`
-	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
-	Status             int            `json:"status" gorm:"default:1"`
-	Name               string         `json:"name" gorm:"index" `
-	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
-	AccessedTime       int64          `json:"accessed_time" gorm:"bigint"`
-	ExpiredTime        int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
-	RemainQuota        int            `json:"remain_quota" gorm:"default:0"`
-	UnlimitedQuota     bool           `json:"unlimited_quota"`
-	ModelLimitsEnabled bool           `json:"model_limits_enabled"`
-	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
-	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
-	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
-	Group              string         `json:"group" gorm:"default:''"`
-	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
-	DefaultProjectId   int            `json:"default_project_id" gorm:"index"`
-	DeletedAt          gorm.DeletedAt `gorm:"index"`
+	Id                    int            `json:"id"`
+	UserId                int            `json:"user_id" gorm:"index"`
+	Key                   string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+	Status                int            `json:"status" gorm:"default:1"`
+	Name                  string         `json:"name" gorm:"index" `
+	CreatedTime           int64          `json:"created_time" gorm:"bigint"`
+	AccessedTime          int64          `json:"accessed_time" gorm:"bigint"`
+	ExpiredTime           int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
+	RemainQuota           int            `json:"remain_quota" gorm:"default:0"`
+	UnlimitedQuota        bool           `json:"unlimited_quota"`
+	QuotaHardLimitEnabled bool           `json:"quota_hard_limit_enabled" gorm:"default:false"`
+	ModelLimitsEnabled    bool           `json:"model_limits_enabled"`
+	ModelLimits           string         `json:"model_limits" gorm:"type:text"`
+	AllowIps              *string        `json:"allow_ips" gorm:"default:''"`
+	UsedQuota             int            `json:"used_quota" gorm:"default:0"` // used quota
+	Group                 string         `json:"group" gorm:"default:''"`
+	CrossGroupRetry       bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	DefaultProjectId      int            `json:"default_project_id" gorm:"index"`
+	DeletedAt             gorm.DeletedAt `gorm:"index"`
 }
 
 func (token *Token) Clean() {
 	token.Key = ""
+}
+
+func (token *Token) IsQuotaLimited() bool {
+	return token != nil && (!token.UnlimitedQuota || token.QuotaHardLimitEnabled)
 }
 
 func MaskTokenKey(key string) string {
@@ -207,7 +212,7 @@ func ValidateUserToken(key string) (token *Token, err error) {
 			}
 			return token, ErrTokenInvalid
 		}
-		if !token.UnlimitedQuota && token.RemainQuota <= 0 {
+		if token.IsQuotaLimited() && token.RemainQuota <= 0 {
 			if !common.RedisEnabled {
 				token.Status = common.TokenStatusExhausted
 				err := token.SelectUpdate()
@@ -295,7 +300,7 @@ func (token *Token) Update() (err error) {
 			})
 		}
 	}()
-	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
+	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota", "quota_hard_limit_enabled",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "default_project_id").Updates(token).Error
 	return err
 }
@@ -420,6 +425,37 @@ func DecreaseTokenQuota(id int, key string, quota int) (err error) {
 		return nil
 	}
 	return decreaseTokenQuota(id, quota)
+}
+
+func DecreaseTokenQuotaWithLimit(id int, key string, quota int) (err error) {
+	if quota < 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	if quota == 0 {
+		return nil
+	}
+	result := DB.Model(&Token{}).Where("id = ? AND remain_quota >= ?", id, quota).Updates(
+		map[string]interface{}{
+			"remain_quota":  gorm.Expr("remain_quota - ?", quota),
+			"used_quota":    gorm.Expr("used_quota + ?", quota),
+			"accessed_time": common.GetTimestamp(),
+		},
+	)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrTokenQuotaInsufficient
+	}
+	if common.RedisEnabled {
+		gopool.Go(func() {
+			err := cacheDecrTokenQuota(key, int64(quota))
+			if err != nil {
+				common.SysLog("failed to decrease token quota: " + err.Error())
+			}
+		})
+	}
+	return nil
 }
 
 func decreaseTokenQuota(id int, quota int) (err error) {

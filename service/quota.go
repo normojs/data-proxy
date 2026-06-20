@@ -416,36 +416,60 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
+	if quota == 0 {
+		return nil
+	}
 	if relayInfo.IsPlayground {
 		return nil
 	}
 	//if relayInfo.TokenUnlimited {
 	//	return nil
 	//}
-	token, err := model.GetTokenByKey(relayInfo.TokenKey, false)
+	var token *model.Token
+	var err error
+	if relayInfo.TokenQuotaHardLimitEnabled {
+		token, err = model.GetTokenById(relayInfo.TokenId)
+	} else {
+		token, err = model.GetTokenByKey(relayInfo.TokenKey, false)
+	}
 	if err != nil {
 		return err
 	}
-	if !relayInfo.TokenUnlimited && token.RemainQuota < quota {
+	if (!relayInfo.TokenUnlimited || relayInfo.TokenQuotaHardLimitEnabled) && token.RemainQuota < quota {
 		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
 	}
-	err = model.DecreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota)
-	if err != nil {
-		return err
+	if relayInfo.TokenQuotaHardLimitEnabled {
+		if err = model.DecreaseTokenQuotaWithLimit(relayInfo.TokenId, relayInfo.TokenKey, quota); err != nil {
+			return err
+		}
+		return nil
 	}
-	return nil
+	return model.DecreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota)
 }
 
 func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (err error) {
+	tokenAdjusted := false
+	if !relayInfo.IsPlayground && quota > 0 && relayInfo.TokenQuotaHardLimitEnabled {
+		if err := model.DecreaseTokenQuotaWithLimit(relayInfo.TokenId, relayInfo.TokenKey, quota); err != nil {
+			return err
+		}
+		tokenAdjusted = true
+	}
 
 	// 1) Consume from wallet quota OR subscription item
 	if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
 		if relayInfo.SubscriptionId == 0 {
+			if tokenAdjusted {
+				_ = model.IncreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota)
+			}
 			return errors.New("subscription id is missing")
 		}
 		delta := int64(quota)
 		if delta != 0 {
 			if err := model.PostConsumeUserSubscriptionDelta(relayInfo.SubscriptionId, delta); err != nil {
+				if tokenAdjusted {
+					_ = model.IncreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota)
+				}
 				return err
 			}
 			relayInfo.SubscriptionPostDelta += delta
@@ -458,11 +482,14 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 			err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
 		}
 		if err != nil {
+			if tokenAdjusted {
+				_ = model.IncreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota)
+			}
 			return err
 		}
 	}
 
-	if !relayInfo.IsPlayground {
+	if !relayInfo.IsPlayground && !tokenAdjusted {
 		if quota > 0 {
 			err = model.DecreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota)
 		} else {

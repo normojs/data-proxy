@@ -153,15 +153,16 @@ func GetTokenUsage(c *gin.Context) {
 		"code":    true,
 		"message": "ok",
 		"data": gin.H{
-			"object":               "token_usage",
-			"name":                 token.Name,
-			"total_granted":        token.RemainQuota + token.UsedQuota,
-			"total_used":           token.UsedQuota,
-			"total_available":      token.RemainQuota,
-			"unlimited_quota":      token.UnlimitedQuota,
-			"model_limits":         token.GetModelLimitsMap(),
-			"model_limits_enabled": token.ModelLimitsEnabled,
-			"expires_at":           expiredAt,
+			"object":                   "token_usage",
+			"name":                     token.Name,
+			"total_granted":            token.RemainQuota + token.UsedQuota,
+			"total_used":               token.UsedQuota,
+			"total_available":          token.RemainQuota,
+			"unlimited_quota":          token.UnlimitedQuota,
+			"quota_hard_limit_enabled": token.QuotaHardLimitEnabled,
+			"model_limits":             token.GetModelLimitsMap(),
+			"model_limits_enabled":     token.ModelLimitsEnabled,
+			"expires_at":               expiredAt,
 		},
 	})
 }
@@ -181,8 +182,8 @@ func AddToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	// 非无限额度时，检查额度值是否超出有效范围
-	if !token.UnlimitedQuota {
+	// 非无限额度或启用硬上限时，检查额度值是否超出有效范围
+	if token.IsQuotaLimited() {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
 			return
@@ -214,20 +215,21 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	cleanToken := model.Token{
-		UserId:             c.GetInt("id"),
-		Name:               token.Name,
-		Key:                key,
-		CreatedTime:        common.GetTimestamp(),
-		AccessedTime:       common.GetTimestamp(),
-		ExpiredTime:        token.ExpiredTime,
-		RemainQuota:        token.RemainQuota,
-		UnlimitedQuota:     token.UnlimitedQuota,
-		ModelLimitsEnabled: token.ModelLimitsEnabled,
-		ModelLimits:        token.ModelLimits,
-		AllowIps:           token.AllowIps,
-		Group:              token.Group,
-		CrossGroupRetry:    token.CrossGroupRetry,
-		DefaultProjectId:   token.DefaultProjectId,
+		UserId:                c.GetInt("id"),
+		Name:                  token.Name,
+		Key:                   key,
+		CreatedTime:           common.GetTimestamp(),
+		AccessedTime:          common.GetTimestamp(),
+		ExpiredTime:           token.ExpiredTime,
+		RemainQuota:           token.RemainQuota,
+		UnlimitedQuota:        token.UnlimitedQuota,
+		QuotaHardLimitEnabled: token.QuotaHardLimitEnabled,
+		ModelLimitsEnabled:    token.ModelLimitsEnabled,
+		ModelLimits:           token.ModelLimits,
+		AllowIps:              token.AllowIps,
+		Group:                 token.Group,
+		CrossGroupRetry:       token.CrossGroupRetry,
+		DefaultProjectId:      token.DefaultProjectId,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -274,7 +276,7 @@ func UpdateToken(c *gin.Context) {
 			return
 		}
 	}
-	if !token.UnlimitedQuota {
+	if token.IsQuotaLimited() {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
 			return
@@ -295,7 +297,13 @@ func UpdateToken(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgTokenExpiredCannotEnable)
 			return
 		}
-		if cleanToken.Status == common.TokenStatusExhausted && cleanToken.RemainQuota <= 0 && !cleanToken.UnlimitedQuota {
+		quotaLimitedForEnable := cleanToken.IsQuotaLimited()
+		remainQuotaForEnable := cleanToken.RemainQuota
+		if statusOnly == "" {
+			quotaLimitedForEnable = token.IsQuotaLimited()
+			remainQuotaForEnable = token.RemainQuota
+		}
+		if cleanToken.Status == common.TokenStatusExhausted && remainQuotaForEnable <= 0 && quotaLimitedForEnable {
 			common.ApiErrorI18n(c, i18n.MsgTokenExhaustedCannotEable)
 			return
 		}
@@ -311,6 +319,7 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.ExpiredTime = token.ExpiredTime
 		cleanToken.RemainQuota = token.RemainQuota
 		cleanToken.UnlimitedQuota = token.UnlimitedQuota
+		cleanToken.QuotaHardLimitEnabled = token.QuotaHardLimitEnabled
 		cleanToken.ModelLimitsEnabled = token.ModelLimitsEnabled
 		cleanToken.ModelLimits = token.ModelLimits
 		cleanToken.AllowIps = token.AllowIps

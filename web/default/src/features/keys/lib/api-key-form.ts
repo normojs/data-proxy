@@ -33,6 +33,7 @@ export function getApiKeyFormSchema(t: TFunction) {
       remain_quota_dollars: z.number().optional(),
       expired_time: z.date().optional(),
       unlimited_quota: z.boolean(),
+      quota_hard_limit_enabled: z.boolean(),
       model_limits: z.array(z.string()),
       allow_ips: z.string().optional(),
       group: z.string().optional(),
@@ -41,7 +42,7 @@ export function getApiKeyFormSchema(t: TFunction) {
       tokenCount: z.number().min(1).optional(),
     })
     .superRefine((data, ctx) => {
-      if (data.unlimited_quota) {
+      if (data.unlimited_quota && !data.quota_hard_limit_enabled) {
         return
       }
 
@@ -69,6 +70,7 @@ export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   remain_quota_dollars: 10,
   expired_time: undefined,
   unlimited_quota: true,
+  quota_hard_limit_enabled: false,
   model_limits: [],
   allow_ips: '',
   group: DEFAULT_GROUP,
@@ -99,13 +101,14 @@ export function transformFormDataToPayload(
 ): ApiKeyFormData {
   return {
     name: data.name,
-    remain_quota: data.unlimited_quota
+    remain_quota: data.unlimited_quota && !data.quota_hard_limit_enabled
       ? 0
       : parseQuotaFromDollars(data.remain_quota_dollars || 0),
     expired_time: data.expired_time
       ? Math.floor(data.expired_time.getTime() / 1000)
       : -1,
     unlimited_quota: data.unlimited_quota,
+    quota_hard_limit_enabled: data.quota_hard_limit_enabled,
     model_limits_enabled: data.model_limits.length > 0,
     model_limits: data.model_limits.join(','),
     allow_ips: data.allow_ips || '',
@@ -123,7 +126,7 @@ export function transformApiKeyToFormDefaults(
 ): ApiKeyFormValues {
   return {
     name: apiKey.name,
-    remain_quota_dollars: apiKey.unlimited_quota
+    remain_quota_dollars: apiKey.unlimited_quota && !apiKey.quota_hard_limit_enabled
       ? 0
       : quotaUnitsToDollars(apiKey.remain_quota),
     expired_time:
@@ -131,6 +134,7 @@ export function transformApiKeyToFormDefaults(
         ? new Date(apiKey.expired_time * 1000)
         : undefined,
     unlimited_quota: apiKey.unlimited_quota,
+    quota_hard_limit_enabled: !!apiKey.quota_hard_limit_enabled,
     model_limits: apiKey.model_limits
       ? apiKey.model_limits.split(',').filter(Boolean)
       : [],
