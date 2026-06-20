@@ -43,6 +43,84 @@ func TestEnterpriseRoutesRequireAdminAuth(t *testing.T) {
 	require.True(t, decodeEnterpriseAuthResponse(t, admin).Success)
 }
 
+func TestEnterpriseRBACReadOnlyRoles(t *testing.T) {
+	setupEnterpriseRouterTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	router := newEnterpriseRouterForTest(t)
+
+	financeUserId := 7201
+	auditUserId := 7202
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, financeUserId, service.EnterpriseRoleFinanceViewer)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, auditUserId, service.EnterpriseRoleAuditor)
+	financeCookies := loginEnterpriseRouterUserForTest(t, router, financeUserId, common.RoleCommonUser)
+	auditCookies := loginEnterpriseRouterUserForTest(t, router, auditUserId, common.RoleCommonUser)
+
+	financeCurrent := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/current", "", financeCookies, financeUserId)
+	require.Equal(t, http.StatusOK, financeCurrent.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, financeCurrent).Success)
+
+	financeUsage := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary", "", financeCookies, financeUserId)
+	require.Equal(t, http.StatusOK, financeUsage.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, financeUsage).Success)
+
+	financeAudit := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs", "", financeCookies, financeUserId)
+	require.Equal(t, http.StatusOK, financeAudit.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, financeAudit).Success)
+
+	financeManage := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/current", `{
+    "name": "finance cannot manage",
+    "timezone": "Asia/Shanghai",
+    "status": 1
+  }`, financeCookies, financeUserId)
+	require.Equal(t, http.StatusOK, financeManage.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, financeManage).Success)
+
+	auditLogs := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs", "", auditCookies, auditUserId)
+	require.Equal(t, http.StatusOK, auditLogs.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, auditLogs).Success)
+
+	auditUsage := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary", "", auditCookies, auditUserId)
+	require.Equal(t, http.StatusOK, auditUsage.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, auditUsage).Success)
+
+	auditManage := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/current", `{
+    "name": "auditor cannot manage",
+    "timezone": "Asia/Shanghai",
+    "status": 1
+  }`, auditCookies, auditUserId)
+	require.Equal(t, http.StatusOK, auditManage.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, auditManage).Success)
+}
+
+func TestEnterpriseRBACEnterpriseAdminCanManageWithoutSystemAdmin(t *testing.T) {
+	setupEnterpriseRouterTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	router := newEnterpriseRouterForTest(t)
+
+	enterpriseAdminUserId := 7203
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, enterpriseAdminUserId, service.EnterpriseRoleEnterpriseAdmin)
+	enterpriseAdminCookies := loginEnterpriseRouterUserForTest(t, router, enterpriseAdminUserId, common.RoleCommonUser)
+
+	update := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/current", `{
+    "name": "RBAC Enterprise",
+    "timezone": "Asia/Shanghai",
+    "status": 1
+  }`, enterpriseAdminCookies, enterpriseAdminUserId)
+	require.Equal(t, http.StatusOK, update.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, update).Success)
+
+	project := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/projects", `{
+    "name": "RBAC Project",
+    "slug": "rbac-project",
+    "description": "created by enterprise admin",
+    "status": 1
+  }`, enterpriseAdminCookies, enterpriseAdminUserId)
+	require.Equal(t, http.StatusOK, project.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, project).Success)
+}
+
 func setupEnterpriseRouterTestDB(t *testing.T) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -59,6 +137,8 @@ func setupEnterpriseRouterTestDB(t *testing.T) {
 		&model.EnterpriseOrgMembership{},
 		&model.EnterprisePolicyGroup{},
 		&model.EnterprisePolicyGroupMember{},
+		&model.EnterpriseProject{},
+		&model.EnterpriseProjectOrgUnit{},
 		&model.EnterpriseQuotaPolicy{},
 		&model.EnterpriseQuotaCounter{},
 		&model.EnterpriseQuotaRequest{},
@@ -282,6 +362,11 @@ func newEnterpriseRouterForTest(t *testing.T) *gin.Engine {
 			userId = 7199
 			role = common.RoleAdminUser
 		}
+		if userIdQuery := c.Query("user_id"); userIdQuery != "" {
+			parsedUserId, err := strconv.Atoi(userIdQuery)
+			require.NoError(t, err)
+			userId = parsedUserId
+		}
 		user := model.User{Id: userId}
 		require.NoError(t, model.DB.Where("id = ?", userId).Attrs(model.User{
 			Username: "enterprise-router-test-" + strconv.Itoa(userId),
@@ -309,6 +394,7 @@ func loginEnterpriseRouterUserForTest(t *testing.T, router *gin.Engine, userId i
 	if role >= common.RoleAdminUser {
 		target = "/login/admin"
 	}
+	target += "?user_id=" + strconv.Itoa(userId)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, target, nil)
 	router.ServeHTTP(recorder, request)
@@ -319,6 +405,23 @@ func loginEnterpriseRouterUserForTest(t *testing.T, router *gin.Engine, userId i
 func requestEnterpriseCurrentForTest(t *testing.T, router *gin.Engine, cookies []*http.Cookie, userId int) *httptest.ResponseRecorder {
 	t.Helper()
 	return requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/current", "", cookies, userId)
+}
+
+func seedEnterpriseMembershipRoleForTest(t *testing.T, enterpriseId int, userId int, role string) {
+	t.Helper()
+	require.NoError(t, model.DB.Where("id = ?", userId).Attrs(model.User{
+		Username: "enterprise-rbac-test-" + strconv.Itoa(userId),
+		Status:   common.UserStatusEnabled,
+		Role:     common.RoleCommonUser,
+		Group:    "default",
+		AffCode:  "enterprise-rbac-test-" + strconv.Itoa(userId),
+	}).FirstOrCreate(&model.User{Id: userId}).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseOrgMembership{
+		EnterpriseId: enterpriseId,
+		UserId:       userId,
+		Role:         role,
+		IsPrimary:    true,
+	}).Error)
 }
 
 func requestEnterpriseForTest(t *testing.T, router *gin.Engine, method string, target string, body string, cookies []*http.Cookie, userId int) *httptest.ResponseRecorder {

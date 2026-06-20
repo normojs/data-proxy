@@ -49,8 +49,10 @@ const enterpriseSearchSchema = z.object({
 export const Route = createFileRoute('/_authenticated/enterprise/')({
   beforeLoad: () => {
     const { auth } = useAuthStore.getState()
+    const canReadEnterprise =
+      auth.user?.permissions?.enterprise_governance?.read === true
 
-    if (!auth.user || auth.user.role < ROLE.ADMIN) {
+    if (!auth.user || (auth.user.role < ROLE.ADMIN && !canReadEnterprise)) {
       throw redirect({
         to: '/403',
       })

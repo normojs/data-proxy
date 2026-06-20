@@ -14,7 +14,19 @@
 
 - 侧边栏：`Admin` -> `Enterprise Governance`
 - 路由：`/enterprise`
-- 权限：管理员及以上可见；后端 API 使用 `AdminAuth`。
+- 权限：系统 `admin/root` 继续拥有全部企业治理权限；企业成员角色通过 `enterprise.*` capability 分组访问。
+
+企业治理角色和能力：
+
+| 角色 | 当前能力 |
+| --- | --- |
+| `owner` / `enterprise_admin` / `admin` | 读取、管理配置、审批临时额度、查看财务和审计、管理项目 |
+| `finance_viewer` | 读取企业治理入口和财务用量视图 |
+| `auditor` | 读取企业治理入口和审计、通知 outbox、worker metrics |
+| `project_admin` | 读取、查看财务用量视图、管理项目 |
+| `department_admin` | 当前仅开放企业治理读取入口；本部门及子部门写入边界仍在 V1.7 后续完成 |
+
+后端 API 按 `enterprise.read`、`enterprise.manage`、`enterprise.finance.read`、`enterprise.audit.read`、`enterprise.quota.approve`、`enterprise.project.manage` 分组鉴权。前端入口和页签使用 `/api/user/self` 返回的 `permissions.enterprise_governance` 控制可见性。
 
 系统开关：
 

@@ -46,15 +46,27 @@ export function useSidebarView(): ResolvedSidebarView {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (l) => l.pathname })
   const userRole = useAuthStore((s) => s.auth.user?.role)
+  const canReadEnterprise = useAuthStore(
+    (s) => s.auth.user?.permissions?.enterprise_governance?.read === true
+  )
   const rootSidebarData = useSidebarData()
   const configFilteredRoot = useSidebarConfig(rootSidebarData.navGroups)
 
   const rootNavGroups = useMemo<NavGroup[]>(() => {
     const isAdmin = userRole !== undefined && userRole >= ROLE.ADMIN
-    return configFilteredRoot.filter((group) =>
-      group.id === 'admin' ? isAdmin : true
-    )
-  }, [configFilteredRoot, userRole])
+    return configFilteredRoot
+      .map((group) => {
+        if (group.id !== 'admin' || isAdmin) return group
+        if (!canReadEnterprise) return null
+        return {
+          ...group,
+          items: group.items.filter(
+            (item) => 'url' in item && item.url === '/enterprise'
+          ),
+        }
+      })
+      .filter((group): group is NavGroup => Boolean(group?.items.length))
+  }, [configFilteredRoot, userRole, canReadEnterprise])
 
   const view = resolveSidebarView(pathname)
 

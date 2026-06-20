@@ -1175,8 +1175,12 @@ func ListEnterpriseQuotaRequests(c *gin.Context) {
 	}
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Model(&model.EnterpriseQuotaRequest{}).Where("enterprise_id = ?", enterprise.Id)
-	isAdmin := c.GetInt("role") >= common.RoleAdminUser
-	if !isAdmin {
+	canReview, err := service.UserHasEnterpriseCapability(c.GetInt("id"), c.GetInt("role"), service.EnterpriseCapabilityQuotaApprove)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !canReview {
 		query = query.Where("applicant_user_id = ?", c.GetInt("id"))
 	}
 	if requestId, err := parseOptionalIntQuery(c, "id"); err != nil {
@@ -1197,7 +1201,7 @@ func ListEnterpriseQuotaRequests(c *gin.Context) {
 	if applicantUserId, err := parseOptionalIntQuery(c, "applicant_user_id"); err != nil {
 		common.ApiError(c, err)
 		return
-	} else if applicantUserId > 0 && isAdmin {
+	} else if applicantUserId > 0 && canReview {
 		query = query.Where("applicant_user_id = ?", applicantUserId)
 	}
 	var total int64
@@ -1320,7 +1324,12 @@ func WithdrawEnterpriseQuotaRequest(c *gin.Context) {
 		common.ApiError(c, errors.New("只能撤回待审批申请"))
 		return
 	}
-	if c.GetInt("role") < common.RoleAdminUser && quotaRequest.ApplicantUserId != c.GetInt("id") {
+	canReview, err := service.UserHasEnterpriseCapability(c.GetInt("id"), c.GetInt("role"), service.EnterpriseCapabilityQuotaApprove)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !canReview && quotaRequest.ApplicantUserId != c.GetInt("id") {
 		common.ApiError(c, errors.New("只能撤回自己的申请"))
 		return
 	}

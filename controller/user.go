@@ -408,6 +408,12 @@ func GetSelf(c *gin.Context) {
 
 	// 计算用户权限信息
 	permissions := calculateUserPermissions(userRole)
+	enterprisePermissions, err := service.EnterprisePermissionsForUser(id, userRole)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	permissions["enterprise_governance"] = enterprisePermissions
 
 	// 获取用户设置并提取sidebar_modules
 	userSetting := user.GetSetting()

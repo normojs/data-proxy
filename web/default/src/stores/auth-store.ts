@@ -21,6 +21,16 @@ import { create } from 'zustand'
 export type UserPermissions = {
   sidebar_settings?: boolean
   sidebar_modules?: Record<string, unknown>
+  enterprise_governance?: EnterprisePermissions
+}
+
+export type EnterprisePermissions = {
+  read?: boolean
+  manage?: boolean
+  finance_read?: boolean
+  audit_read?: boolean
+  quota_approve?: boolean
+  project_manage?: boolean
 }
 
 export interface AuthUser {

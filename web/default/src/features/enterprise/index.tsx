@@ -16,7 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type FormEvent, type ReactNode, useMemo, useState } from 'react'
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Route } from '@/routes/_authenticated/enterprise'
 import {
@@ -923,6 +929,7 @@ function EnterpriseHeader(props: {
   orgUnitsTotal: number
   policyGroupsTotal: number
   quotaPoliciesTotal: number
+  canManage: boolean
   onEdit: () => void
 }) {
   const { t } = useTranslation()
@@ -960,10 +967,12 @@ function EnterpriseHeader(props: {
             {props.enterprise && (
               <StatusBadge status={props.enterprise.status} />
             )}
-            <Button variant='outline' size='icon-sm' onClick={props.onEdit}>
-              <Pencil className='size-3.5' />
-              <span className='sr-only'>{t('Edit')}</span>
-            </Button>
+            {props.canManage && (
+              <Button variant='outline' size='icon-sm' onClick={props.onEdit}>
+                <Pencil className='size-3.5' />
+                <span className='sr-only'>{t('Edit')}</span>
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -5994,8 +6003,67 @@ export function EnterpriseGovernance() {
   const navigate = Route.useNavigate()
   const currentUser = useAuthStore((state) => state.auth.user)
   const currentUserId = currentUser?.id ?? 0
-  const isAdmin = (currentUser?.role ?? 0) >= ROLE.ADMIN
-  const activeTab = search.tab ?? 'overview'
+  const isSystemAdmin = (currentUser?.role ?? 0) >= ROLE.ADMIN
+  const enterprisePermissions = currentUser?.permissions?.enterprise_governance
+  const canReadEnterprise =
+    isSystemAdmin || enterprisePermissions?.read === true
+  const canManageEnterprise =
+    isSystemAdmin || enterprisePermissions?.manage === true
+  const canReadFinance =
+    canManageEnterprise || enterprisePermissions?.finance_read === true
+  const canReadAudit =
+    canManageEnterprise || enterprisePermissions?.audit_read === true
+  const canApproveQuota =
+    canManageEnterprise || enterprisePermissions?.quota_approve === true
+  const canManageProjects =
+    canManageEnterprise || enterprisePermissions?.project_manage === true
+  const availableTabs = useMemo(
+    () =>
+      tabs.filter((tab) => {
+        switch (tab.value) {
+          case 'overview':
+          case 'quota-requests':
+            return canReadEnterprise
+          case 'projects':
+            return canManageProjects
+          case 'usage':
+            return canReadFinance
+          case 'audit':
+            return canReadAudit
+          case 'organization':
+          case 'policy-groups':
+          case 'quota-policies':
+          case 'notifications':
+          case 'webhooks':
+          case 'deliveries':
+            return canManageEnterprise
+          default:
+            return false
+        }
+      }),
+    [
+      canManageEnterprise,
+      canManageProjects,
+      canReadAudit,
+      canReadEnterprise,
+      canReadFinance,
+    ]
+  )
+  const fallbackTab = availableTabs[0]?.value ?? 'overview'
+  const requestedTab = search.tab ?? fallbackTab
+  const activeTab = availableTabs.some((tab) => tab.value === requestedTab)
+    ? requestedTab
+    : fallbackTab
+  useEffect(() => {
+    if (search.tab && search.tab !== activeTab) {
+      void navigate({
+        search: (prev) => ({
+          ...prev,
+          tab: activeTab,
+        }),
+      })
+    }
+  }, [activeTab, navigate, search.tab])
   const setActiveTab = (tab: EnterpriseTab) => {
     void navigate({
       search: (prev) => ({
@@ -6173,14 +6241,17 @@ export function EnterpriseGovernance() {
   const currentQuery = useQuery({
     queryKey: ['enterprise', 'current'],
     queryFn: getEnterpriseCurrent,
+    enabled: canReadEnterprise,
   })
   const orgUnitsQuery = useQuery({
     queryKey: ['enterprise', 'org-units', 'all'],
     queryFn: () => getEnterpriseOrgUnits(),
+    enabled: canReadEnterprise,
   })
   const membersSummaryQuery = useQuery({
     queryKey: ['enterprise', 'members', 'summary'],
     queryFn: () => getEnterpriseMembers({ p: 1, page_size: 1 }),
+    enabled: canManageEnterprise,
   })
   const memberOrgUnitId =
     memberOrgFilter && memberOrgFilter !== UNASSIGNED_VALUE
@@ -6203,10 +6274,12 @@ export function EnterpriseGovernance() {
         org_unit_id: memberOrgUnitId,
         unassigned: memberOrgFilter === UNASSIGNED_VALUE,
       }),
+    enabled: canManageEnterprise,
   })
   const policyGroupsSummaryQuery = useQuery({
     queryKey: ['enterprise', 'policy-groups', 'summary'],
     queryFn: () => getEnterprisePolicyGroups({ p: 1, page_size: 1 }),
+    enabled: canManageEnterprise,
   })
   const allPolicyGroupsQuery = useQuery({
     queryKey: ['enterprise', 'policy-groups', 'all'],
@@ -6216,6 +6289,7 @@ export function EnterpriseGovernance() {
         page_size: 100,
         status: ENABLED_STATUS,
       }),
+    enabled: canManageEnterprise,
   })
   const policyGroupsQuery = useQuery({
     queryKey: [
@@ -6232,6 +6306,7 @@ export function EnterpriseGovernance() {
         keyword: policyGroupKeyword,
         status: policyGroupStatus,
       }),
+    enabled: canManageEnterprise,
   })
   const allProjectsQuery = useQuery({
     queryKey: ['enterprise', 'projects', 'all'],
@@ -6241,6 +6316,7 @@ export function EnterpriseGovernance() {
         page_size: 100,
         status: ENABLED_STATUS,
       }),
+    enabled: canReadEnterprise,
   })
   const projectOrgUnitIdValue = projectOrgUnitId
     ? Number(projectOrgUnitId)
@@ -6262,10 +6338,12 @@ export function EnterpriseGovernance() {
         status: projectStatus,
         org_unit_id: projectOrgUnitIdValue,
       }),
+    enabled: canManageProjects,
   })
   const quotaPoliciesSummaryQuery = useQuery({
     queryKey: ['enterprise', 'quota-policies', 'summary'],
     queryFn: () => getEnterpriseQuotaPolicies({ p: 1, page_size: 1 }),
+    enabled: canManageEnterprise,
   })
   const quotaPoliciesQuery = useQuery({
     queryKey: [
@@ -6286,6 +6364,7 @@ export function EnterpriseGovernance() {
         target_type: quotaPolicyTargetType,
         metric: quotaPolicyMetric,
       }),
+    enabled: canManageEnterprise,
   })
   const quotaRequestsQuery = useQuery({
     queryKey: [
@@ -6304,6 +6383,7 @@ export function EnterpriseGovernance() {
         status: quotaRequestStatus,
         policy_id: quotaRequestPolicyIdValue,
       }),
+    enabled: canReadEnterprise,
   })
 
   const usageStartTime = startOfDayUnix(usageStartDate)
@@ -6338,6 +6418,7 @@ export function EnterpriseGovernance() {
         token_id: usageTokenIdValue,
         status: usageStatus,
       }),
+    enabled: canReadFinance,
   })
   const usageBreakdownQuery = useQuery({
     queryKey: [
@@ -6371,6 +6452,7 @@ export function EnterpriseGovernance() {
         sort_by: 'quota',
         sort_order: 'desc',
       }),
+    enabled: canReadFinance,
   })
   const auditStartTime = auditStartDate
     ? startOfDayUnix(auditStartDate)
@@ -6401,6 +6483,7 @@ export function EnterpriseGovernance() {
         start_time: auditStartTime,
         end_time: auditEndTime,
       }),
+    enabled: canReadAudit,
   })
   const dryRunObservationStartTime = startOfDayUnix(daysAgoInputValue(7))
   const dryRunObservationEndTime = endOfDayUnix(todayInputValue())
@@ -6421,6 +6504,7 @@ export function EnterpriseGovernance() {
         start_time: dryRunObservationStartTime,
         end_time: dryRunObservationEndTime,
       }),
+    enabled: canReadAudit,
   })
 
   const enterprise = currentQuery.data?.data
@@ -6510,6 +6594,7 @@ export function EnterpriseGovernance() {
               orgUnitsTotal={orgUnits.length}
               policyGroupsTotal={getPageTotal(policyGroupsSummaryQuery.data)}
               quotaPoliciesTotal={getPageTotal(quotaPoliciesSummaryQuery.data)}
+              canManage={canManageEnterprise}
               onEdit={() => setEnterpriseDialogOpen(true)}
             />
 
@@ -6520,7 +6605,7 @@ export function EnterpriseGovernance() {
               }
             >
               <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
-                {tabs.map((tab) => {
+                {availableTabs.map((tab) => {
                   const Icon = tab.icon
                   return (
                     <TabsTrigger key={tab.value} value={tab.value}>
@@ -6722,7 +6807,7 @@ export function EnterpriseGovernance() {
                   requests={quotaRequests}
                   policies={quotaPolicies}
                   currentUserId={currentUserId}
-                  isAdmin={isAdmin}
+                  isAdmin={canApproveQuota}
                   query={{
                     data: quotaRequestsQuery.data,
                     isLoading: quotaRequestsQuery.isLoading,
