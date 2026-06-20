@@ -74,7 +74,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                         target='_blank'
                         rel='noopener noreferrer'
                         className={cn(
-                          'inline-flex items-center gap-1.5',
+                          'inline-flex items-center gap-1.5 whitespace-nowrap',
                           !isActive && 'text-muted-foreground'
                         )}
                       >
@@ -88,7 +88,10 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                     ) : (
                       <Link
                         to={href}
-                        className={!isActive ? 'text-muted-foreground' : ''}
+                        className={cn(
+                          'whitespace-nowrap',
+                          !isActive && 'text-muted-foreground'
+                        )}
                         disabled={disabled}
                       >
                         {title}
@@ -117,7 +120,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
               href={href}
               target='_blank'
               rel='noopener noreferrer'
-              className={`hover:text-primary inline-flex items-center gap-1.5 text-sm font-medium transition-colors ${isActive ? '' : 'text-muted-foreground'}`}
+              className={`hover:text-primary inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors ${isActive ? '' : 'text-muted-foreground'}`}
             >
               {title}
               <ExternalLink className='size-3.5 shrink-0' aria-hidden />
@@ -128,7 +131,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
               key={`${title}-${href}`}
               to={href}
               disabled={disabled}
-              className={`hover:text-primary text-sm font-medium transition-colors ${isActive ? '' : 'text-muted-foreground'}`}
+              className={`hover:text-primary shrink-0 whitespace-nowrap text-sm font-medium transition-colors ${isActive ? '' : 'text-muted-foreground'}`}
             >
               {title}
             </Link>
