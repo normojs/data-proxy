@@ -113,6 +113,12 @@ func main() {
 	// Subscription quota reset task (daily/weekly/monthly/custom)
 	service.StartSubscriptionQuotaResetTask()
 
+	// Enterprise quota request expiry maintenance task
+	service.StartEnterpriseQuotaRequestMaintenanceTask()
+
+	// Enterprise notification outbox delivery task
+	service.StartEnterpriseNotificationOutboxTask()
+
 	// Billing event relation inspection task (admin-configurable)
 	service.StartBillingEventRelationInspectionTask()
 

@@ -5266,6 +5266,21 @@
     "High Error Rate": "高错误率",
     "OAuth": "OAuth",
     "Mock Example": "Mock 示例",
-    "Realistic mock data based on this tool schema.": "基于当前工具入参结构生成的拟真 Mock 数据。"
+    "Realistic mock data based on this tool schema.": "基于当前工具入参结构生成的拟真 Mock 数据。",
+    "notification.enterprise_quota_request.title.pending": "额度申请待审批",
+    "notification.enterprise_quota_request.title.approved": "额度申请已批准",
+    "notification.enterprise_quota_request.title.rejected": "额度申请已拒绝",
+    "notification.enterprise_quota_request.title.withdrawn": "额度申请已撤回",
+    "notification.enterprise_quota_request.title.expired": "额度申请已过期",
+    "notification.enterprise_quota_request.title.expiring_soon": "临时额度即将过期",
+    "notification.enterprise_quota_request.title.updated": "额度申请已更新",
+    "notification.enterprise_quota_request.content.pending": "{{applicantName}} 提交了 {{policyName}} 的临时额度申请。",
+    "notification.enterprise_quota_request.content.approved": "{{actorName}} 批准了你针对 {{policyName}} 的临时额度申请。",
+    "notification.enterprise_quota_request.content.rejected": "{{actorName}} 拒绝了你针对 {{policyName}} 的临时额度申请。",
+    "notification.enterprise_quota_request.content.withdrawn_by_actor": "{{actorName}} 撤回了 {{policyName}} 的临时额度申请。",
+    "notification.enterprise_quota_request.content.withdrawn": "{{policyName}} 的临时额度申请已撤回。",
+    "notification.enterprise_quota_request.content.expired": "{{policyName}} 的临时额度申请在审批前已过期。",
+    "notification.enterprise_quota_request.content.expiring_soon": "{{policyName}} 的临时额度即将过期。",
+    "notification.enterprise_quota_request.content.updated": "{{policyName}} 的临时额度申请已更新。"
   }
 }

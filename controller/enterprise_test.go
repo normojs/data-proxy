@@ -1,0 +1,1016 @@
+package controller
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+)
+
+type enterpriseControllerResponse struct {
+	Success bool           `json:"success"`
+	Message string         `json:"message"`
+	Data    map[string]any `json:"data"`
+}
+
+func TestEnterpriseWebhookManagementAndTestSend(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	disableEnterpriseControllerWebhookSSRFProtection(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	var receivedSignature string
+	var receivedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSignature = r.Header.Get("X-Enterprise-Webhook-Signature")
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		receivedBody = body
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/webhooks", `{
+    "name": "Approval Hook",
+    "url": "`+server.URL+`?token=secret",
+    "secret": "hook-secret",
+    "event_types": ["quota_request.approve", "quota_request.approve", ""],
+    "status": 1
+  }`)
+	CreateEnterpriseWebhook(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	webhookId := int(response.Data["id"].(float64))
+	assert.Equal(t, "Approval Hook", response.Data["name"])
+	assert.Equal(t, true, response.Data["has_secret"])
+	assert.NotContains(t, recorder.Body.String(), "hook-secret")
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/webhooks", "")
+	ListEnterpriseWebhooks(ctx)
+	listResponse := decodeEnterpriseControllerListResponse(t, recorder)
+	require.True(t, listResponse.Success, listResponse.Message)
+	require.Len(t, listResponse.Data, 1)
+	assert.NotContains(t, recorder.Body.String(), "hook-secret")
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/webhooks/"+itoaForEnterpriseTest(webhookId)+"/test", "{}")
+	ctx.Params = gin.Params{{Key: "id", Value: itoaForEnterpriseTest(webhookId)}}
+	TestEnterpriseWebhook(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.Equal(t, true, response.Data["success"])
+	assert.EqualValues(t, http.StatusNoContent, response.Data["status_code"])
+	assert.NotEmpty(t, receivedBody)
+	assert.Equal(t, service.EnterpriseWebhookSignature("hook-secret", receivedBody), receivedSignature)
+	assert.Contains(t, string(receivedBody), "enterprise.webhook.test")
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPut, "/api/enterprise/webhooks/"+itoaForEnterpriseTest(webhookId), `{
+    "name": "Approval Hook Updated",
+    "url": "`+server.URL+`/updated",
+    "event_types": ["quota_request.reject"],
+    "status": 2
+  }`)
+	ctx.Params = gin.Params{{Key: "id", Value: itoaForEnterpriseTest(webhookId)}}
+	UpdateEnterpriseWebhook(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.Equal(t, "Approval Hook Updated", response.Data["name"])
+	assert.Equal(t, true, response.Data["has_secret"])
+	assert.EqualValues(t, model.EnterpriseWebhookStatusDisabled, response.Data["status"])
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodDelete, "/api/enterprise/webhooks/"+itoaForEnterpriseTest(webhookId), "")
+	ctx.Params = gin.Params{{Key: "id", Value: itoaForEnterpriseTest(webhookId)}}
+	DeleteEnterpriseWebhook(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.EqualValues(t, model.EnterpriseWebhookStatusDisabled, response.Data["status"])
+
+	var audits []model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND target_type = ? AND target_id = ?", enterprise.Id, "enterprise_webhook", webhookId).Order("id asc").Find(&audits).Error)
+	require.Len(t, audits, 4)
+	assert.Equal(t, "webhook.create", audits[0].Action)
+	assert.Equal(t, "webhook.test", audits[1].Action)
+	assert.Equal(t, "webhook.update", audits[2].Action)
+	assert.Equal(t, "webhook.disable", audits[3].Action)
+	for _, audit := range audits {
+		assert.NotContains(t, audit.BeforeJson, "hook-secret")
+		assert.NotContains(t, audit.AfterJson, "hook-secret")
+		assert.NotContains(t, audit.AfterJson, "token=secret")
+	}
+}
+
+type enterpriseControllerListResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Data    []any  `json:"data"`
+}
+
+func setupEnterpriseControllerTestDB(t *testing.T) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	originalEnabled := common.EnterpriseGovernanceEnabled
+	originalDryRun := common.EnterpriseGovernanceDryRunEnabled
+	common.EnterpriseGovernanceEnabled = true
+	common.EnterpriseGovernanceDryRunEnabled = false
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&model.User{},
+		&model.Token{},
+		&model.Channel{},
+		&model.Enterprise{},
+		&model.EnterpriseOrgUnit{},
+		&model.EnterpriseOrgMembership{},
+		&model.EnterpriseProject{},
+		&model.EnterpriseProjectOrgUnit{},
+		&model.EnterprisePolicyGroup{},
+		&model.EnterprisePolicyGroupMember{},
+		&model.EnterpriseQuotaPolicy{},
+		&model.EnterpriseQuotaCounter{},
+		&model.EnterpriseQuotaRequest{},
+		&model.EnterpriseWebhook{},
+		&model.EnterpriseUsageAttribution{},
+		&model.EnterpriseAuditLog{},
+		&model.EnterpriseNotificationPreference{},
+		&model.EnterpriseNotificationOutbox{},
+	))
+	originalDB := model.DB
+	model.DB = db
+	t.Cleanup(func() {
+		common.EnterpriseGovernanceEnabled = originalEnabled
+		common.EnterpriseGovernanceDryRunEnabled = originalDryRun
+		model.DB = originalDB
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	require.NoError(t, model.EnsureDefaultEnterprise())
+}
+
+func newEnterpriseControllerContext(t *testing.T, method string, target string, body string) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(method, target, bytes.NewBufferString(body))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Request.Header.Set(common.RequestIdKey, "req-enterprise-controller-test")
+	ctx.Set("id", 9001)
+	return ctx, recorder
+}
+
+func decodeEnterpriseControllerResponse(t *testing.T, recorder *httptest.ResponseRecorder) enterpriseControllerResponse {
+	t.Helper()
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response enterpriseControllerResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	return response
+}
+
+func decodeEnterpriseControllerListResponse(t *testing.T, recorder *httptest.ResponseRecorder) enterpriseControllerListResponse {
+	t.Helper()
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response enterpriseControllerListResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	return response
+}
+
+func disableEnterpriseControllerWebhookSSRFProtection(t *testing.T) {
+	t.Helper()
+	fetchSetting := system_setting.GetFetchSetting()
+	originalEnabled := fetchSetting.EnableSSRFProtection
+	originalAllowPrivate := fetchSetting.AllowPrivateIp
+	fetchSetting.EnableSSRFProtection = false
+	fetchSetting.AllowPrivateIp = true
+	t.Cleanup(func() {
+		fetchSetting.EnableSSRFProtection = originalEnabled
+		fetchSetting.AllowPrivateIp = originalAllowPrivate
+	})
+}
+
+func enterpriseResponseId(t *testing.T, response enterpriseControllerResponse) int {
+	t.Helper()
+	raw, ok := response.Data["id"].(float64)
+	require.True(t, ok)
+	return int(raw)
+}
+
+func createEnterpriseOrgUnitForTest(t *testing.T, parentId int, name string, slug string) int {
+	t.Helper()
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-units", `{
+		"parent_id": `+itoaForEnterpriseTest(parentId)+`,
+		"name": "`+name+`",
+		"slug": "`+slug+`"
+	}`)
+	CreateEnterpriseOrgUnit(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	return enterpriseResponseId(t, response)
+}
+
+func TestEnterpriseOrgUnitRejectsMoveIntoDescendant(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+
+	rootId := createEnterpriseOrgUnitForTest(t, 0, "研发部", "engineering")
+	childId := createEnterpriseOrgUnitForTest(t, rootId, "平台组", "platform")
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPut, "/api/enterprise/org-units/1", `{
+		"parent_id": `+itoaForEnterpriseTest(childId)+`,
+		"name": "研发部",
+		"slug": "engineering"
+	}`)
+	ctx.Params = gin.Params{{Key: "id", Value: itoaForEnterpriseTest(rootId)}}
+	UpdateEnterpriseOrgUnit(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "子部门")
+}
+
+func TestEnterpriseOrgUnitDisableRejectsChildrenAndMembers(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1003, Username: "carol", Status: common.UserStatusEnabled}).Error)
+
+	rootId := createEnterpriseOrgUnitForTest(t, 0, "研发部", "engineering")
+	createEnterpriseOrgUnitForTest(t, rootId, "平台组", "platform")
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodDelete, "/api/enterprise/org-units/"+itoaForEnterpriseTest(rootId), "")
+	ctx.Params = gin.Params{{Key: "id", Value: itoaForEnterpriseTest(rootId)}}
+	DeleteEnterpriseOrgUnit(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "子部门")
+
+	leafId := createEnterpriseOrgUnitForTest(t, 0, "销售部", "sales")
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPut, "/api/enterprise/members/1003/org-unit", `{
+		"org_unit_id": `+itoaForEnterpriseTest(leafId)+`
+	}`)
+	ctx.Params = gin.Params{{Key: "user_id", Value: "1003"}}
+	UpdateEnterpriseMemberOrgUnit(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodDelete, "/api/enterprise/org-units/"+itoaForEnterpriseTest(leafId), "")
+	ctx.Params = gin.Params{{Key: "id", Value: itoaForEnterpriseTest(leafId)}}
+	DeleteEnterpriseOrgUnit(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "成员")
+}
+
+func TestEnterpriseMemberOrgUnitAssignment(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1001, Username: "alice", Status: common.UserStatusEnabled}).Error)
+	orgUnitId := createEnterpriseOrgUnitForTest(t, 0, "研发部", "engineering")
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPut, "/api/enterprise/members/1001/org-unit", `{
+		"org_unit_id": `+itoaForEnterpriseTest(orgUnitId)+`
+	}`)
+	ctx.Params = gin.Params{{Key: "user_id", Value: "1001"}}
+	UpdateEnterpriseMemberOrgUnit(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	var membership model.EnterpriseOrgMembership
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND user_id = ?", enterprise.Id, 1001).First(&membership).Error)
+	assert.Equal(t, orgUnitId, membership.OrgUnitId)
+}
+
+func TestEnterprisePolicyGroupDisableRejectsReferencedGroup(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	group := model.EnterprisePolicyGroup{
+		EnterpriseId: enterprise.Id,
+		Name:         "高阶模型",
+		Slug:         "advanced",
+		Status:       model.PolicyGroupStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&group).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "高阶模型每日额度",
+		TargetType:   model.PolicyTargetPolicyGroup,
+		TargetId:     group.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   100,
+		Timezone:     model.DefaultEnterpriseTimezone,
+		ModelScope:   model.PolicyModelScopeAll,
+		Action:       model.PolicyActionReject,
+		Status:       model.QuotaPolicyStatusEnabled,
+	}).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodDelete, "/api/enterprise/policy-groups/"+itoaForEnterpriseTest(group.Id), "")
+	ctx.Params = gin.Params{{Key: "id", Value: itoaForEnterpriseTest(group.Id)}}
+	DeleteEnterprisePolicyGroup(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "引用")
+}
+
+func TestEnterpriseProjectCreateListAndAudit(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1001, Username: "alice", DisplayName: "Alice", Status: common.UserStatusEnabled}).Error)
+	engineeringId := createEnterpriseOrgUnitForTest(t, 0, "研发部", "engineering")
+	platformId := createEnterpriseOrgUnitForTest(t, engineeringId, "平台组", "platform")
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/projects", `{
+		"name": "推理平台",
+		"slug": "inference-platform",
+		"description": "核心推理服务成本中心",
+		"owner_user_id": 1001,
+		"org_unit_ids": [`+itoaForEnterpriseTest(engineeringId)+`, `+itoaForEnterpriseTest(platformId)+`]
+	}`)
+	CreateEnterpriseProject(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	projectId := enterpriseResponseId(t, response)
+
+	var project model.EnterpriseProject
+	require.NoError(t, model.DB.First(&project, projectId).Error)
+	assert.Equal(t, "推理平台", project.Name)
+	assert.Equal(t, 1001, project.OwnerUserId)
+
+	var bindings []model.EnterpriseProjectOrgUnit
+	require.NoError(t, model.DB.Where("project_id = ?", projectId).Order("org_unit_id asc").Find(&bindings).Error)
+	require.Len(t, bindings, 2)
+	assert.Equal(t, engineeringId, bindings[0].OrgUnitId)
+	assert.Equal(t, platformId, bindings[1].OrgUnitId)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/projects?keyword=inference&page_size=10", "")
+	ListEnterpriseProjects(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	var page struct {
+		Total int                     `json:"total"`
+		Items []enterpriseProjectItem `json:"items"`
+	}
+	decodeEnterpriseResponseData(t, response, &page)
+	require.Equal(t, 1, page.Total)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "推理平台", page.Items[0].Name)
+	assert.Equal(t, "Alice", page.Items[0].OwnerName)
+	assert.ElementsMatch(t, []int{engineeringId, platformId}, page.Items[0].OrgUnitIds)
+	assert.ElementsMatch(t, []string{"研发部", "平台组"}, page.Items[0].OrgUnitNames)
+
+	var auditCount int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).
+		Where("target_type = ? AND target_id = ? AND action = ?", "project", projectId, "project.create").
+		Count(&auditCount).Error)
+	assert.EqualValues(t, 1, auditCount)
+}
+
+func TestEnterpriseProjectDisableRejectsReferencedProject(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	project := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         "成本中心 A",
+		Slug:         "cost-center-a",
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&project).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "项目每日额度",
+		TargetType:   model.PolicyTargetProject,
+		TargetId:     project.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   100,
+		Timezone:     model.DefaultEnterpriseTimezone,
+		ModelScope:   model.PolicyModelScopeAll,
+		Action:       model.PolicyActionReject,
+		Status:       model.QuotaPolicyStatusEnabled,
+	}).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodDelete, "/api/enterprise/projects/"+itoaForEnterpriseTest(project.Id), "")
+	ctx.Params = gin.Params{{Key: "id", Value: itoaForEnterpriseTest(project.Id)}}
+	DeleteEnterpriseProject(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "引用")
+}
+
+func TestEnterpriseQuotaPolicyCreateWritesAuditLog(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	orgUnitId := createEnterpriseOrgUnitForTest(t, 0, "研发部", "engineering")
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-policies", `{
+		"name": "研发部每日额度",
+		"target_type": "org_unit",
+		"target_id": `+itoaForEnterpriseTest(orgUnitId)+`,
+		"metric": "quota",
+		"period": "day",
+		"limit_value": 500000,
+		"model_scope": "specific",
+		"models": ["gpt-4o"],
+		"action": "reject"
+	}`)
+	CreateEnterpriseQuotaPolicy(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	policyId := enterpriseResponseId(t, response)
+
+	var policy model.EnterpriseQuotaPolicy
+	require.NoError(t, model.DB.First(&policy, policyId).Error)
+	assert.JSONEq(t, `["gpt-4o"]`, policy.ModelsJson)
+
+	var auditCount int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).
+		Where("target_type = ? AND target_id = ? AND action = ?", "quota_policy", policyId, "quota_policy.create").
+		Count(&auditCount).Error)
+	assert.EqualValues(t, 1, auditCount)
+}
+
+func TestEnterpriseAuditLogFilters(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseAuditLog{
+		{
+			EnterpriseId: enterprise.Id,
+			ActorUserId:  9001,
+			Action:       "quota_policy.create",
+			TargetType:   "quota_policy",
+			TargetId:     11,
+			RequestId:    "req-audit-1",
+			CreatedAt:    1000,
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			ActorUserId:  9002,
+			Action:       "org_unit.create",
+			TargetType:   "org_unit",
+			TargetId:     12,
+			RequestId:    "req-audit-2",
+			CreatedAt:    2000,
+		},
+	}).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(
+		t,
+		http.MethodGet,
+		"/api/enterprise/audit-logs?action=quota_policy.create&request_id=req-audit-1&start_time=900&end_time=1100",
+		"",
+	)
+	ListEnterpriseAuditLogs(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	assert.EqualValues(t, 1, response.Data["total"])
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "quota_policy.create", item["action"])
+	assert.Equal(t, "req-audit-1", item["request_id"])
+}
+
+func TestEnterpriseQuotaRequestSubmitApproveListAndAudit(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1001, Username: "alice", DisplayName: "Alice", Email: "alice@example.com", Status: common.UserStatusEnabled, AffCode: "aff-alice-quota-request"}).Error)
+	require.NoError(t, model.DB.Create(&model.User{Id: 9001, Username: "admin", DisplayName: "Admin", Status: common.UserStatusEnabled, AffCode: "aff-admin-quota-request"}).Error)
+	orgUnitId := createEnterpriseOrgUnitForTest(t, 0, "Engineering", "engineering-quota-request")
+	require.NoError(t, model.DB.Create(&model.EnterpriseOrgMembership{EnterpriseId: enterprise.Id, UserId: 1001, OrgUnitId: orgUnitId, IsPrimary: true}).Error)
+	policy := model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "daily launch quota",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricRequestCount,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   10,
+		Timezone:     model.DefaultEnterpriseTimezone,
+		ModelScope:   model.PolicyModelScopeAll,
+		ModelsJson:   "[]",
+		Action:       model.PolicyActionReject,
+		Status:       model.QuotaPolicyStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&policy).Error)
+	webhook := model.EnterpriseWebhook{
+		EnterpriseId:   enterprise.Id,
+		Name:           "approval webhook",
+		Url:            "https://example.com/enterprise-webhook",
+		Secret:         "secret",
+		EventTypesJson: `["quota_request.approve"]`,
+		Status:         model.EnterpriseWebhookStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&webhook).Error)
+	applicantScope, err := common.Marshal(service.EnterpriseNotificationRecipientScope{Applicant: true})
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.EnterpriseNotificationPreference{
+		EnterpriseId:       enterprise.Id,
+		Channel:            model.EnterpriseNotificationPreferenceChannelEmail,
+		EventType:          "quota_request.approve",
+		Enabled:            true,
+		RecipientScopeJson: string(applicantScope),
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseNotificationPreference{
+		EnterpriseId:       enterprise.Id,
+		Channel:            model.EnterpriseNotificationPreferenceChannelWebhook,
+		EventType:          "quota_request.approve",
+		Enabled:            true,
+		RecipientScopeJson: `{}`,
+	}).Error)
+	inaccessiblePolicy := model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "bob private quota",
+		TargetType:   model.PolicyTargetUser,
+		TargetId:     2002,
+		Metric:       model.PolicyMetricRequestCount,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   10,
+		Timezone:     model.DefaultEnterpriseTimezone,
+		ModelScope:   model.PolicyModelScopeAll,
+		ModelsJson:   "[]",
+		Action:       model.PolicyActionReject,
+		Status:       model.QuotaPolicyStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&inaccessiblePolicy).Error)
+	project := model.EnterpriseProject{EnterpriseId: enterprise.Id, Name: "Inference Project", Slug: "inference-project", Status: model.EnterpriseProjectStatusEnabled}
+	require.NoError(t, model.DB.Create(&project).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseProjectOrgUnit{EnterpriseId: enterprise.Id, ProjectId: project.Id, OrgUnitId: orgUnitId}).Error)
+	projectPolicy := model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "project quota",
+		TargetType:   model.PolicyTargetProject,
+		TargetId:     project.Id,
+		Metric:       model.PolicyMetricRequestCount,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   20,
+		Timezone:     model.DefaultEnterpriseTimezone,
+		ModelScope:   model.PolicyModelScopeAll,
+		ModelsJson:   "[]",
+		Action:       model.PolicyActionReject,
+		Status:       model.QuotaPolicyStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&projectPolicy).Error)
+	expiresAt := common.GetTimestamp() + 3600
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/quota-requests/policies", "")
+	ctx.Set("id", 1001)
+	ListEnterpriseQuotaRequestPolicies(ctx)
+	policyResponse := decodeEnterpriseControllerListResponse(t, recorder)
+	require.True(t, policyResponse.Success, policyResponse.Message)
+	require.Len(t, policyResponse.Data, 1)
+	policyItem, ok := policyResponse.Data[0].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, policy.Id, policyItem["id"])
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/quota-requests/policies?project_id="+itoaForEnterpriseTest(project.Id), "")
+	ctx.Set("id", 1001)
+	ListEnterpriseQuotaRequestPolicies(ctx)
+	projectPolicyResponse := decodeEnterpriseControllerListResponse(t, recorder)
+	require.True(t, projectPolicyResponse.Success, projectPolicyResponse.Message)
+	require.Len(t, projectPolicyResponse.Data, 2)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-requests", `{
+    "policy_id": `+itoaForEnterpriseTest(inaccessiblePolicy.Id)+`,
+    "limit_delta": 5,
+    "reason": "wrong scope",
+    "expires_at": `+itoaForEnterpriseTest(int(expiresAt))+`
+  }`)
+	ctx.Set("id", 1001)
+	SubmitEnterpriseQuotaRequest(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.False(t, response.Success)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-requests", `{
+    "policy_id": `+itoaForEnterpriseTest(projectPolicy.Id)+`,
+    "limit_delta": 5,
+    "reason": "missing project context",
+    "expires_at": `+itoaForEnterpriseTest(int(expiresAt))+`
+  }`)
+	ctx.Set("id", 1001)
+	SubmitEnterpriseQuotaRequest(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.False(t, response.Success)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-requests", `{
+    "policy_id": `+itoaForEnterpriseTest(projectPolicy.Id)+`,
+    "project_id": `+itoaForEnterpriseTest(project.Id)+`,
+    "limit_delta": 5,
+    "reason": "project launch",
+    "expires_at": `+itoaForEnterpriseTest(int(expiresAt))+`
+  }`)
+	ctx.Set("id", 1001)
+	SubmitEnterpriseQuotaRequest(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-requests", `{
+    "policy_id": `+itoaForEnterpriseTest(policy.Id)+`,
+    "limit_delta": 5,
+    "reason": "release day",
+    "expires_at": `+itoaForEnterpriseTest(int(expiresAt))+`
+  }`)
+	ctx.Set("id", 1001)
+	SubmitEnterpriseQuotaRequest(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	requestId := int(response.Data["id"].(float64))
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-requests/"+itoaForEnterpriseTest(requestId)+"/approve", `{
+    "decision_reason": "approved for launch"
+  }`)
+	ctx.Set("id", 9001)
+	ctx.Params = gin.Params{{Key: "id", Value: itoaForEnterpriseTest(requestId)}}
+	ApproveEnterpriseQuotaRequest(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	var quotaRequest model.EnterpriseQuotaRequest
+	require.NoError(t, model.DB.First(&quotaRequest, requestId).Error)
+	assert.Equal(t, model.EnterpriseQuotaRequestStatusApproved, quotaRequest.Status)
+	assert.Equal(t, 1001, quotaRequest.ApplicantUserId)
+	assert.Equal(t, 9001, quotaRequest.ApproverUserId)
+	assert.EqualValues(t, 5, quotaRequest.LimitDelta)
+	assert.Equal(t, policy.TargetType, quotaRequest.TargetType)
+	assert.Equal(t, policy.Metric, quotaRequest.Metric)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/quota-requests?status=approved&page_size=10", "")
+	ctx.Set("id", 9001)
+	ctx.Set("role", common.RoleAdminUser)
+	ListEnterpriseQuotaRequests(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.EqualValues(t, 1, response.Data["total"])
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "daily launch quota", item["policy_name"])
+	assert.Equal(t, "Alice", item["applicant_name"])
+	assert.Equal(t, "Admin", item["approver_name"])
+
+	var auditCount int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).
+		Where("target_type = ? AND target_id = ? AND action IN ?", "quota_request", requestId, []string{"quota_request.submit", "quota_request.approve"}).
+		Count(&auditCount).Error)
+	assert.EqualValues(t, 2, auditCount)
+
+	var outboxRows []model.EnterpriseNotificationOutbox
+	require.NoError(t, model.DB.Where("target_type = ? AND target_id = ?", "quota_request", requestId).Order("id asc").Find(&outboxRows).Error)
+	require.Len(t, outboxRows, 4)
+	assert.Equal(t, "quota_request.submit", outboxRows[0].EventType)
+	assert.Equal(t, model.EnterpriseNotificationOutboxChannelInApp, outboxRows[0].Channel)
+	assert.Equal(t, 0, outboxRows[0].RecipientUserId)
+	assert.Equal(t, "quota_request.approve", outboxRows[1].EventType)
+	assert.Equal(t, 1001, outboxRows[1].RecipientUserId)
+	assert.Contains(t, outboxRows[1].PayloadJson, model.EnterpriseQuotaRequestStatusApproved)
+	assert.Equal(t, "quota_request.approve", outboxRows[2].EventType)
+	assert.Equal(t, model.EnterpriseNotificationOutboxChannelEmail, outboxRows[2].Channel)
+	assert.Equal(t, "alice@example.com", outboxRows[2].RecipientEmail)
+	assert.Equal(t, "quota_request.approve", outboxRows[3].EventType)
+	assert.Equal(t, model.EnterpriseNotificationOutboxChannelWebhook, outboxRows[3].Channel)
+	assert.Equal(t, "webhook:"+itoaForEnterpriseTest(webhook.Id), outboxRows[3].RecipientEmail)
+}
+
+func TestEnterpriseNotificationOutboxListFiltersWebhookDeliveries(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := common.GetTimestamp()
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseNotificationOutbox{
+		{
+			EventKey:       "controller-webhook-failed",
+			EventType:      "quota_request.approve",
+			EnterpriseId:   enterprise.Id,
+			RecipientEmail: "webhook:77",
+			Channel:        model.EnterpriseNotificationOutboxChannelWebhook,
+			TargetType:     "quota_request",
+			TargetId:       7001,
+			PayloadJson:    `{}`,
+			Status:         model.EnterpriseNotificationOutboxStatusFailed,
+			RetryCount:     1,
+			NextRetryAt:    now + 60,
+			LastError:      "failed url=https://example.com/hook?secret=abc",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+		{
+			EventKey:       "controller-webhook-other",
+			EventType:      "quota_request.reject",
+			EnterpriseId:   enterprise.Id,
+			RecipientEmail: "webhook:88",
+			Channel:        model.EnterpriseNotificationOutboxChannelWebhook,
+			TargetType:     "quota_request",
+			TargetId:       7002,
+			PayloadJson:    `{}`,
+			Status:         model.EnterpriseNotificationOutboxStatusSent,
+			CreatedAt:      now - 10,
+			UpdatedAt:      now - 10,
+		},
+	}).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/notification-outbox?webhook_id=77&status=failed", "")
+	ListEnterpriseNotificationOutbox(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.EqualValues(t, 1, response.Data["total"])
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "controller-webhook-failed", item["event_key"])
+	assert.Equal(t, "webhook:77", item["recipient_email"])
+	assert.Contains(t, item["last_error"], "secret=redacted")
+	assert.NotContains(t, item["last_error"], "abc")
+}
+
+func TestEnterpriseNotificationOutboxRetryResetsFailedRowAndAudits(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := common.GetTimestamp()
+	row := model.EnterpriseNotificationOutbox{
+		EventKey:       "controller-retry-row",
+		EventType:      "quota_request.reject",
+		EnterpriseId:   enterprise.Id,
+		RecipientEmail: "retry-person@example.com",
+		Channel:        model.EnterpriseNotificationOutboxChannelEmail,
+		TargetType:     "quota_request",
+		TargetId:       7101,
+		PayloadJson:    `{}`,
+		Status:         model.EnterpriseNotificationOutboxStatusFailed,
+		RetryCount:     2,
+		NextRetryAt:    now + 3600,
+		LastError:      "SMTP server is not configured",
+		CreatedAt:      now - 10,
+		UpdatedAt:      now - 5,
+	}
+	require.NoError(t, model.DB.Create(&row).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/notification-outbox/"+strconv.FormatInt(row.Id, 10)+"/retry", "{}")
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.FormatInt(row.Id, 10)}}
+	RetryEnterpriseNotificationOutbox(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.Equal(t, model.EnterpriseNotificationOutboxStatusPending, response.Data["status"])
+	assert.EqualValues(t, 0, response.Data["retry_count"])
+	assert.Equal(t, "r***@example.com", response.Data["recipient_email"])
+
+	var reloaded model.EnterpriseNotificationOutbox
+	require.NoError(t, model.DB.First(&reloaded, row.Id).Error)
+	assert.Equal(t, model.EnterpriseNotificationOutboxStatusPending, reloaded.Status)
+	assert.Equal(t, 0, reloaded.RetryCount)
+	assert.Empty(t, reloaded.LastError)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("action = ? AND target_type = ? AND target_id = ?", "notification_outbox.retry", "notification_outbox", row.Id).First(&audit).Error)
+	assert.NotContains(t, audit.BeforeJson, "retry-person@example.com")
+	assert.Contains(t, audit.BeforeJson, "r***@example.com")
+	assert.Contains(t, audit.BeforeJson, model.EnterpriseNotificationOutboxStatusFailed)
+	assert.Contains(t, audit.AfterJson, model.EnterpriseNotificationOutboxStatusPending)
+}
+
+func TestEnterpriseUsageSummaryAndBreakdown(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1001, Username: "alice", DisplayName: "Alice", Status: common.UserStatusEnabled, AffCode: "aff-alice"}).Error)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1002, Username: "bob", DisplayName: "Bob", Status: common.UserStatusEnabled, AffCode: "aff-bob"}).Error)
+	require.NoError(t, model.DB.Create(&model.Token{Id: 10, UserId: 1001, Key: "alice-key", Name: "Alice Key", Status: common.TokenStatusEnabled}).Error)
+	require.NoError(t, model.DB.Create(&model.Token{Id: 20, UserId: 1002, Key: "bob-key", Name: "Bob Key", Status: common.TokenStatusEnabled}).Error)
+	require.NoError(t, model.DB.Create(&model.Channel{Id: 101, Name: "OpenAI Primary", Status: common.ChannelStatusEnabled}).Error)
+	require.NoError(t, model.DB.Create(&model.Channel{Id: 202, Name: "Claude Backup", Status: common.ChannelStatusEnabled}).Error)
+	engineeringId := createEnterpriseOrgUnitForTest(t, 0, "研发部", "engineering")
+	salesId := createEnterpriseOrgUnitForTest(t, 0, "销售部", "sales")
+	groupA := model.EnterprisePolicyGroup{EnterpriseId: enterprise.Id, Name: "高阶模型", Slug: "advanced", Status: model.PolicyGroupStatusEnabled}
+	groupB := model.EnterprisePolicyGroup{EnterpriseId: enterprise.Id, Name: "试点用户", Slug: "pilot", Status: model.PolicyGroupStatusEnabled}
+	require.NoError(t, model.DB.Create(&groupA).Error)
+	require.NoError(t, model.DB.Create(&groupB).Error)
+	groupAJson, err := common.Marshal([]int{groupA.Id})
+	require.NoError(t, err)
+	groupBJson, err := common.Marshal([]int{groupB.Id})
+	require.NoError(t, err)
+	bothGroupsJson, err := common.Marshal([]int{groupA.Id, groupB.Id})
+	require.NoError(t, err)
+	projectA := model.EnterpriseProject{EnterpriseId: enterprise.Id, Name: "研发成本中心", Slug: "engineering-cost", Status: model.EnterpriseProjectStatusEnabled}
+	projectB := model.EnterpriseProject{EnterpriseId: enterprise.Id, Name: "销售成本中心", Slug: "sales-cost", Status: model.EnterpriseProjectStatusEnabled}
+	require.NoError(t, model.DB.Create(&projectA).Error)
+	require.NoError(t, model.DB.Create(&projectB).Error)
+
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseUsageAttribution{
+		{
+			RequestId:          "req-usage-1",
+			UserId:             1001,
+			TokenId:            10,
+			EnterpriseId:       enterprise.Id,
+			OrgUnitId:          engineeringId,
+			ProjectId:          projectA.Id,
+			PolicyGroupIdsJson: string(groupAJson),
+			PolicyIdsJson:      "[]",
+			ModelName:          "gpt-4o",
+			ChannelId:          101,
+			PromptTokens:       3,
+			CompletionTokens:   2,
+			TotalTokens:        5,
+			Quota:              10,
+			Status:             "success",
+			CreatedAt:          1000,
+		},
+		{
+			RequestId:          "req-usage-2",
+			UserId:             1002,
+			TokenId:            20,
+			EnterpriseId:       enterprise.Id,
+			OrgUnitId:          salesId,
+			ProjectId:          projectB.Id,
+			PolicyGroupIdsJson: string(groupBJson),
+			PolicyIdsJson:      "[]",
+			ModelName:          "claude-sonnet",
+			ChannelId:          202,
+			PromptTokens:       4,
+			CompletionTokens:   2,
+			TotalTokens:        6,
+			Quota:              20,
+			Status:             "success",
+			CreatedAt:          1001,
+		},
+		{
+			RequestId:          "req-usage-3",
+			UserId:             1001,
+			TokenId:            10,
+			EnterpriseId:       enterprise.Id,
+			OrgUnitId:          engineeringId,
+			ProjectId:          projectA.Id,
+			PolicyGroupIdsJson: string(bothGroupsJson),
+			PolicyIdsJson:      "[]",
+			ModelName:          "gpt-4o",
+			ChannelId:          101,
+			PromptTokens:       2,
+			CompletionTokens:   1,
+			TotalTokens:        3,
+			Quota:              5,
+			Status:             "success",
+			CreatedAt:          2678400,
+		},
+		{
+			RequestId:          "req-usage-outside",
+			UserId:             1001,
+			TokenId:            10,
+			EnterpriseId:       enterprise.Id,
+			OrgUnitId:          engineeringId,
+			ProjectId:          projectA.Id,
+			PolicyGroupIdsJson: string(groupAJson),
+			PolicyIdsJson:      "[]",
+			ModelName:          "gpt-4o",
+			ChannelId:          101,
+			PromptTokens:       100,
+			CompletionTokens:   100,
+			TotalTokens:        200,
+			Quota:              999,
+			Status:             "success",
+			CreatedAt:          10,
+		},
+	}).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=2688500&org_unit_id="+itoaForEnterpriseTest(engineeringId), "")
+	GetEnterpriseUsageSummary(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	var summary enterpriseUsageSummary
+	decodeEnterpriseResponseData(t, response, &summary)
+	assert.EqualValues(t, 2, summary.Total.RequestCount)
+	assert.EqualValues(t, 15, summary.Total.Quota)
+	assert.EqualValues(t, 8, summary.Total.TotalTokens)
+	require.Len(t, summary.ByModel, 1)
+	assert.Equal(t, "gpt-4o", summary.ByModel[0].ModelName)
+	assert.EqualValues(t, 15, summary.ByModel[0].Quota)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=2688500&policy_group_id="+itoaForEnterpriseTest(groupB.Id), "")
+	GetEnterpriseUsageSummary(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	decodeEnterpriseResponseData(t, response, &summary)
+	assert.EqualValues(t, 2, summary.Total.RequestCount)
+	assert.EqualValues(t, 25, summary.Total.Quota)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=2688500&project_id="+itoaForEnterpriseTest(projectA.Id), "")
+	GetEnterpriseUsageSummary(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	decodeEnterpriseResponseData(t, response, &summary)
+	assert.EqualValues(t, 2, summary.Total.RequestCount)
+	assert.EqualValues(t, 15, summary.Total.Quota)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=2688500&channel_id=101&token_id=10&model_name=gpt-4o", "")
+	GetEnterpriseUsageSummary(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	decodeEnterpriseResponseData(t, response, &summary)
+	assert.EqualValues(t, 2, summary.Total.RequestCount)
+	assert.EqualValues(t, 15, summary.Total.Quota)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/breakdown?start_time=900&end_time=2688500&dimension=user&sort_by=quota&sort_order=desc&page_size=10", "")
+	GetEnterpriseUsageBreakdown(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	var page struct {
+		Total int                            `json:"total"`
+		Items []enterpriseUsageBreakdownItem `json:"items"`
+	}
+	decodeEnterpriseResponseData(t, response, &page)
+	require.Equal(t, 2, page.Total)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, 1002, page.Items[0].TargetId)
+	assert.Equal(t, "Bob", page.Items[0].TargetName)
+	assert.EqualValues(t, 20, page.Items[0].Quota)
+	assert.Equal(t, 1001, page.Items[1].TargetId)
+	assert.EqualValues(t, 15, page.Items[1].Quota)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/breakdown?start_time=900&end_time=2688500&dimension=policy_group&sort_by=quota&sort_order=desc&page_size=10", "")
+	GetEnterpriseUsageBreakdown(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	decodeEnterpriseResponseData(t, response, &page)
+	require.Equal(t, 2, page.Total)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, groupB.Id, page.Items[0].TargetId)
+	assert.Equal(t, "试点用户", page.Items[0].TargetName)
+	assert.EqualValues(t, 25, page.Items[0].Quota)
+	assert.Equal(t, groupA.Id, page.Items[1].TargetId)
+	assert.EqualValues(t, 15, page.Items[1].Quota)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/breakdown?start_time=900&end_time=2688500&dimension=project&sort_by=quota&sort_order=desc&page_size=10", "")
+	GetEnterpriseUsageBreakdown(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	decodeEnterpriseResponseData(t, response, &page)
+	require.Equal(t, 2, page.Total)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, projectB.Id, page.Items[0].TargetId)
+	assert.Equal(t, "销售成本中心", page.Items[0].TargetName)
+	assert.EqualValues(t, 20, page.Items[0].Quota)
+	assert.Equal(t, projectA.Id, page.Items[1].TargetId)
+	assert.Equal(t, "研发成本中心", page.Items[1].TargetName)
+	assert.EqualValues(t, 15, page.Items[1].Quota)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/breakdown?start_time=900&end_time=2688500&dimension=channel&sort_by=quota&sort_order=desc&page_size=10", "")
+	GetEnterpriseUsageBreakdown(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	decodeEnterpriseResponseData(t, response, &page)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, 202, page.Items[0].TargetId)
+	assert.Equal(t, "Claude Backup", page.Items[0].TargetName)
+	assert.EqualValues(t, 20, page.Items[0].Quota)
+	assert.Equal(t, 101, page.Items[1].TargetId)
+	assert.Equal(t, "OpenAI Primary", page.Items[1].TargetName)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/breakdown?start_time=900&end_time=2688500&dimension=api_key&sort_by=quota&sort_order=desc&page_size=10", "")
+	GetEnterpriseUsageBreakdown(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	decodeEnterpriseResponseData(t, response, &page)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, 20, page.Items[0].TargetId)
+	assert.Equal(t, "Bob Key", page.Items[0].TargetName)
+	assert.EqualValues(t, 20, page.Items[0].Quota)
+	assert.Equal(t, 10, page.Items[1].TargetId)
+	assert.Equal(t, "Alice Key", page.Items[1].TargetName)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/usage/breakdown?start_time=900&end_time=2688500&dimension=time&granularity=month&sort_by=quota&sort_order=desc&page_size=10", "")
+	GetEnterpriseUsageBreakdown(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	decodeEnterpriseResponseData(t, response, &page)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, "1970-01", page.Items[0].TimeBucket)
+	assert.EqualValues(t, 30, page.Items[0].Quota)
+	assert.Equal(t, "1970-02", page.Items[1].TimeBucket)
+	assert.EqualValues(t, 5, page.Items[1].Quota)
+}
+
+func decodeEnterpriseResponseData(t *testing.T, response enterpriseControllerResponse, out any) {
+	t.Helper()
+	bytes, err := common.Marshal(response.Data)
+	require.NoError(t, err)
+	require.NoError(t, common.Unmarshal(bytes, out))
+}
+
+func itoaForEnterpriseTest(value int) string {
+	return strconv.Itoa(value)
+}

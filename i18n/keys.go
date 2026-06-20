@@ -125,6 +125,15 @@ const (
 	MsgQuotaThresholdGtZero = "quota.threshold_gt_zero"
 )
 
+// Enterprise governance messages
+const (
+	MsgEnterpriseGovernanceQuotaExceeded      = "enterprise_governance.quota_exceeded"
+	MsgEnterpriseGovernanceOrgQuotaExceeded   = "enterprise_governance.org_quota_exceeded"
+	MsgEnterpriseGovernanceGroupQuotaExceeded = "enterprise_governance.group_quota_exceeded"
+	MsgEnterpriseGovernanceUserQuotaExceeded  = "enterprise_governance.user_quota_exceeded"
+	MsgEnterpriseGovernanceModelNotAllowed    = "enterprise_governance.model_not_allowed"
+)
+
 // Subscription related messages
 const (
 	MsgSubscriptionNotEnabled       = "subscription.not_enabled"

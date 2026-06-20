@@ -370,28 +370,46 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
+	billingSettled := false
 	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
-	} else if err := RecordModelRequestBillingEvent(relayInfo, ModelRequestBillingEventInput{
-		UsageKind:              "text",
-		ModelName:              summary.ModelName,
-		TokenName:              summary.TokenName,
-		PromptTokens:           summary.PromptTokens,
-		CompletionTokens:       summary.CompletionTokens,
-		TotalTokens:            summary.TotalTokens,
-		InputTokens:            usageInputTokens(summary, usage),
-		OutputTokens:           summary.CompletionTokens,
-		CacheTokens:            summary.CacheTokens,
-		CacheCreationTokens:    summary.CacheCreationTokens,
-		CacheCreationTokens5m:  summary.CacheCreationTokens5m,
-		CacheCreationTokens1h:  summary.CacheCreationTokens1h,
-		ImageTokens:            summary.ImageTokens,
-		AudioTokens:            summary.AudioTokens,
-		ToolCallSurchargeQuota: summary.ToolCallSurchargeQuota.Round(0).IntPart(),
-		Quota:                  summary.Quota,
-		TieredResult:           tieredResult,
+	} else {
+		billingSettled = true
+		if err := RecordModelRequestBillingEvent(relayInfo, ModelRequestBillingEventInput{
+			UsageKind:              "text",
+			ModelName:              summary.ModelName,
+			TokenName:              summary.TokenName,
+			PromptTokens:           summary.PromptTokens,
+			CompletionTokens:       summary.CompletionTokens,
+			TotalTokens:            summary.TotalTokens,
+			InputTokens:            usageInputTokens(summary, usage),
+			OutputTokens:           summary.CompletionTokens,
+			CacheTokens:            summary.CacheTokens,
+			CacheCreationTokens:    summary.CacheCreationTokens,
+			CacheCreationTokens5m:  summary.CacheCreationTokens5m,
+			CacheCreationTokens1h:  summary.CacheCreationTokens1h,
+			ImageTokens:            summary.ImageTokens,
+			AudioTokens:            summary.AudioTokens,
+			ToolCallSurchargeQuota: summary.ToolCallSurchargeQuota.Round(0).IntPart(),
+			Quota:                  summary.Quota,
+			TieredResult:           tieredResult,
+		}); err != nil {
+			logger.LogError(ctx, "error recording model billing event: "+err.Error())
+		}
+	}
+	if err := SettleEnterpriseGovernanceUsage(ctx, UsageAmount{
+		RequestCount:     1,
+		Quota:            int64(summary.Quota),
+		PromptTokens:     int64(summary.PromptTokens),
+		CompletionTokens: int64(summary.CompletionTokens),
+		TotalTokens:      int64(summary.TotalTokens),
 	}); err != nil {
-		logger.LogError(ctx, "error recording model billing event: "+err.Error())
+		logger.LogError(ctx, "error settling enterprise governance reservation: "+err.Error())
+	}
+	if billingSettled {
+		if err := RecordEnterpriseTextUsageAttribution(ctx, relayInfo, summary); err != nil {
+			logger.LogError(ctx, "error recording enterprise usage attribution: "+err.Error())
+		}
 	}
 
 	logModel := summary.ModelName

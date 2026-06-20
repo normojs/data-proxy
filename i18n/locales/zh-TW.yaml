@@ -111,6 +111,13 @@ quota.insufficient: "額度不足"
 quota.warning_invalid: "無效的預警類型"
 quota.threshold_gt_zero: "預警閾值必須大於0"
 
+# Enterprise governance messages
+enterprise_governance.quota_exceeded: "本次請求超過企業用量策略，請聯繫管理員。"
+enterprise_governance.org_quota_exceeded: "本次請求超過部門用量策略，請聯繫管理員。"
+enterprise_governance.group_quota_exceeded: "本次請求超過策略分組用量策略，請聯繫管理員。"
+enterprise_governance.user_quota_exceeded: "本次請求超過分配給你的企業用量額度，請聯繫管理員。"
+enterprise_governance.model_not_allowed: "該模型未被企業用量策略允許，請聯繫管理員。"
+
 # Subscription messages
 subscription.not_enabled: "訂閱方案未啟用"
 subscription.title_empty: "訂閱方案標題不能為空"

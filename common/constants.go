@@ -79,8 +79,11 @@ var PasswordRegisterEnabled = true
 var EmailVerificationEnabled = false
 var GitHubOAuthEnabled = false
 var LinuxDOOAuthEnabled = false
+var HStationOAuthEnabled = false
 var WeChatAuthEnabled = false
 var TelegramOAuthEnabled = false
+var EnterpriseGovernanceEnabled = false
+var EnterpriseGovernanceDryRunEnabled = false
 var TurnstileCheckEnabled = false
 var RegisterEnabled = true
 
@@ -123,6 +126,12 @@ var GitHubClientSecret = ""
 var LinuxDOClientId = ""
 var LinuxDOClientSecret = ""
 var LinuxDOMinimumTrustLevel = 0
+var HStationClientId = ""
+var HStationClientSecret = ""
+var HStationAuthorizationEndpoint = ""
+var HStationTokenEndpoint = ""
+var HStationUserInfoEndpoint = ""
+var HStationScopes = "read:profile"
 
 var WeChatServerAddress = ""
 var WeChatServerToken = ""

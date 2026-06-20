@@ -1280,18 +1280,19 @@ func TopUp(c *gin.Context) {
 }
 
 type UpdateUserSettingRequest struct {
-	QuotaWarningType                 string  `json:"notify_type"`
-	QuotaWarningThreshold            float64 `json:"quota_warning_threshold"`
-	WebhookUrl                       string  `json:"webhook_url,omitempty"`
-	WebhookSecret                    string  `json:"webhook_secret,omitempty"`
-	NotificationEmail                string  `json:"notification_email,omitempty"`
-	BarkUrl                          string  `json:"bark_url,omitempty"`
-	GotifyUrl                        string  `json:"gotify_url,omitempty"`
-	GotifyToken                      string  `json:"gotify_token,omitempty"`
-	GotifyPriority                   int     `json:"gotify_priority,omitempty"`
-	UpstreamModelUpdateNotifyEnabled *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
-	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
-	RecordIpLog                      bool    `json:"record_ip_log"`
+	QuotaWarningType                   string  `json:"notify_type"`
+	QuotaWarningThreshold              float64 `json:"quota_warning_threshold"`
+	WebhookUrl                         string  `json:"webhook_url,omitempty"`
+	WebhookSecret                      string  `json:"webhook_secret,omitempty"`
+	NotificationEmail                  string  `json:"notification_email,omitempty"`
+	BarkUrl                            string  `json:"bark_url,omitempty"`
+	GotifyUrl                          string  `json:"gotify_url,omitempty"`
+	GotifyToken                        string  `json:"gotify_token,omitempty"`
+	GotifyPriority                     int     `json:"gotify_priority,omitempty"`
+	UpstreamModelUpdateNotifyEnabled   *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
+	EnterpriseQuotaRequestEmailEnabled *bool   `json:"enterprise_quota_request_email_enabled,omitempty"`
+	AcceptUnsetModelRatioModel         bool    `json:"accept_unset_model_ratio_model"`
+	RecordIpLog                        bool    `json:"record_ip_log"`
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1386,14 +1387,22 @@ func UpdateUserSetting(c *gin.Context) {
 	if user.Role >= common.RoleAdminUser && req.UpstreamModelUpdateNotifyEnabled != nil {
 		upstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
 	}
+	enterpriseQuotaRequestEmailEnabled := existingSettings.EnterpriseQuotaRequestEmailEnabled
+	if !strings.Contains(user.Setting, "enterprise_quota_request_email_enabled") {
+		enterpriseQuotaRequestEmailEnabled = true
+	}
+	if req.EnterpriseQuotaRequestEmailEnabled != nil {
+		enterpriseQuotaRequestEmailEnabled = *req.EnterpriseQuotaRequestEmailEnabled
+	}
 
 	// 构建设置
 	settings := dto.UserSetting{
-		NotifyType:                       req.QuotaWarningType,
-		QuotaWarningThreshold:            req.QuotaWarningThreshold,
-		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
-		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
-		RecordIpLog:                      req.RecordIpLog,
+		NotifyType:                         req.QuotaWarningType,
+		QuotaWarningThreshold:              req.QuotaWarningThreshold,
+		UpstreamModelUpdateNotifyEnabled:   upstreamModelUpdateNotifyEnabled,
+		EnterpriseQuotaRequestEmailEnabled: enterpriseQuotaRequestEmailEnabled,
+		AcceptUnsetRatioModel:              req.AcceptUnsetModelRatioModel,
+		RecordIpLog:                        req.RecordIpLog,
 	}
 
 	// 如果是webhook类型,添加webhook相关设置

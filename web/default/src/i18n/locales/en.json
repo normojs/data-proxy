@@ -4764,6 +4764,21 @@
     "Failed to save runtime config": "Failed to save runtime config",
     "Runtime config saved. Restart Data Proxy to apply it.": "Runtime config saved. Restart Data Proxy to apply it.",
     "Restart Data Proxy to apply the saved runtime config first.": "Restart Data Proxy to apply the saved runtime config first.",
-    "your Data Proxy public URL": "your Data Proxy public URL"
+    "your Data Proxy public URL": "your Data Proxy public URL",
+    "notification.enterprise_quota_request.title.pending": "Quota request pending",
+    "notification.enterprise_quota_request.title.approved": "Quota request approved",
+    "notification.enterprise_quota_request.title.rejected": "Quota request rejected",
+    "notification.enterprise_quota_request.title.withdrawn": "Quota request withdrawn",
+    "notification.enterprise_quota_request.title.expired": "Quota request expired",
+    "notification.enterprise_quota_request.title.expiring_soon": "Quota request expiring soon",
+    "notification.enterprise_quota_request.title.updated": "Quota request updated",
+    "notification.enterprise_quota_request.content.pending": "{{applicantName}} submitted a temporary quota request for {{policyName}}.",
+    "notification.enterprise_quota_request.content.approved": "{{actorName}} approved your temporary quota request for {{policyName}}.",
+    "notification.enterprise_quota_request.content.rejected": "{{actorName}} rejected your temporary quota request for {{policyName}}.",
+    "notification.enterprise_quota_request.content.withdrawn_by_actor": "{{actorName}} withdrew a temporary quota request for {{policyName}}.",
+    "notification.enterprise_quota_request.content.withdrawn": "A temporary quota request for {{policyName}} was withdrawn.",
+    "notification.enterprise_quota_request.content.expired": "A temporary quota request for {{policyName}} expired before approval.",
+    "notification.enterprise_quota_request.content.expiring_soon": "A temporary quota approval for {{policyName}} is expiring soon.",
+    "notification.enterprise_quota_request.content.updated": "A temporary quota request for {{policyName}} was updated."
   }
 }

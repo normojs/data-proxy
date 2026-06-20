@@ -111,6 +111,13 @@ quota.insufficient: "额度不足"
 quota.warning_invalid: "无效的预警类型"
 quota.threshold_gt_zero: "预警阈值必须大于0"
 
+# Enterprise governance messages
+enterprise_governance.quota_exceeded: "本次请求超过企业用量策略，请联系管理员。"
+enterprise_governance.org_quota_exceeded: "本次请求超过部门用量策略，请联系管理员。"
+enterprise_governance.group_quota_exceeded: "本次请求超过策略分组用量策略，请联系管理员。"
+enterprise_governance.user_quota_exceeded: "本次请求超过分配给你的企业用量额度，请联系管理员。"
+enterprise_governance.model_not_allowed: "该模型未被企业用量策略允许，请联系管理员。"
+
 # Subscription messages
 subscription.not_enabled: "套餐未启用"
 subscription.title_empty: "套餐标题不能为空"

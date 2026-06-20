@@ -48,21 +48,21 @@ type sqliteColumnInfo struct {
 }
 
 type legacyToken struct {
-	Id                 int            `gorm:"primaryKey"`
-	UserId             int            `gorm:"index"`
-	Key                string         `gorm:"column:key;type:char(48);uniqueIndex"`
-	Status             int            `gorm:"default:1"`
-	Name               string         `gorm:"index"`
-	CreatedTime        int64          `gorm:"bigint"`
-	AccessedTime       int64          `gorm:"bigint"`
-	ExpiredTime        int64          `gorm:"bigint;default:-1"`
-	RemainQuota        int            `gorm:"default:0"`
+	Id                 int    `gorm:"primaryKey"`
+	UserId             int    `gorm:"index"`
+	Key                string `gorm:"column:key;type:char(48);uniqueIndex"`
+	Status             int    `gorm:"default:1"`
+	Name               string `gorm:"index"`
+	CreatedTime        int64  `gorm:"bigint"`
+	AccessedTime       int64  `gorm:"bigint"`
+	ExpiredTime        int64  `gorm:"bigint;default:-1"`
+	RemainQuota        int    `gorm:"default:0"`
 	UnlimitedQuota     bool
 	ModelLimitsEnabled bool
-	ModelLimits        string         `gorm:"type:text"`
-	AllowIps           *string        `gorm:"default:''"`
-	UsedQuota          int            `gorm:"default:0"`
-	Group              string         `gorm:"column:group;default:''"`
+	ModelLimits        string  `gorm:"type:text"`
+	AllowIps           *string `gorm:"default:''"`
+	UsedQuota          int     `gorm:"default:0"`
+	Group              string  `gorm:"column:group;default:''"`
 	CrossGroupRetry    bool
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
@@ -101,8 +101,20 @@ func openTokenControllerTestDB(t *testing.T) *gorm.DB {
 func migrateTokenControllerTestDB(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
-	if err := db.AutoMigrate(&model.Token{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.User{},
+		&model.Token{},
+		&model.Enterprise{},
+		&model.EnterpriseOrgUnit{},
+		&model.EnterpriseOrgMembership{},
+		&model.EnterpriseProject{},
+		&model.EnterpriseProjectOrgUnit{},
+		&model.EnterpriseAuditLog{},
+	); err != nil {
 		t.Fatalf("failed to migrate token table: %v", err)
+	}
+	if err := model.EnsureDefaultEnterprise(); err != nil {
+		t.Fatalf("failed to ensure default enterprise: %v", err)
 	}
 }
 
@@ -180,6 +192,54 @@ func seedToken(t *testing.T, db *gorm.DB, userID int, name string, rawKey string
 		t.Fatalf("failed to create token: %v", err)
 	}
 	return token
+}
+
+func seedEnterpriseProjectForTokenTest(t *testing.T, db *gorm.DB, userID int, orgUnitSlug string, projectSlug string) *model.EnterpriseProject {
+	t.Helper()
+
+	enterprise, err := model.GetDefaultEnterprise()
+	if err != nil {
+		t.Fatalf("failed to get default enterprise: %v", err)
+	}
+	if err := db.Create(&model.User{Id: userID, Username: fmt.Sprintf("user-%d", userID), Status: common.UserStatusEnabled, AffCode: fmt.Sprintf("aff-%d", userID)}).Error; err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+	orgUnit := model.EnterpriseOrgUnit{
+		EnterpriseId: enterprise.Id,
+		Name:         orgUnitSlug,
+		Slug:         orgUnitSlug,
+		Path:         "/1/",
+		Depth:        1,
+		Status:       model.OrgUnitStatusEnabled,
+	}
+	if err := db.Create(&orgUnit).Error; err != nil {
+		t.Fatalf("failed to seed org unit: %v", err)
+	}
+	if err := db.Create(&model.EnterpriseOrgMembership{
+		EnterpriseId: enterprise.Id,
+		UserId:       userID,
+		OrgUnitId:    orgUnit.Id,
+		IsPrimary:    true,
+	}).Error; err != nil {
+		t.Fatalf("failed to seed org membership: %v", err)
+	}
+	project := model.EnterpriseProject{
+		EnterpriseId: enterprise.Id,
+		Name:         projectSlug,
+		Slug:         projectSlug,
+		Status:       model.EnterpriseProjectStatusEnabled,
+	}
+	if err := db.Create(&project).Error; err != nil {
+		t.Fatalf("failed to seed project: %v", err)
+	}
+	if err := db.Create(&model.EnterpriseProjectOrgUnit{
+		EnterpriseId: enterprise.Id,
+		ProjectId:    project.Id,
+		OrgUnitId:    orgUnit.Id,
+	}).Error; err != nil {
+		t.Fatalf("failed to seed project org unit: %v", err)
+	}
+	return &project
 }
 
 func newAuthenticatedContext(t *testing.T, method string, target string, body any, userID int) (*gin.Context, *httptest.ResponseRecorder) {
@@ -503,6 +563,148 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("update response leaked raw token key: %s", recorder.Body.String())
+	}
+}
+
+func TestTokenEnterpriseProjectsListsUserDepartmentProjects(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	project := seedEnterpriseProjectForTokenTest(t, db, 1, "engineering", "inference-platform")
+	seedEnterpriseProjectForTokenTest(t, db, 2, "sales", "sales-automation")
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/enterprise-projects", nil, 1)
+	ListTokenEnterpriseProjects(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+	var projects []tokenEnterpriseProjectItem
+	if err := common.Unmarshal(response.Data, &projects); err != nil {
+		t.Fatalf("failed to decode project list: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("expected one available project, got %d", len(projects))
+	}
+	if projects[0].Id != project.Id {
+		t.Fatalf("expected project %d, got %d", project.Id, projects[0].Id)
+	}
+}
+
+func TestAddAndUpdateTokenDefaultProject(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	project := seedEnterpriseProjectForTokenTest(t, db, 1, "engineering", "inference-platform")
+
+	createBody := map[string]any{
+		"name":                 "project-token",
+		"expired_time":         -1,
+		"remain_quota":         100,
+		"unlimited_quota":      true,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "default",
+		"cross_group_retry":    false,
+		"default_project_id":   project.Id,
+	}
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", createBody, 1)
+	AddToken(ctx)
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected add token success, got message: %s", response.Message)
+	}
+	var created model.Token
+	if err := db.Where("user_id = ? AND name = ?", 1, "project-token").First(&created).Error; err != nil {
+		t.Fatalf("failed to load created token: %v", err)
+	}
+	if created.DefaultProjectId != project.Id {
+		t.Fatalf("expected default_project_id %d, got %d", project.Id, created.DefaultProjectId)
+	}
+	var createAudit model.EnterpriseAuditLog
+	if err := db.Where("action = ? AND target_type = ? AND target_id = ?", "token.default_project.update", "token", created.Id).First(&createAudit).Error; err != nil {
+		t.Fatalf("expected create default project audit: %v", err)
+	}
+	assertAuditProjectChangeForTokenTest(t, createAudit, 0, project.Id)
+
+	updateBody := map[string]any{
+		"id":                   created.Id,
+		"name":                 "project-token-updated",
+		"expired_time":         -1,
+		"remain_quota":         100,
+		"unlimited_quota":      true,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "default",
+		"cross_group_retry":    false,
+		"default_project_id":   0,
+	}
+	ctx, recorder = newAuthenticatedContext(t, http.MethodPut, "/api/token/", updateBody, 1)
+	UpdateToken(ctx)
+	response = decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected update token success, got message: %s", response.Message)
+	}
+	var updated model.Token
+	if err := db.First(&updated, created.Id).Error; err != nil {
+		t.Fatalf("failed to load updated token: %v", err)
+	}
+	if updated.DefaultProjectId != 0 {
+		t.Fatalf("expected default_project_id reset to 0, got %d", updated.DefaultProjectId)
+	}
+	var audits []model.EnterpriseAuditLog
+	if err := db.Where("action = ? AND target_type = ? AND target_id = ?", "token.default_project.update", "token", created.Id).
+		Order("id asc").
+		Find(&audits).Error; err != nil {
+		t.Fatalf("failed to load token project audits: %v", err)
+	}
+	if len(audits) != 2 {
+		t.Fatalf("expected 2 token project audits, got %d", len(audits))
+	}
+	assertAuditProjectChangeForTokenTest(t, audits[1], project.Id, 0)
+}
+
+func assertAuditProjectChangeForTokenTest(t *testing.T, audit model.EnterpriseAuditLog, beforeProjectId int, afterProjectId int) {
+	t.Helper()
+	var before map[string]int
+	if err := common.Unmarshal([]byte(audit.BeforeJson), &before); err != nil {
+		t.Fatalf("failed to decode before audit: %v", err)
+	}
+	var after map[string]int
+	if err := common.Unmarshal([]byte(audit.AfterJson), &after); err != nil {
+		t.Fatalf("failed to decode after audit: %v", err)
+	}
+	if before["default_project_id"] != beforeProjectId {
+		t.Fatalf("expected before default_project_id %d, got %d", beforeProjectId, before["default_project_id"])
+	}
+	if after["default_project_id"] != afterProjectId {
+		t.Fatalf("expected after default_project_id %d, got %d", afterProjectId, after["default_project_id"])
+	}
+}
+
+func TestAddTokenRejectsUnavailableDefaultProject(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	otherProject := seedEnterpriseProjectForTokenTest(t, db, 2, "sales", "sales-automation")
+	if err := db.Create(&model.User{Id: 1, Username: "user-1", Status: common.UserStatusEnabled, AffCode: "aff-1"}).Error; err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+
+	body := map[string]any{
+		"name":                 "bad-project-token",
+		"expired_time":         -1,
+		"remain_quota":         100,
+		"unlimited_quota":      true,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "default",
+		"cross_group_retry":    false,
+		"default_project_id":   otherProject.Id,
+	}
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", body, 1)
+	AddToken(ctx)
+	response := decodeAPIResponse(t, recorder)
+	if response.Success {
+		t.Fatalf("expected unavailable project to be rejected")
+	}
+	if !strings.Contains(response.Message, "默认项目") {
+		t.Fatalf("expected default project error, got %q", response.Message)
 	}
 }
 

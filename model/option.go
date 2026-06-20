@@ -41,8 +41,11 @@ func InitOptionMap() {
 	common.OptionMap["EmailVerificationEnabled"] = strconv.FormatBool(common.EmailVerificationEnabled)
 	common.OptionMap["GitHubOAuthEnabled"] = strconv.FormatBool(common.GitHubOAuthEnabled)
 	common.OptionMap["LinuxDOOAuthEnabled"] = strconv.FormatBool(common.LinuxDOOAuthEnabled)
+	common.OptionMap["HStationOAuthEnabled"] = strconv.FormatBool(common.HStationOAuthEnabled)
 	common.OptionMap["TelegramOAuthEnabled"] = strconv.FormatBool(common.TelegramOAuthEnabled)
 	common.OptionMap["WeChatAuthEnabled"] = strconv.FormatBool(common.WeChatAuthEnabled)
+	common.OptionMap["EnterpriseGovernanceEnabled"] = strconv.FormatBool(common.EnterpriseGovernanceEnabled)
+	common.OptionMap["EnterpriseGovernanceDryRunEnabled"] = strconv.FormatBool(common.EnterpriseGovernanceDryRunEnabled)
 	common.OptionMap["TurnstileCheckEnabled"] = strconv.FormatBool(common.TurnstileCheckEnabled)
 	common.OptionMap["RegisterEnabled"] = strconv.FormatBool(common.RegisterEnabled)
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
@@ -121,6 +124,12 @@ func InitOptionMap() {
 	common.OptionMap["PayMethods"] = operation_setting.PayMethods2JsonString()
 	common.OptionMap["GitHubClientId"] = ""
 	common.OptionMap["GitHubClientSecret"] = ""
+	common.OptionMap["HStationClientId"] = ""
+	common.OptionMap["HStationClientSecret"] = ""
+	common.OptionMap["HStationAuthorizationEndpoint"] = ""
+	common.OptionMap["HStationTokenEndpoint"] = ""
+	common.OptionMap["HStationUserInfoEndpoint"] = ""
+	common.OptionMap["HStationScopes"] = common.HStationScopes
 	common.OptionMap["TelegramBotToken"] = ""
 	common.OptionMap["TelegramBotName"] = ""
 	common.OptionMap["WeChatServerAddress"] = ""
@@ -288,10 +297,16 @@ func updateOptionMap(key string, value string) (err error) {
 			common.GitHubOAuthEnabled = boolValue
 		case "LinuxDOOAuthEnabled":
 			common.LinuxDOOAuthEnabled = boolValue
+		case "HStationOAuthEnabled":
+			common.HStationOAuthEnabled = boolValue
 		case "WeChatAuthEnabled":
 			common.WeChatAuthEnabled = boolValue
 		case "TelegramOAuthEnabled":
 			common.TelegramOAuthEnabled = boolValue
+		case "EnterpriseGovernanceEnabled":
+			common.EnterpriseGovernanceEnabled = boolValue
+		case "EnterpriseGovernanceDryRunEnabled":
+			common.EnterpriseGovernanceDryRunEnabled = boolValue
 		case "TurnstileCheckEnabled":
 			common.TurnstileCheckEnabled = boolValue
 		case "RegisterEnabled":
@@ -474,6 +489,18 @@ func updateOptionMap(key string, value string) (err error) {
 		common.LinuxDOClientSecret = value
 	case "LinuxDOMinimumTrustLevel":
 		common.LinuxDOMinimumTrustLevel, _ = strconv.Atoi(value)
+	case "HStationClientId":
+		common.HStationClientId = value
+	case "HStationClientSecret":
+		common.HStationClientSecret = value
+	case "HStationAuthorizationEndpoint":
+		common.HStationAuthorizationEndpoint = value
+	case "HStationTokenEndpoint":
+		common.HStationTokenEndpoint = value
+	case "HStationUserInfoEndpoint":
+		common.HStationUserInfoEndpoint = value
+	case "HStationScopes":
+		common.HStationScopes = value
 	case "Footer":
 		common.Footer = value
 	case "SystemName":

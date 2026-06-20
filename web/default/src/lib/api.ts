@@ -225,6 +225,73 @@ export async function getNotice(): Promise<{
   return res.data
 }
 
+export interface EnterpriseQuotaRequestNotification {
+  key: string
+  kind: 'enterprise_quota_request'
+  title: string
+  content: string
+  title_key?: string
+  content_key?: string
+  content_params?: Record<string, string>
+  status: 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'expired' | string
+  read: boolean
+  quota_request_id: number
+  audit_log_id: number
+  policy_name: string
+  applicant_name: string
+  actor_name: string
+  limit_delta: number
+  expires_at: number
+  created_at: number
+}
+
+export interface EnterpriseQuotaRequestNotificationQuery {
+  page?: number
+  page_size?: number
+  limit?: number
+  unread_only?: boolean
+}
+
+export async function getEnterpriseQuotaRequestNotifications(
+  params?: EnterpriseQuotaRequestNotificationQuery
+): Promise<{
+  success: boolean
+  message?: string
+  data?: {
+    items: EnterpriseQuotaRequestNotification[]
+    unread_count: number
+    page: number
+    page_size: number
+    has_more: boolean
+  }
+}> {
+  const res = await api.get('/api/notifications/enterprise-quota-requests', {
+    params,
+    skipErrorHandler: true,
+  })
+  return res.data
+}
+
+export async function markEnterpriseQuotaRequestNotificationsRead(
+  keys: string[]
+): Promise<{
+  success: boolean
+  message?: string
+  data?: {
+    enterprise_notification_keys?: string[]
+    enterprise_quota_request_keys?: string[]
+  }
+}> {
+  const res = await api.post(
+    '/api/notifications/enterprise-quota-requests/read',
+    {
+      enterprise_notification_keys: keys,
+    },
+    { skipErrorHandler: true }
+  )
+  return res.data
+}
+
 // ----------------------------------------------------------------------------
 // 2FA Management APIs
 // ----------------------------------------------------------------------------

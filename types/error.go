@@ -83,8 +83,13 @@ const (
 	ErrorCodeUpdateDataError ErrorCode = "update_data_error"
 
 	// quota error
-	ErrorCodeInsufficientUserQuota      ErrorCode = "insufficient_user_quota"
-	ErrorCodePreConsumeTokenQuotaFailed ErrorCode = "pre_consume_token_quota_failed"
+	ErrorCodeInsufficientUserQuota                  ErrorCode = "insufficient_user_quota"
+	ErrorCodePreConsumeTokenQuotaFailed             ErrorCode = "pre_consume_token_quota_failed"
+	ErrorCodeEnterpriseGovernanceQuotaExceeded      ErrorCode = "enterprise_governance_quota_exceeded"
+	ErrorCodeEnterpriseGovernanceOrgQuotaExceeded   ErrorCode = "enterprise_governance_org_quota_exceeded"
+	ErrorCodeEnterpriseGovernanceGroupQuotaExceeded ErrorCode = "enterprise_governance_group_quota_exceeded"
+	ErrorCodeEnterpriseGovernanceUserQuotaExceeded  ErrorCode = "enterprise_governance_user_quota_exceeded"
+	ErrorCodeEnterpriseGovernanceModelNotAllowed    ErrorCode = "enterprise_governance_model_not_allowed"
 )
 
 type NewAPIError struct {

@@ -19,6 +19,7 @@ const (
 	ContextKeyTokenModelLimitEnabled ContextKey = "token_model_limit_enabled"
 	ContextKeyTokenModelLimit        ContextKey = "token_model_limit"
 	ContextKeyTokenCrossGroupRetry   ContextKey = "token_cross_group_retry"
+	ContextKeyTokenDefaultProjectId  ContextKey = "token_default_project_id"
 
 	/* channel related keys */
 	ContextKeyChannelId                ContextKey = "channel_id"
@@ -55,6 +56,10 @@ const (
 	ContextKeyLocalCountTokens ContextKey = "local_count_tokens"
 
 	ContextKeySystemPromptOverride ContextKey = "system_prompt_override"
+
+	ContextKeyEnterpriseGovernanceDecision ContextKey = "enterprise_governance_decision"
+	ContextKeyEnterpriseGovernanceContext  ContextKey = "enterprise_governance_context"
+	ContextKeyEnterpriseGovernanceReserve  ContextKey = "enterprise_governance_reserve"
 
 	// ContextKeyFileSourcesToCleanup stores file sources that need cleanup when request ends
 	ContextKeyFileSourcesToCleanup ContextKey = "file_sources_to_cleanup"

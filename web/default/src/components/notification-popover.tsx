@@ -16,12 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import type { TFunction } from 'i18next'
-import { Bell, Megaphone } from 'lucide-react'
+import { Bell, ClipboardCheck, Megaphone, ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import type { EnterpriseQuotaRequestNotification } from '@/lib/api'
 import { getAnnouncementColorClass } from '@/lib/colors'
 import { formatDateTimeObject } from '@/lib/time'
 import { cn } from '@/lib/utils'
+import type { NotificationTab } from '@/hooks/use-notifications'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,6 +55,10 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  buildApprovalNotificationAuditSearch,
+  buildApprovalNotificationOpenLink,
+} from './notification-approval-links'
 
 interface AnnouncementItem {
   notificationKey?: string
@@ -68,13 +75,24 @@ interface NotificationPopoverProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   unreadCount: number
-  activeTab: 'notice' | 'announcements'
-  onTabChange: (tab: 'notice' | 'announcements') => void
+  activeTab: NotificationTab
+  onTabChange: (tab: NotificationTab) => void
   notice: string
   announcements: AnnouncementItem[]
+  approvalNotifications?: EnterpriseQuotaRequestNotification[]
+  showApprovals?: boolean
+  showApprovalAuditLinks?: boolean
   loading: boolean
+  approvalsLoading?: boolean
+  approvalsUnreadOnly?: boolean
+  approvalsHasMore?: boolean
+  approvalsLoadingMore?: boolean
   onMarkAllAnnouncementsAsRead?: () => void
   onMarkAnnouncementRead?: (key: string) => void
+  onMarkAllApprovalsAsRead?: () => void
+  onMarkApprovalRead?: (key: string) => void
+  onApprovalsUnreadOnlyChange?: (value: boolean) => void
+  onLoadMoreApprovals?: () => void
   className?: string
 }
 
@@ -336,6 +354,279 @@ function AnnouncementsContent({
   )
 }
 
+function approvalStatusLabel(status: string) {
+  switch (status) {
+    case 'approved':
+      return 'Approved'
+    case 'rejected':
+      return 'Rejected'
+    case 'withdrawn':
+      return 'Withdrawn'
+    case 'expired':
+      return 'Expired'
+    case 'expiring_soon':
+      return 'Expiring soon'
+    default:
+      return 'Pending'
+  }
+}
+
+function approvalStatusClassName(status: string) {
+  switch (status) {
+    case 'approved':
+      return 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+    case 'rejected':
+      return 'border-destructive/40 text-destructive'
+    case 'withdrawn':
+      return 'border-muted-foreground/40 text-muted-foreground'
+    case 'expired':
+      return 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+    case 'expiring_soon':
+      return 'border-orange-500/40 text-orange-700 dark:text-orange-300'
+    default:
+      return 'border-blue-500/40 text-blue-700 dark:text-blue-300'
+  }
+}
+
+function formatApprovalNumber(value: number | undefined) {
+  return new Intl.NumberFormat().format(value ?? 0)
+}
+
+function approvalNotificationTitle(
+  item: EnterpriseQuotaRequestNotification,
+  t: TFunction
+) {
+  return item.title_key ? t(item.title_key) : t(item.title)
+}
+
+function approvalNotificationContent(
+  item: EnterpriseQuotaRequestNotification,
+  t: TFunction
+) {
+  return item.content_key
+    ? t(item.content_key, item.content_params ?? {})
+    : t(item.content)
+}
+
+function ApprovalsContent({
+  approvals,
+  loading,
+  onMarkAllApprovalsAsRead,
+  onMarkApprovalRead,
+  unreadOnly,
+  onUnreadOnlyChange,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+  showAuditLinks,
+  onOpenChange,
+  t,
+}: {
+  approvals: EnterpriseQuotaRequestNotification[]
+  loading: boolean
+  onMarkAllApprovalsAsRead?: () => void
+  onMarkApprovalRead?: (key: string) => void
+  unreadOnly?: boolean
+  onUnreadOnlyChange?: (value: boolean) => void
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: () => void
+  showAuditLinks?: boolean
+  onOpenChange: (open: boolean) => void
+  t: TFunction
+}) {
+  if (loading) {
+    return (
+      <EmptyState
+        icon={<ClipboardCheck />}
+        title={t('Loading...')}
+        description={t('Quota approval updates and audit events')}
+      />
+    )
+  }
+
+  if (approvals.length === 0) {
+    return (
+      <EmptyState
+        icon={<ClipboardCheck />}
+        title={t('No approval updates')}
+        description={t('Quota request status changes will appear here.')}
+      />
+    )
+  }
+
+  const unreadCount = approvals.filter((item) => !item.read).length
+  const hasUnread = unreadCount > 0
+
+  return (
+    <ScrollArea className='h-[min(52vh,28rem)] pr-3'>
+      <div className='flex flex-col'>
+        <div className='flex items-center justify-between gap-2 pb-2'>
+          <span className='text-muted-foreground text-xs'>
+            {t('{{count}} unread approval updates', { count: unreadCount })}
+          </span>
+          <div className='flex items-center gap-2'>
+            <Button
+              type='button'
+              size='sm'
+              variant={unreadOnly ? 'secondary' : 'outline'}
+              onClick={() => onUnreadOnlyChange?.(!unreadOnly)}
+            >
+              {unreadOnly ? t('Show all') : t('Unread only')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              disabled={!hasUnread}
+              onClick={onMarkAllApprovalsAsRead}
+            >
+              {t('Mark all as read')}
+            </Button>
+          </div>
+        </div>
+        {approvals.map((item, idx) => {
+          const createdAt = item.created_at
+            ? new Date(item.created_at * 1000)
+            : null
+          const expiresAt = item.expires_at
+            ? new Date(item.expires_at * 1000)
+            : null
+          const relativeTime = createdAt ? getRelativeTime(createdAt, t) : ''
+          const absoluteTime = createdAt ? formatDateTimeObject(createdAt) : ''
+          const openLink = buildApprovalNotificationOpenLink(
+            item,
+            showAuditLinks
+          )
+          const auditSearch = buildApprovalNotificationAuditSearch(item)
+
+          return (
+            <div key={item.key}>
+              <div className='py-3'>
+                <div className='flex items-start gap-3'>
+                  <span
+                    className={cn(
+                      'mt-1.5 inline-block size-2 shrink-0 rounded-full',
+                      item.read ? 'bg-muted-foreground/40' : 'bg-primary'
+                    )}
+                  />
+                  <div className='flex min-w-0 flex-1 flex-col gap-2'>
+                    <div className='flex flex-wrap items-center gap-1.5'>
+                      <Badge
+                        variant='outline'
+                        className={approvalStatusClassName(item.status)}
+                      >
+                        {t(approvalStatusLabel(item.status))}
+                      </Badge>
+                      {!item.read ? (
+                        <Badge variant='outline'>{t('Unread')}</Badge>
+                      ) : (
+                        <Badge variant='outline'>{t('Read')}</Badge>
+                      )}
+                    </div>
+                    <div className='min-w-0'>
+                      <div className='truncate text-sm font-medium'>
+                        {approvalNotificationTitle(item, t)}
+                      </div>
+                      <p className='text-muted-foreground mt-1 text-xs'>
+                        {approvalNotificationContent(item, t)}
+                      </p>
+                    </div>
+                    <div className='text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-xs'>
+                      <span>
+                        {t('Delta')} {formatApprovalNumber(item.limit_delta)}
+                      </span>
+                      {expiresAt ? (
+                        <span>
+                          {t('Expires')} {formatDateTimeObject(expiresAt)}
+                        </span>
+                      ) : null}
+                      {item.audit_log_id ? (
+                        <span>
+                          {t('Audit')} #{item.audit_log_id}
+                        </span>
+                      ) : null}
+                    </div>
+                    {absoluteTime ? (
+                      <div className='text-muted-foreground text-xs'>
+                        {relativeTime ? `${relativeTime} • ` : null}
+                        {absoluteTime}
+                      </div>
+                    ) : null}
+                    <div className='flex flex-wrap gap-2'>
+                      <Button
+                        render={
+                          <Link
+                            to={openLink.target}
+                            search={openLink.search}
+                            onClick={() => {
+                              if (!item.read) onMarkApprovalRead?.(item.key)
+                              onOpenChange(false)
+                            }}
+                          />
+                        }
+                        type='button'
+                        size='sm'
+                        variant='outline'
+                      >
+                        <ExternalLink className='size-3.5' />
+                        {t('Open')}
+                      </Button>
+                      {showAuditLinks && item.audit_log_id ? (
+                        <Button
+                          render={
+                            <Link
+                              to='/enterprise'
+                              search={auditSearch}
+                              onClick={() => {
+                                if (!item.read) onMarkApprovalRead?.(item.key)
+                                onOpenChange(false)
+                              }}
+                            />
+                          }
+                          type='button'
+                          size='sm'
+                          variant='ghost'
+                        >
+                          {t('Audit')}
+                        </Button>
+                      ) : null}
+                      {!item.read ? (
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='outline'
+                          onClick={() => onMarkApprovalRead?.(item.key)}
+                        >
+                          {t('Mark as read')}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {idx < approvals.length - 1 ? <Separator /> : null}
+            </div>
+          )
+        })}
+        {hasMore ? (
+          <div className='flex justify-center py-3'>
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              disabled={loadingMore}
+              onClick={onLoadMore}
+            >
+              {loadingMore ? t('Loading...') : t('Load more')}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </ScrollArea>
+  )
+}
+
 /**
  * Required-reading popup for announcements that must be acknowledged explicitly.
  */
@@ -441,12 +732,25 @@ export function NotificationPopover({
   onTabChange,
   notice,
   announcements,
+  approvalNotifications = [],
+  showApprovals = false,
+  showApprovalAuditLinks = false,
   loading,
+  approvalsLoading,
+  approvalsUnreadOnly,
+  approvalsHasMore,
+  approvalsLoadingMore,
   onMarkAllAnnouncementsAsRead,
   onMarkAnnouncementRead,
+  onMarkAllApprovalsAsRead,
+  onMarkApprovalRead,
+  onApprovalsUnreadOnlyChange,
+  onLoadMoreApprovals,
   className,
 }: NotificationPopoverProps) {
   const { t } = useTranslation()
+  const activeValue =
+    activeTab === 'approvals' && !showApprovals ? 'notice' : activeTab
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger
@@ -476,17 +780,22 @@ export function NotificationPopover({
         className='w-[min(26rem,calc(100vw-1rem))] gap-3 p-3'
       >
         <PopoverHeader className='gap-1 px-1'>
-          <PopoverTitle>{t('System Announcements')}</PopoverTitle>
+          <PopoverTitle>{t('Notifications')}</PopoverTitle>
           <p className='text-muted-foreground text-xs'>
-            {t('Latest platform updates and notices')}
+            {t('Platform notices, timeline updates, and approval status')}
           </p>
         </PopoverHeader>
 
         <Tabs
-          value={activeTab}
+          value={activeValue}
           onValueChange={onTabChange as (value: string) => void}
         >
-          <TabsList className='grid w-full grid-cols-2'>
+          <TabsList
+            className={cn(
+              'grid w-full',
+              showApprovals ? 'grid-cols-3' : 'grid-cols-2'
+            )}
+          >
             <TabsTrigger value='notice' className='gap-1.5'>
               <Bell className='size-3.5' />
               {t('Notice')}
@@ -495,6 +804,12 @@ export function NotificationPopover({
               <Megaphone className='size-3.5' />
               {t('Timeline')}
             </TabsTrigger>
+            {showApprovals ? (
+              <TabsTrigger value='approvals' className='gap-1.5'>
+                <ClipboardCheck className='size-3.5' />
+                {t('Approvals')}
+              </TabsTrigger>
+            ) : null}
           </TabsList>
 
           <TabsContent value='notice' className='mt-2'>
@@ -510,6 +825,25 @@ export function NotificationPopover({
               t={t}
             />
           </TabsContent>
+
+          {showApprovals ? (
+            <TabsContent value='approvals' className='mt-2'>
+              <ApprovalsContent
+                approvals={approvalNotifications}
+                loading={approvalsLoading ?? loading}
+                onMarkAllApprovalsAsRead={onMarkAllApprovalsAsRead}
+                onMarkApprovalRead={onMarkApprovalRead}
+                unreadOnly={approvalsUnreadOnly}
+                onUnreadOnlyChange={onApprovalsUnreadOnlyChange}
+                hasMore={approvalsHasMore}
+                loadingMore={approvalsLoadingMore}
+                onLoadMore={onLoadMoreApprovals}
+                showAuditLinks={showApprovalAuditLinks}
+                onOpenChange={onOpenChange}
+                t={t}
+              />
+            </TabsContent>
+          ) : null}
         </Tabs>
 
         <div className='flex justify-end'>

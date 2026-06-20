@@ -300,6 +300,9 @@ func migrateDB() error {
 		&CustomOAuthProvider{},
 		&UserOAuthBinding{},
 		&UserAnnouncementRead{},
+		&EnterpriseNotificationRead{},
+		&EnterpriseNotificationPreference{},
+		&EnterpriseNotificationOutbox{},
 		&PerfMetric{},
 		&PerfChannelMetric{},
 		&MCPTool{},
@@ -314,8 +317,24 @@ func migrateDB() error {
 		&BridgeClient{},
 		&BridgeSession{},
 		&BridgeAuditLog{},
+		&Enterprise{},
+		&EnterpriseOrgUnit{},
+		&EnterpriseOrgMembership{},
+		&EnterpriseProject{},
+		&EnterpriseProjectOrgUnit{},
+		&EnterprisePolicyGroup{},
+		&EnterprisePolicyGroupMember{},
+		&EnterpriseQuotaPolicy{},
+		&EnterpriseQuotaCounter{},
+		&EnterpriseQuotaRequest{},
+		&EnterpriseWebhook{},
+		&EnterpriseUsageAttribution{},
+		&EnterpriseAuditLog{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := EnsureDefaultEnterprise(); err != nil {
 		return err
 	}
 	if err := migrateMCPToolOpenAPIUrlColumn(); err != nil {
@@ -384,6 +403,9 @@ func migrateDBFast() error {
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
 		{&UserOAuthBinding{}, "UserOAuthBinding"},
 		{&UserAnnouncementRead{}, "UserAnnouncementRead"},
+		{&EnterpriseNotificationRead{}, "EnterpriseNotificationRead"},
+		{&EnterpriseNotificationPreference{}, "EnterpriseNotificationPreference"},
+		{&EnterpriseNotificationOutbox{}, "EnterpriseNotificationOutbox"},
 		{&PerfMetric{}, "PerfMetric"},
 		{&PerfChannelMetric{}, "PerfChannelMetric"},
 		{&MCPTool{}, "MCPTool"},
@@ -398,6 +420,17 @@ func migrateDBFast() error {
 		{&BridgeClient{}, "BridgeClient"},
 		{&BridgeSession{}, "BridgeSession"},
 		{&BridgeAuditLog{}, "BridgeAuditLog"},
+		{&Enterprise{}, "Enterprise"},
+		{&EnterpriseOrgUnit{}, "EnterpriseOrgUnit"},
+		{&EnterpriseOrgMembership{}, "EnterpriseOrgMembership"},
+		{&EnterprisePolicyGroup{}, "EnterprisePolicyGroup"},
+		{&EnterprisePolicyGroupMember{}, "EnterprisePolicyGroupMember"},
+		{&EnterpriseQuotaPolicy{}, "EnterpriseQuotaPolicy"},
+		{&EnterpriseQuotaCounter{}, "EnterpriseQuotaCounter"},
+		{&EnterpriseQuotaRequest{}, "EnterpriseQuotaRequest"},
+		{&EnterpriseWebhook{}, "EnterpriseWebhook"},
+		{&EnterpriseUsageAttribution{}, "EnterpriseUsageAttribution"},
+		{&EnterpriseAuditLog{}, "EnterpriseAuditLog"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -421,6 +454,9 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := EnsureDefaultEnterprise(); err != nil {
+		return err
 	}
 	if err := migrateMCPToolOpenAPIUrlColumn(); err != nil {
 		return err

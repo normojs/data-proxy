@@ -44,6 +44,13 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Sheet,
   SheetClose,
   SheetContent,
@@ -65,7 +72,12 @@ import {
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { MultiSelect } from '@/components/multi-select'
-import { createApiKey, updateApiKey, getApiKey } from '../api'
+import {
+  createApiKey,
+  updateApiKey,
+  getApiKey,
+  getApiKeyEnterpriseProjects,
+} from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
   getApiKeyFormSchema,
@@ -114,8 +126,15 @@ export function ApiKeysMutateDrawer({
     staleTime: 5 * 60 * 1000,
   })
 
+  const { data: projectsData } = useQuery({
+    queryKey: ['api-key-enterprise-projects'],
+    queryFn: getApiKeyEnterpriseProjects,
+    staleTime: 5 * 60 * 1000,
+  })
+
   const models = modelsData?.data || []
   const groupsRaw = groupsData?.data || {}
+  const projectOptions = projectsData?.data || []
   const groups: ApiKeyGroupOption[] = Object.entries(groupsRaw).map(
     ([key, info]) => ({
       value: key,
@@ -309,6 +328,38 @@ export function ApiKeysMutateDrawer({
                         placeholder={t('Select a group')}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='default_project_id'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Default Project')}</FormLabel>
+                    <Select
+                      value={String(field.value || 0)}
+                      onValueChange={(value) => field.onChange(Number(value))}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={t('No default project')} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='0'>{t('No default project')}</SelectItem>
+                        {projectOptions.map((project) => (
+                          <SelectItem key={project.id} value={String(project.id)}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {t('Requests using this API key inherit the selected project unless a request specifies another allowed project.')}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

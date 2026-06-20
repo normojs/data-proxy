@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 import type {
   ApiKey,
+  ApiKeyEnterpriseProject,
   ApiResponse,
   GetApiKeysParams,
   GetApiKeysResponse,
@@ -95,6 +96,13 @@ export async function updateApiKeyStatus(
   status: number
 ): Promise<ApiResponse<ApiKey>> {
   const res = await api.put('/api/token/?status_only=true', { id, status })
+  return res.data
+}
+
+export async function getApiKeyEnterpriseProjects(): Promise<
+  ApiResponse<ApiKeyEnterpriseProject[]>
+> {
+  const res = await api.get('/api/token/enterprise-projects')
   return res.data
 }
 

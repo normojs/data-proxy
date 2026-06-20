@@ -68,6 +68,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
     accept_unset_model_ratio_model: false,
     record_ip_log: false,
     upstream_model_update_notify_enabled: false,
+    enterprise_quota_request_email_enabled: true,
   })
 
   // Update form field helper
@@ -97,6 +98,8 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         record_ip_log: parsed.record_ip_log || false,
         upstream_model_update_notify_enabled:
           parsed.upstream_model_update_notify_enabled || false,
+        enterprise_quota_request_email_enabled:
+          parsed.enterprise_quota_request_email_enabled !== false,
       })
     }
   }, [profile])
@@ -175,6 +178,24 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         <p className='text-muted-foreground text-xs'>
           {t('Get notified when balance falls below this value')}
         </p>
+      </div>
+
+      <div className='flex items-start justify-between gap-3 rounded-lg border p-3'>
+        <div className='min-w-0 space-y-1'>
+          <Label>{t('Approval Result Emails')}</Label>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Receive enterprise quota request approval, rejection, expiration, and expiring soon emails when admins enable email notifications.'
+            )}
+          </p>
+        </div>
+        <Switch
+          checked={settings.enterprise_quota_request_email_enabled !== false}
+          onCheckedChange={(checked) =>
+            updateField('enterprise_quota_request_email_enabled', checked)
+          }
+          aria-label={t('Approval Result Emails')}
+        />
       </div>
 
       {/* Email Settings */}

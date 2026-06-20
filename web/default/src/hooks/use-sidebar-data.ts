@@ -29,7 +29,9 @@ import {
   Puzzle,
   Radio,
   Settings,
+  ShieldCheck,
   Ticket,
+  TimerReset,
   User,
   Users,
   Wallet,
@@ -89,6 +91,11 @@ export function useSidebarData(): SidebarData {
             icon: FileText,
           },
           {
+            title: t('Quota Requests'),
+            url: '/quota-requests',
+            icon: TimerReset,
+          },
+          {
             title: t('Task Logs'),
             url: '/usage-logs/task',
             activeUrls: ['/usage-logs/drawing'],
@@ -142,6 +149,11 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            title: t('Enterprise Governance'),
+            url: '/enterprise',
+            icon: ShieldCheck,
           },
           {
             title: t('MCP'),

@@ -1,15 +1,65 @@
-.github
+# VCS and editor state
 .git
-*.md
-.vscode
+.github
 .gitignore
+.vscode
+.idea
+
+# Docker/build orchestration files are read by Docker before context COPY.
+.dockerignore
+Dockerfile*
+docker-compose*.yml
+compose*.yml
 Makefile
+makefile
+
+# Project-local agent/design metadata
+.agents
+.impeccable
+.playwright-cli
+
+# Documentation is not needed for image builds.
+*.md
 docs
-.eslintcache
-.gocache
+!THIRD-PARTY-LICENSES.md
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Frontend dependencies, caches, and generated bundles
 /web/node_modules
 /web/default/node_modules
 /web/default/dist
 /web/classic/node_modules
 /web/classic/dist
-!THIRD-PARTY-LICENSES.md
+**/.rsbuild
+**/.vite
+**/.turbo
+**/.next
+**/.nuxt
+
+# Go/build caches and local binaries
+.cache
+.gocache
+bin
+*.test
+*.prof
+coverage.out
+
+# Runtime state mounted by docker-compose or generated locally
+data
+logs
+output
+*.db
+*.sqlite
+*.sqlite3
+
+# Tooling caches and temporary files
+.eslintcache
+.DS_Store
+tmp
+temp
+*.tmp
+*.log

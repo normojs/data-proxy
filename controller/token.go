@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func buildMaskedTokenResponse(token *model.Token) *model.Token {
@@ -175,6 +177,10 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if err := validateUserDefaultProject(c.GetInt("id"), token.DefaultProjectId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	// 非无限额度时，检查额度值是否超出有效范围
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
@@ -221,12 +227,14 @@ func AddToken(c *gin.Context) {
 		AllowIps:           token.AllowIps,
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
+		DefaultProjectId:   token.DefaultProjectId,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	recordTokenDefaultProjectAudit(c, nil, &cleanToken)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -260,6 +268,12 @@ func UpdateToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if statusOnly == "" {
+		if err := validateUserDefaultProject(userId, token.DefaultProjectId); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
@@ -286,9 +300,12 @@ func UpdateToken(c *gin.Context) {
 			return
 		}
 	}
+	var beforeToken *model.Token
 	if statusOnly != "" {
 		cleanToken.Status = token.Status
 	} else {
+		before := *cleanToken
+		beforeToken = &before
 		// If you add more fields, please also update token.Update()
 		cleanToken.Name = token.Name
 		cleanToken.ExpiredTime = token.ExpiredTime
@@ -299,17 +316,121 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.AllowIps = token.AllowIps
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
+		cleanToken.DefaultProjectId = token.DefaultProjectId
 	}
 	err = cleanToken.Update()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	recordTokenDefaultProjectAudit(c, beforeToken, cleanToken)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
 		"data":    buildMaskedTokenResponse(cleanToken),
 	})
+}
+
+func recordTokenDefaultProjectAudit(c *gin.Context, before *model.Token, after *model.Token) {
+	if c == nil || after == nil {
+		return
+	}
+	beforeProjectId := 0
+	if before != nil {
+		beforeProjectId = before.DefaultProjectId
+	}
+	if beforeProjectId == after.DefaultProjectId {
+		return
+	}
+	if before == nil && after.DefaultProjectId <= 0 {
+		return
+	}
+	enterprise, err := model.GetDefaultEnterprise()
+	if err != nil || enterprise.Id <= 0 {
+		return
+	}
+	_ = model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
+		EnterpriseId: enterprise.Id,
+		ActorUserId:  c.GetInt("id"),
+		Action:       "token.default_project.update",
+		TargetType:   "token",
+		TargetId:     after.Id,
+		Before: gin.H{
+			"default_project_id": beforeProjectId,
+		},
+		After: gin.H{
+			"default_project_id": after.DefaultProjectId,
+		},
+		RequestId: c.GetHeader(common.RequestIdKey),
+	})
+}
+
+func ListTokenEnterpriseProjects(c *gin.Context) {
+	projects, err := listUserAvailableEnterpriseProjects(c.GetInt("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, projects)
+}
+
+type tokenEnterpriseProjectItem struct {
+	Id          int    `json:"id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Description string `json:"description"`
+}
+
+func validateUserDefaultProject(userId int, projectId int) error {
+	if projectId <= 0 {
+		return nil
+	}
+	projects, err := listUserAvailableEnterpriseProjects(userId)
+	if err != nil {
+		return err
+	}
+	for _, project := range projects {
+		if project.Id == projectId {
+			return nil
+		}
+	}
+	return errors.New("默认项目不存在或当前用户不可用")
+}
+
+func listUserAvailableEnterpriseProjects(userId int) ([]tokenEnterpriseProjectItem, error) {
+	enterprise, err := model.GetDefaultEnterprise()
+	if err != nil {
+		return nil, err
+	}
+	var membership model.EnterpriseOrgMembership
+	if err := model.DB.Where("enterprise_id = ? AND user_id = ?", enterprise.Id, userId).First(&membership).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []tokenEnterpriseProjectItem{}, nil
+		}
+		return nil, err
+	}
+	if membership.OrgUnitId <= 0 {
+		return []tokenEnterpriseProjectItem{}, nil
+	}
+	var projects []model.EnterpriseProject
+	if err := model.DB.Table("enterprise_projects").
+		Select("enterprise_projects.*").
+		Joins("JOIN enterprise_project_org_units epou ON epou.project_id = enterprise_projects.id AND epou.enterprise_id = enterprise_projects.enterprise_id").
+		Where("enterprise_projects.enterprise_id = ? AND enterprise_projects.status = ? AND epou.org_unit_id = ?", enterprise.Id, model.EnterpriseProjectStatusEnabled, membership.OrgUnitId).
+		Order("enterprise_projects.name asc, enterprise_projects.id asc").
+		Find(&projects).Error; err != nil {
+		return nil, err
+	}
+	items := make([]tokenEnterpriseProjectItem, 0, len(projects))
+	for _, project := range projects {
+		items = append(items, tokenEnterpriseProjectItem{
+			Id:          project.Id,
+			Name:        project.Name,
+			Slug:        project.Slug,
+			Description: project.Description,
+		})
+	}
+	return items, nil
 }
 
 type TokenBatch struct {

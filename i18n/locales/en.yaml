@@ -110,6 +110,13 @@ quota.insufficient: "Insufficient quota"
 quota.warning_invalid: "Invalid warning type"
 quota.threshold_gt_zero: "Warning threshold must be greater than 0"
 
+# Enterprise governance messages
+enterprise_governance.quota_exceeded: "This request exceeds the enterprise usage policy. Please contact your administrator."
+enterprise_governance.org_quota_exceeded: "This request exceeds your department usage policy. Please contact your administrator."
+enterprise_governance.group_quota_exceeded: "This request exceeds your policy group usage policy. Please contact your administrator."
+enterprise_governance.user_quota_exceeded: "This request exceeds your assigned enterprise usage quota. Please contact your administrator."
+enterprise_governance.model_not_allowed: "This model is not allowed by the enterprise usage policy. Please contact your administrator."
+
 # Subscription messages
 subscription.not_enabled: "Subscription plan is not enabled"
 subscription.title_empty: "Subscription plan title cannot be empty"

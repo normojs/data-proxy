@@ -75,6 +75,8 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			notificationRoute.GET("/read-state", controller.GetNotificationReadState)
 			notificationRoute.POST("/read", controller.MarkNotificationsRead)
+			notificationRoute.GET("/enterprise-quota-requests", controller.ListEnterpriseQuotaRequestNotifications)
+			notificationRoute.POST("/enterprise-quota-requests/read", controller.MarkEnterpriseQuotaRequestNotificationsRead)
 		}
 
 		userRoute := apiRouter.Group("/user")
@@ -287,6 +289,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			tokenRoute.GET("/", controller.GetAllTokens)
 			tokenRoute.GET("/search", middleware.SearchRateLimit(), controller.SearchTokens)
+			tokenRoute.GET("/enterprise-projects", controller.ListTokenEnterpriseProjects)
 			tokenRoute.GET("/:id", controller.GetToken)
 			tokenRoute.POST("/:id/key", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKey)
 			tokenRoute.POST("/", controller.AddToken)
@@ -331,6 +334,58 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/", middleware.AdminAuth(), controller.GetAllQuotaDates)
 		dataRoute.GET("/users", middleware.AdminAuth(), controller.GetQuotaDatesByUser)
 		dataRoute.GET("/self", middleware.UserAuth(), controller.GetUserQuotaDates)
+
+		enterpriseRoute := apiRouter.Group("/enterprise")
+		enterpriseRoute.Use(middleware.UserAuth())
+		{
+			enterpriseRoute.GET("/quota-requests", controller.ListEnterpriseQuotaRequests)
+			enterpriseRoute.GET("/quota-requests/policies", controller.ListEnterpriseQuotaRequestPolicies)
+			enterpriseRoute.POST("/quota-requests", controller.SubmitEnterpriseQuotaRequest)
+			enterpriseRoute.POST("/quota-requests/:id/withdraw", controller.WithdrawEnterpriseQuotaRequest)
+
+			adminEnterpriseRoute := enterpriseRoute.Group("")
+			adminEnterpriseRoute.Use(middleware.AdminAuth())
+			{
+				adminEnterpriseRoute.GET("/current", controller.GetCurrentEnterprise)
+				adminEnterpriseRoute.PUT("/current", controller.UpdateCurrentEnterprise)
+				adminEnterpriseRoute.GET("/org-units", controller.ListEnterpriseOrgUnits)
+				adminEnterpriseRoute.POST("/org-units", controller.CreateEnterpriseOrgUnit)
+				adminEnterpriseRoute.PUT("/org-units/:id", controller.UpdateEnterpriseOrgUnit)
+				adminEnterpriseRoute.DELETE("/org-units/:id", controller.DeleteEnterpriseOrgUnit)
+				adminEnterpriseRoute.GET("/members", controller.ListEnterpriseMembers)
+				adminEnterpriseRoute.PUT("/members/:user_id/org-unit", controller.UpdateEnterpriseMemberOrgUnit)
+				adminEnterpriseRoute.GET("/policy-groups", controller.ListEnterprisePolicyGroups)
+				adminEnterpriseRoute.POST("/policy-groups", controller.CreateEnterprisePolicyGroup)
+				adminEnterpriseRoute.PUT("/policy-groups/:id", controller.UpdateEnterprisePolicyGroup)
+				adminEnterpriseRoute.DELETE("/policy-groups/:id", controller.DeleteEnterprisePolicyGroup)
+				adminEnterpriseRoute.GET("/policy-groups/:id/members", controller.ListEnterprisePolicyGroupMembers)
+				adminEnterpriseRoute.POST("/policy-groups/:id/members", controller.AddEnterprisePolicyGroupMembers)
+				adminEnterpriseRoute.DELETE("/policy-groups/:id/members/:user_id", controller.DeleteEnterprisePolicyGroupMember)
+				adminEnterpriseRoute.GET("/projects", controller.ListEnterpriseProjects)
+				adminEnterpriseRoute.POST("/projects", controller.CreateEnterpriseProject)
+				adminEnterpriseRoute.PUT("/projects/:id", controller.UpdateEnterpriseProject)
+				adminEnterpriseRoute.DELETE("/projects/:id", controller.DeleteEnterpriseProject)
+				adminEnterpriseRoute.GET("/quota-policies", controller.ListEnterpriseQuotaPolicies)
+				adminEnterpriseRoute.POST("/quota-policies", controller.CreateEnterpriseQuotaPolicy)
+				adminEnterpriseRoute.PUT("/quota-policies/:id", controller.UpdateEnterpriseQuotaPolicy)
+				adminEnterpriseRoute.DELETE("/quota-policies/:id", controller.DeleteEnterpriseQuotaPolicy)
+				adminEnterpriseRoute.POST("/quota-requests/:id/approve", controller.ApproveEnterpriseQuotaRequest)
+				adminEnterpriseRoute.POST("/quota-requests/:id/reject", controller.RejectEnterpriseQuotaRequest)
+				adminEnterpriseRoute.GET("/webhooks", controller.ListEnterpriseWebhooks)
+				adminEnterpriseRoute.POST("/webhooks", controller.CreateEnterpriseWebhook)
+				adminEnterpriseRoute.PUT("/webhooks/:id", controller.UpdateEnterpriseWebhook)
+				adminEnterpriseRoute.DELETE("/webhooks/:id", controller.DeleteEnterpriseWebhook)
+				adminEnterpriseRoute.POST("/webhooks/:id/test", controller.TestEnterpriseWebhook)
+				adminEnterpriseRoute.GET("/notification-preferences", controller.ListEnterpriseNotificationPreferences)
+				adminEnterpriseRoute.PUT("/notification-preferences", controller.UpdateEnterpriseNotificationPreference)
+				adminEnterpriseRoute.GET("/notification-outbox", controller.ListEnterpriseNotificationOutbox)
+				adminEnterpriseRoute.GET("/notification-outbox/worker-metrics", controller.GetEnterpriseNotificationOutboxWorkerMetrics)
+				adminEnterpriseRoute.POST("/notification-outbox/:id/retry", controller.RetryEnterpriseNotificationOutbox)
+				adminEnterpriseRoute.GET("/usage/summary", controller.GetEnterpriseUsageSummary)
+				adminEnterpriseRoute.GET("/usage/breakdown", controller.GetEnterpriseUsageBreakdown)
+				adminEnterpriseRoute.GET("/audit-logs", controller.ListEnterpriseAuditLogs)
+			}
+		}
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{

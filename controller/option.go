@@ -183,6 +183,14 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "HStationOAuthEnabled":
+		if option.Value == "true" && (common.HStationClientId == "" || common.HStationAuthorizationEndpoint == "" || common.HStationTokenEndpoint == "" || common.HStationUserInfoEndpoint == "") {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "无法启用 H 站 OAuth，请先填入 H 站 OAuth 相关配置！",
+			})
+			return
+		}
 	case "EmailDomainRestrictionEnabled":
 		if option.Value == "true" && len(common.EmailDomainWhitelist) == 0 {
 			c.JSON(http.StatusOK, gin.H{

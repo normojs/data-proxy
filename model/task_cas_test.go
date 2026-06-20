@@ -38,6 +38,7 @@ func TestMain(m *testing.M) {
 		&Task{},
 		&User{},
 		&Token{},
+		&Option{},
 		&Log{},
 		&Channel{},
 		&Ability{},
@@ -49,6 +50,15 @@ func TestMain(m *testing.M) {
 		&Redemption{},
 		&BillingEvent{},
 		&BillingEventRelation{},
+		&Enterprise{},
+		&EnterpriseOrgUnit{},
+		&EnterpriseOrgMembership{},
+		&EnterprisePolicyGroup{},
+		&EnterprisePolicyGroupMember{},
+		&EnterpriseQuotaPolicy{},
+		&EnterpriseQuotaCounter{},
+		&EnterpriseUsageAttribution{},
+		&EnterpriseAuditLog{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
