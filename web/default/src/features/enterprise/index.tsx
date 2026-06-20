@@ -1375,6 +1375,7 @@ function OrganizationTab(props: {
   onEditOrgUnit: (unit: EnterpriseOrgUnit) => void
   onDisableOrgUnit: (unit: EnterpriseOrgUnit) => void
   orgOptions: SelectOption[]
+  canManageEnterprise: boolean
 }) {
   const { t } = useTranslation()
   const filteredOrgUnits = props.orgUnits.filter((unit) => {
@@ -1390,16 +1391,18 @@ function OrganizationTab(props: {
 
   return (
     <div className='grid gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]'>
-      <SsoOrgSyncPanel />
+      {props.canManageEnterprise && <SsoOrgSyncPanel />}
 
       <Panel
         title='Organization'
         description='Department tree and ownership boundaries.'
         actions={
-          <Button size='sm' onClick={props.onCreateOrgUnit}>
-            <Plus className='size-3.5' />
-            {t('Org Unit')}
-          </Button>
+          props.canManageEnterprise ? (
+            <Button size='sm' onClick={props.onCreateOrgUnit}>
+              <Plus className='size-3.5' />
+              {t('Org Unit')}
+            </Button>
+          ) : undefined
         }
       >
         <div className='space-y-3'>
@@ -1426,7 +1429,11 @@ function OrganizationTab(props: {
                   <TableHead>{t('Name')}</TableHead>
                   <TableHead>{t('Status')}</TableHead>
                   <TableHead>{t('Sort')}</TableHead>
-                  <TableHead className='text-right'>{t('Actions')}</TableHead>
+                  {props.canManageEnterprise && (
+                    <TableHead className='text-right'>
+                      {t('Actions')}
+                    </TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1439,27 +1446,29 @@ function OrganizationTab(props: {
                       <StatusBadge status={unit.status} />
                     </TableCell>
                     <TableCell>{unit.sort}</TableCell>
-                    <TableCell>
-                      <div className='flex justify-end gap-1'>
-                        <Button
-                          variant='ghost'
-                          size='icon-sm'
-                          onClick={() => props.onEditOrgUnit(unit)}
-                        >
-                          <Pencil className='size-3.5' />
-                          <span className='sr-only'>{t('Edit')}</span>
-                        </Button>
-                        <Button
-                          variant='ghost'
-                          size='icon-sm'
-                          disabled={unit.status === DISABLED_STATUS}
-                          onClick={() => props.onDisableOrgUnit(unit)}
-                        >
-                          <Ban className='size-3.5' />
-                          <span className='sr-only'>{t('Disable')}</span>
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {props.canManageEnterprise && (
+                      <TableCell>
+                        <div className='flex justify-end gap-1'>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
+                            onClick={() => props.onEditOrgUnit(unit)}
+                          >
+                            <Pencil className='size-3.5' />
+                            <span className='sr-only'>{t('Edit')}</span>
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
+                            disabled={unit.status === DISABLED_STATUS}
+                            onClick={() => props.onDisableOrgUnit(unit)}
+                          >
+                            <Ban className='size-3.5' />
+                            <span className='sr-only'>{t('Disable')}</span>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -1497,9 +1506,11 @@ function OrganizationTab(props: {
                   <SelectItem value={ALL_VALUE}>
                     {t('All Org Units')}
                   </SelectItem>
-                  <SelectItem value={UNASSIGNED_VALUE}>
-                    {t('Unassigned')}
-                  </SelectItem>
+                  {props.canManageEnterprise && (
+                    <SelectItem value={UNASSIGNED_VALUE}>
+                      {t('Unassigned')}
+                    </SelectItem>
+                  )}
                   {props.orgOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -1530,6 +1541,7 @@ function OrganizationTab(props: {
                     key={`${member.user_id}:${member.org_unit_id || 0}`}
                     member={member}
                     orgOptions={props.orgOptions}
+                    allowUnassigned={props.canManageEnterprise}
                   />
                 ))}
               </TableBody>
@@ -1550,6 +1562,7 @@ function OrganizationTab(props: {
 function MemberRow(props: {
   member: EnterpriseMember
   orgOptions: SelectOption[]
+  allowUnassigned: boolean
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -1599,9 +1612,11 @@ function MemberRow(props: {
           </SelectTrigger>
           <SelectContent alignItemWithTrigger={false}>
             <SelectGroup>
-              <SelectItem value={UNASSIGNED_VALUE}>
-                {t('Unassigned')}
-              </SelectItem>
+              {props.allowUnassigned && (
+                <SelectItem value={UNASSIGNED_VALUE}>
+                  {t('Unassigned')}
+                </SelectItem>
+              )}
               {props.orgOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
@@ -6009,6 +6024,8 @@ export function EnterpriseGovernance() {
     isSystemAdmin || enterprisePermissions?.read === true
   const canManageEnterprise =
     isSystemAdmin || enterprisePermissions?.manage === true
+  const canManageDepartment =
+    canManageEnterprise || enterprisePermissions?.department_manage === true
   const canReadFinance =
     canManageEnterprise || enterprisePermissions?.finance_read === true
   const canReadAudit =
@@ -6031,8 +6048,9 @@ export function EnterpriseGovernance() {
           case 'audit':
             return canReadAudit
           case 'organization':
-          case 'policy-groups':
           case 'quota-policies':
+            return canManageDepartment
+          case 'policy-groups':
           case 'notifications':
           case 'webhooks':
           case 'deliveries':
@@ -6043,6 +6061,7 @@ export function EnterpriseGovernance() {
       }),
     [
       canManageEnterprise,
+      canManageDepartment,
       canManageProjects,
       canReadAudit,
       canReadEnterprise,
@@ -6251,7 +6270,7 @@ export function EnterpriseGovernance() {
   const membersSummaryQuery = useQuery({
     queryKey: ['enterprise', 'members', 'summary'],
     queryFn: () => getEnterpriseMembers({ p: 1, page_size: 1 }),
-    enabled: canManageEnterprise,
+    enabled: canManageDepartment,
   })
   const memberOrgUnitId =
     memberOrgFilter && memberOrgFilter !== UNASSIGNED_VALUE
@@ -6274,7 +6293,7 @@ export function EnterpriseGovernance() {
         org_unit_id: memberOrgUnitId,
         unassigned: memberOrgFilter === UNASSIGNED_VALUE,
       }),
-    enabled: canManageEnterprise,
+    enabled: canManageDepartment,
   })
   const policyGroupsSummaryQuery = useQuery({
     queryKey: ['enterprise', 'policy-groups', 'summary'],
@@ -6343,7 +6362,7 @@ export function EnterpriseGovernance() {
   const quotaPoliciesSummaryQuery = useQuery({
     queryKey: ['enterprise', 'quota-policies', 'summary'],
     queryFn: () => getEnterpriseQuotaPolicies({ p: 1, page_size: 1 }),
-    enabled: canManageEnterprise,
+    enabled: canManageDepartment,
   })
   const quotaPoliciesQuery = useQuery({
     queryKey: [
@@ -6364,7 +6383,7 @@ export function EnterpriseGovernance() {
         target_type: quotaPolicyTargetType,
         metric: quotaPolicyMetric,
       }),
-    enabled: canManageEnterprise,
+    enabled: canManageDepartment,
   })
   const quotaRequestsQuery = useQuery({
     queryKey: [
@@ -6680,6 +6699,7 @@ export function EnterpriseGovernance() {
                       disableOrgMutation.mutate(unit.id)
                   }}
                   orgOptions={orgOptions}
+                  canManageEnterprise={canManageEnterprise}
                 />
               </TabsContent>
 

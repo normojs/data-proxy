@@ -24,9 +24,11 @@
 | `finance_viewer` | 读取企业治理入口和财务用量视图 |
 | `auditor` | 读取企业治理入口和审计、通知 outbox、worker metrics |
 | `project_admin` | 读取、查看财务用量视图、管理项目 |
-| `department_admin` | 当前仅开放企业治理读取入口；本部门及子部门写入边界仍在 V1.7 后续完成 |
+| `department_admin` | 读取企业治理入口，管理本部门及子部门成员和额度策略，审批本部门及子部门临时额度申请，查看本部门及子部门用量 |
 
-后端 API 按 `enterprise.read`、`enterprise.manage`、`enterprise.finance.read`、`enterprise.audit.read`、`enterprise.quota.approve`、`enterprise.project.manage` 分组鉴权。前端入口和页签使用 `/api/user/self` 返回的 `permissions.enterprise_governance` 控制可见性。
+后端 API 按 `enterprise.read`、`enterprise.manage`、`enterprise.department.manage`、`enterprise.finance.read`、`enterprise.audit.read`、`enterprise.quota.approve`、`enterprise.project.manage` 分组鉴权。前端入口和页签使用 `/api/user/self` 返回的 `permissions.enterprise_governance` 控制可见性。
+
+部门管理员使用主部门作为 scope 根节点。后端会把 scope 展开为“本部门 + 子部门”，并在成员列表、成员归属更新、额度策略列表/创建/更新/停用、临时额度审批、审批通知和用量报表中自动过滤跨部门数据。企业配置、SSO 同步、webhook、通知偏好、项目管理和审计 outbox 仍需企业管理员或系统管理员权限。
 
 系统开关：
 

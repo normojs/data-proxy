@@ -198,10 +198,29 @@ func RootAuth() func(c *gin.Context) {
 }
 
 func EnterpriseCapabilityAuth(capability string) func(c *gin.Context) {
+	return EnterpriseAnyCapabilityAuth(capability)
+}
+
+func EnterpriseAnyCapabilityAuth(capabilities ...string) func(c *gin.Context) {
 	return func(c *gin.Context) {
-		allowed, err := service.UserHasEnterpriseCapability(c.GetInt("id"), c.GetInt("role"), capability)
-		if err != nil {
-			common.SysLog("EnterpriseCapabilityAuth database error: " + err.Error())
+		for _, capability := range capabilities {
+			allowed, err := service.UserHasEnterpriseCapability(c.GetInt("id"), c.GetInt("role"), capability)
+			if err != nil {
+				common.SysLog("EnterpriseCapabilityAuth database error: " + err.Error())
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"message": common.TranslateMessage(c, i18n.MsgDatabaseError),
+				})
+				c.Abort()
+				return
+			}
+			if allowed {
+				c.Next()
+				return
+			}
+		}
+		if len(capabilities) == 0 {
+			common.SysLog("EnterpriseCapabilityAuth missing capability")
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
 				"message": common.TranslateMessage(c, i18n.MsgDatabaseError),
@@ -209,7 +228,7 @@ func EnterpriseCapabilityAuth(capability string) func(c *gin.Context) {
 			c.Abort()
 			return
 		}
-		if !allowed {
+		{
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
@@ -217,7 +236,6 @@ func EnterpriseCapabilityAuth(capability string) func(c *gin.Context) {
 			c.Abort()
 			return
 		}
-		c.Next()
 	}
 }
 

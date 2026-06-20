@@ -110,10 +110,14 @@ func ListEnterpriseQuotaRequestNotifications(c *gin.Context) {
 		Limit:      parsePositiveNotificationLimit(c),
 		UnreadOnly: c.Query("unread_only") == "true" || c.Query("unread_only") == "1",
 	}
-	canReview, err := service.UserHasEnterpriseCapability(c.GetInt("id"), c.GetInt("role"), service.EnterpriseCapabilityQuotaApprove)
+	access, err := service.EnterpriseAccessForUser(c.GetInt("id"), c.GetInt("role"))
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	canReview := access.HasCapability(service.EnterpriseCapabilityQuotaApprove)
+	if access.HasDepartmentScope() {
+		options.ReviewOrgUnitIds = access.ScopedOrgUnitIds
 	}
 	result, err := service.ListEnterpriseQuotaRequestNotifications(enterprise.Id, c.GetInt("id"), canReview, readKeys, options)
 	if err != nil {

@@ -31,6 +31,7 @@ export type EnterprisePermissions = {
   audit_read?: boolean
   quota_approve?: boolean
   project_manage?: boolean
+  department_manage?: boolean
 }
 
 export interface AuthUser {

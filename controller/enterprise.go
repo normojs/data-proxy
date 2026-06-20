@@ -156,6 +156,7 @@ type enterpriseUsageQuery struct {
 	EndTime       int64
 	UserId        int
 	OrgUnitId     int
+	OrgUnitIds    []int
 	ProjectId     int
 	PolicyGroupId int
 	ChannelId     int
@@ -256,7 +257,13 @@ func ListEnterpriseOrgUnits(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	query := model.DB.Model(&model.EnterpriseOrgUnit{}).Where("enterprise_id = ?", enterprise.Id)
+	query = applyDepartmentOrgUnitScope(query, access, "id")
 	if parentId, err := parseOptionalIntQuery(c, "parent_id"); err != nil {
 		common.ApiError(c, err)
 		return
@@ -451,12 +458,18 @@ func ListEnterpriseMembers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Table("users").
 		Select(`users.id AS user_id, users.username, users.display_name, users.email, users.status,
 			COALESCE(m.org_unit_id, 0) AS org_unit_id, COALESCE(ou.name, '') AS org_unit_name`).
 		Joins("LEFT JOIN enterprise_org_memberships m ON m.user_id = users.id AND m.enterprise_id = ?", enterprise.Id).
 		Joins("LEFT JOIN enterprise_org_units ou ON ou.id = m.org_unit_id AND ou.enterprise_id = ?", enterprise.Id)
+	query = applyDepartmentOrgUnitScope(query, access, "m.org_unit_id")
 	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
 		like := "%" + keyword + "%"
 		query = query.Where("users.username LIKE ? OR users.display_name LIKE ? OR users.email LIKE ?", like, like, like)
@@ -511,6 +524,25 @@ func UpdateEnterpriseMemberOrgUnit(c *gin.Context) {
 	}
 	if req.OrgUnitId > 0 {
 		if err := ensureOrgUnitExists(enterprise.Id, req.OrgUnitId); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if access.HasDepartmentScope() {
+		if req.OrgUnitId <= 0 {
+			common.ApiError(c, scopedEnterpriseError())
+			return
+		}
+		if err := requireDepartmentOrgUnitInScope(access, req.OrgUnitId); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if err := requireDepartmentUserInScope(enterprise.Id, access, userId); err != nil {
 			common.ApiError(c, err)
 			return
 		}
@@ -859,8 +891,19 @@ func ListEnterpriseProjects(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Model(&model.EnterpriseProject{}).Where("enterprise_id = ?", enterprise.Id)
+	if access.HasDepartmentScope() {
+		scopedProjectIds := model.DB.Model(&model.EnterpriseProjectOrgUnit{}).
+			Select("project_id").
+			Where("enterprise_id = ? AND org_unit_id IN ?", enterprise.Id, access.ScopedOrgUnitIds)
+		query = query.Where("id IN (?)", scopedProjectIds)
+	}
 	if status, err := parseOptionalIntQuery(c, "status"); err != nil {
 		common.ApiError(c, err)
 		return
@@ -1014,8 +1057,14 @@ func ListEnterpriseQuotaPolicies(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Model(&model.EnterpriseQuotaPolicy{}).Where("enterprise_id = ?", enterprise.Id)
+	query = applyDepartmentQuotaPolicyScope(query, enterprise.Id, access)
 	if targetType := strings.TrimSpace(c.Query("target_type")); targetType != "" {
 		query = query.Where("target_type = ?", targetType)
 	}
@@ -1070,6 +1119,15 @@ func CreateEnterpriseQuotaPolicy(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentQuotaPolicyInScope(enterprise.Id, access, policy); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := model.DB.Create(&policy).Error; err != nil {
 		common.ApiError(c, err)
 		return
@@ -1104,6 +1162,19 @@ func UpdateEnterpriseQuotaPolicy(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentQuotaPolicyInScope(enterprise.Id, access, policy); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentQuotaPolicyInScope(enterprise.Id, access, next); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	before := policy
 	next.Id = policy.Id
 	next.CreatedAt = policy.CreatedAt
@@ -1128,6 +1199,15 @@ func DeleteEnterpriseQuotaPolicy(c *gin.Context) {
 	}
 	var policy model.EnterpriseQuotaPolicy
 	if err := model.DB.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&policy).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentQuotaPolicyInScope(enterprise.Id, access, policy); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1175,13 +1255,16 @@ func ListEnterpriseQuotaRequests(c *gin.Context) {
 	}
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Model(&model.EnterpriseQuotaRequest{}).Where("enterprise_id = ?", enterprise.Id)
-	canReview, err := service.UserHasEnterpriseCapability(c.GetInt("id"), c.GetInt("role"), service.EnterpriseCapabilityQuotaApprove)
+	access, err := enterpriseAccessForRequest(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	canReview := access.HasCapability(service.EnterpriseCapabilityQuotaApprove)
 	if !canReview {
 		query = query.Where("applicant_user_id = ?", c.GetInt("id"))
+	} else {
+		query = applyDepartmentQuotaRequestScope(query, enterprise.Id, access)
 	}
 	if requestId, err := parseOptionalIntQuery(c, "id"); err != nil {
 		common.ApiError(c, err)
@@ -1324,10 +1407,17 @@ func WithdrawEnterpriseQuotaRequest(c *gin.Context) {
 		common.ApiError(c, errors.New("只能撤回待审批申请"))
 		return
 	}
-	canReview, err := service.UserHasEnterpriseCapability(c.GetInt("id"), c.GetInt("role"), service.EnterpriseCapabilityQuotaApprove)
+	access, err := enterpriseAccessForRequest(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	canReview := access.HasCapability(service.EnterpriseCapabilityQuotaApprove)
+	if canReview && access.HasDepartmentScope() && quotaRequest.ApplicantUserId != c.GetInt("id") {
+		if err := requireDepartmentUserInScope(enterprise.Id, access, quotaRequest.ApplicantUserId); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 	if !canReview && quotaRequest.ApplicantUserId != c.GetInt("id") {
 		common.ApiError(c, errors.New("只能撤回自己的申请"))
@@ -1362,6 +1452,15 @@ func GetEnterpriseUsageSummary(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := applyDepartmentUsageScope(&params, access); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	rows, err := loadEnterpriseUsageRows(enterprise.Id, params)
 	if err != nil {
 		common.ApiError(c, err)
@@ -1385,6 +1484,15 @@ func GetEnterpriseUsageBreakdown(c *gin.Context) {
 	}
 	params, err := enterpriseUsageQueryFromRequest(c)
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := applyDepartmentUsageScope(&params, access); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1711,6 +1819,96 @@ func currentEnterprise() (*model.Enterprise, error) {
 	return model.GetDefaultEnterprise()
 }
 
+func enterpriseAccessForRequest(c *gin.Context) (service.EnterpriseAccess, error) {
+	return service.EnterpriseAccessForUser(c.GetInt("id"), c.GetInt("role"))
+}
+
+func scopedEnterpriseError() error {
+	return errors.New("无权访问本部门范围外的企业治理数据")
+}
+
+func applyDepartmentOrgUnitScope(query *gorm.DB, access service.EnterpriseAccess, column string) *gorm.DB {
+	if !access.HasDepartmentScope() {
+		return query
+	}
+	return query.Where(column+" IN ?", access.ScopedOrgUnitIds)
+}
+
+func requireDepartmentOrgUnitInScope(access service.EnterpriseAccess, orgUnitId int) error {
+	if !access.HasDepartmentScope() {
+		return nil
+	}
+	if !access.OrgUnitInScope(orgUnitId) {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
+func requireDepartmentUserInScope(enterpriseId int, access service.EnterpriseAccess, userId int) error {
+	if !access.HasDepartmentScope() {
+		return nil
+	}
+	ok, err := service.EnterpriseUserInOrgUnitScope(enterpriseId, userId, access.ScopedOrgUnitIds)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
+func applyDepartmentQuotaPolicyScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	if !access.HasDepartmentScope() {
+		return query
+	}
+	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
+		Select("user_id").
+		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
+	return query.Where(
+		"(target_type = ? AND target_id IN ?) OR (target_type = ? AND target_id IN (?))",
+		model.PolicyTargetOrgUnit,
+		access.ScopedOrgUnitIds,
+		model.PolicyTargetUser,
+		scopedUserIds,
+	)
+}
+
+func requireDepartmentQuotaPolicyInScope(enterpriseId int, access service.EnterpriseAccess, policy model.EnterpriseQuotaPolicy) error {
+	if !access.HasDepartmentScope() {
+		return nil
+	}
+	switch policy.TargetType {
+	case model.PolicyTargetOrgUnit:
+		return requireDepartmentOrgUnitInScope(access, policy.TargetId)
+	case model.PolicyTargetUser:
+		return requireDepartmentUserInScope(enterpriseId, access, policy.TargetId)
+	default:
+		return scopedEnterpriseError()
+	}
+}
+
+func applyDepartmentQuotaRequestScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	if !access.HasDepartmentScope() {
+		return query
+	}
+	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
+		Select("user_id").
+		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
+	return query.Where("applicant_user_id IN (?)", scopedUserIds)
+}
+
+func applyDepartmentUsageScope(params *enterpriseUsageQuery, access service.EnterpriseAccess) error {
+	if !access.HasDepartmentScope() {
+		return nil
+	}
+	if params.OrgUnitId > 0 {
+		return requireDepartmentOrgUnitInScope(access, params.OrgUnitId)
+	}
+	params.OrgUnitIds = access.ScopedOrgUnitIds
+	return nil
+}
+
 func parsePathInt(c *gin.Context, name string) (int, error) {
 	id, err := strconv.Atoi(c.Param(name))
 	if err != nil || id <= 0 {
@@ -1803,6 +2001,8 @@ func loadEnterpriseUsageRows(enterpriseId int, params enterpriseUsageQuery) ([]e
 	}
 	if params.OrgUnitId > 0 {
 		query = query.Where("org_unit_id = ?", params.OrgUnitId)
+	} else if len(params.OrgUnitIds) > 0 {
+		query = query.Where("org_unit_id IN ?", params.OrgUnitIds)
 	}
 	if params.ProjectId > 0 {
 		query = query.Where("project_id = ?", params.ProjectId)
@@ -2668,6 +2868,15 @@ func decideEnterpriseQuotaRequest(c *gin.Context, status string) {
 	}
 	var quotaRequest model.EnterpriseQuotaRequest
 	if err := model.DB.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&quotaRequest).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentUserInScope(enterprise.Id, access, quotaRequest.ApplicantUserId); err != nil {
 		common.ApiError(c, err)
 		return
 	}

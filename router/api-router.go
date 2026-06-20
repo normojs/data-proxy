@@ -361,8 +361,6 @@ func SetApiRouter(router *gin.Engine) {
 				manageEnterpriseRoute.POST("/org-units", controller.CreateEnterpriseOrgUnit)
 				manageEnterpriseRoute.PUT("/org-units/:id", controller.UpdateEnterpriseOrgUnit)
 				manageEnterpriseRoute.DELETE("/org-units/:id", controller.DeleteEnterpriseOrgUnit)
-				manageEnterpriseRoute.GET("/members", controller.ListEnterpriseMembers)
-				manageEnterpriseRoute.PUT("/members/:user_id/org-unit", controller.UpdateEnterpriseMemberOrgUnit)
 				manageEnterpriseRoute.POST("/org-sync/preview", controller.PreviewEnterpriseOrgSync)
 				manageEnterpriseRoute.POST("/org-sync/apply", controller.ApplyEnterpriseOrgSync)
 				manageEnterpriseRoute.GET("/policy-groups", controller.ListEnterprisePolicyGroups)
@@ -372,9 +370,6 @@ func SetApiRouter(router *gin.Engine) {
 				manageEnterpriseRoute.GET("/policy-groups/:id/members", controller.ListEnterprisePolicyGroupMembers)
 				manageEnterpriseRoute.POST("/policy-groups/:id/members", controller.AddEnterprisePolicyGroupMembers)
 				manageEnterpriseRoute.DELETE("/policy-groups/:id/members/:user_id", controller.DeleteEnterprisePolicyGroupMember)
-				manageEnterpriseRoute.POST("/quota-policies", controller.CreateEnterpriseQuotaPolicy)
-				manageEnterpriseRoute.PUT("/quota-policies/:id", controller.UpdateEnterpriseQuotaPolicy)
-				manageEnterpriseRoute.DELETE("/quota-policies/:id", controller.DeleteEnterpriseQuotaPolicy)
 				manageEnterpriseRoute.POST("/quota-counters/reconcile", controller.ReconcileEnterpriseQuotaCounters)
 				manageEnterpriseRoute.GET("/webhooks", controller.ListEnterpriseWebhooks)
 				manageEnterpriseRoute.POST("/webhooks", controller.CreateEnterpriseWebhook)
@@ -384,6 +379,16 @@ func SetApiRouter(router *gin.Engine) {
 				manageEnterpriseRoute.GET("/notification-preferences", controller.ListEnterpriseNotificationPreferences)
 				manageEnterpriseRoute.PUT("/notification-preferences", controller.UpdateEnterpriseNotificationPreference)
 				manageEnterpriseRoute.POST("/notification-outbox/:id/retry", controller.RetryEnterpriseNotificationOutbox)
+			}
+
+			departmentManageEnterpriseRoute := enterpriseRoute.Group("")
+			departmentManageEnterpriseRoute.Use(middleware.EnterpriseAnyCapabilityAuth(service.EnterpriseCapabilityManage, service.EnterpriseCapabilityDepartmentManage))
+			{
+				departmentManageEnterpriseRoute.GET("/members", controller.ListEnterpriseMembers)
+				departmentManageEnterpriseRoute.PUT("/members/:user_id/org-unit", controller.UpdateEnterpriseMemberOrgUnit)
+				departmentManageEnterpriseRoute.POST("/quota-policies", controller.CreateEnterpriseQuotaPolicy)
+				departmentManageEnterpriseRoute.PUT("/quota-policies/:id", controller.UpdateEnterpriseQuotaPolicy)
+				departmentManageEnterpriseRoute.DELETE("/quota-policies/:id", controller.DeleteEnterpriseQuotaPolicy)
 			}
 
 			projectEnterpriseRoute := enterpriseRoute.Group("")

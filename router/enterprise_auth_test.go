@@ -23,6 +23,43 @@ type enterpriseAuthResponse struct {
 	Message string `json:"message"`
 }
 
+type enterprisePageResponseForTest[T any] struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Data    struct {
+		Items []T `json:"items"`
+		Total int `json:"total"`
+	} `json:"data"`
+}
+
+type enterpriseMemberItemForTest struct {
+	UserId    int `json:"user_id"`
+	OrgUnitId int `json:"org_unit_id"`
+}
+
+type enterpriseQuotaPolicyItemForTest struct {
+	Id         int    `json:"id"`
+	TargetType string `json:"target_type"`
+	TargetId   int    `json:"target_id"`
+}
+
+type enterpriseQuotaRequestItemForTest struct {
+	Id              int    `json:"id"`
+	ApplicantUserId int    `json:"applicant_user_id"`
+	Status          string `json:"status"`
+}
+
+type enterpriseUsageSummaryResponseForTest struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Data    struct {
+		Total struct {
+			RequestCount int64 `json:"request_count"`
+			Quota        int64 `json:"quota"`
+		} `json:"total"`
+	} `json:"data"`
+}
+
 func TestEnterpriseRoutesRequireAdminAuth(t *testing.T) {
 	setupEnterpriseRouterTestDB(t)
 
@@ -119,6 +156,154 @@ func TestEnterpriseRBACEnterpriseAdminCanManageWithoutSystemAdmin(t *testing.T) 
   }`, enterpriseAdminCookies, enterpriseAdminUserId)
 	require.Equal(t, http.StatusOK, project.Code)
 	require.True(t, decodeEnterpriseAuthResponse(t, project).Success)
+}
+
+func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
+	setupEnterpriseRouterTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	engineeringId := seedEnterpriseOrgUnitForTest(t, enterprise.Id, 0, "Engineering", "engineering")
+	platformId := seedEnterpriseOrgUnitForTest(t, enterprise.Id, engineeringId, "Platform", "platform")
+	salesId := seedEnterpriseOrgUnitForTest(t, enterprise.Id, 0, "Sales", "sales")
+	departmentAdminId := 7301
+	engineerId := 7302
+	platformUserId := 7303
+	salesUserId := 7304
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, departmentAdminId, service.EnterpriseRoleDepartmentAdmin, engineeringId)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, engineerId, "", engineeringId)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, platformUserId, "", platformId)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, salesUserId, "", salesId)
+	engineeringPolicy := seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Engineering Policy", model.PolicyTargetOrgUnit, engineeringId)
+	salesPolicy := seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Sales Policy", model.PolicyTargetOrgUnit, salesId)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseQuotaRequest{
+		{
+			EnterpriseId:    enterprise.Id,
+			ApplicantUserId: engineerId,
+			PolicyId:        engineeringPolicy.Id,
+			TargetType:      engineeringPolicy.TargetType,
+			TargetId:        engineeringPolicy.TargetId,
+			Metric:          engineeringPolicy.Metric,
+			Period:          engineeringPolicy.Period,
+			LimitDelta:      1,
+			Status:          model.EnterpriseQuotaRequestStatusPending,
+			EffectiveAt:     common.GetTimestamp(),
+			ExpiresAt:       common.GetTimestamp() + 3600,
+		},
+		{
+			EnterpriseId:    enterprise.Id,
+			ApplicantUserId: salesUserId,
+			PolicyId:        salesPolicy.Id,
+			TargetType:      salesPolicy.TargetType,
+			TargetId:        salesPolicy.TargetId,
+			Metric:          salesPolicy.Metric,
+			Period:          salesPolicy.Period,
+			LimitDelta:      1,
+			Status:          model.EnterpriseQuotaRequestStatusPending,
+			EffectiveAt:     common.GetTimestamp(),
+			ExpiresAt:       common.GetTimestamp() + 3600,
+		},
+	}).Error)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseUsageAttribution{
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "dept-usage",
+			UserId:       engineerId,
+			OrgUnitId:    engineeringId,
+			ModelName:    "gpt-4o",
+			Quota:        100,
+			Status:       "succeeded",
+			CreatedAt:    1000,
+		},
+		{
+			EnterpriseId: enterprise.Id,
+			RequestId:    "sales-usage",
+			UserId:       salesUserId,
+			OrgUnitId:    salesId,
+			ModelName:    "gpt-4o",
+			Quota:        500,
+			Status:       "succeeded",
+			CreatedAt:    1000,
+		},
+	}).Error)
+
+	router := newEnterpriseRouterForTest(t)
+	departmentCookies := loginEnterpriseRouterUserForTest(t, router, departmentAdminId, common.RoleCommonUser)
+
+	members := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/members?page_size=20", "", departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, members).Success)
+	memberPage := decodeEnterprisePageResponseForTest[enterpriseMemberItemForTest](t, members)
+	require.ElementsMatch(t, []int{departmentAdminId, engineerId, platformUserId}, enterpriseMemberUserIdsForTest(memberPage.Data.Items))
+
+	policies := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/quota-policies?page_size=20", "", departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, policies).Success)
+	policyPage := decodeEnterprisePageResponseForTest[enterpriseQuotaPolicyItemForTest](t, policies)
+	require.Len(t, policyPage.Data.Items, 1)
+	require.Equal(t, engineeringPolicy.Id, policyPage.Data.Items[0].Id)
+
+	createScopedPolicy := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-policies", `{
+    "name": "Platform Scoped",
+    "target_type": "org_unit",
+    "target_id": `+strconv.Itoa(platformId)+`,
+    "metric": "request_count",
+    "period": "day",
+    "limit_value": 5,
+    "timezone": "Asia/Shanghai",
+    "model_scope": "all",
+    "action": "reject",
+    "status": 1
+  }`, departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, createScopedPolicy).Success)
+
+	createCrossPolicy := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-policies", `{
+    "name": "Sales Cross",
+    "target_type": "org_unit",
+    "target_id": `+strconv.Itoa(salesId)+`,
+    "metric": "request_count",
+    "period": "day",
+    "limit_value": 5,
+    "timezone": "Asia/Shanghai",
+    "model_scope": "all",
+    "action": "reject",
+    "status": 1
+  }`, departmentCookies, departmentAdminId)
+	crossPolicyResponse := decodeEnterpriseAuthResponse(t, createCrossPolicy)
+	require.False(t, crossPolicyResponse.Success)
+	require.Contains(t, crossPolicyResponse.Message, "本部门范围外")
+
+	quotaRequests := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/quota-requests?page_size=20", "", departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, quotaRequests).Success)
+	requestPage := decodeEnterprisePageResponseForTest[enterpriseQuotaRequestItemForTest](t, quotaRequests)
+	require.Len(t, requestPage.Data.Items, 1)
+	require.Equal(t, engineerId, requestPage.Data.Items[0].ApplicantUserId)
+
+	var engineeringRequest model.EnterpriseQuotaRequest
+	require.NoError(t, model.DB.Where("applicant_user_id = ?", engineerId).First(&engineeringRequest).Error)
+	var salesRequest model.EnterpriseQuotaRequest
+	require.NoError(t, model.DB.Where("applicant_user_id = ?", salesUserId).First(&salesRequest).Error)
+	approveScoped := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-requests/"+strconv.Itoa(engineeringRequest.Id)+"/approve", `{}`, departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, approveScoped).Success)
+	approveCross := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-requests/"+strconv.Itoa(salesRequest.Id)+"/approve", `{}`, departmentCookies, departmentAdminId)
+	approveCrossResponse := decodeEnterpriseAuthResponse(t, approveCross)
+	require.False(t, approveCrossResponse.Success)
+	require.Contains(t, approveCrossResponse.Message, "本部门范围外")
+
+	usageSummary := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100", "", departmentCookies, departmentAdminId)
+	usageResponse := decodeEnterpriseUsageSummaryResponseForTest(t, usageSummary)
+	require.True(t, usageResponse.Success, usageResponse.Message)
+	require.EqualValues(t, 1, usageResponse.Data.Total.RequestCount)
+	require.EqualValues(t, 100, usageResponse.Data.Total.Quota)
+
+	crossUsage := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary?start_time=900&end_time=1100&org_unit_id="+strconv.Itoa(salesId), "", departmentCookies, departmentAdminId)
+	crossUsageResponse := decodeEnterpriseUsageSummaryResponseForTest(t, crossUsage)
+	require.False(t, crossUsageResponse.Success)
+	require.Contains(t, crossUsageResponse.Message, "本部门范围外")
+
+	updateCrossMember := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/members/"+strconv.Itoa(salesUserId)+"/org-unit", `{
+    "org_unit_id": `+strconv.Itoa(platformId)+`
+  }`, departmentCookies, departmentAdminId)
+	updateCrossMemberResponse := decodeEnterpriseAuthResponse(t, updateCrossMember)
+	require.False(t, updateCrossMemberResponse.Success)
+	require.Contains(t, updateCrossMemberResponse.Message, "本部门范围外")
 }
 
 func setupEnterpriseRouterTestDB(t *testing.T) {
@@ -407,7 +592,32 @@ func requestEnterpriseCurrentForTest(t *testing.T, router *gin.Engine, cookies [
 	return requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/current", "", cookies, userId)
 }
 
-func seedEnterpriseMembershipRoleForTest(t *testing.T, enterpriseId int, userId int, role string) {
+func seedEnterpriseOrgUnitForTest(t *testing.T, enterpriseId int, parentId int, name string, slug string) int {
+	t.Helper()
+	path := "/"
+	depth := 0
+	if parentId > 0 {
+		var parent model.EnterpriseOrgUnit
+		require.NoError(t, model.DB.Where("enterprise_id = ? AND id = ?", enterpriseId, parentId).First(&parent).Error)
+		path = parent.Path
+		depth = parent.Depth + 1
+	}
+	unit := model.EnterpriseOrgUnit{
+		EnterpriseId: enterpriseId,
+		ParentId:     parentId,
+		Name:         name,
+		Slug:         slug,
+		Path:         "",
+		Depth:        depth,
+		Status:       model.OrgUnitStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&unit).Error)
+	unit.Path = path + strconv.Itoa(unit.Id) + "/"
+	require.NoError(t, model.DB.Save(&unit).Error)
+	return unit.Id
+}
+
+func seedEnterpriseMembershipRoleForTest(t *testing.T, enterpriseId int, userId int, role string, orgUnitIds ...int) {
 	t.Helper()
 	require.NoError(t, model.DB.Where("id = ?", userId).Attrs(model.User{
 		Username: "enterprise-rbac-test-" + strconv.Itoa(userId),
@@ -416,12 +626,45 @@ func seedEnterpriseMembershipRoleForTest(t *testing.T, enterpriseId int, userId 
 		Group:    "default",
 		AffCode:  "enterprise-rbac-test-" + strconv.Itoa(userId),
 	}).FirstOrCreate(&model.User{Id: userId}).Error)
+	orgUnitId := 0
+	if len(orgUnitIds) > 0 {
+		orgUnitId = orgUnitIds[0]
+	}
 	require.NoError(t, model.DB.Create(&model.EnterpriseOrgMembership{
 		EnterpriseId: enterpriseId,
 		UserId:       userId,
+		OrgUnitId:    orgUnitId,
 		Role:         role,
 		IsPrimary:    true,
 	}).Error)
+}
+
+func seedEnterpriseQuotaPolicyForTest(t *testing.T, enterpriseId int, name string, targetType string, targetId int) model.EnterpriseQuotaPolicy {
+	t.Helper()
+	policy := model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterpriseId,
+		Name:         name,
+		TargetType:   targetType,
+		TargetId:     targetId,
+		Metric:       model.PolicyMetricRequestCount,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   10,
+		Timezone:     model.DefaultEnterpriseTimezone,
+		ModelScope:   model.PolicyModelScopeAll,
+		ModelsJson:   "[]",
+		Action:       model.PolicyActionReject,
+		Status:       model.QuotaPolicyStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&policy).Error)
+	return policy
+}
+
+func enterpriseMemberUserIdsForTest(items []enterpriseMemberItemForTest) []int {
+	ids := make([]int, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.UserId)
+	}
+	return ids
 }
 
 func requestEnterpriseForTest(t *testing.T, router *gin.Engine, method string, target string, body string, cookies []*http.Cookie, userId int) *httptest.ResponseRecorder {
@@ -444,6 +687,20 @@ func requestEnterpriseForTest(t *testing.T, router *gin.Engine, method string, t
 func decodeEnterpriseAuthResponse(t *testing.T, recorder *httptest.ResponseRecorder) enterpriseAuthResponse {
 	t.Helper()
 	var response enterpriseAuthResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	return response
+}
+
+func decodeEnterprisePageResponseForTest[T any](t *testing.T, recorder *httptest.ResponseRecorder) enterprisePageResponseForTest[T] {
+	t.Helper()
+	var response enterprisePageResponseForTest[T]
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	return response
+}
+
+func decodeEnterpriseUsageSummaryResponseForTest(t *testing.T, recorder *httptest.ResponseRecorder) enterpriseUsageSummaryResponseForTest {
+	t.Helper()
+	var response enterpriseUsageSummaryResponseForTest
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	return response
 }

@@ -22,9 +22,10 @@ const (
 )
 
 type EnterpriseQuotaRequestNotificationListOptions struct {
-	Page       int
-	Limit      int
-	UnreadOnly bool
+	Page             int
+	Limit            int
+	UnreadOnly       bool
+	ReviewOrgUnitIds []int
 }
 
 type EnterpriseQuotaRequestNotification struct {
@@ -80,7 +81,7 @@ func ListEnterpriseQuotaRequestNotifications(enterpriseId int, userId int, isAdm
 	}
 
 	rowLimit := EnterpriseQuotaRequestNotificationMaxScan
-	rows, err := listQuotaRequestNotificationRows(enterpriseId, userId, isAdmin, rowLimit)
+	rows, err := listQuotaRequestNotificationRows(enterpriseId, userId, isAdmin, options.ReviewOrgUnitIds, rowLimit)
 	if err != nil {
 		return EnterpriseQuotaRequestNotificationList{}, err
 	}
@@ -127,8 +128,8 @@ func normalizeEnterpriseQuotaRequestNotificationListOptions(options EnterpriseQu
 	return options
 }
 
-func listQuotaRequestNotificationRows(enterpriseId int, userId int, isAdmin bool, limit int) ([]quotaRequestNotificationRow, error) {
-	pendingRows, err := listPendingQuotaRequestNotificationRows(enterpriseId, isAdmin, limit)
+func listQuotaRequestNotificationRows(enterpriseId int, userId int, isAdmin bool, reviewOrgUnitIds []int, limit int) ([]quotaRequestNotificationRow, error) {
+	pendingRows, err := listPendingQuotaRequestNotificationRows(enterpriseId, isAdmin, reviewOrgUnitIds, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +137,7 @@ func listQuotaRequestNotificationRows(enterpriseId int, userId int, isAdmin bool
 	if err != nil {
 		return nil, err
 	}
-	expiringRows, err := listExpiringSoonQuotaRequestNotificationRows(enterpriseId, userId, isAdmin, limit)
+	expiringRows, err := listExpiringSoonQuotaRequestNotificationRows(enterpriseId, userId, isAdmin, reviewOrgUnitIds, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -149,16 +150,17 @@ func listQuotaRequestNotificationRows(enterpriseId int, userId int, isAdmin bool
 	return rows, nil
 }
 
-func listPendingQuotaRequestNotificationRows(enterpriseId int, isAdmin bool, limit int) ([]quotaRequestNotificationRow, error) {
+func listPendingQuotaRequestNotificationRows(enterpriseId int, isAdmin bool, reviewOrgUnitIds []int, limit int) ([]quotaRequestNotificationRow, error) {
 	if !isAdmin {
 		return []quotaRequestNotificationRow{}, nil
 	}
 	var requests []model.EnterpriseQuotaRequest
-	if err := model.DB.
+	query := model.DB.
 		Where("enterprise_id = ? AND status = ?", enterpriseId, model.EnterpriseQuotaRequestStatusPending).
 		Order("created_at desc, id desc").
-		Limit(limit).
-		Find(&requests).Error; err != nil {
+		Limit(limit)
+	query = applyQuotaRequestNotificationReviewScope(query, enterpriseId, reviewOrgUnitIds)
+	if err := query.Find(&requests).Error; err != nil {
 		return nil, err
 	}
 	rows := make([]quotaRequestNotificationRow, 0, len(requests))
@@ -250,7 +252,7 @@ func listDecisionQuotaRequestNotificationRows(enterpriseId int, userId int, limi
 	return rows, nil
 }
 
-func listExpiringSoonQuotaRequestNotificationRows(enterpriseId int, userId int, isAdmin bool, limit int) ([]quotaRequestNotificationRow, error) {
+func listExpiringSoonQuotaRequestNotificationRows(enterpriseId int, userId int, isAdmin bool, reviewOrgUnitIds []int, limit int) ([]quotaRequestNotificationRow, error) {
 	now := common.GetTimestamp()
 	windowEnd := now + int64(EnterpriseQuotaRequestExpiringSoonWindow/time.Second)
 	query := model.DB.
@@ -258,6 +260,8 @@ func listExpiringSoonQuotaRequestNotificationRows(enterpriseId int, userId int, 
 		Where("effective_at <= ? AND expires_at > ? AND expires_at <= ?", now, now, windowEnd)
 	if !isAdmin {
 		query = query.Where("applicant_user_id = ?", userId)
+	} else {
+		query = applyQuotaRequestNotificationReviewScope(query, enterpriseId, reviewOrgUnitIds)
 	}
 	var requests []model.EnterpriseQuotaRequest
 	if err := query.Order("expires_at asc, id desc").Limit(limit).Find(&requests).Error; err != nil {
@@ -280,6 +284,16 @@ func listExpiringSoonQuotaRequestNotificationRows(enterpriseId int, userId int, 
 	}
 	fillQuotaRequestNotificationNames(enterpriseId, rows)
 	return rows, nil
+}
+
+func applyQuotaRequestNotificationReviewScope(query *gorm.DB, enterpriseId int, reviewOrgUnitIds []int) *gorm.DB {
+	if len(reviewOrgUnitIds) == 0 {
+		return query
+	}
+	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
+		Select("user_id").
+		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, reviewOrgUnitIds)
+	return query.Where("applicant_user_id IN (?)", scopedUserIds)
 }
 
 func fillQuotaRequestNotificationNames(enterpriseId int, rows []quotaRequestNotificationRow) {
