@@ -22,7 +22,7 @@
 | 8 | DP-V15-001 | P2 | Done | V1.5 Redis 原子企业额度计数 MVP | 默认关闭的 `EnterpriseQuotaRedisCounterEnabled` 开关、Redis Lua 原子 reserve/settle/refund、DB seed、防 Redis 异常降级和回归测试。 |
 | 9 | DP-V15-002 | P2 | Done | V1.5 DB/Redis 对账补偿 MVP | 管理员 dry-run/repair API、主节点周期对账任务、Redis 快照幂等修复、审计日志和回归测试。 |
 | 10 | DP-V15-003 | P2 | Done | V1.5 token 级 hard limit | token 模型支持硬额度上限；relay 前置校验、超限错误、结算回滚和单测覆盖完整。 |
-| 11 | DP-V15-004 | P2 | Pending | V1.5 并发压测脚本 | 提供企业额度 reserve/settle/refund 并发一致性脚本，并在文档中记录 Redis/DB 两种模式的运行方式。 |
+| 11 | DP-V15-004 | P2 | Done | V1.5 并发压测脚本 | 提供企业额度 reserve/settle/refund 并发一致性脚本，并在文档中记录 Redis/DB 两种模式的运行方式。 |
 | 12 | DP-V15-005 | P2 | Pending | V1.5 Redis-only 崩溃恢复 | 扫描 Redis-only counter key、补建缺失 DB mirror，并评估操作级幂等补偿队列。 |
 | 13 | DP-V16-001 | P2 | Pending | V1.6 高级策略动作 | 支持 alert、fallback_model、queue、shared_pool 等动作，并保留审计和用户提示。 |
 | 14 | DP-V17-001 | P2 | Pending | V1.7 企业治理 RBAC/财务视图 | 企业管理员、部门管理员、财务查看员、审计员、项目管理员的权限边界和回归测试。 |
@@ -35,8 +35,8 @@ V1.5 高并发和精细额度继续按以下顺序拆分，避免额度主链路
 2. 已完成：新增 Redis 原子计数抽象，先覆盖企业策略 counter 的 request_count/quota reserve/settle/refund，不改变用户余额主逻辑。
 3. 已完成：增加 DB/Redis 对账补偿 MVP，管理员可 dry-run/repair，主节点周期任务可将 Redis 快照幂等修复到 DB 当前值，并写入 `quota_counter.reconcile` 审计。
 4. 已完成：补 token 级 hard limit 的模型、relay/MCP 校验、结算回滚和回归测试；MCP 保持按次扣费，只把每次调用费用纳入 token hard limit 判断。
-5. 下一步：增加轻量并发测试或压测脚本，先验证计数一致性，再扩展到真实 relay 压测。
-6. 后续：补 Redis-only 崩溃恢复，扫描 Redis 里存在但 DB mirror 缺失的 counter key，并评估是否需要操作级幂等补偿队列。
+5. 已完成：增加轻量并发测试/压测入口，覆盖企业额度 reserve 后混合 settle/refund、低上限并发抢占和释放后的 reserved 归零。
+6. 下一步：补 Redis-only 崩溃恢复，扫描 Redis 里存在但 DB mirror 缺失的 counter key，并评估是否需要操作级幂等补偿队列。
 
 ## 当前进展
 
@@ -49,6 +49,7 @@ V1.5 高并发和精细额度继续按以下顺序拆分，避免额度主链路
 - DP-V15-001 已完成最小可用闭环：新增默认关闭的 `EnterpriseQuotaRedisCounterEnabled` 配置项；企业额度 reserve 优先走 Redis Lua 原子计数，quota exceeded 保持硬拒绝，Redis/后端异常时降级 DB 原路径；Redis 首次 key 使用 DB counter seed，避免中途启用后从零计数；reserve 成功后同步 DB counter 用于审计、可见性和后续对账；settle/refund 会同步 Redis 和 DB。新增回归覆盖默认关闭配置、Redis reserve/settle/refund、DB seed 和现有并发 DB 限额。
 - DP-V15-002 已完成最小可用闭环：新增 `POST /api/enterprise/quota-counters/reconcile`，支持管理员 dry-run 和 repair；新增主节点周期任务，在 `EnterpriseQuotaRedisCounterEnabled` 且 Redis 可用时每 5 分钟对账活跃 DB counter；repair 使用 Redis `SetSnapshot` 幂等修复到 DB 当前快照，并写入 `quota_counter.reconcile` 审计；新增回归覆盖差异发现、修复和审计可见性。Redis-only 崩溃恢复和操作级补偿队列拆到 DP-V15-005。
 - DP-V15-003 已完成最小可用闭环：新增 `quota_hard_limit_enabled` token 字段；API Key 控制台支持 unlimited token 配置硬上限；relay hard limit 会禁用信任额度旁路、前置拒绝超限并在正向补扣时先锁定 token 额度；MCP 继续只按 `price_per_call` 进行按次扣费，并把该按次额度纳入 token hard limit 预检、结算和退款；新增 controller/service 回归测试。
+- DP-V15-004 已完成轻量并发压测入口：新增 `scripts/enterprise-quota-counter-stress.sh` 和 `make enterprise-quota-counter-stress`，默认跑 DB 与 Redis-code-path(fake atomic counter) 两种模式；覆盖高上限并发 reserve 后混合 settle/refund 的最终一致性，以及低上限并发抢占的成功/拒绝数量和 refund 后 reserved 归零。常用命令：`scripts/enterprise-quota-counter-stress.sh`；仅 DB：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=db scripts/enterprise-quota-counter-stress.sh`；仅 Redis 代码路径：`ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis scripts/enterprise-quota-counter-stress.sh`；连接真实 Redis Lua 路径：`REDIS_CONN_STRING=redis://:123456@127.0.0.1:6379/0 ENTERPRISE_QUOTA_COUNTER_STRESS_MODE=redis ENTERPRISE_QUOTA_COUNTER_STRESS_REDIS_BACKEND=real scripts/enterprise-quota-counter-stress.sh`。
 
 ## 提交和发布规则
 

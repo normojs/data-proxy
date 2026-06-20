@@ -31,8 +31,13 @@ MCP_MIGRATION_KEEP_DOCKER ?= 0
 DEPLOYMENT_PREFLIGHT_DOCKER_BUILD ?= 0
 DEPLOYMENT_PREFLIGHT_DOCKER_TARGET ?= builder2
 DEPLOYMENT_PREFLIGHT_IMAGE ?= data-proxy:preflight-builder
+ENTERPRISE_QUOTA_COUNTER_STRESS_MODE ?= all
+ENTERPRISE_QUOTA_COUNTER_STRESS_REDIS_BACKEND ?= fake
+ENTERPRISE_QUOTA_COUNTER_STRESS_WORKERS ?= 32
+ENTERPRISE_QUOTA_COUNTER_STRESS_OPERATIONS ?= 200
+ENTERPRISE_QUOTA_COUNTER_STRESS_TIMEOUT ?= 180s
 
-.PHONY: all build-frontend build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web reset-setup deployment-preflight mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-migration-postgres-docker mcp-migration-mysql-docker mcp-migration-docker mcp-migration-docker-clean mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
+.PHONY: all build-frontend build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web reset-setup deployment-preflight enterprise-quota-counter-stress mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-migration-postgres-docker mcp-migration-mysql-docker mcp-migration-docker mcp-migration-docker-clean mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
 
 all: build-all-frontends start-backend
 
@@ -103,6 +108,14 @@ deployment-preflight:
 	fi
 	@git diff --check
 	@echo "Deployment preflight passed."
+
+enterprise-quota-counter-stress:
+	@ENTERPRISE_QUOTA_COUNTER_STRESS_MODE="$(ENTERPRISE_QUOTA_COUNTER_STRESS_MODE)" \
+		ENTERPRISE_QUOTA_COUNTER_STRESS_REDIS_BACKEND="$(ENTERPRISE_QUOTA_COUNTER_STRESS_REDIS_BACKEND)" \
+		ENTERPRISE_QUOTA_COUNTER_STRESS_WORKERS="$(ENTERPRISE_QUOTA_COUNTER_STRESS_WORKERS)" \
+		ENTERPRISE_QUOTA_COUNTER_STRESS_OPERATIONS="$(ENTERPRISE_QUOTA_COUNTER_STRESS_OPERATIONS)" \
+		ENTERPRISE_QUOTA_COUNTER_STRESS_TIMEOUT="$(ENTERPRISE_QUOTA_COUNTER_STRESS_TIMEOUT)" \
+		scripts/enterprise-quota-counter-stress.sh
 
 mcp-openapi-check:
 	@echo "Running MCP OpenAPI regression tests..."
