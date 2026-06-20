@@ -1,0 +1,114 @@
+name: Publish Data Proxy image
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to publish, for example v1.3.0"
+        required: true
+        type: string
+      publish_latest:
+        description: "Also publish the latest tag"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: data-proxy-docker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve image tags
+        id: image
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_PUBLISH_LATEST: ${{ github.event.inputs.publish_latest }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="${INPUT_TAG}"
+            if ! git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "::error::Tag '${TAG}' does not exist"
+              exit 1
+            fi
+            PUBLISH_LATEST="${INPUT_PUBLISH_LATEST}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            PUBLISH_LATEST="true"
+          fi
+
+          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY,,}"
+          SHORT_SHA="${GITHUB_SHA::12}"
+          echo "${TAG}" > VERSION
+          {
+            echo "tag=${TAG}"
+            echo "image=${IMAGE_NAME}"
+            echo "tags<<EOF"
+            echo "${IMAGE_NAME}:${TAG}"
+            echo "${IMAGE_NAME}:sha-${SHORT_SHA}"
+            if [ "${PUBLISH_LATEST}" = "true" ]; then
+              echo "${IMAGE_NAME}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=Data Proxy
+            org.opencontainers.image.description=Data Proxy based on new-api
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.version=${{ steps.image.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Image summary
+        run: |
+          echo "### Data Proxy image" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`${{ steps.image.outputs.image }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: \`${{ steps.image.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published tags:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.image.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

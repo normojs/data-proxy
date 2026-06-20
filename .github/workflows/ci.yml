@@ -1,0 +1,99 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    env:
+      GIN_MODE: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ">=1.25.1"
+          cache-dependency-path: go.sum
+
+      - name: Check release artifacts
+        run: scripts/enterprise-governance-preflight.sh --artifact-check-only
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Check gofmt
+        run: |
+          files="$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))"
+          if [ -n "$files" ]; then
+            echo "The following Go files need gofmt:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Run backend tests
+        run: go test ./model ./controller ./service ./router
+
+      - name: Run enterprise governance rollout smoke
+        run: go test ./service -run TestEnterpriseGovernanceRolloutRunbookR0ToR3 -count=1
+
+      - name: Run enterprise governance controller smoke
+        run: go test ./controller -run 'TestEnterprise(QuotaPolicyCreateWritesAuditLog|AuditLogFilters|UsageSummaryAndBreakdown)' -count=1
+
+      - name: Check whitespace
+        run: git diff --check
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: web/default
+        run: bun run typecheck
+
+      - name: Approval notification link smoke
+        working-directory: web/default
+        run: bun run smoke:approval-notification-links
+
+      - name: Build
+        working-directory: web/default
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        run: bun run build
+
+      - name: Check whitespace
+        run: git diff --check
