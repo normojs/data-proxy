@@ -166,6 +166,26 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
+	fallbackApplied, apiErr := applyEnterpriseGovernanceFallbackModel(c, relayInfo)
+	if apiErr != nil {
+		newAPIError = apiErr
+		return
+	}
+	if fallbackApplied {
+		tokens, err = service.EstimateRequestToken(c, meta, relayInfo)
+		if err != nil {
+			newAPIError = types.NewError(err, types.ErrorCodeCountTokenFailed)
+			return
+		}
+		relayInfo.SetEstimatePromptTokens(tokens)
+
+		priceData, err = helper.ModelPriceHelper(c, relayInfo, tokens, meta)
+		if err != nil {
+			newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+			return
+		}
+	}
+
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
 	if priceData.FreeModel {
@@ -334,6 +354,42 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, newAPIError
 	}
 	return channel, nil
+}
+
+func applyEnterpriseGovernanceFallbackModel(c *gin.Context, relayInfo *relaycommon.RelayInfo) (bool, *types.NewAPIError) {
+	result, err := service.ApplyEnterpriseGovernanceFallbackModel(c, relayInfo)
+	if err != nil {
+		return false, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	if !result.Applied {
+		return false, nil
+	}
+
+	if relayInfo.TokenGroup == "auto" {
+		common.SetContextKey(c, constant.ContextKeyAutoGroupIndex, 0)
+		common.SetContextKey(c, constant.ContextKeyAutoGroupRetryIndex, 0)
+	}
+	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+		Ctx:        c,
+		TokenGroup: relayInfo.TokenGroup,
+		ModelName:  result.FallbackModel,
+		Retry:      common.GetPointer(0),
+	})
+	showGroup := relayInfo.TokenGroup
+	if relayInfo.TokenGroup == "auto" {
+		showGroup = fmt.Sprintf("auto(%s)", selectGroup)
+	}
+	if err != nil {
+		return true, types.NewError(fmt.Errorf("获取分组 %s 下降级模型 %s 的可用渠道失败: %s", showGroup, result.FallbackModel, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	if channel == nil {
+		return true, types.NewError(fmt.Errorf("分组 %s 下降级模型 %s 的可用渠道不存在", showGroup, result.FallbackModel), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	if newAPIError := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); newAPIError != nil {
+		return true, newAPIError
+	}
+	relayInfo.ChannelMeta = nil
+	return true, nil
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {

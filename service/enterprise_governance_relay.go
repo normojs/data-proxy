@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -28,6 +30,12 @@ const (
 	enterprisePolicyActionHintHeader            = "X-Data-Proxy-Enterprise-Policy-Action-Hint"
 	enterpriseFallbackModelHeader               = "X-Data-Proxy-Enterprise-Fallback-Model"
 )
+
+type EnterpriseGovernanceFallbackResult struct {
+	Applied       bool
+	OriginalModel string
+	FallbackModel string
+}
 
 func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayInfo, estimatedQuota int) *types.NewAPIError {
 	if !common.EnterpriseGovernanceEnabled || relayInfo == nil {
@@ -90,6 +98,84 @@ func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayIn
 			types.ErrOptionWithNoRecordErrorLog(),
 		)
 	}
+	return nil
+}
+
+func ApplyEnterpriseGovernanceFallbackModel(c *gin.Context, relayInfo *relaycommon.RelayInfo) (EnterpriseGovernanceFallbackResult, error) {
+	result := EnterpriseGovernanceFallbackResult{}
+	if !common.EnterpriseGovernanceEnabled || c == nil || relayInfo == nil {
+		return result, nil
+	}
+	decision, ok := common.GetContextKeyType[PolicyDecision](c, constant.ContextKeyEnterpriseGovernanceDecision)
+	if !ok {
+		return result, nil
+	}
+	fallbackModel := strings.TrimSpace(firstEnterprisePolicyFallbackModel(decision.ActionObservations))
+	if fallbackModel == "" || fallbackModel == relayInfo.OriginModelName {
+		return result, nil
+	}
+
+	originalModel := relayInfo.OriginModelName
+	relayInfo.OriginModelName = fallbackModel
+	if relayInfo.Request != nil {
+		relayInfo.Request.SetModelName(fallbackModel)
+	}
+	if relayInfo.ChannelMeta != nil {
+		relayInfo.UpstreamModelName = fallbackModel
+		relayInfo.IsModelMapped = false
+	}
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, fallbackModel)
+	if err := syncEnterpriseGovernanceFallbackJSONBody(c, fallbackModel); err != nil {
+		relayInfo.OriginModelName = originalModel
+		if relayInfo.Request != nil {
+			relayInfo.Request.SetModelName(originalModel)
+		}
+		common.SetContextKey(c, constant.ContextKeyOriginalModel, originalModel)
+		return result, err
+	}
+
+	result.Applied = true
+	result.OriginalModel = originalModel
+	result.FallbackModel = fallbackModel
+	logger.LogWarn(c, fmt.Sprintf("enterprise governance fallback model applied: %s -> %s", originalModel, fallbackModel))
+	return result, nil
+}
+
+func syncEnterpriseGovernanceFallbackJSONBody(c *gin.Context, fallbackModel string) error {
+	if c == nil || c.Request == nil || !strings.HasPrefix(strings.ToLower(c.Request.Header.Get("Content-Type")), "application/json") {
+		return nil
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return err
+	}
+	raw, err := storage.Bytes()
+	if err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	payload := map[string]any{}
+	if err := common.Unmarshal(raw, &payload); err != nil {
+		return err
+	}
+	payload["model"] = fallbackModel
+	encoded, err := common.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	newStorage, err := common.CreateBodyStorage(encoded)
+	if err != nil {
+		return err
+	}
+	_ = storage.Close()
+	c.Set(common.KeyBodyStorage, newStorage)
+	if _, err := newStorage.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	c.Request.Body = io.NopCloser(newStorage)
+	c.Request.ContentLength = int64(len(encoded))
 	return nil
 }
 

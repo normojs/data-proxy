@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -492,7 +493,10 @@ func TestPreCheckEnterpriseGovernanceFallbackModelActionAllowsWithHint(t *testin
 		RequestId:       "req-enterprise-fallback-action",
 		OriginModelName: "claude-sonnet-4",
 		RelayMode:       relayconstant.RelayModeChatCompletions,
+		Request:         &dto.GeneralOpenAIRequest{Model: "claude-sonnet-4"},
 	}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"claude-sonnet-4","messages":[{"role":"user","content":"hello"}]}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
 
 	apiErr := PreCheckEnterpriseGovernance(ctx, relayInfo, 1)
 	require.Nil(t, apiErr)
@@ -518,6 +522,24 @@ func TestPreCheckEnterpriseGovernanceFallbackModelActionAllowsWithHint(t *testin
 	assert.Equal(t, model.PolicyActionFallbackModel, action["action"])
 	assert.Equal(t, "model_not_allowed", action["trigger"])
 	assert.Equal(t, "gpt-4o", action["fallback_model"])
+
+	result, err := ApplyEnterpriseGovernanceFallbackModel(ctx, relayInfo)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	assert.Equal(t, "claude-sonnet-4", result.OriginalModel)
+	assert.Equal(t, "gpt-4o", result.FallbackModel)
+	assert.Equal(t, "gpt-4o", relayInfo.OriginModelName)
+	assert.Equal(t, "gpt-4o", common.GetContextKeyString(ctx, constant.ContextKeyOriginalModel))
+	request, ok := relayInfo.Request.(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	assert.Equal(t, "gpt-4o", request.Model)
+	storage, err := common.GetBodyStorage(ctx)
+	require.NoError(t, err)
+	rawBody, err := storage.Bytes()
+	require.NoError(t, err)
+	body := map[string]any{}
+	require.NoError(t, common.Unmarshal(rawBody, &body))
+	assert.Equal(t, "gpt-4o", body["model"])
 
 	var hardRejectCount int64
 	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).

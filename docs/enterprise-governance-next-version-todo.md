@@ -173,7 +173,7 @@
 | ID | 优先级 | 任务 | 验收 |
 | --- | --- | --- | --- |
 | NV-0601 | P1 | 策略 action 扩展 | MVP 已支持 reject、alert、fallback_model、queue、shared_pool 的配置、命中观测、响应提示和审计；unknown action 保守按 reject 处理 |
-| NV-0602 | P1 | 模型自动降级 | 基于 fallback_model 命中结果真正改写模型前，必须同步渠道选择、请求体、计费 attribution、审计和用户提示 |
+| NV-0602 | P1 | 模型自动降级 | 已完成基础交付：fallback_model 命中后会改写 relay 模型、JSON 请求体、重选渠道并按降级模型重新估算预扣费；审计和响应 header 保留降级提示 |
 | NV-0603 | P1 | 低优先级排队 | 基于 queue 命中结果建立异步队列、延迟执行、取消、重试和超时语义 |
 | NV-0604 | P2 | 企业共享池 | 基于 shared_pool 命中结果实现共享额度池、借用上限、归还、报表归属和审计 |
 | NV-0605 | P2 | 异常检测后自动限流 | 发现突增、异常失败率或异常成本时自动进入保护策略 |
