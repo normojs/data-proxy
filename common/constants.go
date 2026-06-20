@@ -84,6 +84,7 @@ var WeChatAuthEnabled = false
 var TelegramOAuthEnabled = false
 var EnterpriseGovernanceEnabled = false
 var EnterpriseGovernanceDryRunEnabled = false
+var EnterpriseQuotaRedisCounterEnabled = false
 var TurnstileCheckEnabled = false
 var RegisterEnabled = true
 

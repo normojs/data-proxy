@@ -46,6 +46,7 @@ func InitOptionMap() {
 	common.OptionMap["WeChatAuthEnabled"] = strconv.FormatBool(common.WeChatAuthEnabled)
 	common.OptionMap["EnterpriseGovernanceEnabled"] = strconv.FormatBool(common.EnterpriseGovernanceEnabled)
 	common.OptionMap["EnterpriseGovernanceDryRunEnabled"] = strconv.FormatBool(common.EnterpriseGovernanceDryRunEnabled)
+	common.OptionMap["EnterpriseQuotaRedisCounterEnabled"] = strconv.FormatBool(common.EnterpriseQuotaRedisCounterEnabled)
 	common.OptionMap["TurnstileCheckEnabled"] = strconv.FormatBool(common.TurnstileCheckEnabled)
 	common.OptionMap["RegisterEnabled"] = strconv.FormatBool(common.RegisterEnabled)
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
@@ -307,6 +308,8 @@ func updateOptionMap(key string, value string) (err error) {
 			common.EnterpriseGovernanceEnabled = boolValue
 		case "EnterpriseGovernanceDryRunEnabled":
 			common.EnterpriseGovernanceDryRunEnabled = boolValue
+		case "EnterpriseQuotaRedisCounterEnabled":
+			common.EnterpriseQuotaRedisCounterEnabled = boolValue
 		case "TurnstileCheckEnabled":
 			common.TurnstileCheckEnabled = boolValue
 		case "RegisterEnabled":

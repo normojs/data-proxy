@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -44,13 +45,18 @@ func setupEnterprisePolicyServiceTestDB(t *testing.T) {
 	originalDB := model.DB
 	originalEnabled := common.EnterpriseGovernanceEnabled
 	originalDryRun := common.EnterpriseGovernanceDryRunEnabled
+	originalRedisCounterEnabled := common.EnterpriseQuotaRedisCounterEnabled
+	originalCounterBackend := enterpriseQuotaCounterBackend
 	model.DB = db
 	common.EnterpriseGovernanceEnabled = true
 	common.EnterpriseGovernanceDryRunEnabled = false
+	common.EnterpriseQuotaRedisCounterEnabled = false
 	t.Cleanup(func() {
 		model.DB = originalDB
 		common.EnterpriseGovernanceEnabled = originalEnabled
 		common.EnterpriseGovernanceDryRunEnabled = originalDryRun
+		common.EnterpriseQuotaRedisCounterEnabled = originalRedisCounterEnabled
+		enterpriseQuotaCounterBackend = originalCounterBackend
 		_ = sqlDB.Close()
 	})
 	require.NoError(t, model.EnsureDefaultEnterprise())
@@ -508,6 +514,142 @@ func TestEnterpriseQuotaReservationConcurrentLimit(t *testing.T) {
 	assert.EqualValues(t, 0, counter.UsedValue)
 }
 
+func TestEnterpriseQuotaRedisCounterReserveSettleAndRefund(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	common.EnterpriseQuotaRedisCounterEnabled = true
+	fakeCounter := newFakeEnterpriseQuotaAtomicCounter()
+	enterpriseQuotaCounterBackend = fakeCounter
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1012, Username: "redis-counter-user", Status: common.UserStatusEnabled, Group: "default"}).Error)
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "企业 Redis 请求次数",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricRequestCount,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   2,
+		ModelScope:   model.PolicyModelScopeAll,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+	ctx := &EnterpriseContext{Enabled: true, EnterpriseId: enterprise.Id, UserId: 1012}
+	now := time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC)
+
+	first, err := ReserveEnterpriseQuota(PolicyEvaluationRequest{
+		EnterpriseContext: ctx,
+		Estimated:         UsageAmount{RequestCount: 1},
+		RequestId:         "req-enterprise-redis-1",
+		Now:               now,
+	}, []model.EnterpriseQuotaPolicy{policy})
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	assert.True(t, first.RedisCounterUsed)
+
+	second, err := ReserveEnterpriseQuota(PolicyEvaluationRequest{
+		EnterpriseContext: ctx,
+		Estimated:         UsageAmount{RequestCount: 1},
+		RequestId:         "req-enterprise-redis-2",
+		Now:               now,
+	}, []model.EnterpriseQuotaPolicy{policy})
+	require.NoError(t, err)
+	require.NotNil(t, second)
+
+	third, err := ReserveEnterpriseQuota(PolicyEvaluationRequest{
+		EnterpriseContext: ctx,
+		Estimated:         UsageAmount{RequestCount: 1},
+		RequestId:         "req-enterprise-redis-3",
+		Now:               now,
+	}, []model.EnterpriseQuotaPolicy{policy})
+	require.Error(t, err)
+	assert.Nil(t, third)
+	var quotaErr EnterpriseQuotaExceededError
+	require.True(t, errors.As(err, &quotaErr))
+	assert.EqualValues(t, 2, quotaErr.ReservedValue)
+	assert.EqualValues(t, 3, fakeCounter.reserveCalls)
+
+	var counter model.EnterpriseQuotaCounter
+	require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&counter).Error)
+	assert.EqualValues(t, 2, counter.ReservedValue)
+	assert.EqualValues(t, 0, counter.UsedValue)
+
+	require.NoError(t, SettleEnterpriseReservation(first, UsageAmount{RequestCount: 1}))
+	require.NoError(t, RefundEnterpriseReservation(second))
+
+	require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&counter).Error)
+	assert.EqualValues(t, 0, counter.ReservedValue)
+	assert.EqualValues(t, 1, counter.UsedValue)
+	snapshot := fakeCounter.snapshot(first.RedisCounterKeys[policy.Id])
+	assert.EqualValues(t, 0, snapshot.ReservedValue)
+	assert.EqualValues(t, 1, snapshot.UsedValue)
+}
+
+func TestEnterpriseQuotaRedisCounterSeedsFromDatabase(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	common.EnterpriseQuotaRedisCounterEnabled = true
+	fakeCounter := newFakeEnterpriseQuotaAtomicCounter()
+	enterpriseQuotaCounterBackend = fakeCounter
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1013, Username: "redis-seed-user", Status: common.UserStatusEnabled, Group: "default"}).Error)
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "企业 Redis seed 请求次数",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricRequestCount,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   2,
+		ModelScope:   model.PolicyModelScopeAll,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+	now := time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC)
+	start, end, err := ResolveEnterprisePolicyPeriod(policy, now)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.EnterpriseQuotaCounter{
+		EnterpriseId:  enterprise.Id,
+		PolicyId:      policy.Id,
+		TargetType:    policy.TargetType,
+		TargetId:      policy.TargetId,
+		Metric:        policy.Metric,
+		PeriodStart:   start.Unix(),
+		PeriodEnd:     end.Unix(),
+		UsedValue:     1,
+		ReservedValue: 0,
+	}).Error)
+
+	ctx := &EnterpriseContext{Enabled: true, EnterpriseId: enterprise.Id, UserId: 1013}
+	reservation, err := ReserveEnterpriseQuota(PolicyEvaluationRequest{
+		EnterpriseContext: ctx,
+		Estimated:         UsageAmount{RequestCount: 1},
+		RequestId:         "req-enterprise-redis-seed-1",
+		Now:               now,
+	}, []model.EnterpriseQuotaPolicy{policy})
+	require.NoError(t, err)
+	require.NotNil(t, reservation)
+
+	rejected, err := ReserveEnterpriseQuota(PolicyEvaluationRequest{
+		EnterpriseContext: ctx,
+		Estimated:         UsageAmount{RequestCount: 1},
+		RequestId:         "req-enterprise-redis-seed-2",
+		Now:               now,
+	}, []model.EnterpriseQuotaPolicy{policy})
+	require.Error(t, err)
+	assert.Nil(t, rejected)
+	var quotaErr EnterpriseQuotaExceededError
+	require.True(t, errors.As(err, &quotaErr))
+	assert.EqualValues(t, 1, quotaErr.UsedValue)
+	assert.EqualValues(t, 1, quotaErr.ReservedValue)
+
+	var counter model.EnterpriseQuotaCounter
+	require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&counter).Error)
+	assert.EqualValues(t, 1, counter.UsedValue)
+	assert.EqualValues(t, 1, counter.ReservedValue)
+	snapshot := fakeCounter.snapshot(reservation.RedisCounterKeys[policy.Id])
+	assert.EqualValues(t, 1, snapshot.UsedValue)
+	assert.EqualValues(t, 1, snapshot.ReservedValue)
+}
+
 func TestEnterpriseReservationSettleMovesReservedToUsed(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()
@@ -596,4 +738,70 @@ func enterprisePolicyIds(policies []model.EnterpriseQuotaPolicy) []int {
 		ids = append(ids, policy.Id)
 	}
 	return ids
+}
+
+type fakeEnterpriseQuotaAtomicCounter struct {
+	mu           sync.Mutex
+	snapshots    map[string]enterpriseQuotaCounterSnapshot
+	initialized  map[string]bool
+	reserveCalls int
+}
+
+func newFakeEnterpriseQuotaAtomicCounter() *fakeEnterpriseQuotaAtomicCounter {
+	return &fakeEnterpriseQuotaAtomicCounter{
+		snapshots:   map[string]enterpriseQuotaCounterSnapshot{},
+		initialized: map[string]bool{},
+	}
+}
+
+func (f *fakeEnterpriseQuotaAtomicCounter) Enabled() bool {
+	return true
+}
+
+func (f *fakeEnterpriseQuotaAtomicCounter) Reserve(ctx context.Context, key string, amount int64, limit int64, ttl time.Duration, seed enterpriseQuotaCounterSnapshot) (enterpriseQuotaCounterSnapshot, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reserveCalls++
+	if !f.initialized[key] {
+		f.snapshots[key] = seed
+		f.initialized[key] = true
+	}
+	snapshot := f.snapshots[key]
+	if snapshot.UsedValue+snapshot.ReservedValue+amount > limit {
+		return snapshot, false, nil
+	}
+	snapshot.ReservedValue += amount
+	f.snapshots[key] = snapshot
+	return snapshot, true, nil
+}
+
+func (f *fakeEnterpriseQuotaAtomicCounter) Settle(ctx context.Context, key string, reserved int64, actual int64, ttl time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	snapshot := f.snapshots[key]
+	snapshot.ReservedValue -= reserved
+	if snapshot.ReservedValue < 0 {
+		snapshot.ReservedValue = 0
+	}
+	snapshot.UsedValue += actual
+	f.snapshots[key] = snapshot
+	return nil
+}
+
+func (f *fakeEnterpriseQuotaAtomicCounter) Refund(ctx context.Context, key string, amount int64, ttl time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	snapshot := f.snapshots[key]
+	snapshot.ReservedValue -= amount
+	if snapshot.ReservedValue < 0 {
+		snapshot.ReservedValue = 0
+	}
+	f.snapshots[key] = snapshot
+	return nil
+}
+
+func (f *fakeEnterpriseQuotaAtomicCounter) snapshot(key string) enterpriseQuotaCounterSnapshot {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snapshots[key]
 }

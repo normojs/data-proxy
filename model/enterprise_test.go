@@ -94,26 +94,33 @@ func TestEnterpriseGovernanceOptionsDefaultDisabled(t *testing.T) {
 	require.NoError(t, DB.Where("key IN ?", []string{
 		"EnterpriseGovernanceEnabled",
 		"EnterpriseGovernanceDryRunEnabled",
+		"EnterpriseQuotaRedisCounterEnabled",
 	}).Delete(&Option{}).Error)
 	common.EnterpriseGovernanceEnabled = false
 	common.EnterpriseGovernanceDryRunEnabled = false
+	common.EnterpriseQuotaRedisCounterEnabled = false
 
 	InitOptionMap()
 
 	common.OptionMapRWMutex.RLock()
 	assert.Equal(t, "false", common.OptionMap["EnterpriseGovernanceEnabled"])
 	assert.Equal(t, "false", common.OptionMap["EnterpriseGovernanceDryRunEnabled"])
+	assert.Equal(t, "false", common.OptionMap["EnterpriseQuotaRedisCounterEnabled"])
 	common.OptionMapRWMutex.RUnlock()
 	assert.False(t, common.EnterpriseGovernanceEnabled)
 	assert.False(t, common.EnterpriseGovernanceDryRunEnabled)
+	assert.False(t, common.EnterpriseQuotaRedisCounterEnabled)
 
 	require.NoError(t, UpdateOption("EnterpriseGovernanceEnabled", "true"))
 	require.NoError(t, UpdateOption("EnterpriseGovernanceDryRunEnabled", "true"))
+	require.NoError(t, UpdateOption("EnterpriseQuotaRedisCounterEnabled", "true"))
 	assert.True(t, common.EnterpriseGovernanceEnabled)
 	assert.True(t, common.EnterpriseGovernanceDryRunEnabled)
+	assert.True(t, common.EnterpriseQuotaRedisCounterEnabled)
 
 	t.Cleanup(func() {
 		_ = UpdateOption("EnterpriseGovernanceEnabled", "false")
 		_ = UpdateOption("EnterpriseGovernanceDryRunEnabled", "false")
+		_ = UpdateOption("EnterpriseQuotaRedisCounterEnabled", "false")
 	})
 }
