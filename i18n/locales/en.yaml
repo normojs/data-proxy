@@ -116,6 +116,7 @@ enterprise_governance.org_quota_exceeded: "This request exceeds your department 
 enterprise_governance.group_quota_exceeded: "This request exceeds your policy group usage policy. Please contact your administrator."
 enterprise_governance.user_quota_exceeded: "This request exceeds your assigned enterprise usage quota. Please contact your administrator."
 enterprise_governance.model_not_allowed: "This model is not allowed by the enterprise usage policy. Please contact your administrator."
+enterprise_governance.queue_timeout: "This request waited too long in the enterprise policy queue. Please retry later."
 
 # Subscription messages
 subscription.not_enabled: "Subscription plan is not enabled"

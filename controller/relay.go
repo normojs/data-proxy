@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -184,6 +185,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 			return
 		}
+	}
+
+	queueRelease, apiErr := applyEnterpriseGovernanceQueue(c, relayInfo)
+	if apiErr != nil {
+		newAPIError = apiErr
+		return
+	}
+	if queueRelease != nil {
+		defer queueRelease()
 	}
 
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
@@ -390,6 +400,23 @@ func applyEnterpriseGovernanceFallbackModel(c *gin.Context, relayInfo *relaycomm
 	}
 	relayInfo.ChannelMeta = nil
 	return true, nil
+}
+
+func applyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo) (func(), *types.NewAPIError) {
+	_, release, err := service.ApplyEnterpriseGovernanceQueue(c, relayInfo)
+	if err == nil {
+		return release, nil
+	}
+	if errors.Is(err, service.ErrEnterpriseGovernanceQueueTimeout) {
+		return nil, types.NewErrorWithStatusCode(
+			fmt.Errorf("%s", common.TranslateMessage(c, i18n.MsgEnterpriseGovernanceQueueTimeout)),
+			types.ErrorCodeEnterpriseGovernanceQueueTimeout,
+			http.StatusTooManyRequests,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
+	}
+	return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {

@@ -90,6 +90,7 @@ const (
 	ErrorCodeEnterpriseGovernanceGroupQuotaExceeded ErrorCode = "enterprise_governance_group_quota_exceeded"
 	ErrorCodeEnterpriseGovernanceUserQuotaExceeded  ErrorCode = "enterprise_governance_user_quota_exceeded"
 	ErrorCodeEnterpriseGovernanceModelNotAllowed    ErrorCode = "enterprise_governance_model_not_allowed"
+	ErrorCodeEnterpriseGovernanceQueueTimeout       ErrorCode = "enterprise_governance_queue_timeout"
 )
 
 type NewAPIError struct {
