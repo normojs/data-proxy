@@ -145,6 +145,7 @@ func newConnectedAppAdminRouterForTest(t *testing.T) *gin.Engine {
 	require.NoError(t, model.DB.Create(&model.User{
 		Id:       connectedAppRouterAdminUserId,
 		Username: "connected-app-admin",
+		Email:    "connected-app-admin@example.com",
 		Status:   common.UserStatusEnabled,
 		Role:     common.RoleAdminUser,
 		Group:    "default",
@@ -154,6 +155,7 @@ func newConnectedAppAdminRouterForTest(t *testing.T) *gin.Engine {
 	require.NoError(t, model.DB.Create(&model.User{
 		Id:       connectedAppRouterDeveloperUserId,
 		Username: "connected-app-dev",
+		Email:    "connected-app-dev@example.com",
 		Status:   common.UserStatusEnabled,
 		Role:     common.RoleCommonUser,
 		Group:    "default",
@@ -405,6 +407,28 @@ func TestConnectedAppRequestApprovalCreatesAppAuditAndNotifications(t *testing.T
 	require.Equal(t, submitted.Request.ID, adminNotifications.Items[0].RequestID)
 	require.False(t, adminNotifications.Items[0].Read)
 
+	require.NoError(t, model.DB.Create(&model.ConnectedAppNotificationPreference{
+		AppId:              0,
+		Channel:            model.ConnectedAppNotificationOutboxChannelEmail,
+		EventType:          model.ConnectedAppAuditActionApprove,
+		Enabled:            true,
+		RecipientScopeJson: `{"applicant":true}`,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.ConnectedAppNotificationPreference{
+		AppId:              0,
+		Channel:            model.ConnectedAppNotificationOutboxChannelWebhook,
+		EventType:          model.ConnectedAppAuditActionApprove,
+		Enabled:            true,
+		RecipientScopeJson: `{}`,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.ConnectedAppWebhook{
+		AppId:          0,
+		Name:           "global approval webhook",
+		Url:            "https://example.com/connected-app-approval",
+		EventTypesJson: `["connected_app_request.approve"]`,
+		Status:         model.ConnectedAppWebhookStatusEnabled,
+	}).Error)
+
 	approved := decodeConnectedAppData[connectedAppRequestMutationData](t, requestConnectedAppAdmin(
 		t,
 		router,
@@ -421,6 +445,23 @@ func TestConnectedAppRequestApprovalCreatesAppAuditAndNotifications(t *testing.T
 	require.Equal(t, []string{"openai.chat", "quota.read", "token.manage"}, approved.App.AllowedScopes)
 	require.Equal(t, []string{"quota.read"}, approved.App.DefaultScopes)
 	require.Equal(t, model.ConnectedAppAuditActionApprove, approved.Audit.Action)
+
+	var reviewOutboxRows []model.ConnectedAppNotificationOutbox
+	require.NoError(t, model.DB.Where("target_type = ? AND target_id = ?", "connected_app_request", submitted.Request.ID).Order("channel asc").Find(&reviewOutboxRows).Error)
+	require.Len(t, reviewOutboxRows, 2)
+	reviewChannels := []string{reviewOutboxRows[0].Channel, reviewOutboxRows[1].Channel}
+	require.ElementsMatch(t, []string{model.ConnectedAppNotificationOutboxChannelEmail, model.ConnectedAppNotificationOutboxChannelWebhook}, reviewChannels)
+	for _, row := range reviewOutboxRows {
+		require.Equal(t, approved.App.ID, row.AppId)
+		require.Equal(t, model.ConnectedAppAuditActionApprove, row.EventType)
+		require.Equal(t, model.ConnectedAppNotificationOutboxStatusPending, row.Status)
+		if row.Channel == model.ConnectedAppNotificationOutboxChannelEmail {
+			require.Equal(t, "connected-app-dev@example.com", row.RecipientEmail)
+		}
+		if row.Channel == model.ConnectedAppNotificationOutboxChannelWebhook {
+			require.Equal(t, "webhook:1", row.RecipientEmail)
+		}
+	}
 
 	audits := decodeConnectedAppData[connectedAppPageData[connectedAppAuditData]](t, requestConnectedAppAdmin(
 		t,
@@ -495,6 +536,28 @@ func TestConnectedAppDeveloperAPIAndDeviceFlow(t *testing.T) {
 	))
 	require.Equal(t, model.ConnectedAppRequestStatusApproved, approved.Request.Status)
 	require.Equal(t, "snapless-addon", approved.App.Slug)
+
+	require.NoError(t, model.DB.Create(&model.ConnectedAppNotificationPreference{
+		AppId:              approved.App.ID,
+		Channel:            model.ConnectedAppNotificationOutboxChannelEmail,
+		EventType:          model.ConnectedAppNotificationEventDeviceAuthorized,
+		Enabled:            true,
+		RecipientScopeJson: `{"app_developers":true}`,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.ConnectedAppNotificationPreference{
+		AppId:              approved.App.ID,
+		Channel:            model.ConnectedAppNotificationOutboxChannelWebhook,
+		EventType:          model.ConnectedAppNotificationEventDeviceAuthorized,
+		Enabled:            true,
+		RecipientScopeJson: `{}`,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.ConnectedAppWebhook{
+		AppId:          approved.App.ID,
+		Name:           "device authorization webhook",
+		Url:            "https://example.com/device-authorization",
+		EventTypesJson: `["connected_app_device.authorized"]`,
+		Status:         model.ConnectedAppWebhookStatusEnabled,
+	}).Error)
 
 	config := decodeConnectedAppData[connectedAppDeveloperConfigData](t, requestConnectedAppDeveloper(
 		t,
@@ -573,6 +636,21 @@ func TestConnectedAppDeveloperAPIAndDeviceFlow(t *testing.T) {
 	))
 	require.Equal(t, model.ConnectedAppDeviceSessionStatusAuthorized, authorized.Status)
 	require.NotZero(t, authorized.Token.ID)
+
+	var deviceOutboxRows []model.ConnectedAppNotificationOutbox
+	require.NoError(t, model.DB.Where("app_id = ? AND event_type = ?", approved.App.ID, model.ConnectedAppNotificationEventDeviceAuthorized).Order("channel asc").Find(&deviceOutboxRows).Error)
+	require.Len(t, deviceOutboxRows, 2)
+	deviceChannels := []string{deviceOutboxRows[0].Channel, deviceOutboxRows[1].Channel}
+	require.ElementsMatch(t, []string{model.ConnectedAppNotificationOutboxChannelEmail, model.ConnectedAppNotificationOutboxChannelWebhook}, deviceChannels)
+	for _, row := range deviceOutboxRows {
+		require.Equal(t, model.ConnectedAppNotificationOutboxStatusPending, row.Status)
+		if row.Channel == model.ConnectedAppNotificationOutboxChannelEmail {
+			require.Equal(t, "connected-app-dev@example.com", row.RecipientEmail)
+		}
+		if row.Channel == model.ConnectedAppNotificationOutboxChannelWebhook {
+			require.Equal(t, "webhook:1", row.RecipientEmail)
+		}
+	}
 
 	firstPoll := decodeConnectedAppData[snaplessTokenData](t, requestConnectedAppUser(
 		t,

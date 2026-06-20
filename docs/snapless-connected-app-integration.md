@@ -183,6 +183,50 @@ Scope 到 endpoint 的当前映射：
 - `openai.audio.transcriptions` -> `/v1/audio/transcriptions`
 - `quota.read` -> `/api/usage/token`
 
+## 邮件/Webhook 通知扩展
+
+`SNAPLESS-008` 在站内通知和审计主链路之外，新增 connected app 专用外部通知 outbox。外部通知默认关闭，只有显式开启 notification preference 后才会写入 email/webhook outbox；入队和投递失败不会回滚应用审批或设备授权。
+
+新增数据表：
+
+- `connected_app_notification_preferences`：按 `app_id + channel + event_type` 控制 email/webhook 是否启用。`app_id=0` 表示全局默认；应用级配置优先于全局配置。
+- `connected_app_webhooks`：记录全局或应用级 webhook endpoint、secret、订阅事件和启用状态。
+- `connected_app_notification_outbox`：记录待投递 email/webhook 事件，包含 `pending/processing/sent/failed/permanent_failed` 状态、重试次数、下次重试时间和失败摘要。
+
+当前事件：
+
+- `connected_app_request.approve`
+- `connected_app_request.reject`
+- `connected_app_device.authorized`
+- `connected_app_device.denied`
+- `connected_app.health.warning`
+
+管理员接口：
+
+- `GET /api/connected-apps/notification-preferences?app_id=...`
+- `PUT /api/connected-apps/notification-preferences`
+- `GET /api/connected-apps/webhooks?app_id=...`
+- `POST /api/connected-apps/webhooks`
+- `PUT /api/connected-apps/webhooks/:id`
+- `DELETE /api/connected-apps/webhooks/:id`
+- `POST /api/connected-apps/webhooks/:id/test`
+- `GET /api/connected-apps/notification-outbox`
+- `POST /api/connected-apps/notification-outbox/:id/retry`
+- `GET /api/connected-apps/notification-outbox/worker-metrics`
+
+开发者接口：
+
+- `GET /api/connected-apps/:slug/developer/notification-preferences`
+- `PATCH /api/connected-apps/:slug/developer/notification-preferences`
+- `GET /api/connected-apps/:slug/developer/webhooks`
+- `POST /api/connected-apps/:slug/developer/webhooks`
+- `PATCH /api/connected-apps/:slug/developer/webhooks/:id`
+- `DELETE /api/connected-apps/:slug/developer/webhooks/:id`
+- `POST /api/connected-apps/:slug/developer/webhooks/:id/test`
+- `GET /api/connected-apps/:slug/developer/notification-outbox`
+
+Webhook payload 使用 `version=v1`，并通过 `X-Connected-App-Webhook-Signature: sha256=...` 发送 HMAC-SHA256 签名。签名内容是完整 JSON body，secret 为空时不发送签名头。
+
 ## 可操作状态
 
 Snapless 响应里的 `actions` 采用统一结构：
@@ -237,6 +281,6 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 邮件/Webhook 通知扩展：在站内通知和审计可见后再扩展外部通知渠道。
-2. 开发者视图：在 API 稳定后补自助排障 UI，展示 app endpoints、授权用户、设备 session 和最近错误。
+1. Connected App 通知管理前端：把 preference、webhook、outbox、retry 和 worker metrics 接入系统设置页/开发者页。
+2. 撤销类通知事件：设备撤销、grant 撤销和 token rotate/revoke 写入 notification outbox。
 3. Scope 强约束：如需把 scope 从“允许 endpoint 描述”升级为 relay 层硬限制，再增加 token/app scope 校验。

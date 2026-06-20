@@ -311,6 +311,16 @@ func SetApiRouter(router *gin.Engine) {
 			connectedAppRoute.GET("/requests", controller.AdminListConnectedAppRequests)
 			connectedAppRoute.POST("/requests/:id/review", controller.ReviewConnectedAppRequest)
 			connectedAppRoute.GET("/audit-logs", controller.ListConnectedAppAuditLogs)
+			connectedAppRoute.GET("/webhooks", controller.AdminListConnectedAppWebhooks)
+			connectedAppRoute.POST("/webhooks", controller.AdminCreateConnectedAppWebhook)
+			connectedAppRoute.PUT("/webhooks/:id", controller.AdminUpdateConnectedAppWebhook)
+			connectedAppRoute.DELETE("/webhooks/:id", controller.AdminDeleteConnectedAppWebhook)
+			connectedAppRoute.POST("/webhooks/:id/test", controller.AdminTestConnectedAppWebhook)
+			connectedAppRoute.GET("/notification-preferences", controller.AdminListConnectedAppNotificationPreferences)
+			connectedAppRoute.PUT("/notification-preferences", controller.AdminUpdateConnectedAppNotificationPreference)
+			connectedAppRoute.GET("/notification-outbox", controller.AdminListConnectedAppNotificationOutbox)
+			connectedAppRoute.POST("/notification-outbox/:id/retry", controller.AdminRetryConnectedAppNotificationOutbox)
+			connectedAppRoute.GET("/notification-outbox/worker-metrics", controller.GetConnectedAppNotificationOutboxWorkerMetrics)
 			connectedAppRoute.PUT("/:id", controller.UpdateConnectedApp)
 		}
 
@@ -333,6 +343,14 @@ func SetApiRouter(router *gin.Engine) {
 				connectedAppUserRoute.GET("/developer/config", controller.GetConnectedAppDeveloperConfig)
 				connectedAppUserRoute.GET("/developer/authorizations", controller.ListConnectedAppDeveloperAuthorizations)
 				connectedAppUserRoute.GET("/developer/device-sessions", controller.ListConnectedAppDeveloperDeviceSessions)
+				connectedAppUserRoute.GET("/developer/webhooks", controller.DeveloperListConnectedAppWebhooks)
+				connectedAppUserRoute.POST("/developer/webhooks", controller.DeveloperCreateConnectedAppWebhook)
+				connectedAppUserRoute.PATCH("/developer/webhooks/:id", controller.DeveloperUpdateConnectedAppWebhook)
+				connectedAppUserRoute.DELETE("/developer/webhooks/:id", controller.DeveloperDeleteConnectedAppWebhook)
+				connectedAppUserRoute.POST("/developer/webhooks/:id/test", controller.DeveloperTestConnectedAppWebhook)
+				connectedAppUserRoute.GET("/developer/notification-preferences", controller.DeveloperListConnectedAppNotificationPreferences)
+				connectedAppUserRoute.PATCH("/developer/notification-preferences", controller.DeveloperUpdateConnectedAppNotificationPreference)
+				connectedAppUserRoute.GET("/developer/notification-outbox", controller.DeveloperListConnectedAppNotificationOutbox)
 			}
 		}
 

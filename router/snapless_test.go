@@ -200,6 +200,9 @@ func setupSnaplessRouterTestDB(t *testing.T) *gorm.DB {
 		&model.ConnectedAppDeviceSession{},
 		&model.ConnectedAppRequest{},
 		&model.ConnectedAppAuditLog{},
+		&model.ConnectedAppNotificationPreference{},
+		&model.ConnectedAppWebhook{},
+		&model.ConnectedAppNotificationOutbox{},
 		&model.EnterpriseNotificationRead{},
 	))
 	require.NoError(t, model.EnsureBuiltinConnectedApps())

@@ -245,6 +245,9 @@ func ReviewConnectedAppRequest(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := service.EnqueueConnectedAppRequestReviewOutboxWithDB(model.DB, reviewed, app, audit); err != nil {
+		common.SysLog("failed to enqueue connected app review notification outbox: " + err.Error())
+	}
 
 	names := connectedAppUserNameMap(reviewed.ApplicantUserId, reviewed.ReviewerUserId, audit.ActorUserId)
 	requestResponse, err := buildConnectedAppAccessRequestResponse(reviewed, names)

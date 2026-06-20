@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -283,6 +284,18 @@ func GetConnectedAppDeviceStatus(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if !readiness.OK {
+		if err := service.EnqueueConnectedAppHealthWarningOutboxWithDB(model.DB, service.ConnectedAppHealthWarningInput{
+			App:       *app,
+			UserId:    c.GetInt("id"),
+			Session:   session,
+			Status:    readiness.Status,
+			Checks:    readiness.Checks,
+			CreatedAt: now,
+		}); err != nil {
+			common.SysLog("failed to enqueue connected app health warning notification outbox: " + err.Error())
+		}
+	}
 	common.ApiSuccess(c, snaplessDeviceStatusResponse{
 		Status:    session.Status,
 		ExpiresAt: session.ExpiresAt,
@@ -323,6 +336,7 @@ func AuthorizeConnectedAppDevice(c *gin.Context) {
 	}
 
 	var response snaplessDeviceStatusResponse
+	var notifiedSession model.ConnectedAppDeviceSession
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		var session model.ConnectedAppDeviceSession
 		if err := tx.Clauses(clauseLockingUpdate()).Where("user_code = ?", req.UserCode).First(&session).Error; err != nil {
@@ -354,6 +368,10 @@ func AuthorizeConnectedAppDevice(c *gin.Context) {
 			if result.RowsAffected == 0 {
 				return errors.New("设备授权状态已更新，请刷新后重试")
 			}
+			session.UserId = userId
+			session.Status = model.ConnectedAppDeviceSessionStatusDenied
+			session.UpdatedAt = now
+			notifiedSession = session
 			response = snaplessDeviceStatusResponse{
 				Status:    model.ConnectedAppDeviceSessionStatusDenied,
 				ExpiresAt: session.ExpiresAt,
@@ -384,6 +402,13 @@ func AuthorizeConnectedAppDevice(c *gin.Context) {
 		if result.RowsAffected == 0 {
 			return errors.New("设备授权状态已更新，请刷新后重试")
 		}
+		session.UserId = userId
+		session.TokenId = tokenId
+		session.TokenCreated = tokenResponse.Created
+		session.Status = model.ConnectedAppDeviceSessionStatusAuthorized
+		session.AuthorizedAt = now
+		session.UpdatedAt = now
+		notifiedSession = session
 		response = snaplessDeviceStatusResponse{
 			Status:    model.ConnectedAppDeviceSessionStatusAuthorized,
 			ExpiresAt: session.ExpiresAt,
@@ -401,6 +426,11 @@ func AuthorizeConnectedAppDevice(c *gin.Context) {
 		}
 		common.ApiError(c, err)
 		return
+	}
+	if notifiedSession.Id > 0 {
+		if err := service.EnqueueConnectedAppDeviceAuthorizationOutboxWithDB(model.DB, *app, notifiedSession); err != nil {
+			common.SysLog("failed to enqueue connected app device authorization notification outbox: " + err.Error())
+		}
 	}
 	common.ApiSuccess(c, response)
 }
