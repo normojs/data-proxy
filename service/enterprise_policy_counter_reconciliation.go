@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/bytedance/gopkg/util/gopool"
+	"gorm.io/gorm"
 )
 
 const (
@@ -24,17 +28,20 @@ const (
 const (
 	EnterpriseQuotaCounterReconciliationStatusMatched      = "matched"
 	EnterpriseQuotaCounterReconciliationStatusMissingRedis = "missing_redis"
+	EnterpriseQuotaCounterReconciliationStatusMissingDB    = "missing_db"
 	EnterpriseQuotaCounterReconciliationStatusMismatched   = "mismatched"
 	EnterpriseQuotaCounterReconciliationStatusRepaired     = "repaired"
+	EnterpriseQuotaCounterReconciliationStatusCreatedDB    = "created_db"
 	EnterpriseQuotaCounterReconciliationStatusError        = "error"
 )
 
 type EnterpriseQuotaCounterReconciliationParams struct {
-	EnterpriseId int
-	Limit        int
-	Repair       bool
-	ActorUserId  int
-	RequestId    string
+	EnterpriseId        int
+	Limit               int
+	Repair              bool
+	IncludeRedisOrphans bool
+	ActorUserId         int
+	RequestId           string
 }
 
 type EnterpriseQuotaCounterReconciliationSnapshot struct {
@@ -62,16 +69,19 @@ type EnterpriseQuotaCounterReconciliationItem struct {
 }
 
 type EnterpriseQuotaCounterReconciliationResult struct {
-	Enabled    bool                                       `json:"enabled"`
-	Repair     bool                                       `json:"repair"`
-	Limit      int                                        `json:"limit"`
-	Scanned    int                                        `json:"scanned"`
-	Matched    int                                        `json:"matched"`
-	Mismatched int                                        `json:"mismatched"`
-	Repaired   int                                        `json:"repaired"`
-	Errors     int                                        `json:"errors"`
-	HasMore    bool                                       `json:"has_more"`
-	Items      []EnterpriseQuotaCounterReconciliationItem `json:"items"`
+	Enabled             bool                                       `json:"enabled"`
+	Repair              bool                                       `json:"repair"`
+	IncludeRedisOrphans bool                                       `json:"include_redis_orphans"`
+	Limit               int                                        `json:"limit"`
+	Scanned             int                                        `json:"scanned"`
+	Matched             int                                        `json:"matched"`
+	Mismatched          int                                        `json:"mismatched"`
+	RedisOnly           int                                        `json:"redis_only"`
+	Created             int                                        `json:"created"`
+	Repaired            int                                        `json:"repaired"`
+	Errors              int                                        `json:"errors"`
+	HasMore             bool                                       `json:"has_more"`
+	Items               []EnterpriseQuotaCounterReconciliationItem `json:"items"`
 }
 
 var (
@@ -107,8 +117,9 @@ func runEnterpriseQuotaCounterReconciliationOnce() {
 	defer enterpriseQuotaCounterReconciliationRunning.Store(false)
 
 	result, err := ReconcileEnterpriseQuotaRedisCounters(EnterpriseQuotaCounterReconciliationParams{
-		Limit:  EnterpriseQuotaCounterReconciliationDefaultLimit,
-		Repair: true,
+		Limit:               EnterpriseQuotaCounterReconciliationDefaultLimit,
+		Repair:              true,
+		IncludeRedisOrphans: true,
 	})
 	if err != nil {
 		logger.LogWarn(context.Background(), fmt.Sprintf("enterprise quota counter reconciliation task failed: %v", err))
@@ -122,10 +133,11 @@ func runEnterpriseQuotaCounterReconciliationOnce() {
 func ReconcileEnterpriseQuotaRedisCounters(params EnterpriseQuotaCounterReconciliationParams) (EnterpriseQuotaCounterReconciliationResult, error) {
 	limit := normalizeEnterpriseQuotaCounterReconciliationLimit(params.Limit)
 	result := EnterpriseQuotaCounterReconciliationResult{
-		Enabled: enterpriseQuotaCounterBackendAvailable(),
-		Repair:  params.Repair,
-		Limit:   limit,
-		Items:   []EnterpriseQuotaCounterReconciliationItem{},
+		Enabled:             enterpriseQuotaCounterBackendAvailable(),
+		Repair:              params.Repair,
+		IncludeRedisOrphans: params.IncludeRedisOrphans,
+		Limit:               limit,
+		Items:               []EnterpriseQuotaCounterReconciliationItem{},
 	}
 	if !result.Enabled {
 		return result, fmt.Errorf("enterprise quota redis counter backend is not available")
@@ -199,7 +211,220 @@ func ReconcileEnterpriseQuotaRedisCounters(params EnterpriseQuotaCounterReconcil
 		result.Scanned++
 	}
 
+	if params.IncludeRedisOrphans && result.Scanned < limit {
+		hasMore, err := appendEnterpriseQuotaRedisOnlyCounterReconciliationItems(ctx, params, &result, limit-result.Scanned)
+		if err != nil {
+			return result, err
+		}
+		if hasMore {
+			result.HasMore = true
+		}
+	}
+
 	return result, nil
+}
+
+type enterpriseQuotaCounterRedisKeyParts struct {
+	EnterpriseId int
+	PolicyId     int
+	TargetType   string
+	TargetId     int
+	Metric       string
+	PeriodStart  int64
+}
+
+func appendEnterpriseQuotaRedisOnlyCounterReconciliationItems(ctx context.Context, params EnterpriseQuotaCounterReconciliationParams, result *EnterpriseQuotaCounterReconciliationResult, limit int) (bool, error) {
+	keys, hasMore, err := enterpriseQuotaCounterBackend.ScanKeys(ctx, enterpriseQuotaCounterRedisScanPrefix(params.EnterpriseId), limit)
+	if err != nil {
+		return false, err
+	}
+	now := common.GetTimestamp()
+	for _, key := range keys {
+		parts, err := parseEnterpriseQuotaCounterRedisKey(key)
+		if err != nil {
+			result.Items = append(result.Items, enterpriseQuotaCounterRedisOnlyErrorItem(key, err))
+			result.Scanned++
+			result.Errors++
+			continue
+		}
+		if params.EnterpriseId > 0 && parts.EnterpriseId != params.EnterpriseId {
+			continue
+		}
+
+		exists, err := enterpriseQuotaCounterDBMirrorExists(parts)
+		if err != nil {
+			return false, err
+		}
+		if exists {
+			continue
+		}
+
+		_, periodEnd, err := enterpriseQuotaCounterPolicyForRedisKey(parts)
+		if err != nil {
+			result.Items = append(result.Items, enterpriseQuotaCounterRedisOnlyErrorItem(key, err))
+			result.Scanned++
+			result.Errors++
+			continue
+		}
+		if periodEnd.Unix() < now {
+			continue
+		}
+
+		redisSnapshot, found, err := enterpriseQuotaCounterBackend.Snapshot(ctx, key)
+		if err != nil {
+			result.Items = append(result.Items, enterpriseQuotaCounterRedisOnlyErrorItem(key, err))
+			result.Scanned++
+			result.Errors++
+			continue
+		}
+		if !found {
+			continue
+		}
+
+		item := buildEnterpriseQuotaRedisOnlyReconciliationItem(parts, periodEnd, key, redisSnapshot)
+		result.Mismatched++
+		result.RedisOnly++
+		if params.Repair {
+			counter, err := createEnterpriseQuotaCounterDBMirrorFromRedis(parts, periodEnd, redisSnapshot)
+			if err != nil {
+				item.Status = EnterpriseQuotaCounterReconciliationStatusError
+				item.Error = err.Error()
+				result.Errors++
+			} else {
+				item.CounterId = counter.Id
+				after := enterpriseQuotaCounterReconciliationSnapshot(redisSnapshot)
+				item.DBSnapshot = after
+				item.AfterSnapshot = &after
+				item.Status = EnterpriseQuotaCounterReconciliationStatusCreatedDB
+				item.Repaired = true
+				result.Created++
+				result.Repaired++
+				recordEnterpriseQuotaCounterRedisOnlyRecoveryAudit(params, counter, item)
+			}
+		}
+		result.Items = append(result.Items, item)
+		result.Scanned++
+		if result.Scanned >= result.Limit {
+			return true, nil
+		}
+	}
+	return hasMore, nil
+}
+
+func parseEnterpriseQuotaCounterRedisKey(key string) (enterpriseQuotaCounterRedisKeyParts, error) {
+	parts := strings.Split(key, ":")
+	if len(parts) != 8 || parts[0]+":"+parts[1] != enterpriseQuotaCounterRedisKeyPrefix() {
+		return enterpriseQuotaCounterRedisKeyParts{}, fmt.Errorf("invalid enterprise quota counter redis key: %s", key)
+	}
+	enterpriseId, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return enterpriseQuotaCounterRedisKeyParts{}, fmt.Errorf("invalid enterprise id in redis key %s: %w", key, err)
+	}
+	policyId, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return enterpriseQuotaCounterRedisKeyParts{}, fmt.Errorf("invalid policy id in redis key %s: %w", key, err)
+	}
+	targetId, err := strconv.Atoi(parts[5])
+	if err != nil {
+		return enterpriseQuotaCounterRedisKeyParts{}, fmt.Errorf("invalid target id in redis key %s: %w", key, err)
+	}
+	periodStart, err := strconv.ParseInt(parts[7], 10, 64)
+	if err != nil {
+		return enterpriseQuotaCounterRedisKeyParts{}, fmt.Errorf("invalid period start in redis key %s: %w", key, err)
+	}
+	return enterpriseQuotaCounterRedisKeyParts{
+		EnterpriseId: enterpriseId,
+		PolicyId:     policyId,
+		TargetType:   parts[4],
+		TargetId:     targetId,
+		Metric:       parts[6],
+		PeriodStart:  periodStart,
+	}, nil
+}
+
+func enterpriseQuotaCounterDBMirrorExists(parts enterpriseQuotaCounterRedisKeyParts) (bool, error) {
+	var count int64
+	err := model.DB.Model(&model.EnterpriseQuotaCounter{}).
+		Where("policy_id = ? AND target_type = ? AND target_id = ? AND metric = ? AND period_start = ?",
+			parts.PolicyId, parts.TargetType, parts.TargetId, parts.Metric, parts.PeriodStart).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func enterpriseQuotaCounterPolicyForRedisKey(parts enterpriseQuotaCounterRedisKeyParts) (model.EnterpriseQuotaPolicy, time.Time, error) {
+	var policy model.EnterpriseQuotaPolicy
+	if err := model.DB.Where("id = ? AND enterprise_id = ?", parts.PolicyId, parts.EnterpriseId).First(&policy).Error; err != nil {
+		return policy, time.Time{}, err
+	}
+	if policy.TargetType != parts.TargetType || policy.TargetId != parts.TargetId || policy.Metric != parts.Metric {
+		return policy, time.Time{}, fmt.Errorf("redis counter key does not match current policy dimensions: policy_id=%d", policy.Id)
+	}
+	periodStart := time.Unix(parts.PeriodStart, 0)
+	resolvedStart, periodEnd, err := ResolveEnterprisePolicyPeriod(policy, periodStart)
+	if err != nil {
+		return policy, time.Time{}, err
+	}
+	if resolvedStart.Unix() != parts.PeriodStart {
+		return policy, time.Time{}, fmt.Errorf("redis counter period start does not align with policy period: policy_id=%d period_start=%d resolved_start=%d", policy.Id, parts.PeriodStart, resolvedStart.Unix())
+	}
+	return policy, periodEnd, nil
+}
+
+func buildEnterpriseQuotaRedisOnlyReconciliationItem(parts enterpriseQuotaCounterRedisKeyParts, periodEnd time.Time, redisKey string, redisSnapshot enterpriseQuotaCounterSnapshot) EnterpriseQuotaCounterReconciliationItem {
+	snapshot := enterpriseQuotaCounterReconciliationSnapshot(redisSnapshot)
+	return EnterpriseQuotaCounterReconciliationItem{
+		EnterpriseId:  parts.EnterpriseId,
+		PolicyId:      parts.PolicyId,
+		TargetType:    parts.TargetType,
+		TargetId:      parts.TargetId,
+		Metric:        parts.Metric,
+		PeriodStart:   parts.PeriodStart,
+		PeriodEnd:     periodEnd.Unix(),
+		RedisKey:      redisKey,
+		RedisFound:    true,
+		DBSnapshot:    EnterpriseQuotaCounterReconciliationSnapshot{},
+		RedisSnapshot: &snapshot,
+		Status:        EnterpriseQuotaCounterReconciliationStatusMissingDB,
+		Error:         "",
+	}
+}
+
+func enterpriseQuotaCounterRedisOnlyErrorItem(redisKey string, err error) EnterpriseQuotaCounterReconciliationItem {
+	return EnterpriseQuotaCounterReconciliationItem{
+		RedisKey:   redisKey,
+		RedisFound: true,
+		Status:     EnterpriseQuotaCounterReconciliationStatusError,
+		Error:      err.Error(),
+	}
+}
+
+func createEnterpriseQuotaCounterDBMirrorFromRedis(parts enterpriseQuotaCounterRedisKeyParts, periodEnd time.Time, snapshot enterpriseQuotaCounterSnapshot) (model.EnterpriseQuotaCounter, error) {
+	counter := model.EnterpriseQuotaCounter{
+		EnterpriseId:  parts.EnterpriseId,
+		PolicyId:      parts.PolicyId,
+		TargetType:    parts.TargetType,
+		TargetId:      parts.TargetId,
+		Metric:        parts.Metric,
+		PeriodStart:   parts.PeriodStart,
+		PeriodEnd:     periodEnd.Unix(),
+		UsedValue:     snapshot.UsedValue,
+		ReservedValue: snapshot.ReservedValue,
+	}
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		var existing model.EnterpriseQuotaCounter
+		err := tx.Where("policy_id = ? AND target_type = ? AND target_id = ? AND metric = ? AND period_start = ?",
+			parts.PolicyId, parts.TargetType, parts.TargetId, parts.Metric, parts.PeriodStart).
+			First(&existing).Error
+		if err == nil {
+			counter = existing
+			return nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		return tx.Create(&counter).Error
+	})
+	return counter, err
 }
 
 func normalizeEnterpriseQuotaCounterReconciliationLimit(limit int) int {
@@ -259,6 +484,34 @@ func recordEnterpriseQuotaCounterReconciliationAudit(params EnterpriseQuotaCount
 		"db_snapshot":    item.DBSnapshot,
 		"redis_snapshot": item.AfterSnapshot,
 		"status":         EnterpriseQuotaCounterReconciliationStatusRepaired,
+	}
+	_ = model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
+		EnterpriseId: counter.EnterpriseId,
+		ActorUserId:  params.ActorUserId,
+		Action:       "quota_counter.reconcile",
+		TargetType:   "quota_counter",
+		TargetId:     counter.Id,
+		Before:       before,
+		After:        after,
+		RequestId:    params.RequestId,
+	})
+}
+
+func recordEnterpriseQuotaCounterRedisOnlyRecoveryAudit(params EnterpriseQuotaCounterReconciliationParams, counter model.EnterpriseQuotaCounter, item EnterpriseQuotaCounterReconciliationItem) {
+	before := map[string]any{
+		"redis_key":      item.RedisKey,
+		"redis_found":    true,
+		"db_found":       false,
+		"redis_snapshot": item.RedisSnapshot,
+		"status":         EnterpriseQuotaCounterReconciliationStatusMissingDB,
+	}
+	after := map[string]any{
+		"redis_key":      item.RedisKey,
+		"redis_found":    true,
+		"db_found":       true,
+		"db_snapshot":    item.AfterSnapshot,
+		"redis_snapshot": item.RedisSnapshot,
+		"status":         EnterpriseQuotaCounterReconciliationStatusCreatedDB,
 	}
 	_ = model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
 		EnterpriseId: counter.EnterpriseId,

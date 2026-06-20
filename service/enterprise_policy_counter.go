@@ -104,6 +104,7 @@ type enterpriseQuotaAtomicCounter interface {
 	Refund(ctx context.Context, key string, amount int64, ttl time.Duration) error
 	Snapshot(ctx context.Context, key string) (enterpriseQuotaCounterSnapshot, bool, error)
 	SetSnapshot(ctx context.Context, key string, snapshot enterpriseQuotaCounterSnapshot, ttl time.Duration) error
+	ScanKeys(ctx context.Context, prefix string, limit int) ([]string, bool, error)
 }
 
 type enterpriseQuotaRedisReservation struct {
@@ -563,6 +564,28 @@ func (redisEnterpriseQuotaAtomicCounter) SetSnapshot(ctx context.Context, key st
 	return err
 }
 
+func (redisEnterpriseQuotaAtomicCounter) ScanKeys(ctx context.Context, prefix string, limit int) ([]string, bool, error) {
+	if limit <= 0 {
+		return nil, false, nil
+	}
+	var cursor uint64
+	keys := make([]string, 0, limit)
+	for {
+		batch, nextCursor, err := common.RDB.Scan(ctx, cursor, prefix+"*", int64(limit)).Result()
+		if err != nil {
+			return nil, false, err
+		}
+		keys = append(keys, batch...)
+		if len(keys) > limit {
+			return keys[:limit], true, nil
+		}
+		if nextCursor == 0 {
+			return keys, false, nil
+		}
+		cursor = nextCursor
+	}
+}
+
 func parseEnterpriseQuotaCounterRedisField(values map[string]string, field string) (int64, error) {
 	raw := values[field]
 	if raw == "" {
@@ -605,11 +628,22 @@ func evalEnterpriseQuotaCounterScript(ctx context.Context, script string, key st
 }
 
 func enterpriseQuotaCounterRedisKey(policy model.EnterpriseQuotaPolicy, start time.Time) string {
-	return fmt.Sprintf("enterprise_quota_counter:v1:%d:%d:%s:%d:%s:%d", policy.EnterpriseId, policy.Id, policy.TargetType, policy.TargetId, policy.Metric, start.Unix())
+	return fmt.Sprintf("%s:%d:%d:%s:%d:%s:%d", enterpriseQuotaCounterRedisKeyPrefix(), policy.EnterpriseId, policy.Id, policy.TargetType, policy.TargetId, policy.Metric, start.Unix())
 }
 
 func enterpriseQuotaCounterRedisKeyForCounter(counter model.EnterpriseQuotaCounter) string {
-	return fmt.Sprintf("enterprise_quota_counter:v1:%d:%d:%s:%d:%s:%d", counter.EnterpriseId, counter.PolicyId, counter.TargetType, counter.TargetId, counter.Metric, counter.PeriodStart)
+	return fmt.Sprintf("%s:%d:%d:%s:%d:%s:%d", enterpriseQuotaCounterRedisKeyPrefix(), counter.EnterpriseId, counter.PolicyId, counter.TargetType, counter.TargetId, counter.Metric, counter.PeriodStart)
+}
+
+func enterpriseQuotaCounterRedisKeyPrefix() string {
+	return "enterprise_quota_counter:v1"
+}
+
+func enterpriseQuotaCounterRedisScanPrefix(enterpriseId int) string {
+	if enterpriseId > 0 {
+		return fmt.Sprintf("%s:%d:", enterpriseQuotaCounterRedisKeyPrefix(), enterpriseId)
+	}
+	return enterpriseQuotaCounterRedisKeyPrefix() + ":"
 }
 
 func enterpriseQuotaCounterRedisTTL(periodEnd time.Time) time.Duration {

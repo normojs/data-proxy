@@ -105,8 +105,9 @@ type enterpriseNotificationPreferenceRequest struct {
 }
 
 type enterpriseQuotaCounterReconciliationRequest struct {
-	Limit  int  `json:"limit"`
-	Repair bool `json:"repair"`
+	Limit               int  `json:"limit"`
+	Repair              bool `json:"repair"`
+	IncludeRedisOrphans bool `json:"include_redis_orphans"`
 }
 
 type enterpriseOrgSyncRequest = service.EnterpriseOrgSyncInput
@@ -1152,11 +1153,12 @@ func ReconcileEnterpriseQuotaCounters(c *gin.Context) {
 		return
 	}
 	result, err := service.ReconcileEnterpriseQuotaRedisCounters(service.EnterpriseQuotaCounterReconciliationParams{
-		EnterpriseId: enterprise.Id,
-		Limit:        req.Limit,
-		Repair:       req.Repair,
-		ActorUserId:  c.GetInt("id"),
-		RequestId:    c.GetHeader(common.RequestIdKey),
+		EnterpriseId:        enterprise.Id,
+		Limit:               req.Limit,
+		Repair:              req.Repair,
+		IncludeRedisOrphans: req.IncludeRedisOrphans,
+		ActorUserId:         c.GetInt("id"),
+		RequestId:           c.GetHeader(common.RequestIdKey),
 	})
 	if err != nil {
 		common.ApiError(c, err)

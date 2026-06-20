@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -727,6 +729,101 @@ func TestEnterpriseQuotaRedisCounterReconciliationRepairsRedisFromDB(t *testing.
 	assert.Contains(t, audit.AfterJson, EnterpriseQuotaCounterReconciliationStatusRepaired)
 }
 
+func TestEnterpriseQuotaRedisCounterReconciliationCreatesMissingDBMirror(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	common.EnterpriseQuotaRedisCounterEnabled = true
+	fakeCounter := newFakeEnterpriseQuotaAtomicCounter()
+	enterpriseQuotaCounterBackend = fakeCounter
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "企业 Redis-only 崩溃恢复",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   100,
+		ModelScope:   model.PolicyModelScopeAll,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+	now := time.Now().UTC()
+	start, end, err := ResolveEnterprisePolicyPeriod(policy, now)
+	require.NoError(t, err)
+	key := enterpriseQuotaCounterRedisKey(policy, start)
+	require.NoError(t, fakeCounter.SetSnapshot(context.Background(), key, enterpriseQuotaCounterSnapshot{UsedValue: 7, ReservedValue: 3}, enterpriseQuotaCounterRedisTTL(end)))
+
+	withoutOrphans, err := ReconcileEnterpriseQuotaRedisCounters(EnterpriseQuotaCounterReconciliationParams{
+		EnterpriseId: enterprise.Id,
+		Limit:        10,
+		Repair:       true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, withoutOrphans.Scanned)
+	assert.Equal(t, 0, withoutOrphans.Created)
+	var counterCount int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseQuotaCounter{}).Where("policy_id = ?", policy.Id).Count(&counterCount).Error)
+	assert.EqualValues(t, 0, counterCount)
+
+	dryRun, err := ReconcileEnterpriseQuotaRedisCounters(EnterpriseQuotaCounterReconciliationParams{
+		EnterpriseId:        enterprise.Id,
+		Limit:               10,
+		Repair:              false,
+		IncludeRedisOrphans: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, dryRun.Scanned)
+	assert.Equal(t, 1, dryRun.Mismatched)
+	assert.Equal(t, 1, dryRun.RedisOnly)
+	assert.Equal(t, 0, dryRun.Created)
+	require.Len(t, dryRun.Items, 1)
+	assert.Equal(t, EnterpriseQuotaCounterReconciliationStatusMissingDB, dryRun.Items[0].Status)
+	assert.Equal(t, key, dryRun.Items[0].RedisKey)
+	require.NotNil(t, dryRun.Items[0].RedisSnapshot)
+	assert.EqualValues(t, 7, dryRun.Items[0].RedisSnapshot.UsedValue)
+	assert.EqualValues(t, 3, dryRun.Items[0].RedisSnapshot.ReservedValue)
+	require.NoError(t, model.DB.Model(&model.EnterpriseQuotaCounter{}).Where("policy_id = ?", policy.Id).Count(&counterCount).Error)
+	assert.EqualValues(t, 0, counterCount)
+
+	repaired, err := ReconcileEnterpriseQuotaRedisCounters(EnterpriseQuotaCounterReconciliationParams{
+		EnterpriseId:        enterprise.Id,
+		Limit:               10,
+		Repair:              true,
+		IncludeRedisOrphans: true,
+		ActorUserId:         888,
+		RequestId:           "quota-counter-redis-only-recovery-test",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, repaired.Scanned)
+	assert.Equal(t, 1, repaired.Mismatched)
+	assert.Equal(t, 1, repaired.RedisOnly)
+	assert.Equal(t, 1, repaired.Created)
+	assert.Equal(t, 1, repaired.Repaired)
+	require.Len(t, repaired.Items, 1)
+	assert.Equal(t, EnterpriseQuotaCounterReconciliationStatusCreatedDB, repaired.Items[0].Status)
+	assert.True(t, repaired.Items[0].Repaired)
+	assert.Greater(t, repaired.Items[0].CounterId, 0)
+
+	var counter model.EnterpriseQuotaCounter
+	require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&counter).Error)
+	assert.Equal(t, enterprise.Id, counter.EnterpriseId)
+	assert.Equal(t, policy.TargetType, counter.TargetType)
+	assert.Equal(t, policy.TargetId, counter.TargetId)
+	assert.Equal(t, policy.Metric, counter.Metric)
+	assert.Equal(t, start.Unix(), counter.PeriodStart)
+	assert.Equal(t, end.Unix(), counter.PeriodEnd)
+	assert.EqualValues(t, 7, counter.UsedValue)
+	assert.EqualValues(t, 3, counter.ReservedValue)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("action = ? AND target_type = ? AND target_id = ?", "quota_counter.reconcile", "quota_counter", counter.Id).First(&audit).Error)
+	assert.Equal(t, enterprise.Id, audit.EnterpriseId)
+	assert.Equal(t, 888, audit.ActorUserId)
+	assert.Equal(t, "quota-counter-redis-only-recovery-test", audit.RequestId)
+	assert.Contains(t, audit.BeforeJson, EnterpriseQuotaCounterReconciliationStatusMissingDB)
+	assert.Contains(t, audit.AfterJson, EnterpriseQuotaCounterReconciliationStatusCreatedDB)
+}
+
 func TestEnterpriseReservationSettleMovesReservedToUsed(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()
@@ -892,6 +989,22 @@ func (f *fakeEnterpriseQuotaAtomicCounter) SetSnapshot(ctx context.Context, key 
 	f.snapshots[key] = snapshot
 	f.initialized[key] = true
 	return nil
+}
+
+func (f *fakeEnterpriseQuotaAtomicCounter) ScanKeys(ctx context.Context, prefix string, limit int) ([]string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keys := make([]string, 0, len(f.initialized))
+	for key, initialized := range f.initialized {
+		if initialized && strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	if limit > 0 && len(keys) > limit {
+		return keys[:limit], true, nil
+	}
+	return keys, false, nil
 }
 
 func (f *fakeEnterpriseQuotaAtomicCounter) snapshot(key string) enterpriseQuotaCounterSnapshot {
