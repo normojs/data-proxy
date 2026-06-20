@@ -43,12 +43,20 @@ type PolicyDecision struct {
 }
 
 type PolicyActionObservation struct {
-	PolicyId      int      `json:"policy_id"`
-	Action        string   `json:"action"`
-	Trigger       string   `json:"trigger"`
-	Reason        string   `json:"reason"`
-	FallbackModel string   `json:"fallback_model,omitempty"`
-	AllowedModels []string `json:"allowed_models,omitempty"`
+	PolicyId       int      `json:"policy_id"`
+	Action         string   `json:"action"`
+	Trigger        string   `json:"trigger"`
+	Reason         string   `json:"reason"`
+	FallbackModel  string   `json:"fallback_model,omitempty"`
+	AllowedModels  []string `json:"allowed_models,omitempty"`
+	Metric         string   `json:"metric,omitempty"`
+	LimitValue     int64    `json:"limit_value,omitempty"`
+	UsedValue      int64    `json:"used_value,omitempty"`
+	ReservedValue  int64    `json:"reserved_value,omitempty"`
+	RequestedValue int64    `json:"requested_value,omitempty"`
+	BorrowedValue  int64    `json:"borrowed_value,omitempty"`
+	PeriodStart    int64    `json:"period_start,omitempty"`
+	PeriodEnd      int64    `json:"period_end,omitempty"`
 }
 
 type EnterpriseModelNotAllowedError struct {
@@ -328,12 +336,26 @@ func EvaluateEnterprisePolicyActions(req PolicyEvaluationRequest, policies []mod
 }
 
 func policyActionObservation(policy model.EnterpriseQuotaPolicy, trigger string, err error) PolicyActionObservation {
-	return PolicyActionObservation{
+	observation := PolicyActionObservation{
 		PolicyId: policy.Id,
 		Action:   normalizedEnterprisePolicyAction(policy),
 		Trigger:  trigger,
 		Reason:   err.Error(),
 	}
+	var quotaErr EnterpriseQuotaExceededError
+	if errors.As(err, &quotaErr) {
+		observation.Metric = quotaErr.Metric
+		observation.LimitValue = quotaErr.LimitValue
+		observation.UsedValue = quotaErr.UsedValue
+		observation.ReservedValue = quotaErr.ReservedValue
+		observation.RequestedValue = quotaErr.RequestedValue
+		observation.PeriodStart = quotaErr.PeriodStart
+		observation.PeriodEnd = quotaErr.PeriodEnd
+		if observation.Action == model.PolicyActionSharedPool {
+			observation.BorrowedValue = enterprisePolicySharedPoolBorrowedValue(quotaErr)
+		}
+	}
+	return observation
 }
 
 func normalizedEnterprisePolicyAction(policy model.EnterpriseQuotaPolicy) string {

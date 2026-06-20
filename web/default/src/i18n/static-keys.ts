@@ -1097,6 +1097,7 @@ export const STATIC_I18N_KEYS = [
   'Queue',
   'Shared Pool',
   'enterprise_governance.policy_action_observed',
+  'enterprise_governance.shared_pool_reserved',
   'Plugin',
   'Proxy Server',
   'Proxy Tool Errors',

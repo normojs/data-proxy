@@ -4774,6 +4774,7 @@
     "Queue": "Queue",
     "Shared Pool": "Shared Pool",
     "enterprise_governance.policy_action_observed": "Enterprise policy action observed",
+    "enterprise_governance.shared_pool_reserved": "Enterprise shared pool reserved",
     "notification.enterprise_quota_request.title.pending": "Quota request pending",
     "notification.enterprise_quota_request.title.approved": "Quota request approved",
     "notification.enterprise_quota_request.title.rejected": "Quota request rejected",

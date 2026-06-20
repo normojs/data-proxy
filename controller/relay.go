@@ -196,6 +196,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		defer queueRelease()
 	}
 
+	if apiErr := applyEnterpriseGovernanceSharedPool(c, relayInfo); apiErr != nil {
+		newAPIError = apiErr
+		return
+	}
+
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
 	if priceData.FreeModel {
@@ -417,6 +422,13 @@ func applyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 		)
 	}
 	return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+}
+
+func applyEnterpriseGovernanceSharedPool(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if _, err := service.ApplyEnterpriseGovernanceSharedPool(c, relayInfo); err != nil {
+		return types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+	}
+	return nil
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
