@@ -1,466 +1,183 @@
-<div align="center">
+# Data Proxy
 
-![new-api](/web/default/public/logo.png)
+[![CI](https://github.com/normojs/data-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/normojs/data-proxy/actions/workflows/ci.yml)
+[![Docker](https://github.com/normojs/data-proxy/actions/workflows/data-proxy-docker.yml/badge.svg)](https://github.com/normojs/data-proxy/actions/workflows/data-proxy-docker.yml)
+[![License: AGPLv3](https://img.shields.io/badge/license-AGPLv3-brightgreen.svg)](./LICENSE)
 
-# New API
+Data Proxy 是一个面向企业治理场景的 AI API 网关和额度管控平台，基于开源项目 [new-api](https://github.com/QuantumNous/new-api) 开发。
 
-🍥 **Next-Generation LLM Gateway and AI Asset Management System**
-
-<p align="center">
-  <a href="./README.zh_CN.md">简体中文</a> |
-  <a href="./README.zh_TW.md">繁體中文</a> |
-  <strong>English</strong> |
-  <a href="./README.fr.md">Français</a> |
-  <a href="./README.ja.md">日本語</a>
-</p>
-
-<p align="center">
-  <a href="https://raw.githubusercontent.com/Calcium-Ion/new-api/main/LICENSE">
-    <img src="https://img.shields.io/github/license/Calcium-Ion/new-api?color=brightgreen" alt="license">
-  </a><!--
-  --><a href="https://github.com/Calcium-Ion/new-api/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Calcium-Ion/new-api?color=brightgreen&include_prereleases" alt="release">
-  </a><!--
-  --><a href="https://hub.docker.com/r/CalciumIon/new-api">
-    <img src="https://img.shields.io/badge/docker-dockerHub-blue" alt="docker">
-  </a><!--
-  --><a href="https://goreportcard.com/report/github.com/Calcium-Ion/new-api">
-    <img src="https://goreportcard.com/badge/github.com/Calcium-Ion/new-api" alt="GoReportCard">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://trendshift.io/repositories/20180" target="_blank">
-    <img src="https://trendshift.io/api/badge/repositories/20180" alt="QuantumNous%2Fnew-api | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
-  </a>
-  <br>
-  <a href="https://hellogithub.com/repository/QuantumNous/new-api" target="_blank">
-    <img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=539ac4217e69431684ad4a0bab768811&claim_uid=tbFPfKIDHpc4TzR" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" />
-  </a><!--
-  --><a href="https://www.producthunt.com/products/new-api/launches/new-api?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-new-api" target="_blank" rel="noopener noreferrer">
-    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1047693&theme=light&t=1769577875005" alt="New API - All-in-one AI asset management gateway. | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" />
-  </a>
-</p>
-
-<p align="center">
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-key-features">Key Features</a> •
-  <a href="#-deployment">Deployment</a> •
-  <a href="#-documentation">Documentation</a> •
-  <a href="#-help-support">Help</a>
-</p>
-
-</div>
-
-## 📝 Project Description
+它继承 new-api 的多模型接入、OpenAI 兼容协议、渠道路由、用户与令牌管理、额度和用量统计能力，并在此基础上增加企业组织、策略额度、审批通知、审计可见性、SSO 同步和发布合规链路。
 
 > [!IMPORTANT]
-> - This project is intended solely for lawful and authorized AI API gateway, organization-level authentication, multi-model management, usage analytics, cost accounting, and private deployment scenarios.
-> - Users must lawfully obtain upstream API keys, accounts, model services, and interface permissions, and must comply with upstream terms of service and applicable laws and regulations.
-> - Users should ensure their use complies with upstream terms of service and applicable laws and regulations.
-> - When providing generative AI services to the public, users should comply with applicable regulatory requirements and fulfill all filing, licensing, content safety, real-name verification, log retention, tax, and upstream authorization obligations required by their jurisdiction.
+> 本项目是基于 new-api 的二次开发版本。请保留 [LICENSE](./LICENSE)、[NOTICE](./NOTICE)、[THIRD-PARTY-LICENSES.md](./THIRD-PARTY-LICENSES.md)、原项目链接和 NOTICE 中要求的可见 attribution。Data Proxy 继续遵循 AGPLv3 及 NOTICE Section 7 的附加要求。
 
----
+## 项目定位
 
-## 🤝 Trusted Partners
+Data Proxy 适合需要集中管理大模型 API 资产的团队：
 
-<p align="center">
-  <em>No particular order</em>
-</p>
+- 在同一入口管理 OpenAI 兼容、Claude、Gemini、Responses、Realtime、Rerank 等模型协议和渠道。
+- 为企业、部门、策略分组和用户设置请求数或 quota 策略。
+- 通过 dry-run、hard limit、用量归因和审计日志逐步上线企业治理规则。
+- 让临时额度申请、审批结果、过期提醒和外部通知形成可追踪闭环。
+- 用 GitHub CI、Docker 发布证据和许可文件分发要求保障发布可回溯。
 
-<p align="center">
-  <a href="https://www.cherry-ai.com/" target="_blank">
-    <img src="./docs/images/cherry-studio.png" alt="Cherry Studio" height="80" />
-  </a><!--
-  --><a href="https://github.com/iOfficeAI/AionUi/" target="_blank">
-    <img src="./docs/images/aionui.png" alt="Aion UI" height="80" />
-  </a><!--
-  --><a href="https://bda.pku.edu.cn/" target="_blank">
-    <img src="./docs/images/pku.png" alt="Peking University" height="80" />
-  </a><!--
-  --><a href="https://www.compshare.cn/?ytag=GPU_yy_gh_newapi" target="_blank">
-    <img src="./docs/images/ucloud.png" alt="UCloud" height="80" />
-  </a><!--
-  --><a href="https://www.aliyun.com/" target="_blank">
-    <img src="./docs/images/aliyun.png" alt="Alibaba Cloud" height="80" />
-  </a><!--
-  --><a href="https://io.net/" target="_blank">
-    <img src="./docs/images/io-net.png" alt="IO.NET" height="80" />
-  </a>
-</p>
+## 当前能力
 
----
+### 继承自 new-api 的能力
 
-## 🙏 Special Thanks
+- OpenAI 兼容 API 网关，支持多模型、多渠道和自动重试。
+- 用户、令牌、分组、模型权限、额度、计费和统计仪表盘。
+- 多种登录和 OAuth/OIDC 接入能力。
+- 与 One API 数据结构的兼容迁移基础。
+- Docker、Compose、环境变量和初始化向导部署路径。
 
-<p align="center">
-  <a href="https://www.jetbrains.com/?from=new-api" target="_blank">
-    <img src="https://resources.jetbrains.com/storage/products/company/brand/logos/jb_beam.png" alt="JetBrains Logo" width="120" />
-  </a>
-</p>
+更多上游能力可以参考 [new-api 官方文档](https://docs.newapi.pro/) 和 [new-api 仓库](https://github.com/QuantumNous/new-api)。
 
-<p align="center">
-  <strong>Thanks to <a href="https://www.jetbrains.com/?from=new-api">JetBrains</a> for providing free open-source development license for this project</strong>
-</p>
+### Data Proxy 增强能力
 
----
+- 企业治理模型：企业、组织部门、成员、策略分组、额度策略、用量归因和审计日志。
+- 额度策略：支持 `request_count` 和 `quota`，可按企业、部门、分组或用户命中，支持 dry-run 与 hard reject。
+- 临时额度审批：用户提交、管理员审批、拒绝、撤回、过期和即将过期提醒。
+- 通知闭环：站内通知、企业审计事件、email/webhook outbox、通知偏好、投递结果查询、失败重试和 worker 指标。
+- HStation OAuth：登录、注册、绑定、解绑、管理员配置和自动化测试覆盖。
+- SSO 组织同步：支持 payload preview、dry-run、冲突列表、事务 apply 和同步审计。
+- 企业额度 Redis 计数：可选 Redis 原子 reserve/settle/refund，DB 降级和 DB/Redis 对账修复。
+- fusion-benchmark：离线数据集、配置校验、fixture、自检和 CI 检查脚本。
 
-## 🚀 Quick Start
+## 快速开始
 
-### Using Docker Compose (Recommended)
+### 使用 Docker Compose
 
 ```bash
-# Clone the project
-git clone https://github.com/QuantumNous/new-api.git
-cd new-api
-
-# Start the service
-docker-compose up -d
+git clone https://github.com/normojs/data-proxy.git
+cd data-proxy
+docker compose up -d data-proxy
 ```
 
-<details>
-<summary><strong>Using Docker Commands</strong></summary>
+启动后访问：
+
+```text
+http://localhost:3000
+```
+
+首次安装请优先使用初始化向导配置数据库和 Redis，然后创建第一个管理员账号。显式环境变量仍然支持，但更适合高级运维覆盖。
+
+### 使用本地依赖
+
+如果希望 Compose 同时启动 PostgreSQL 和 Redis：
 
 ```bash
-# Pull the latest image
-docker pull calciumion/new-api:latest
-
-docker run --name new-api -d --restart always \
-  -p 3000:3000 \
-  -e TZ=Asia/Shanghai \
-  -v ./data:/data \
-  calciumion/new-api:latest
+docker compose --profile local-deps up -d
 ```
 
-> **💡 Tip:** `-v ./data:/data` will save data in the `data` folder of the current directory, you can also change it to an absolute path like `-v /your/custom/path:/data`
-> After startup, open `http://localhost:3000` and use the first-run setup wizard to configure an existing MySQL/PostgreSQL database and optional Redis before creating the first administrator account. Environment variables such as `SQL_DSN` are advanced overrides, not the recommended first-install path.
+初始化向导中使用：
 
-</details>
+- PostgreSQL host: `postgres`
+- Redis host: `redis`
 
----
+这些本地依赖默认只在 Compose 网络内可见，不会占用宿主机的 `5432` 或 `6379` 端口。
 
-🎉 After deployment is complete, visit `http://localhost:3000` to start using!
-
-> [!WARNING]
-> When operating this project as a public generative AI service or API resale service, users should first complete all required filing, licensing, content safety, real-name verification, log retention, tax, payment, and upstream authorization obligations.
-
-📖 For more deployment methods, please refer to [Deployment Guide](https://docs.newapi.pro/en/docs/installation)
-
----
-
-## 📚 Documentation
-
-<div align="center">
-
-### 📖 [Official Documentation](https://docs.newapi.pro/en/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/QuantumNous/new-api)
-
-</div>
-
-**Quick Navigation:**
-
-| Category | Link |
-|------|------|
-| 🚀 Deployment Guide | [Installation Documentation](https://docs.newapi.pro/en/docs/installation) |
-| ⚙️ Environment Configuration | [Environment Variables](https://docs.newapi.pro/en/docs/installation/config-maintenance/environment-variables) |
-| 📡 API Documentation | [API Documentation](https://docs.newapi.pro/en/docs/api) |
-| ❓ FAQ | [FAQ](https://docs.newapi.pro/en/docs/support/faq) |
-| 💬 Community Interaction | [Communication Channels](https://docs.newapi.pro/en/docs/support/community-interaction) |
-
----
-
-## ✨ Key Features
-
-> For detailed features, please refer to [Features Introduction](https://docs.newapi.pro/en/docs/guide/wiki/basic-concepts/features-introduction)
-
-### 🎨 Core Functions
-
-| Feature | Description |
-|------|------|
-| 🎨 New UI | Modern user interface design |
-| 🌍 Multi-language | Supports Simplified Chinese, Traditional Chinese, English, French, Japanese |
-| 🔄 Data Compatibility | Fully compatible with the original One API database |
-| 📈 Data Dashboard | Visual console and statistical analysis |
-| 🔒 Permission Management | Token grouping, model restrictions, user management |
-
-### 💰 Authorized Usage Accounting and Billing
-
-- ✅ Internal top-up and quota allocation for lawful authorized scenarios (EPay, Stripe)
-- ✅ Organization-level per-request, usage-based, and cache-hit cost accounting
-- ✅ Cache billing statistics for OpenAI, Azure, DeepSeek, Claude, Qwen, and supported models
-- ✅ Flexible billing policies for internal management or authorized enterprise customers
-
-### 🔐 Authorization and Security
-
-- 😈 Discord authorization login
-- 🤖 LinuxDO authorization login
-- 📱 Telegram authorization login
-- 🔑 OIDC unified authentication
-- 🔍 Key quota query usage (with [new-api-key-tool](https://github.com/Calcium-Ion/new-api-key-tool))
-
-### 🚀 Advanced Features
-
-**API Format Support:**
-- ⚡ [OpenAI Responses](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/create-response)
-- ⚡ [OpenAI Realtime API](https://docs.newapi.pro/en/docs/api/ai-model/realtime/create-realtime-session) (including Azure)
-- ⚡ [Claude Messages](https://docs.newapi.pro/en/docs/api/ai-model/chat/create-message)
-- ⚡ [Google Gemini](https://doc.newapi.pro/en/api/google-gemini-chat)
-- 🔄 [Rerank Models](https://docs.newapi.pro/en/docs/api/ai-model/rerank/create-rerank) (Cohere, Jina)
-
-**Intelligent Routing:**
-- ⚖️ Channel weighted random
-- 🔄 Automatic retry on failure
-- 🚦 User-level model rate limiting
-
-**Format Conversion:**
-- 🔄 **OpenAI Compatible ⇄ Claude Messages**
-- 🔄 **OpenAI Compatible → Google Gemini**
-- 🔄 **Google Gemini → OpenAI Compatible** - Text only, function calling not supported yet
-- 🚧 **OpenAI Compatible ⇄ OpenAI Responses** - In development
-- 🔄 **Thinking-to-content functionality**
-
-**Reasoning Effort Support:**
-
-<details>
-<summary>View detailed configuration</summary>
-
-**OpenAI series models:**
-- `o3-mini-high` - High reasoning effort
-- `o3-mini-medium` - Medium reasoning effort
-- `o3-mini-low` - Low reasoning effort
-- `gpt-5-high` - High reasoning effort
-- `gpt-5-medium` - Medium reasoning effort
-- `gpt-5-low` - Low reasoning effort
-
-**Claude thinking models:**
-- `claude-3-7-sonnet-20250219-thinking` - Enable thinking mode
-
-**Google Gemini series models:**
-- `gemini-2.5-flash-thinking` - Enable thinking mode
-- `gemini-2.5-flash-nothinking` - Disable thinking mode
-- `gemini-2.5-pro-thinking` - Enable thinking mode
-- `gemini-2.5-pro-thinking-128` - Enable thinking mode with thinking budget of 128 tokens
-- You can also append `-low`, `-medium`, or `-high` to any Gemini model name to request the corresponding reasoning effort (no extra thinking-budget suffix needed).
-
-</details>
-
----
-
-## 🤖 Model Support
-
-> For details, please refer to [API Documentation - Gateway Interface](https://docs.newapi.pro/en/docs/api)
-
-| Model Type | Description | Documentation |
-|---------|------|------|
-| 🤖 OpenAI-Compatible | OpenAI compatible models | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/createchatcompletion) |
-| 🤖 OpenAI Responses | OpenAI Responses format | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/createresponse) |
-| 🎨 Midjourney-Proxy | [Midjourney-Proxy(Plus)](https://github.com/novicezk/midjourney-proxy) | [Documentation](https://doc.newapi.pro/api/midjourney-proxy-image) |
-| 🎵 Suno-API | [Suno API](https://github.com/Suno-API/Suno-API) | [Documentation](https://doc.newapi.pro/api/suno-music) |
-| 🔄 Rerank | Cohere, Jina | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/rerank/creatererank) |
-| 💬 Claude | Messages format | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/chat/createmessage) |
-| 🌐 Gemini | Google Gemini format | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/chat/gemini/geminirelayv1beta) |
-| 🔧 Dify | ChatFlow mode | - |
-| 🎯 Custom upstream | Supports configuring legally authorized upstream endpoints | - |
-
-### 📡 Supported Interfaces
-
-<details>
-<summary>View complete interface list</summary>
-
-- [Chat Interface (Chat Completions)](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/createchatcompletion)
-- [Response Interface (Responses)](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/createresponse)
-- [Image Interface (Image)](https://docs.newapi.pro/en/docs/api/ai-model/images/openai/post-v1-images-generations)
-- [Audio Interface (Audio)](https://docs.newapi.pro/en/docs/api/ai-model/audio/openai/create-transcription)
-- [Video Interface (Video)](https://docs.newapi.pro/en/docs/api/ai-model/audio/openai/createspeech)
-- [Embedding Interface (Embeddings)](https://docs.newapi.pro/en/docs/api/ai-model/embeddings/createembedding)
-- [Rerank Interface (Rerank)](https://docs.newapi.pro/en/docs/api/ai-model/rerank/creatererank)
-- [Realtime Conversation (Realtime)](https://docs.newapi.pro/en/docs/api/ai-model/realtime/createrealtimesession)
-- [Claude Chat](https://docs.newapi.pro/en/docs/api/ai-model/chat/createmessage)
-- [Google Gemini Chat](https://docs.newapi.pro/en/docs/api/ai-model/chat/gemini/geminirelayv1beta)
-
-</details>
-
----
-
-## 🚢 Deployment
-
-> [!TIP]
-> **Latest Docker image:** `calciumion/new-api:latest`
-
-### 📋 Deployment Requirements
-
-| Component | Requirement |
-|------|------|
-| **Local database** | SQLite (Docker must mount `/data` directory)|
-| **Remote database** | MySQL ≥ 5.7.8 or PostgreSQL ≥ 9.6 |
-| **Container engine** | Docker / Docker Compose |
-
-### ⚙️ Environment Variable Configuration
-
-<details>
-<summary>Common environment variable configuration</summary>
-
-| Variable Name | Description | Default Value |
-|--------|------|--------|
-| `SESSION_SECRET` | Session secret (required for multi-machine deployment) | - |
-| `CRYPTO_SECRET` | Encryption secret (required for Redis) | - |
-| `SQL_DSN` | Advanced database override. Prefer the first-run setup wizard for initial installation. | - |
-| `REDIS_CONN_STRING` | Advanced Redis override. Prefer the first-run setup wizard for initial installation. | - |
-| `RELAY_IDLE_CONN_TIMEOUT` | Idle keep-alive timeout for relay HTTP clients, seconds. Defaults to Go standard library behavior; set `0` to disable | `90` |
-| `STREAMING_TIMEOUT` | Streaming timeout (seconds) | `300` |
-| `STREAM_SCANNER_MAX_BUFFER_MB` | Max per-line buffer (MB) for the stream scanner; increase when upstream sends huge image/base64 payloads | `64` |
-| `MAX_REQUEST_BODY_MB` | Max request body size (MB, counted **after decompression**; prevents huge requests/zip bombs from exhausting memory). Exceeding it returns `413` | `32` |
-| `AZURE_DEFAULT_API_VERSION` | Azure API version | `2025-04-01-preview` |
-| `ERROR_LOG_ENABLED` | Error log switch | `false` |
-| `PYROSCOPE_URL` | Pyroscope server address | - |
-| `PYROSCOPE_APP_NAME` | Pyroscope application name | `data-proxy` |
-| `PYROSCOPE_BASIC_AUTH_USER` | Pyroscope basic auth user | - |
-| `PYROSCOPE_BASIC_AUTH_PASSWORD` | Pyroscope basic auth password | - |
-| `PYROSCOPE_MUTEX_RATE` | Pyroscope mutex sampling rate | `5` |
-| `PYROSCOPE_BLOCK_RATE` | Pyroscope block sampling rate | `5` |
-| `HOSTNAME` | Hostname tag for Pyroscope | `new-api` |
-
-📖 **Complete configuration:** [Environment Variables Documentation](https://docs.newapi.pro/en/docs/installation/config-maintenance/environment-variables)
-
-</details>
-
-### 🔧 Deployment Methods
-
-<details>
-<summary><strong>Method 1: Docker Compose (Recommended)</strong></summary>
+### 使用已发布镜像
 
 ```bash
-# Clone the project
-git clone https://github.com/QuantumNous/new-api.git
-cd new-api
-
-# Start service
-docker-compose up -d
+docker pull ghcr.io/normojs/data-proxy:latest
 ```
 
-</details>
-
-<details>
-<summary><strong>Method 2: Docker Commands</strong></summary>
+稳定版本示例：
 
 ```bash
-docker run --name new-api -d --restart always \
-  -p 3000:3000 \
-  -e TZ=Asia/Shanghai \
-  -v ./data:/data \
-  calciumion/new-api:latest
+docker pull ghcr.io/normojs/data-proxy:v1.3.0
 ```
 
-> **💡 Path explanation:**
-> - `./data:/data` - Relative path, data saved in the data folder of the current directory
-> - You can also use absolute path, e.g.: `/your/custom/path:/data`
-> - After startup, open `http://localhost:3000` and configure an existing MySQL/PostgreSQL database plus optional Redis in the first-run setup wizard.
+发布、tag、镜像摘要和回滚流程见 [Data Proxy Release Runbook](./docs/data-proxy-release-runbook.md)。
 
-</details>
+## 常用配置
 
-<details>
-<summary><strong>Method 3: BaoTa Panel</strong></summary>
+首次安装推荐通过 Web 初始化向导写入 runtime config。高级场景可以使用 `.env.example` 中的环境变量覆盖。
 
-1. Install BaoTa Panel (≥ 9.2.0 version)
-2. Search for **New-API** in the application store
-3. One-click installation
+常见变量：
 
-📖 [Tutorial with images](./docs/BT.md)
+| 变量 | 说明 |
+| --- | --- |
+| `SQL_DSN` | 数据库连接字符串，高级覆盖项。 |
+| `REDIS_CONN_STRING` | Redis 连接字符串，高级覆盖项。 |
+| `SESSION_SECRET` | 多节点部署必须设置的会话密钥。 |
+| `NODE_TYPE` | 主节点可设为 `master`，用于周期任务。 |
+| `NODE_NAME` | 节点名称，会进入审计和运维排查链路。 |
+| `DATA_PROXY_SETUP_AUTO_RESTART` | 控制初始化向导保存配置后是否自动触发容器重启。 |
 
-</details>
+完整部署说明见 [Data Proxy Operator Guide](./docs/data-proxy-operator-guide.md)。
 
-### ⚠️ Multi-machine Deployment Considerations
+## 管理与验证
 
-> [!WARNING]
-> - **Must set** `SESSION_SECRET` - Otherwise login status inconsistent
-> - **Shared Redis must set** `CRYPTO_SECRET` - Otherwise data cannot be decrypted
+### 企业治理入口
 
-### 🔄 Channel Retry and Cache
+- 管理端入口：`Admin` -> `Enterprise Governance`
+- 路由：`/enterprise`
+- 权限：管理员及以上
 
-**Retry configuration:** `Settings → Operation Settings → General Settings → Failure Retry Count`
+建议上线顺序：
 
-**Cache configuration:**
-- First-run setup wizard: Redis cache (recommended)
-- `REDIS_CONN_STRING`: advanced Redis override
-- `MEMORY_CACHE_ENABLED`: Memory cache
+1. 保持企业治理关闭，确认现有网关和计费链路不受影响。
+2. 开启 dry-run，观察策略命中、would reject 审计和用量归因。
+3. 对测试用户或测试分组开启小范围 hard limit。
+4. 再扩大到真实部门或企业级策略。
 
----
+详细操作见 [Enterprise Governance Admin Guide](./docs/enterprise-governance-admin-guide.md)。
 
-## 🔗 Related Projects
+### 本地验证
 
-### Upstream Projects
+常用验证命令：
 
-| Project | Description |
-|------|------|
-| [One API](https://github.com/songquanpeng/one-api) | Original project base |
-| [Midjourney-Proxy](https://github.com/novicezk/midjourney-proxy) | Midjourney interface support |
+```bash
+git diff --check
+go test ./model ./controller ./service ./router ./oauth
+cd web/default && bun run typecheck
+cd web/default && bun run smoke:approval-notification-links
+cd web/default && NODE_OPTIONS=--max-old-space-size=4096 bun run build
+scripts/fusion-benchmark-check.sh
+```
 
-### Supporting Tools
+发布前建议运行完整预检：
 
-| Project | Description |
-|------|------|
-| [new-api-key-tool](https://github.com/Calcium-Ion/new-api-key-tool) | Key quota query tool |
-| [new-api-horizon](https://github.com/Calcium-Ion/new-api-horizon) | New API high-performance optimized version |
+```bash
+make deployment-preflight
+```
 
----
+可选 Docker 构建预检：
 
-## 💬 Help Support
+```bash
+DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight
+```
 
-### 📖 Documentation Resources
+## 文档索引
 
-| Resource | Link |
-|------|------|
-| 📘 FAQ | [FAQ](https://docs.newapi.pro/en/docs/support/faq) |
-| 💬 Community Interaction | [Communication Channels](https://docs.newapi.pro/en/docs/support/community-interaction) |
-| 🐛 Issue Feedback | [Issue Feedback](https://docs.newapi.pro/en/docs/support/feedback-issues) |
-| 📚 Complete Documentation | [Official Documentation](https://docs.newapi.pro/en/docs) |
+| 文档 | 用途 |
+| --- | --- |
+| [Data Proxy Operator Guide](./docs/data-proxy-operator-guide.md) | 运行、初始化、依赖和部署交接。 |
+| [Data Proxy Release Runbook](./docs/data-proxy-release-runbook.md) | tag、镜像、发布证据、回滚和合规检查。 |
+| [Deployment Readiness](./docs/deployment-readiness.md) | 发布前预检命令和当前机器状态记录。 |
+| [Enterprise Governance Admin Guide](./docs/enterprise-governance-admin-guide.md) | 企业治理管理员操作手册。 |
+| [Post V1.3 TODO](./docs/data-proxy-post-v1.3-todo.md) | V1.3 之后的开发顺序和剩余任务。 |
+| [Branding and Release Policy](./docs/branding-and-release-policy.md) | Data Proxy 品牌边界和 new-api attribution 规则。 |
 
-### 🤝 Contribution Guide
+仓库中的 `README.en.md`、`README.zh_CN.md`、`README.zh_TW.md`、`README.fr.md`、`README.ja.md` 仍保留为上游 new-api 资料和历史 attribution 参考。Data Proxy 的运行和发布入口以本 README 及 `docs/data-proxy-*` 文档为准。
 
-Welcome all forms of contribution!
+## 开源协议与合规
 
-- 🐛 Report Bugs
-- 💡 Propose New Features
-- 📝 Improve Documentation
-- 🔧 Submit Code
+Data Proxy 基于 [new-api](https://github.com/QuantumNous/new-api) 开发，继续采用 [GNU Affero General Public License v3.0](./LICENSE)。
 
----
+请注意：
 
-## 📜 License
+- 分发源码、镜像、二进制、前端 bundle 或桌面安装包时，必须保留 `LICENSE`、`NOTICE` 和 `THIRD-PARTY-LICENSES.md`。
+- 修改版不能误导软件来源，需要清楚标记 Data Proxy 的变更来源。
+- 带 UI 的修改版必须保留 NOTICE 中要求的可见 attribution 文案和原项目链接。
+- Docker 镜像发布链路应继续携带 `/licenses/LICENSE`、`/licenses/NOTICE` 和 `/licenses/THIRD-PARTY-LICENSES.md`。
 
-This project is licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](./LICENSE).
+如果你的组织不能接受 AGPLv3 或 NOTICE Section 7 的义务，请在部署、分发或提供网络服务前先完成内部法务评估。
 
-Additional terms under AGPLv3 Section 7 apply. Modified versions must preserve
-the author attribution notice `Frontend design and development by New API
-contributors.` in the appropriate legal notices and in any prominent about,
-legal, footer, or attribution location presented by the user interface.
+## 合法使用
 
-Modified versions that present a user interface must also preserve a visible
-link to the original project: <https://github.com/QuantumNous/new-api>.
+本项目仅适用于合法、授权的 AI API 网关、企业组织认证、多模型管理、用量分析、成本核算和私有化部署场景。
 
-This is an open-source project developed based on [One API](https://github.com/songquanpeng/one-api) (MIT License).
-
-If your organization's policies do not permit the use of AGPLv3-licensed software, or if you wish to avoid the open-source obligations of AGPLv3, please contact us at: [support@quantumnous.com](mailto:support@quantumnous.com)
-
----
-
-## 🌟 Star History
-
-<div align="center">
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Calcium-Ion/new-api&type=Date)](https://star-history.com/#Calcium-Ion/new-api&Date)
-
-</div>
-
----
-
-<div align="center">
-
-### 💖 Thank you for using New API
-
-If this project is helpful to you, welcome to give us a ⭐️ Star！
-
-**[Official Documentation](https://docs.newapi.pro/en/docs)** • **[Issue Feedback](https://github.com/Calcium-Ion/new-api/issues)** • **[Latest Release](https://github.com/Calcium-Ion/new-api/releases)**
-
-<sub>Built with ❤️ by QuantumNous</sub>
-
-</div>
+使用者需要自行合法取得上游 API key、账号、模型服务和接口授权，并遵守上游服务条款及适用法律法规。若向公众提供生成式 AI 服务或 API 转售服务，应先完成所在地要求的备案、许可、内容安全、实名、日志留存、税务、支付和上游授权义务。
