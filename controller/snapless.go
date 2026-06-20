@@ -44,6 +44,26 @@ type snaplessModelAliases struct {
 	QA        string `json:"qa"`
 }
 
+type snaplessActionLink struct {
+	Label  string `json:"label"`
+	Href   string `json:"href"`
+	Intent string `json:"intent,omitempty"`
+}
+
+type snaplessActionHints struct {
+	Severity  string              `json:"severity,omitempty"`
+	Reason    string              `json:"reason,omitempty"`
+	Primary   *snaplessActionLink `json:"primary,omitempty"`
+	Secondary *snaplessActionLink `json:"secondary,omitempty"`
+}
+
+type snaplessReadinessResponse struct {
+	OK      bool                `json:"ok"`
+	Status  string              `json:"status"`
+	Checks  map[string]bool     `json:"checks"`
+	Actions snaplessActionHints `json:"actions"`
+}
+
 type snaplessTokenResponse struct {
 	App          snaplessAppResponse       `json:"app"`
 	Grant        snaplessGrantResponse     `json:"grant"`
@@ -99,6 +119,7 @@ type snaplessTokenSummary struct {
 type snaplessHealthResponse struct {
 	OK      bool                           `json:"ok"`
 	Status  string                         `json:"status"`
+	Actions snaplessActionHints            `json:"actions"`
 	App     snaplessAppResponse            `json:"app"`
 	Grant   snaplessGrantResponse          `json:"grant"`
 	Token   snaplessTokenHealth            `json:"token"`
@@ -111,6 +132,9 @@ type snaplessHealthResponse struct {
 }
 
 type snaplessDevicesResponse struct {
+	OK      bool                           `json:"ok"`
+	Status  string                         `json:"status"`
+	Actions snaplessActionHints            `json:"actions"`
 	App     snaplessAppResponse            `json:"app"`
 	Grant   snaplessGrantResponse          `json:"grant"`
 	Devices []snaplessManagedDevice        `json:"devices"`
@@ -123,6 +147,7 @@ type snaplessDevicesResponse struct {
 type snaplessManagedDevice struct {
 	OK         bool                 `json:"ok"`
 	Status     string               `json:"status"`
+	Actions    snaplessActionHints  `json:"actions"`
 	Device     snaplessDeviceInfo   `json:"device"`
 	Token      snaplessTokenSummary `json:"token"`
 	Checks     map[string]bool      `json:"checks"`
@@ -171,11 +196,12 @@ type snaplessDeviceStartResponse struct {
 }
 
 type snaplessDeviceStatusResponse struct {
-	Status    string               `json:"status"`
-	ExpiresAt int64                `json:"expires_at"`
-	App       snaplessAppResponse  `json:"app"`
-	Device    snaplessDeviceInfo   `json:"device"`
-	Token     snaplessTokenSummary `json:"token"`
+	Status    string                    `json:"status"`
+	ExpiresAt int64                     `json:"expires_at"`
+	App       snaplessAppResponse       `json:"app"`
+	Device    snaplessDeviceInfo        `json:"device"`
+	Token     snaplessTokenSummary      `json:"token"`
+	Readiness snaplessReadinessResponse `json:"readiness"`
 }
 
 type snaplessDeviceAuthorizeRequest struct {
@@ -194,6 +220,12 @@ func GetSnaplessConfig(c *gin.Context) {
 		return
 	}
 	aliases := getSnaplessModelAliases()
+	availability, err := snaplessModelAvailability(aliases)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	modelsOK := snaplessModelsReady(availability)
 	device := snaplessDeviceFromRequest(c, snaplessDeviceRequest{})
 	userId := c.GetInt("id")
 
@@ -206,13 +238,30 @@ func GetSnaplessConfig(c *gin.Context) {
 	}
 
 	var tokenSummary snaplessTokenSummary
+	var tokenForStatus *model.Token
+	var bindingForStatus *model.ConnectedAppTokenBinding
 	if binding, err := model.FindActiveConnectedAppTokenBinding(app.Id, userId, device.Fingerprint); err == nil {
+		bindingForStatus = binding
 		if token, tokenErr := model.GetTokenByIds(binding.TokenId, userId); tokenErr == nil {
+			tokenForStatus = token
 			tokenSummary = buildSnaplessTokenSummary(token, binding)
+		} else if !errors.Is(tokenErr, gorm.ErrRecordNotFound) {
+			common.ApiError(c, tokenErr)
+			return
 		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		common.ApiError(c, err)
 		return
+	}
+
+	userHealth, err := getSnaplessUserHealth(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	status := evaluateSnaplessReadiness(app, userHealth, modelsOK)
+	if bindingForStatus != nil {
+		status = evaluateSnaplessStatus(app, grant, bindingForStatus, tokenForStatus, userHealth, modelsOK, common.GetTimestamp())
 	}
 
 	common.ApiSuccess(c, gin.H{
@@ -221,9 +270,14 @@ func GetSnaplessConfig(c *gin.Context) {
 		"device":       device,
 		"token":        tokenSummary,
 		"models":       aliases,
+		"model_health": buildSnaplessModelHealth(aliases, availability),
 		"model_limits": aliases.All(),
 		"base_url":     snaplessAPIBaseURL(c),
 		"endpoints":    snaplessEndpoints(c),
+		"ok":           status.OK,
+		"status":       status.Status,
+		"checks":       status.Checks,
+		"actions":      buildSnaplessActionHints(status.Status),
 	})
 }
 
@@ -326,12 +380,18 @@ func GetSnaplessDeviceStatus(c *gin.Context) {
 			tokenSummary = buildSnaplessTokenSummary(token, nil)
 		}
 	}
+	readiness, err := snaplessReadinessForUser(app, c.GetInt("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	common.ApiSuccess(c, snaplessDeviceStatusResponse{
 		Status:    session.Status,
 		ExpiresAt: session.ExpiresAt,
 		App:       buildSnaplessAppResponse(app),
 		Device:    snaplessDeviceInfoFromSession(session),
 		Token:     tokenSummary,
+		Readiness: readiness,
 	})
 }
 
@@ -362,6 +422,11 @@ func AuthorizeSnaplessDevice(c *gin.Context) {
 	}
 	userId := c.GetInt("id")
 	now := common.GetTimestamp()
+	readiness, err := snaplessReadinessForUser(app, userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	var response snaplessDeviceStatusResponse
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
@@ -400,6 +465,7 @@ func AuthorizeSnaplessDevice(c *gin.Context) {
 				ExpiresAt: session.ExpiresAt,
 				App:       buildSnaplessAppResponse(app),
 				Device:    snaplessDeviceInfoFromSession(&session),
+				Readiness: readiness,
 			}
 			return nil
 		}
@@ -430,6 +496,7 @@ func AuthorizeSnaplessDevice(c *gin.Context) {
 			App:       tokenResponse.App,
 			Device:    tokenResponse.Device,
 			Token:     tokenResponse.Token,
+			Readiness: readiness,
 		}
 		return nil
 	})
@@ -671,16 +738,10 @@ func ListSnaplessDevices(c *gin.Context) {
 		return
 	}
 
-	userCache, err := model.GetUserCache(userId)
+	userHealth, err := getSnaplessUserHealth(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
-	}
-	userHealth := snaplessUserHealth{
-		ID:      userId,
-		Enabled: userCache.Status == common.UserStatusEnabled,
-		Quota:   userCache.Quota,
-		QuotaOK: userCache.Quota > 0,
 	}
 
 	bindings, err := model.ListConnectedAppTokenBindings(app.Id, userId)
@@ -714,8 +775,11 @@ func ListSnaplessDevices(c *gin.Context) {
 		devices = append(devices, buildSnaplessManagedDevice(app, grant, binding, tokensByID[binding.TokenId], userHealth, modelsOK, now))
 	}
 
-	globalStatus := evaluateSnaplessStatus(app, grant, nil, nil, userHealth, modelsOK, now)
+	globalStatus := evaluateSnaplessReadiness(app, userHealth, modelsOK)
 	common.ApiSuccess(c, snaplessDevicesResponse{
+		OK:      globalStatus.OK,
+		Status:  globalStatus.Status,
+		Actions: buildSnaplessActionHints(globalStatus.Status),
 		App:     buildSnaplessAppResponse(app),
 		Grant:   buildSnaplessGrantResponse(grant, app.DefaultScopeList()),
 		Devices: devices,
@@ -843,14 +907,14 @@ func GetSnaplessHealth(c *gin.Context) {
 
 	key := snaplessBearerKey(c)
 	if key == "" {
-		common.ApiSuccess(c, response)
+		writeSnaplessHealth(c, response)
 		return
 	}
 	token, err := model.GetTokenByKey(key, false)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			response.Status = "token_not_found"
-			common.ApiSuccess(c, response)
+			writeSnaplessHealth(c, response)
 			return
 		}
 		common.ApiError(c, err)
@@ -864,7 +928,7 @@ func GetSnaplessHealth(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			response.Status = "not_snapless_token"
-			common.ApiSuccess(c, response)
+			writeSnaplessHealth(c, response)
 			return
 		}
 		common.ApiError(c, err)
@@ -880,7 +944,7 @@ func GetSnaplessHealth(c *gin.Context) {
 	}
 	if binding.AppId != app.Id {
 		response.Status = "not_snapless_token"
-		common.ApiSuccess(c, response)
+		writeSnaplessHealth(c, response)
 		return
 	}
 
@@ -894,16 +958,10 @@ func GetSnaplessHealth(c *gin.Context) {
 		response.Grant = buildSnaplessGrantResponse(grant, app.DefaultScopeList())
 	}
 
-	userCache, err := model.GetUserCache(token.UserId)
+	response.User, err = getSnaplessUserHealth(token.UserId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
-	}
-	response.User = snaplessUserHealth{
-		ID:      token.UserId,
-		Enabled: userCache.Status == common.UserStatusEnabled,
-		Quota:   userCache.Quota,
-		QuotaOK: userCache.Quota > 0,
 	}
 
 	status := evaluateSnaplessStatus(app, grant, binding, token, response.User, snaplessModelsReady(availability), now)
@@ -914,7 +972,7 @@ func GetSnaplessHealth(c *gin.Context) {
 		response.OK = true
 		_ = model.TouchConnectedAppUsage(app.Id, token.UserId, token.Id, now)
 	}
-	common.ApiSuccess(c, response)
+	writeSnaplessHealth(c, response)
 }
 
 func ensureSnaplessTokenForDevice(c *gin.Context, req snaplessDeviceRequest, rotate bool) (snaplessTokenResponse, int, error) {
@@ -1339,11 +1397,38 @@ func buildSnaplessTokenHealth(token *model.Token, now int64) snaplessTokenHealth
 	return health
 }
 
+func getSnaplessUserHealth(userId int) (snaplessUserHealth, error) {
+	userCache, err := model.GetUserCache(userId)
+	if err != nil {
+		return snaplessUserHealth{}, err
+	}
+	return snaplessUserHealth{
+		ID:      userId,
+		Enabled: userCache.Status == common.UserStatusEnabled,
+		Quota:   userCache.Quota,
+		QuotaOK: userCache.Quota > 0,
+	}, nil
+}
+
+func snaplessReadinessForUser(app *model.ConnectedApp, userId int) (snaplessReadinessResponse, error) {
+	aliases := getSnaplessModelAliases()
+	availability, err := snaplessModelAvailability(aliases)
+	if err != nil {
+		return snaplessReadinessResponse{}, err
+	}
+	userHealth, err := getSnaplessUserHealth(userId)
+	if err != nil {
+		return snaplessReadinessResponse{}, err
+	}
+	return buildSnaplessReadinessResponse(evaluateSnaplessReadiness(app, userHealth, snaplessModelsReady(availability))), nil
+}
+
 func buildSnaplessManagedDevice(app *model.ConnectedApp, grant *model.ConnectedAppGrant, binding *model.ConnectedAppTokenBinding, token *model.Token, user snaplessUserHealth, modelsOK bool, now int64) snaplessManagedDevice {
 	status := evaluateSnaplessStatus(app, grant, binding, token, user, modelsOK, now)
 	return snaplessManagedDevice{
 		OK:         status.OK,
 		Status:     status.Status,
+		Actions:    buildSnaplessActionHints(status.Status),
 		Device:     snaplessDeviceInfoFromBinding(binding),
 		Token:      buildSnaplessTokenSummary(token, binding),
 		Checks:     status.Checks,
@@ -1351,6 +1436,38 @@ func buildSnaplessManagedDevice(app *model.ConnectedApp, grant *model.ConnectedA
 		RevokedAt:  binding.RevokedAt,
 		CreatedAt:  binding.CreatedAt,
 		UpdatedAt:  binding.UpdatedAt,
+	}
+}
+
+func evaluateSnaplessReadiness(app *model.ConnectedApp, user snaplessUserHealth, modelsOK bool) snaplessStatusEvaluation {
+	appOK := app != nil && app.Status == model.ConnectedAppStatusEnabled
+	checks := map[string]bool{
+		"app_enabled":   appOK,
+		"user_enabled":  user.Enabled,
+		"user_quota_ok": user.QuotaOK,
+		"models_ready":  modelsOK,
+	}
+
+	switch {
+	case !appOK:
+		return snaplessStatusEvaluation{Status: "app_disabled", Checks: checks}
+	case !user.Enabled:
+		return snaplessStatusEvaluation{Status: "user_disabled", Checks: checks}
+	case !user.QuotaOK:
+		return snaplessStatusEvaluation{Status: "quota_insufficient", Checks: checks}
+	case !modelsOK:
+		return snaplessStatusEvaluation{Status: "models_unavailable", Checks: checks}
+	default:
+		return snaplessStatusEvaluation{OK: true, Status: "ok", Checks: checks}
+	}
+}
+
+func buildSnaplessReadinessResponse(status snaplessStatusEvaluation) snaplessReadinessResponse {
+	return snaplessReadinessResponse{
+		OK:      status.OK,
+		Status:  status.Status,
+		Checks:  status.Checks,
+		Actions: buildSnaplessActionHints(status.Status),
 	}
 }
 
@@ -1394,6 +1511,100 @@ func evaluateSnaplessStatus(app *model.ConnectedApp, grant *model.ConnectedAppGr
 	default:
 		return snaplessStatusEvaluation{OK: true, Status: "ok", Checks: checks}
 	}
+}
+
+func buildSnaplessActionHints(status string) snaplessActionHints {
+	switch status {
+	case "ok":
+		return snaplessActionHints{Severity: "success"}
+	case "quota_insufficient":
+		return snaplessActionHints{
+			Severity: "warning",
+			Reason:   "Your account balance is too low for Snapless requests.",
+			Primary: &snaplessActionLink{
+				Label:  "Recharge",
+				Href:   "/wallet?source=snapless",
+				Intent: "recharge",
+			},
+		}
+	case "user_disabled":
+		return snaplessActionHints{
+			Severity: "danger",
+			Reason:   "Your account is disabled. Review the account before approving Snapless access.",
+			Primary: &snaplessActionLink{
+				Label:  "Account settings",
+				Href:   "/profile",
+				Intent: "account",
+			},
+		}
+	case "models_unavailable":
+		return snaplessActionHints{
+			Severity: "warning",
+			Reason:   "Required Snapless models are unavailable for this user group.",
+			Primary: &snaplessActionLink{
+				Label:  "Model settings",
+				Href:   "/system-settings/models",
+				Intent: "model_settings",
+			},
+			Secondary: &snaplessActionLink{
+				Label:  "Model catalog",
+				Href:   "/models",
+				Intent: "models",
+			},
+		}
+	case "app_disabled":
+		return snaplessActionHints{
+			Severity: "danger",
+			Reason:   "The built-in Snapless connected app is disabled.",
+			Primary: &snaplessActionLink{
+				Label:  "Open profile",
+				Href:   "/profile",
+				Intent: "connected_app",
+			},
+		}
+	case "token_disabled":
+		return snaplessActionHints{
+			Severity: "danger",
+			Reason:   "This device token is disabled. Rotate the device key or authorize the device again.",
+		}
+	case "token_expired":
+		return snaplessActionHints{
+			Severity: "warning",
+			Reason:   "This device token is expired. Rotate the device key or authorize the device again.",
+		}
+	case "token_quota_insufficient":
+		return snaplessActionHints{
+			Severity: "warning",
+			Reason:   "This device token has no remaining token quota. Rotate the key or remove the token quota limit.",
+		}
+	case "grant_revoked":
+		return snaplessActionHints{
+			Severity: "danger",
+			Reason:   "The Snapless grant is revoked. Authorize the device again to create a fresh grant.",
+		}
+	case "binding_revoked":
+		return snaplessActionHints{
+			Severity: "danger",
+			Reason:   "This device was revoked. Start a new Snapless authorization flow from the desktop app.",
+		}
+	case "token_not_found", "missing_token":
+		return snaplessActionHints{
+			Severity: "warning",
+			Reason:   "No active Snapless token was found for this device. Refresh authorization from Snapless Desktop.",
+		}
+	case "not_snapless_token":
+		return snaplessActionHints{
+			Severity: "danger",
+			Reason:   "The supplied token is not managed by the Snapless connected app.",
+		}
+	default:
+		return snaplessActionHints{Severity: "neutral"}
+	}
+}
+
+func writeSnaplessHealth(c *gin.Context, response snaplessHealthResponse) {
+	response.Actions = buildSnaplessActionHints(response.Status)
+	common.ApiSuccess(c, response)
 }
 
 func buildSnaplessModelHealth(aliases snaplessModelAliases, availability map[string]bool) map[string]snaplessModelHealth {

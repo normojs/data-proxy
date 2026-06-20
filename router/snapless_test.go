@@ -53,14 +53,37 @@ type snaplessTokenData struct {
 	} `json:"device"`
 }
 
+type snaplessActionLinkData struct {
+	Label  string `json:"label"`
+	Href   string `json:"href"`
+	Intent string `json:"intent"`
+}
+
+type snaplessActionHintsData struct {
+	Severity  string                  `json:"severity"`
+	Reason    string                  `json:"reason"`
+	Primary   *snaplessActionLinkData `json:"primary"`
+	Secondary *snaplessActionLinkData `json:"secondary"`
+}
+
 type snaplessRevokeData struct {
 	Revoked      bool `json:"revoked"`
 	TokenID      int  `json:"token_id"`
 	GrantRevoked bool `json:"grant_revoked"`
 }
 
+type snaplessConfigData struct {
+	OK      bool                    `json:"ok"`
+	Status  string                  `json:"status"`
+	Actions snaplessActionHintsData `json:"actions"`
+	Checks  map[string]bool         `json:"checks"`
+}
+
 type snaplessDevicesData struct {
-	Grant struct {
+	OK      bool                    `json:"ok"`
+	Status  string                  `json:"status"`
+	Actions snaplessActionHintsData `json:"actions"`
+	Grant   struct {
 		Status string `json:"status"`
 	} `json:"grant"`
 	Devices []struct {
@@ -76,15 +99,17 @@ type snaplessDevicesData struct {
 			BindingStatus string `json:"binding_status"`
 			LastUsedAt    int64  `json:"last_used_at"`
 		} `json:"token"`
-		LastUsedAt int64           `json:"last_used_at"`
-		Checks     map[string]bool `json:"checks"`
+		LastUsedAt int64                   `json:"last_used_at"`
+		Checks     map[string]bool         `json:"checks"`
+		Actions    snaplessActionHintsData `json:"actions"`
 	} `json:"devices"`
 }
 
 type snaplessHealthData struct {
-	OK     bool   `json:"ok"`
-	Status string `json:"status"`
-	Token  struct {
+	OK      bool                    `json:"ok"`
+	Status  string                  `json:"status"`
+	Actions snaplessActionHintsData `json:"actions"`
+	Token   struct {
 		ID              int    `json:"id"`
 		Enabled         bool   `json:"enabled"`
 		QuotaOK         bool   `json:"quota_ok"`
@@ -125,6 +150,12 @@ type snaplessDeviceStatusData struct {
 	Device struct {
 		Fingerprint string `json:"fingerprint"`
 	} `json:"device"`
+	Readiness struct {
+		OK      bool                    `json:"ok"`
+		Status  string                  `json:"status"`
+		Actions snaplessActionHintsData `json:"actions"`
+		Checks  map[string]bool         `json:"checks"`
+	} `json:"readiness"`
 }
 
 type snaplessDevicePollStatusData struct {
@@ -403,6 +434,86 @@ func TestSnaplessRotateAndHealth(t *testing.T) {
 	disabledHealth := decodeSnaplessData[snaplessHealthData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/health", "", nil, "Bearer "+rotated.APIKey))
 	require.False(t, disabledHealth.OK)
 	require.Equal(t, "token_disabled", disabledHealth.Status)
+}
+
+func TestSnaplessReadinessActionsSurfaceQuotaIssues(t *testing.T) {
+	setupSnaplessRouterTestDB(t)
+	router := newSnaplessRouterForTest(t)
+	cookies := loginSnaplessRouterUser(t, router)
+	body := `{"device_id":"macbook-quota","device_name":"Alice Mac","platform":"macos","app_version":"1.0.0"}`
+
+	created := decodeSnaplessData[snaplessTokenData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/tokens/ensure", body, cookies, ""))
+	require.NotZero(t, created.Token.ID)
+	require.NoError(t, model.DB.Model(&model.User{}).
+		Where("id = ?", snaplessRouterTestUserId).
+		Update("quota", 0).Error)
+
+	config := decodeSnaplessData[snaplessConfigData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/config?device_id=macbook-quota", "", cookies, ""))
+	require.False(t, config.OK)
+	require.Equal(t, "quota_insufficient", config.Status)
+	require.False(t, config.Checks["user_quota_ok"])
+	require.Equal(t, "warning", config.Actions.Severity)
+	require.NotNil(t, config.Actions.Primary)
+	require.Equal(t, "Recharge", config.Actions.Primary.Label)
+	require.Equal(t, "/wallet?source=snapless", config.Actions.Primary.Href)
+
+	devices := decodeSnaplessData[snaplessDevicesData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/devices", "", cookies, ""))
+	require.False(t, devices.OK)
+	require.Equal(t, "quota_insufficient", devices.Status)
+	require.NotNil(t, devices.Actions.Primary)
+	require.Equal(t, "/wallet?source=snapless", devices.Actions.Primary.Href)
+	require.Len(t, devices.Devices, 1)
+	require.False(t, devices.Devices[0].OK)
+	require.Equal(t, "quota_insufficient", devices.Devices[0].Status)
+	require.NotNil(t, devices.Devices[0].Actions.Primary)
+	require.Equal(t, "/wallet?source=snapless", devices.Devices[0].Actions.Primary.Href)
+
+	health := decodeSnaplessData[snaplessHealthData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/health", "", nil, "Bearer "+created.APIKey))
+	require.False(t, health.OK)
+	require.Equal(t, "quota_insufficient", health.Status)
+	require.False(t, health.Checks["user_quota_ok"])
+	require.NotNil(t, health.Actions.Primary)
+	require.Equal(t, "/wallet?source=snapless", health.Actions.Primary.Href)
+}
+
+func TestSnaplessDeviceStatusIncludesReadinessActions(t *testing.T) {
+	setupSnaplessRouterTestDB(t)
+	router := newSnaplessRouterForTest(t)
+	body := `{"device_id":"mac-device-quota","device_name":"Alice Mac","platform":"macos","app_version":"1.1.0"}`
+
+	started := decodeSnaplessData[snaplessDeviceStartData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/start", body, nil, ""))
+	require.NoError(t, model.DB.Model(&model.User{}).
+		Where("id = ?", snaplessRouterTestUserId).
+		Update("quota", 0).Error)
+
+	cookies := loginSnaplessRouterUser(t, router)
+	status := decodeSnaplessData[snaplessDeviceStatusData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/device/status?user_code="+started.UserCode, "", cookies, ""))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusPending, status.Status)
+	require.False(t, status.Readiness.OK)
+	require.Equal(t, "quota_insufficient", status.Readiness.Status)
+	require.False(t, status.Readiness.Checks["user_quota_ok"])
+	require.NotNil(t, status.Readiness.Actions.Primary)
+	require.Equal(t, "/wallet?source=snapless", status.Readiness.Actions.Primary.Href)
+}
+
+func TestSnaplessReadinessActionsSurfaceModelIssues(t *testing.T) {
+	setupSnaplessRouterTestDB(t)
+	router := newSnaplessRouterForTest(t)
+	cookies := loginSnaplessRouterUser(t, router)
+
+	require.NoError(t, model.DB.Model(&model.Ability{}).
+		Where("model = ?", "snapless-qa").
+		Update("enabled", false).Error)
+
+	config := decodeSnaplessData[snaplessConfigData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/config", "", cookies, ""))
+	require.False(t, config.OK)
+	require.Equal(t, "models_unavailable", config.Status)
+	require.False(t, config.Checks["models_ready"])
+	require.Equal(t, "warning", config.Actions.Severity)
+	require.NotNil(t, config.Actions.Primary)
+	require.Equal(t, "/system-settings/models", config.Actions.Primary.Href)
+	require.NotNil(t, config.Actions.Secondary)
+	require.Equal(t, "/models", config.Actions.Secondary.Href)
 }
 
 func TestSnaplessRevokeCurrentTokenRevokesGrantWhenLastDevice(t *testing.T) {

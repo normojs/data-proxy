@@ -86,6 +86,19 @@ export type SnaplessModelHealth = {
   available: boolean
 }
 
+export type SnaplessActionLink = {
+  label: string
+  href: string
+  intent?: string
+}
+
+export type SnaplessActionHints = {
+  severity?: 'success' | 'info' | 'warning' | 'danger' | 'neutral' | string
+  reason?: string
+  primary?: SnaplessActionLink
+  secondary?: SnaplessActionLink
+}
+
 export type SnaplessHealthStatus =
   | 'ok'
   | 'missing_token'
@@ -105,6 +118,7 @@ export type SnaplessHealthStatus =
 export type SnaplessManagedDevice = {
   ok: boolean
   status: SnaplessHealthStatus
+  actions?: SnaplessActionHints
   device: SnaplessDeviceInfo
   token: SnaplessTokenSummary
   checks: Record<string, boolean>
@@ -114,15 +128,26 @@ export type SnaplessManagedDevice = {
   updated_at?: number
 }
 
+export type SnaplessReadiness = {
+  ok: boolean
+  status: SnaplessHealthStatus
+  actions?: SnaplessActionHints
+  checks: Record<string, boolean>
+}
+
 export type SnaplessDeviceStatusResponse = {
   status: SnaplessDeviceStatus
   expires_at: number
   app: SnaplessApp
   device: SnaplessDeviceInfo
   token: SnaplessTokenSummary
+  readiness?: SnaplessReadiness
 }
 
 export type SnaplessDevicesResponse = {
+  ok: boolean
+  status: SnaplessHealthStatus
+  actions?: SnaplessActionHints
   app: SnaplessApp
   grant: SnaplessGrant
   devices: SnaplessManagedDevice[]

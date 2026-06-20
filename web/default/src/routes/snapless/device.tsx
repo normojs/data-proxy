@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { z } from 'zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
@@ -50,6 +50,7 @@ import { ErrorState } from '@/components/error-state'
 import { PublicLayout } from '@/components/layout'
 import { LoadingState } from '@/components/loading-state'
 import { StatusBadge, type StatusVariant } from '@/components/status-badge'
+import { SnaplessActionNotice } from '@/features/snapless-device/action-notice'
 import {
   authorizeSnaplessDevice,
   getSnaplessDeviceStatus,
@@ -265,10 +266,11 @@ function DeviceAuthorizationCard(props: {
   const meta = statusMeta(data?.status)
   const StatusIcon = meta.icon
   const canAct = data?.status === 'pending'
-  const expiresAt = useMemo(() => {
-    if (!data?.expires_at) return '-'
-    return new Date(data.expires_at * 1000).toLocaleString()
-  }, [data?.expires_at])
+  const readiness = data?.readiness
+  const canApprove = canAct && (readiness?.ok ?? true)
+  const expiresAt = data?.expires_at
+    ? new Date(data.expires_at * 1000).toLocaleString()
+    : '-'
 
   return (
     <Card>
@@ -305,6 +307,8 @@ function DeviceAuthorizationCard(props: {
         </div>
 
         <Separator />
+
+        <SnaplessActionNotice actions={readiness?.actions} />
 
         <div className='flex items-start gap-3 text-sm'>
           <KeyRound className='text-muted-foreground mt-0.5 size-4 shrink-0' />
@@ -353,7 +357,7 @@ function DeviceAuthorizationCard(props: {
           </Button>
           <Button
             onClick={props.onApprove}
-            disabled={!canAct || props.isMutating}
+            disabled={!canApprove || props.isMutating}
             className='flex-1 sm:flex-none'
           >
             {props.isMutating ? (

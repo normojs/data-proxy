@@ -30,6 +30,7 @@ Device Code Flow：
   - 返回 `device_code`、`user_code`、`verification_uri`、`expires_in`、`interval`。
 - `GET /api/snapless/device/status`
   - 登录用户接口，浏览器授权页按 `user_code` 查询设备信息和状态。
+  - 响应保留 device session 的 `status`，并新增 `readiness` 描述当前账号/模型是否允许批准授权。
 - `POST /api/snapless/device/authorize`
   - 登录用户接口，按 `user_code` 批准或拒绝授权。
   - 批准时服务端创建或复用 Snapless 原生 token，并只保存 `token_id` 到 device session。
@@ -44,8 +45,10 @@ Device Code Flow：
 - `GET /api/snapless/config`
 - `GET /api/snapless/devices`
   - 返回当前用户的 Snapless app、grant、设备列表、模型 health、base URL 和 health-like checks。
+  - 顶层返回 `ok`、`status`、`checks`、`actions`，用于展示账号余额、用户状态和模型可用性。
   - 每台设备返回 `ok`、`status`、`checks`、设备信息、token 摘要、`last_used_at`、`revoked_at` 等字段。
   - `status` 复用 `/api/snapless/health` 的语义，例如 `ok`、`token_disabled`、`grant_revoked`、`binding_revoked`、`quota_insufficient`、`models_unavailable`。
+  - `actions.primary.href` 会指向可操作入口，例如余额不足跳转 `/wallet?source=snapless`，模型不可用跳转 `/system-settings/models`。
 - `POST /api/snapless/devices/:fingerprint/rotate`
   - 只轮换指定设备的 Snapless token。
   - 旧 token 会被禁用，新 token 只在本次响应中返回 `api_key` 明文。
@@ -59,8 +62,34 @@ Device Code Flow：
 客户端健康检查：
 
 - `GET /api/snapless/health`
+  - 返回 `actions` 字段，和 `status` 一起用于客户端或控制台展示下一步操作。
 
 `ensure` 会为同一用户、同一设备复用已有 active binding。只有首次创建或 rotate 时返回 `api_key` 明文；复用已有 binding 时只返回 token 摘要。Device Code Flow 不把 API key 放入 URL，只允许桌面端凭 `device_code` 轮询一次获取。
+
+## 可操作状态
+
+Snapless 响应里的 `actions` 采用统一结构：
+
+```json
+{
+  "severity": "warning",
+  "reason": "Your account balance is too low for Snapless requests.",
+  "primary": {
+    "label": "Recharge",
+    "href": "/wallet?source=snapless",
+    "intent": "recharge"
+  }
+}
+```
+
+当前最小闭环覆盖：
+
+- `quota_insufficient`：提示充值并跳转钱包。
+- `user_disabled`：提示账号不可用并跳转 Profile。
+- `models_unavailable`：提示 Snapless 模型不可用，并跳转模型设置/模型目录。
+- `token_disabled`、`token_expired`、`grant_revoked`、`binding_revoked`：提示重新授权、轮换或从桌面端发起新的授权流程。
+
+浏览器授权页使用 `readiness.status` 控制是否允许点击 Approve。`pending/authorized/denied/expired/consumed` 仍然只表示 Device Code Flow 自身状态。
 
 ## Token 语义
 
@@ -91,6 +120,6 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 状态与充值闭环：health/config 对接前端充值入口和余额不足提示。
-2. 应用管理：把内置 Snapless 方案抽象成可配置 Connected App，支持应用申请权限、管理员审核和按 scopes 发放能力。
-3. 多应用扩展：复用 Connected App grant、token binding 和 Device Code Flow，支持 Snapless 以外的可信或第三方应用。
+1. 应用管理：把内置 Snapless 方案抽象成可配置 Connected App，支持应用申请权限、管理员审核和按 scopes 发放能力。
+2. 多应用扩展：复用 Connected App grant、token binding 和 Device Code Flow，支持 Snapless 以外的可信或第三方应用。
+3. 邮件/Webhook 通知扩展：在站内通知和审计可见后再扩展外部通知渠道。

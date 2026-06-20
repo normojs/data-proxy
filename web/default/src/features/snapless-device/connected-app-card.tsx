@@ -52,6 +52,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TitledCard } from '@/components/ui/titled-card'
 import { StatusBadge, type StatusVariant } from '@/components/status-badge'
+import { SnaplessActionNotice } from './action-notice'
 import {
   getSnaplessDevices,
   revokeSnaplessDevice,
@@ -309,6 +310,8 @@ export function SnaplessConnectedAppCard() {
               </SummaryItem>
             </div>
 
+            {!data.ok && <SnaplessActionNotice actions={data.actions} />}
+
             {rotatedKey != null && (
               <Alert>
                 <KeyRound className='h-4 w-4' />
@@ -501,6 +504,12 @@ function SnaplessDeviceRow({
               </div>
             </div>
           </div>
+
+          {!device.ok && (
+            <div className='pl-11'>
+              <SnaplessActionNotice actions={device.actions} compact />
+            </div>
+          )}
 
           <div className='text-muted-foreground grid gap-2 pl-11 text-xs sm:grid-cols-2'>
             <span>
