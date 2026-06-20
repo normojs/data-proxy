@@ -6,7 +6,7 @@
 
 1. 确认 GitHub `CI` workflow 在目标 commit 上通过。
 2. 本地或 CI 至少覆盖：
-   - `go test ./model ./controller ./service ./router`
+   - `go test ./model ./controller ./service ./router ./oauth`
    - `cd web/default && bun run typecheck`
    - `cd web/default && bun run smoke:approval-notification-links`
    - `git diff --check`
