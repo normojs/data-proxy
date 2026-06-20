@@ -23,6 +23,7 @@ import {
   CardStaggerContainer,
   CardStaggerItem,
 } from '@/components/page-transition'
+import { SnaplessConnectedAppCard } from '@/features/snapless-device/connected-app-card'
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { PasskeyCard } from './components/passkey-card'
@@ -77,6 +78,7 @@ export function Profile() {
                   />
                 )}
                 {canConfigureSidebar && <SidebarModulesCard />}
+                <SnaplessConnectedAppCard />
                 <PasskeyCard loading={loading} />
                 <TwoFACard loading={loading} />
               </div>

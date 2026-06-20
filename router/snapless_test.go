@@ -59,6 +59,28 @@ type snaplessRevokeData struct {
 	GrantRevoked bool `json:"grant_revoked"`
 }
 
+type snaplessDevicesData struct {
+	Grant struct {
+		Status string `json:"status"`
+	} `json:"grant"`
+	Devices []struct {
+		OK     bool   `json:"ok"`
+		Status string `json:"status"`
+		Device struct {
+			Fingerprint string `json:"fingerprint"`
+			DeviceName  string `json:"device_name"`
+		} `json:"device"`
+		Token struct {
+			ID            int    `json:"id"`
+			Status        int    `json:"status"`
+			BindingStatus string `json:"binding_status"`
+			LastUsedAt    int64  `json:"last_used_at"`
+		} `json:"token"`
+		LastUsedAt int64           `json:"last_used_at"`
+		Checks     map[string]bool `json:"checks"`
+	} `json:"devices"`
+}
+
 type snaplessHealthData struct {
 	OK     bool   `json:"ok"`
 	Status string `json:"status"`
@@ -410,4 +432,86 @@ func TestSnaplessRevokeCurrentTokenRevokesGrantWhenLastDevice(t *testing.T) {
 	health := decodeSnaplessData[snaplessHealthData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/health", "", nil, "Bearer "+created.APIKey))
 	require.False(t, health.OK)
 	require.Equal(t, "token_disabled", health.Status)
+}
+
+func TestSnaplessDeviceConsoleListsRotatesAndRevokesOneDevice(t *testing.T) {
+	setupSnaplessRouterTestDB(t)
+	router := newSnaplessRouterForTest(t)
+	cookies := loginSnaplessRouterUser(t, router)
+	macBody := `{"device_id":"macbook-console","device_name":"Alice Mac","platform":"macos","app_version":"1.0.0"}`
+	winBody := `{"device_id":"windows-console","device_name":"Alice PC","platform":"windows","app_version":"1.0.0"}`
+
+	mac := decodeSnaplessData[snaplessTokenData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/tokens/ensure", macBody, cookies, ""))
+	win := decodeSnaplessData[snaplessTokenData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/tokens/ensure", winBody, cookies, ""))
+	require.NotEqual(t, mac.Token.ID, win.Token.ID)
+	require.NotEqual(t, mac.Device.Fingerprint, win.Device.Fingerprint)
+
+	listed := decodeSnaplessData[snaplessDevicesData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/devices", "", cookies, ""))
+	require.Equal(t, model.ConnectedAppGrantStatusAuthorized, listed.Grant.Status)
+	require.Len(t, listed.Devices, 2)
+	deviceByFingerprint := map[string]struct {
+		OK     bool
+		Status string
+		Token  int
+	}{}
+	for _, device := range listed.Devices {
+		require.True(t, device.OK)
+		require.Equal(t, "ok", device.Status)
+		require.Equal(t, model.ConnectedAppTokenBindingStatusActive, device.Token.BindingStatus)
+		require.NotZero(t, device.LastUsedAt)
+		require.Equal(t, device.LastUsedAt, device.Token.LastUsedAt)
+		require.True(t, device.Checks["models_ready"])
+		deviceByFingerprint[device.Device.Fingerprint] = struct {
+			OK     bool
+			Status string
+			Token  int
+		}{OK: device.OK, Status: device.Status, Token: device.Token.ID}
+	}
+	require.Equal(t, mac.Token.ID, deviceByFingerprint[mac.Device.Fingerprint].Token)
+	require.Equal(t, win.Token.ID, deviceByFingerprint[win.Device.Fingerprint].Token)
+
+	rotated := decodeSnaplessData[snaplessTokenData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/devices/"+mac.Device.Fingerprint+"/rotate", "", cookies, ""))
+	require.True(t, rotated.Created)
+	require.True(t, rotated.Rotated)
+	require.True(t, rotated.APIKeyOnce)
+	require.NotEqual(t, mac.Token.ID, rotated.Token.ID)
+	require.Equal(t, mac.Device.Fingerprint, rotated.Device.Fingerprint)
+
+	var oldMacToken model.Token
+	require.NoError(t, model.DB.Where("id = ?", mac.Token.ID).First(&oldMacToken).Error)
+	require.Equal(t, common.TokenStatusDisabled, oldMacToken.Status)
+	var winToken model.Token
+	require.NoError(t, model.DB.Where("id = ?", win.Token.ID).First(&winToken).Error)
+	require.Equal(t, common.TokenStatusEnabled, winToken.Status)
+
+	revokedMac := decodeSnaplessData[snaplessRevokeData](t, requestSnaplessRouter(t, router, http.MethodDelete, "/api/snapless/devices/"+mac.Device.Fingerprint, "", cookies, ""))
+	require.True(t, revokedMac.Revoked)
+	require.False(t, revokedMac.GrantRevoked)
+	require.Equal(t, rotated.Token.ID, revokedMac.TokenID)
+
+	afterFirstRevoke := decodeSnaplessData[snaplessDevicesData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/devices", "", cookies, ""))
+	require.Equal(t, model.ConnectedAppGrantStatusAuthorized, afterFirstRevoke.Grant.Status)
+	var sawRevokedMac bool
+	for _, device := range afterFirstRevoke.Devices {
+		if device.Device.Fingerprint == mac.Device.Fingerprint {
+			sawRevokedMac = true
+			require.False(t, device.OK)
+			require.Equal(t, "token_disabled", device.Status)
+			require.Equal(t, model.ConnectedAppTokenBindingStatusRevoked, device.Token.BindingStatus)
+			continue
+		}
+		require.Equal(t, win.Device.Fingerprint, device.Device.Fingerprint)
+		require.True(t, device.OK)
+		require.Equal(t, "ok", device.Status)
+	}
+	require.True(t, sawRevokedMac)
+
+	revokedWin := decodeSnaplessData[snaplessRevokeData](t, requestSnaplessRouter(t, router, http.MethodDelete, "/api/snapless/devices/"+win.Device.Fingerprint, "", cookies, ""))
+	require.True(t, revokedWin.Revoked)
+	require.True(t, revokedWin.GrantRevoked)
+	require.Equal(t, win.Token.ID, revokedWin.TokenID)
+
+	var grant model.ConnectedAppGrant
+	require.NoError(t, model.DB.Where("user_id = ?", snaplessRouterTestUserId).First(&grant).Error)
+	require.Equal(t, model.ConnectedAppGrantStatusRevoked, grant.Status)
 }

@@ -45,22 +45,112 @@ export type SnaplessTokenSummary = {
   name?: string
   status?: number
   masked_key?: string
+  expired_time?: number
+  unlimited_quota?: boolean
+  quota_hard_limit_enabled?: boolean
+  model_limits_enabled?: boolean
   model_limits?: string
+  binding_status?: string
+  last_used_at?: number
+}
+
+export type SnaplessApp = {
+  id: number
+  slug: string
+  name: string
+  trusted: boolean
+  status: number
+  allowed_scopes?: string[]
+  default_scopes: string[]
+}
+
+export type SnaplessGrant = {
+  id?: number
+  status: string
+  scopes: string[]
+  authorized_at?: number
+  last_used_at?: number
+  revoked_at?: number
+}
+
+export type SnaplessModelAliases = {
+  asr: string
+  chat: string
+  polish: string
+  translate: string
+  qa: string
+}
+
+export type SnaplessModelHealth = {
+  model: string
+  available: boolean
+}
+
+export type SnaplessHealthStatus =
+  | 'ok'
+  | 'missing_token'
+  | 'token_not_found'
+  | 'not_snapless_token'
+  | 'app_disabled'
+  | 'token_disabled'
+  | 'token_expired'
+  | 'token_quota_insufficient'
+  | 'user_disabled'
+  | 'grant_revoked'
+  | 'binding_revoked'
+  | 'quota_insufficient'
+  | 'models_unavailable'
+  | string
+
+export type SnaplessManagedDevice = {
+  ok: boolean
+  status: SnaplessHealthStatus
+  device: SnaplessDeviceInfo
+  token: SnaplessTokenSummary
+  checks: Record<string, boolean>
+  last_used_at?: number
+  revoked_at?: number
+  created_at?: number
+  updated_at?: number
 }
 
 export type SnaplessDeviceStatusResponse = {
   status: SnaplessDeviceStatus
   expires_at: number
-  app: {
-    id: number
-    slug: string
-    name: string
-    trusted: boolean
-    status: number
-    default_scopes: string[]
-  }
+  app: SnaplessApp
   device: SnaplessDeviceInfo
   token: SnaplessTokenSummary
+}
+
+export type SnaplessDevicesResponse = {
+  app: SnaplessApp
+  grant: SnaplessGrant
+  devices: SnaplessManagedDevice[]
+  models: Record<string, SnaplessModelHealth>
+  aliases: SnaplessModelAliases
+  base_url: string
+  checks: Record<string, boolean>
+}
+
+export type SnaplessTokenResponse = {
+  app: SnaplessApp
+  grant: SnaplessGrant
+  device: SnaplessDeviceInfo
+  token: SnaplessTokenSummary
+  models: SnaplessModelAliases
+  endpoints: Record<string, string>
+  base_url: string
+  api_key?: string
+  created: boolean
+  rotated: boolean
+  api_key_once: boolean
+}
+
+export type SnaplessRevokeResponse = {
+  revoked: boolean
+  token_id: number
+  grant_revoked: boolean
+  device: SnaplessDeviceInfo
 }
 
 function unwrap<T>(response: ApiEnvelope<T>): T {
@@ -90,6 +180,35 @@ export async function authorizeSnaplessDevice(input: {
   const res = await api.post<ApiEnvelope<SnaplessDeviceStatusResponse>>(
     '/api/snapless/device/authorize',
     input,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function getSnaplessDevices(): Promise<SnaplessDevicesResponse> {
+  const res = await api.get<ApiEnvelope<SnaplessDevicesResponse>>(
+    '/api/snapless/devices',
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function rotateSnaplessDevice(
+  fingerprint: string
+): Promise<SnaplessTokenResponse> {
+  const res = await api.post<ApiEnvelope<SnaplessTokenResponse>>(
+    `/api/snapless/devices/${encodeURIComponent(fingerprint)}/rotate`,
+    undefined,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function revokeSnaplessDevice(
+  fingerprint: string
+): Promise<SnaplessRevokeResponse> {
+  const res = await api.delete<ApiEnvelope<SnaplessRevokeResponse>>(
+    `/api/snapless/devices/${encodeURIComponent(fingerprint)}`,
     { skipBusinessError: true }
   )
   return unwrap(res.data)

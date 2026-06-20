@@ -304,6 +304,17 @@ func GetConnectedAppTokenBindingByTokenId(tokenId int) (*ConnectedAppTokenBindin
 	return &binding, nil
 }
 
+func ListConnectedAppTokenBindings(appId int, userId int) ([]ConnectedAppTokenBinding, error) {
+	var bindings []ConnectedAppTokenBinding
+	err := DB.Where("app_id = ? AND user_id = ?", appId, userId).
+		Order("status asc").
+		Order("last_used_at desc").
+		Order("updated_at desc").
+		Order("id desc").
+		Find(&bindings).Error
+	return bindings, err
+}
+
 func TouchConnectedAppUsage(appId int, userId int, tokenId int, now int64) error {
 	if appId <= 0 || userId <= 0 || now <= 0 {
 		return nil

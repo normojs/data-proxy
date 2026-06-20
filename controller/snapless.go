@@ -110,6 +110,34 @@ type snaplessHealthResponse struct {
 	Checks  map[string]bool                `json:"checks"`
 }
 
+type snaplessDevicesResponse struct {
+	App     snaplessAppResponse            `json:"app"`
+	Grant   snaplessGrantResponse          `json:"grant"`
+	Devices []snaplessManagedDevice        `json:"devices"`
+	Models  map[string]snaplessModelHealth `json:"models"`
+	Aliases snaplessModelAliases           `json:"aliases"`
+	BaseURL string                         `json:"base_url"`
+	Checks  map[string]bool                `json:"checks"`
+}
+
+type snaplessManagedDevice struct {
+	OK         bool                 `json:"ok"`
+	Status     string               `json:"status"`
+	Device     snaplessDeviceInfo   `json:"device"`
+	Token      snaplessTokenSummary `json:"token"`
+	Checks     map[string]bool      `json:"checks"`
+	LastUsedAt int64                `json:"last_used_at,omitempty"`
+	RevokedAt  int64                `json:"revoked_at,omitempty"`
+	CreatedAt  int64                `json:"created_at,omitempty"`
+	UpdatedAt  int64                `json:"updated_at,omitempty"`
+}
+
+type snaplessStatusEvaluation struct {
+	OK     bool
+	Status string
+	Checks map[string]bool
+}
+
 type snaplessTokenHealth struct {
 	ID              int    `json:"id,omitempty"`
 	Status          int    `json:"status,omitempty"`
@@ -620,6 +648,177 @@ func RevokeCurrentSnaplessToken(c *gin.Context) {
 	})
 }
 
+func ListSnaplessDevices(c *gin.Context) {
+	app, err := ensureSnaplessApp()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	aliases := getSnaplessModelAliases()
+	availability, err := snaplessModelAvailability(aliases)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	modelsOK := snaplessModelsReady(availability)
+	userId := c.GetInt("id")
+
+	var grant *model.ConnectedAppGrant
+	if existingGrant, err := model.GetConnectedAppGrant(app.Id, userId); err == nil {
+		grant = existingGrant
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiError(c, err)
+		return
+	}
+
+	userCache, err := model.GetUserCache(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userHealth := snaplessUserHealth{
+		ID:      userId,
+		Enabled: userCache.Status == common.UserStatusEnabled,
+		Quota:   userCache.Quota,
+		QuotaOK: userCache.Quota > 0,
+	}
+
+	bindings, err := model.ListConnectedAppTokenBindings(app.Id, userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	tokenIDs := make([]int, 0, len(bindings))
+	for _, binding := range bindings {
+		if binding.TokenId > 0 {
+			tokenIDs = append(tokenIDs, binding.TokenId)
+		}
+	}
+	tokensByID := map[int]*model.Token{}
+	if len(tokenIDs) > 0 {
+		var tokens []model.Token
+		if err := model.DB.Where("user_id = ? AND id IN ?", userId, tokenIDs).Find(&tokens).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for i := range tokens {
+			tokensByID[tokens[i].Id] = &tokens[i]
+		}
+	}
+
+	now := common.GetTimestamp()
+	devices := make([]snaplessManagedDevice, 0, len(bindings))
+	for i := range bindings {
+		binding := &bindings[i]
+		devices = append(devices, buildSnaplessManagedDevice(app, grant, binding, tokensByID[binding.TokenId], userHealth, modelsOK, now))
+	}
+
+	globalStatus := evaluateSnaplessStatus(app, grant, nil, nil, userHealth, modelsOK, now)
+	common.ApiSuccess(c, snaplessDevicesResponse{
+		App:     buildSnaplessAppResponse(app),
+		Grant:   buildSnaplessGrantResponse(grant, app.DefaultScopeList()),
+		Devices: devices,
+		Models:  buildSnaplessModelHealth(aliases, availability),
+		Aliases: aliases,
+		BaseURL: snaplessAPIBaseURL(c),
+		Checks:  globalStatus.Checks,
+	})
+}
+
+func RotateSnaplessDevice(c *gin.Context) {
+	app, err := ensureSnaplessApp()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userId := c.GetInt("id")
+	fingerprint := snaplessFingerprintParam(c)
+	if fingerprint == "" {
+		common.ApiError(c, errors.New("设备指纹不能为空"))
+		return
+	}
+
+	var response snaplessTokenResponse
+	var tokenId int
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		binding, err := findSnaplessBindingTx(tx, app.Id, userId, fingerprint)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("设备不存在或已撤销")
+			}
+			return err
+		}
+		device := snaplessDeviceInfoFromBinding(binding)
+		response, tokenId, err = ensureSnaplessTokenForDeviceTx(c, tx, app, userId, device, true)
+		return err
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if tokenId > 0 {
+		_ = model.TouchConnectedAppUsage(response.App.ID, userId, tokenId, common.GetTimestamp())
+	}
+	common.ApiSuccess(c, response)
+}
+
+func RevokeSnaplessDevice(c *gin.Context) {
+	app, err := ensureSnaplessApp()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userId := c.GetInt("id")
+	fingerprint := snaplessFingerprintParam(c)
+	if fingerprint == "" {
+		common.ApiError(c, errors.New("设备指纹不能为空"))
+		return
+	}
+
+	now := common.GetTimestamp()
+	var revokedTokenId int
+	var grantRevoked bool
+	var device snaplessDeviceInfo
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		binding, err := findSnaplessBindingTx(tx, app.Id, userId, fingerprint)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("设备不存在或已撤销")
+			}
+			return err
+		}
+		device = snaplessDeviceInfoFromBinding(binding)
+		revokedTokenId = binding.TokenId
+		if err := model.DisableTokenWithTx(tx, binding.TokenId, userId); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := model.RevokeConnectedAppTokenBinding(tx, binding, now); err != nil {
+			return err
+		}
+		count, err := model.CountActiveConnectedAppTokenBindings(tx, app.Id, userId)
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			grantRevoked = true
+			return model.RevokeConnectedAppGrant(tx, app.Id, userId, now)
+		}
+		return nil
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"revoked":       revokedTokenId > 0,
+		"token_id":      revokedTokenId,
+		"grant_revoked": grantRevoked,
+		"device":        device,
+	})
+}
+
 func GetSnaplessHealth(c *gin.Context) {
 	app, err := ensureSnaplessApp()
 	if err != nil {
@@ -707,49 +906,12 @@ func GetSnaplessHealth(c *gin.Context) {
 		QuotaOK: userCache.Quota > 0,
 	}
 
-	modelsOK := true
-	for _, item := range response.Models {
-		if !item.Available {
-			modelsOK = false
-			break
-		}
-	}
-	grantOK := grant != nil && grant.Status == model.ConnectedAppGrantStatusAuthorized
-	appOK := app.Status == model.ConnectedAppStatusEnabled
-	bindingOK := binding.Status == model.ConnectedAppTokenBindingStatusActive
-	response.Checks = map[string]bool{
-		"app_enabled":    appOK,
-		"grant_active":   grantOK,
-		"binding_active": bindingOK,
-		"token_enabled":  response.Token.Enabled,
-		"token_quota_ok": response.Token.QuotaOK,
-		"user_enabled":   response.User.Enabled,
-		"user_quota_ok":  response.User.QuotaOK,
-		"models_ready":   modelsOK,
-	}
-
-	switch {
-	case !appOK:
-		response.Status = "app_disabled"
-	case !response.Token.Enabled:
-		response.Status = "token_disabled"
-	case response.Token.Expired:
-		response.Status = "token_expired"
-	case !response.Token.QuotaOK:
-		response.Status = "token_quota_insufficient"
-	case !response.User.Enabled:
-		response.Status = "user_disabled"
-	case !grantOK:
-		response.Status = "grant_revoked"
-	case !bindingOK:
-		response.Status = "binding_revoked"
-	case !response.User.QuotaOK:
-		response.Status = "quota_insufficient"
-	case !modelsOK:
-		response.Status = "models_unavailable"
-	default:
+	status := evaluateSnaplessStatus(app, grant, binding, token, response.User, snaplessModelsReady(availability), now)
+	response.OK = status.OK
+	response.Status = status.Status
+	response.Checks = status.Checks
+	if status.OK {
 		response.OK = true
-		response.Status = "ok"
 		_ = model.TouchConnectedAppUsage(app.Id, token.UserId, token.Id, now)
 	}
 	common.ApiSuccess(c, response)
@@ -1007,6 +1169,10 @@ func findSnaplessBindingTx(tx *gorm.DB, appId int, userId int, deviceFingerprint
 	return &binding, nil
 }
 
+func snaplessFingerprintParam(c *gin.Context) string {
+	return strings.ToLower(strings.TrimSpace(c.Param("fingerprint")))
+}
+
 func getTokenByIdTx(tx *gorm.DB, tokenId int, userId int) (*model.Token, error) {
 	var token model.Token
 	if err := tx.Where("id = ? AND user_id = ?", tokenId, userId).First(&token).Error; err != nil {
@@ -1173,6 +1339,63 @@ func buildSnaplessTokenHealth(token *model.Token, now int64) snaplessTokenHealth
 	return health
 }
 
+func buildSnaplessManagedDevice(app *model.ConnectedApp, grant *model.ConnectedAppGrant, binding *model.ConnectedAppTokenBinding, token *model.Token, user snaplessUserHealth, modelsOK bool, now int64) snaplessManagedDevice {
+	status := evaluateSnaplessStatus(app, grant, binding, token, user, modelsOK, now)
+	return snaplessManagedDevice{
+		OK:         status.OK,
+		Status:     status.Status,
+		Device:     snaplessDeviceInfoFromBinding(binding),
+		Token:      buildSnaplessTokenSummary(token, binding),
+		Checks:     status.Checks,
+		LastUsedAt: binding.LastUsedAt,
+		RevokedAt:  binding.RevokedAt,
+		CreatedAt:  binding.CreatedAt,
+		UpdatedAt:  binding.UpdatedAt,
+	}
+}
+
+func evaluateSnaplessStatus(app *model.ConnectedApp, grant *model.ConnectedAppGrant, binding *model.ConnectedAppTokenBinding, token *model.Token, user snaplessUserHealth, modelsOK bool, now int64) snaplessStatusEvaluation {
+	tokenHealth := buildSnaplessTokenHealth(token, now)
+	appOK := app != nil && app.Status == model.ConnectedAppStatusEnabled
+	grantOK := grant != nil && grant.Status == model.ConnectedAppGrantStatusAuthorized
+	bindingOK := binding != nil && binding.Status == model.ConnectedAppTokenBindingStatusActive
+	checks := map[string]bool{
+		"app_enabled":    appOK,
+		"grant_active":   grantOK,
+		"binding_active": bindingOK,
+		"token_enabled":  tokenHealth.Enabled,
+		"token_quota_ok": tokenHealth.QuotaOK,
+		"user_enabled":   user.Enabled,
+		"user_quota_ok":  user.QuotaOK,
+		"models_ready":   modelsOK,
+	}
+
+	switch {
+	case !appOK:
+		return snaplessStatusEvaluation{Status: "app_disabled", Checks: checks}
+	case token == nil:
+		return snaplessStatusEvaluation{Status: "token_not_found", Checks: checks}
+	case !tokenHealth.Enabled:
+		return snaplessStatusEvaluation{Status: "token_disabled", Checks: checks}
+	case tokenHealth.Expired:
+		return snaplessStatusEvaluation{Status: "token_expired", Checks: checks}
+	case !tokenHealth.QuotaOK:
+		return snaplessStatusEvaluation{Status: "token_quota_insufficient", Checks: checks}
+	case !user.Enabled:
+		return snaplessStatusEvaluation{Status: "user_disabled", Checks: checks}
+	case !grantOK:
+		return snaplessStatusEvaluation{Status: "grant_revoked", Checks: checks}
+	case !bindingOK:
+		return snaplessStatusEvaluation{Status: "binding_revoked", Checks: checks}
+	case !user.QuotaOK:
+		return snaplessStatusEvaluation{Status: "quota_insufficient", Checks: checks}
+	case !modelsOK:
+		return snaplessStatusEvaluation{Status: "models_unavailable", Checks: checks}
+	default:
+		return snaplessStatusEvaluation{OK: true, Status: "ok", Checks: checks}
+	}
+}
+
 func buildSnaplessModelHealth(aliases snaplessModelAliases, availability map[string]bool) map[string]snaplessModelHealth {
 	return map[string]snaplessModelHealth{
 		"asr": {
@@ -1196,6 +1419,15 @@ func buildSnaplessModelHealth(aliases snaplessModelAliases, availability map[str
 			Available: availability[aliases.QA],
 		},
 	}
+}
+
+func snaplessModelsReady(availability map[string]bool) bool {
+	for _, available := range availability {
+		if !available {
+			return false
+		}
+	}
+	return true
 }
 
 func snaplessUserCode() (string, error) {
@@ -1296,6 +1528,18 @@ func snaplessDeviceInfoFromSession(session *model.ConnectedAppDeviceSession) sna
 		Platform:    session.Platform,
 		AppVersion:  session.AppVersion,
 		Client:      session.Client,
+	}
+}
+
+func snaplessDeviceInfoFromBinding(binding *model.ConnectedAppTokenBinding) snaplessDeviceInfo {
+	if binding == nil {
+		return snaplessDeviceInfo{}
+	}
+	return snaplessDeviceInfo{
+		Fingerprint: binding.DeviceFingerprint,
+		DeviceName:  binding.DeviceName,
+		Platform:    binding.Platform,
+		AppVersion:  binding.AppVersion,
 	}
 }
 

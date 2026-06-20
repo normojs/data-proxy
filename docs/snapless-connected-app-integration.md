@@ -10,6 +10,7 @@
 - `connected_app_grants`：记录用户授权和 scopes。
 - `connected_app_token_bindings`：记录 app、用户、设备和原生 Token 的绑定。
 - `connected_app_device_sessions`：记录 Device Code Flow 的 device code、user code、设备信息、授权状态和一次性消费状态。
+- 用户控制台 Profile 页提供 Snapless Connected App 卡片，可查看 grant、设备、最近使用时间、token 状态，并可轮换或撤销单台设备。
 
 内置 Snapless scopes：
 
@@ -41,6 +42,16 @@ Device Code Flow：
 登录用户接口：
 
 - `GET /api/snapless/config`
+- `GET /api/snapless/devices`
+  - 返回当前用户的 Snapless app、grant、设备列表、模型 health、base URL 和 health-like checks。
+  - 每台设备返回 `ok`、`status`、`checks`、设备信息、token 摘要、`last_used_at`、`revoked_at` 等字段。
+  - `status` 复用 `/api/snapless/health` 的语义，例如 `ok`、`token_disabled`、`grant_revoked`、`binding_revoked`、`quota_insufficient`、`models_unavailable`。
+- `POST /api/snapless/devices/:fingerprint/rotate`
+  - 只轮换指定设备的 Snapless token。
+  - 旧 token 会被禁用，新 token 只在本次响应中返回 `api_key` 明文。
+- `DELETE /api/snapless/devices/:fingerprint`
+  - 只撤销指定设备的 binding 并禁用对应 token。
+  - 当用户最后一个 active Snapless 设备被撤销时，同步撤销 grant。
 - `POST /api/snapless/tokens/ensure`
 - `POST /api/snapless/tokens/rotate`
 - `DELETE /api/snapless/tokens/current`
@@ -80,7 +91,6 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 用户控制台 Connected App 卡片：展示 Snapless 连接、设备、状态、轮换和撤销入口。
-2. 状态与充值闭环：health/config 对接前端充值入口和余额不足提示。
-3. 应用管理：把内置 Snapless 方案抽象成可配置 Connected App，支持应用申请权限、管理员审核和按 scopes 发放能力。
-4. 多应用扩展：复用 Connected App grant、token binding 和 Device Code Flow，支持 Snapless 以外的可信或第三方应用。
+1. 状态与充值闭环：health/config 对接前端充值入口和余额不足提示。
+2. 应用管理：把内置 Snapless 方案抽象成可配置 Connected App，支持应用申请权限、管理员审核和按 scopes 发放能力。
+3. 多应用扩展：复用 Connected App grant、token binding 和 Device Code Flow，支持 Snapless 以外的可信或第三方应用。
