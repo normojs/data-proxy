@@ -44,6 +44,7 @@ func setupEnterprisePolicyServiceTestDB(t *testing.T) {
 		&model.EnterpriseNotificationPreference{},
 		&model.EnterpriseNotificationOutbox{},
 		&model.EnterpriseUsageAttribution{},
+		&model.EnterpriseGovernanceQueueAdmission{},
 		&model.EnterpriseAuditLog{},
 		&model.Log{},
 	))

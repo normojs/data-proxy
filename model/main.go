@@ -331,6 +331,7 @@ func migrateDB() error {
 		&EnterpriseQuotaRequest{},
 		&EnterpriseWebhook{},
 		&EnterpriseUsageAttribution{},
+		&EnterpriseGovernanceQueueAdmission{},
 		&EnterpriseAuditLog{},
 	)
 	if err != nil {
@@ -434,6 +435,7 @@ func migrateDBFast() error {
 		{&EnterpriseQuotaRequest{}, "EnterpriseQuotaRequest"},
 		{&EnterpriseWebhook{}, "EnterpriseWebhook"},
 		{&EnterpriseUsageAttribution{}, "EnterpriseUsageAttribution"},
+		{&EnterpriseGovernanceQueueAdmission{}, "EnterpriseGovernanceQueueAdmission"},
 		{&EnterpriseAuditLog{}, "EnterpriseAuditLog"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大

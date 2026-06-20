@@ -52,6 +52,21 @@ func TestApplyEnterpriseGovernanceQueueAdmitsAuditsAndReleases(t *testing.T) {
 	assert.Equal(t, model.PolicyActionQueue, action["action"])
 	assert.Equal(t, "quota_exceeded", action["trigger"])
 
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-admit").First(&admission).Error)
+	assert.Equal(t, policy.Id, admission.PolicyId)
+	assert.Equal(t, enterpriseQueueStatusAdmitted, admission.Status)
+	assert.Equal(t, "enterprise:"+strconv.Itoa(policy.EnterpriseId), admission.QueueKey)
+	assert.Equal(t, "gpt-4o", admission.ModelName)
+	assert.EqualValues(t, 701, admission.ChannelId)
+	assert.EqualValues(t, relayconstant.RelayModeChatCompletions, admission.RelayMode)
+	assert.Equal(t, "enterprise_governance.policy_action_observed", admission.UserMessageKey)
+	assert.Equal(t, strconv.FormatInt(result.TimeoutMs, 10), ctx.Writer.Header().Get(enterpriseQueueTimeoutMsHeader))
+	var admissionPolicyActions []PolicyActionObservation
+	require.NoError(t, common.Unmarshal([]byte(admission.PolicyActionsJson), &admissionPolicyActions))
+	require.Len(t, admissionPolicyActions, 1)
+	assert.Equal(t, model.PolicyActionQueue, admissionPolicyActions[0].Action)
+
 	release()
 	secondCtx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-queue-admit-second", 702)
 	secondRelayInfo := *relayInfo
@@ -100,6 +115,14 @@ func TestApplyEnterpriseGovernanceQueueTimeoutAudits(t *testing.T) {
 	assert.Equal(t, enterpriseQueueStatusTimeout, auditAfter["queue_status"])
 	assert.EqualValues(t, 10, auditAfter["timeout_ms"])
 	assert.Equal(t, "enterprise_governance.queue_timeout", auditAfter["user_message_key"])
+
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-timeout").First(&admission).Error)
+	assert.Equal(t, policy.Id, admission.PolicyId)
+	assert.Equal(t, enterpriseQueueStatusTimeout, admission.Status)
+	assert.EqualValues(t, 10, admission.TimeoutMs)
+	assert.GreaterOrEqual(t, admission.WaitMs, int64(10))
+	assert.Equal(t, "enterprise_governance.queue_timeout", admission.UserMessageKey)
 }
 
 func prepareEnterpriseGovernanceQueueRequest(t *testing.T, requestId string, userId int, tokenId int) (*relaycommon.RelayInfo, model.EnterpriseQuotaPolicy) {

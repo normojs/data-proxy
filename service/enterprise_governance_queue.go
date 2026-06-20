@@ -82,6 +82,7 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 		result.WaitMs = durationMillis(time.Since(start))
 		setEnterpriseQueueHeaders(c, result)
 		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
+		recordEnterpriseGovernanceQueueAdmission(c, enterpriseCtx, relayInfo, decision, result)
 		var once sync.Once
 		release := func() {
 			once.Do(func() {
@@ -94,6 +95,7 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 		result.WaitMs = durationMillis(time.Since(start))
 		setEnterpriseQueueHeaders(c, result)
 		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
+		recordEnterpriseGovernanceQueueAdmission(c, enterpriseCtx, relayInfo, decision, result)
 		logger.LogWarn(c, fmt.Sprintf("enterprise governance queue timeout after %dms", result.WaitMs))
 		return result, nil, ErrEnterpriseGovernanceQueueTimeout
 	case <-requestDone:
@@ -101,6 +103,7 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 		result.WaitMs = durationMillis(time.Since(start))
 		setEnterpriseQueueHeaders(c, result)
 		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
+		recordEnterpriseGovernanceQueueAdmission(c, enterpriseCtx, relayInfo, decision, result)
 		return result, nil, c.Request.Context().Err()
 	}
 }
@@ -180,6 +183,62 @@ func recordEnterpriseGovernanceQueueAudit(c *gin.Context, enterpriseCtx *Enterpr
 	})
 	if err != nil {
 		logger.LogError(c, "error recording enterprise governance queue audit: "+err.Error())
+	}
+}
+
+func recordEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *EnterpriseContext, relayInfo *relaycommon.RelayInfo, decision PolicyDecision, result EnterpriseGovernanceQueueResult) {
+	if enterpriseCtx == nil || !result.Applied {
+		return
+	}
+	requestId := enterpriseRequestIdFromRelay(c, relayInfo)
+	policyIdsJson, err := common.Marshal(cloneIntSlice(decision.MatchedPolicyIds))
+	if err != nil {
+		logger.LogError(c, "error marshaling enterprise governance queue policy ids: "+err.Error())
+		return
+	}
+	policyGroupIdsJson, err := common.Marshal(cloneIntSlice(enterpriseCtx.PolicyGroupIds))
+	if err != nil {
+		logger.LogError(c, "error marshaling enterprise governance queue policy group ids: "+err.Error())
+		return
+	}
+	policyActionsJson, err := common.Marshal(cloneEnterprisePolicyActionObservations(decision.ActionObservations))
+	if err != nil {
+		logger.LogError(c, "error marshaling enterprise governance queue policy actions: "+err.Error())
+		return
+	}
+	userMessageKey := "enterprise_governance.policy_action_observed"
+	if result.Status == enterpriseQueueStatusTimeout {
+		userMessageKey = "enterprise_governance.queue_timeout"
+	}
+	modelName := ""
+	relayMode := 0
+	if relayInfo != nil {
+		modelName = relayInfo.OriginModelName
+		relayMode = relayInfo.RelayMode
+	}
+	row := model.EnterpriseGovernanceQueueAdmission{
+		RequestId:          requestId,
+		EnterpriseId:       enterpriseCtx.EnterpriseId,
+		UserId:             enterpriseCtx.UserId,
+		TokenId:            enterpriseCtx.TokenId,
+		OrgUnitId:          enterpriseCtx.PrimaryOrgUnitId,
+		ProjectId:          enterpriseCtx.ProjectId,
+		PolicyId:           firstEnterpriseQueuePolicyActionObservationId(decision.ActionObservations),
+		PolicyIdsJson:      string(policyIdsJson),
+		PolicyGroupIdsJson: string(policyGroupIdsJson),
+		ModelName:          modelName,
+		ChannelId:          enterpriseChannelIdFromRelay(c, relayInfo),
+		RelayMode:          relayMode,
+		QueueKey:           enterprisePolicyQueueKey(enterpriseCtx, relayInfo),
+		Status:             result.Status,
+		WaitMs:             result.WaitMs,
+		TimeoutMs:          result.TimeoutMs,
+		DryRun:             decision.DryRun,
+		PolicyActionsJson:  string(policyActionsJson),
+		UserMessageKey:     userMessageKey,
+	}
+	if err := model.DB.Create(&row).Error; err != nil {
+		logger.LogError(c, "error recording enterprise governance queue admission: "+err.Error())
 	}
 }
 
