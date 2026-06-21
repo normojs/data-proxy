@@ -124,6 +124,9 @@ func main() {
 	// Enterprise governance queue stale admission recovery task
 	service.StartEnterpriseGovernanceQueueRecoveryTask()
 
+	// Enterprise governance queue replay payload cleanup task
+	service.StartEnterpriseGovernanceQueuePayloadCleanupTask()
+
 	// Connected app notification outbox delivery task
 	service.StartConnectedAppNotificationOutboxTask()
 

@@ -389,6 +389,195 @@ func TestRecoverStaleEnterpriseGovernanceQueueAdmissionsMarksStaleRows(t *testin
 	assert.EqualValues(t, 3, auditCount)
 }
 
+func TestCleanupEnterpriseGovernanceQueuePayloadsDeletesOnlySafeRows(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000100)
+	ttlSeconds := int64(3600)
+	cutoff := now - ttlSeconds
+	admissions := []model.EnterpriseGovernanceQueueAdmission{
+		{
+			RequestId:      "req-queue-payload-cleanup-released",
+			EnterpriseId:   enterprise.Id,
+			UserId:         1038,
+			TokenId:        128,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusReleased,
+			ReleasedAt:     cutoff - 10,
+			UserMessageKey: "enterprise_governance.policy_action_observed",
+			CreatedAt:      cutoff - 120,
+			UpdatedAt:      cutoff - 10,
+		},
+		{
+			RequestId:      "req-queue-payload-cleanup-retry",
+			EnterpriseId:   enterprise.Id,
+			UserId:         1039,
+			TokenId:        129,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusRetryPending,
+			RetryCount:     1,
+			NextRetryAt:    now,
+			UserMessageKey: "enterprise_governance.queue_retry_pending",
+			CreatedAt:      cutoff - 120,
+			UpdatedAt:      cutoff - 120,
+		},
+		{
+			RequestId:      "req-queue-payload-cleanup-fresh-release",
+			EnterpriseId:   enterprise.Id,
+			UserId:         1040,
+			TokenId:        130,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusReleased,
+			ReleasedAt:     cutoff + 10,
+			UserMessageKey: "enterprise_governance.policy_action_observed",
+			CreatedAt:      cutoff - 120,
+			UpdatedAt:      cutoff + 10,
+		},
+		{
+			RequestId:      "req-queue-payload-cleanup-timeout",
+			EnterpriseId:   enterprise.Id,
+			UserId:         1041,
+			TokenId:        131,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusTimeout,
+			UserMessageKey: "enterprise_governance.queue_timeout",
+			CreatedAt:      cutoff - 120,
+			UpdatedAt:      cutoff - 120,
+		},
+	}
+	require.NoError(t, model.DB.Create(&admissions).Error)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceQueuePayload{
+		{
+			AdmissionId:   admissions[0].Id,
+			RequestId:     admissions[0].RequestId,
+			EnterpriseId:  enterprise.Id,
+			UserId:        admissions[0].UserId,
+			TokenId:       admissions[0].TokenId,
+			ContentType:   "application/json",
+			ContentLength: 10,
+			Body:          []byte("released-1"),
+			BodyBytes:     10,
+			SHA256:        enterpriseGovernanceQueueBodySHA256([]byte("released-1")),
+			StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageDB,
+			CreatedAt:     cutoff - 120,
+			UpdatedAt:     cutoff - 120,
+		},
+		{
+			AdmissionId:   admissions[1].Id,
+			RequestId:     admissions[1].RequestId,
+			EnterpriseId:  enterprise.Id,
+			UserId:        admissions[1].UserId,
+			TokenId:       admissions[1].TokenId,
+			ContentType:   "application/json",
+			ContentLength: 10,
+			Body:          []byte("retry-keep"),
+			BodyBytes:     10,
+			SHA256:        enterpriseGovernanceQueueBodySHA256([]byte("retry-keep")),
+			StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageDB,
+			CreatedAt:     cutoff - 120,
+			UpdatedAt:     cutoff - 120,
+		},
+		{
+			AdmissionId:   admissions[2].Id,
+			RequestId:     admissions[2].RequestId,
+			EnterpriseId:  enterprise.Id,
+			UserId:        admissions[2].UserId,
+			TokenId:       admissions[2].TokenId,
+			ContentType:   "application/json",
+			ContentLength: 12,
+			Body:          []byte("fresh-release"),
+			BodyBytes:     12,
+			SHA256:        enterpriseGovernanceQueueBodySHA256([]byte("fresh-release")),
+			StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageDB,
+			CreatedAt:     cutoff - 120,
+			UpdatedAt:     cutoff - 120,
+		},
+		{
+			AdmissionId:   admissions[3].Id,
+			RequestId:     admissions[3].RequestId,
+			EnterpriseId:  enterprise.Id,
+			UserId:        admissions[3].UserId,
+			TokenId:       admissions[3].TokenId,
+			ContentType:   "application/json",
+			ContentLength: 12,
+			Body:          []byte("timeout-keep"),
+			BodyBytes:     12,
+			SHA256:        enterpriseGovernanceQueueBodySHA256([]byte("timeout-keep")),
+			StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageDB,
+			CreatedAt:     cutoff - 120,
+			UpdatedAt:     cutoff - 120,
+		},
+		{
+			AdmissionId:   999999,
+			RequestId:     "req-queue-payload-cleanup-orphan",
+			EnterpriseId:  enterprise.Id,
+			UserId:        1042,
+			TokenId:       132,
+			ContentType:   "application/json",
+			ContentLength: 20,
+			Body:          []byte("orphaned-payload-body"),
+			BodyBytes:     20,
+			SHA256:        enterpriseGovernanceQueueBodySHA256([]byte("orphaned-payload-body")),
+			StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageDB,
+			CreatedAt:     cutoff - 120,
+			UpdatedAt:     cutoff - 120,
+		},
+		{
+			AdmissionId:   admissions[0].Id,
+			RequestId:     "req-queue-payload-cleanup-new-payload",
+			EnterpriseId:  enterprise.Id,
+			UserId:        admissions[0].UserId,
+			TokenId:       admissions[0].TokenId,
+			ContentType:   "application/json",
+			ContentLength: 12,
+			Body:          []byte("new-payload"),
+			BodyBytes:     12,
+			SHA256:        enterpriseGovernanceQueueBodySHA256([]byte("new-payload")),
+			StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageDB,
+			CreatedAt:     cutoff + 10,
+			UpdatedAt:     cutoff + 10,
+		},
+	}).Error)
+
+	preview, err := CleanupEnterpriseGovernanceQueuePayloads(now, ttlSeconds, 10, true)
+	require.NoError(t, err)
+	assert.True(t, preview.DryRun)
+	assert.EqualValues(t, 5, preview.Scanned)
+	assert.EqualValues(t, 2, preview.Deleted)
+	assert.EqualValues(t, 1, preview.DeletedReleased)
+	assert.EqualValues(t, 1, preview.DeletedOrphaned)
+	assert.EqualValues(t, 30, preview.DeletedBytes)
+	assert.EqualValues(t, 3, preview.Skipped)
+
+	var count int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseGovernanceQueuePayload{}).Count(&count).Error)
+	assert.EqualValues(t, 6, count)
+
+	cleaned, err := CleanupEnterpriseGovernanceQueuePayloads(now, ttlSeconds, 10, false)
+	require.NoError(t, err)
+	assert.False(t, cleaned.DryRun)
+	assert.EqualValues(t, 5, cleaned.Scanned)
+	assert.EqualValues(t, 2, cleaned.Deleted)
+	assert.EqualValues(t, 30, cleaned.DeletedBytes)
+	require.NoError(t, model.DB.Model(&model.EnterpriseGovernanceQueuePayload{}).Count(&count).Error)
+	assert.EqualValues(t, 4, count)
+
+	for requestId, expected := range map[string]int64{
+		"req-queue-payload-cleanup-released":      0,
+		"req-queue-payload-cleanup-orphan":        0,
+		"req-queue-payload-cleanup-retry":         1,
+		"req-queue-payload-cleanup-fresh-release": 1,
+		"req-queue-payload-cleanup-timeout":       1,
+		"req-queue-payload-cleanup-new-payload":   1,
+	} {
+		require.NoError(t, model.DB.Model(&model.EnterpriseGovernanceQueuePayload{}).
+			Where("request_id = ?", requestId).
+			Count(&count).Error)
+		assert.EqualValues(t, expected, count, requestId)
+	}
+}
+
 func TestRetryEnterpriseGovernanceQueueAdmissionMarksRetryPending(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
