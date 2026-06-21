@@ -379,6 +379,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			tokenUsageRoute := usageRoute.Group("/token")
 			tokenUsageRoute.Use(middleware.TokenAuthReadOnly())
+			tokenUsageRoute.Use(middleware.ConnectedAppScopeAuth())
 			{
 				tokenUsageRoute.GET("/", controller.GetTokenUsage)
 			}

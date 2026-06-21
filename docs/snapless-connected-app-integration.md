@@ -176,6 +176,15 @@ Device Code Flow：
 
 通用 connected app token 仍然是 new-api 原生 `tokens`。非 Snapless app 默认 `unlimited_quota=true`、`quota_hard_limit_enabled=false`、`model_limits_enabled=false`；Snapless 内置 app 继续保留 Snapless 模型限制。
 
+`SNAPLESS-012` 已把 scope 从“开发者可见 endpoint 描述”升级为请求层强约束。普通用户自行创建的 token 不受 connected app scope 限制；只有存在 `connected_app_token_bindings` 的 token 会额外校验：
+
+- binding 必须为 `active` 且 user/token 匹配。
+- app 必须为 `enabled`。
+- grant 必须为 `authorized`，并且 grant ID 与 binding 匹配。
+- 请求 endpoint 必须命中已声明映射，且 required scope 同时存在于 app allowed scopes 和 grant scopes。
+- 对 connected app token，未映射的 relay/MJ/Suno/Gemini 等 token 路径默认拒绝。
+- 校验通过后会更新 grant/binding 的 `last_used_at`，失败不会进入下游 relay。
+
 Scope 到 endpoint 的当前映射：
 
 - `openai.models` -> `/v1/models`
@@ -462,4 +471,4 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. Scope 强约束：如需把 scope 从“允许 endpoint 描述”升级为 relay 层硬限制，再增加 token/app scope 校验。
+1. 应用级自助能力：评估是否允许获批 connected app 在受控范围内自助创建 key、查看自身 API 使用统计和拉取 OpenAPI/SDK 配置。

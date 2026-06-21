@@ -16,6 +16,7 @@
 - 已完成 Connected App 通知管理前端：系统设置页可管理全局 preference、webhook、outbox、worker metrics 和 retry；Profile 开发者卡片可按获批应用管理 app 级 preference、webhook 和 outbox。
 - 已完成外部通知演练文档：审批结果、设备授权、health warning 均提供 curl 触发和 HMAC webhook 验签样例。
 - 已完成撤销/轮换通知事件：Snapless 授权、token rotate/revoke、设备撤销和最后设备触发的 grant 撤销均可写入 connected app notification outbox。
+- 已完成 Connected App scope 强约束：绑定 token 访问 relay/usage endpoint 时校验 binding、app、grant 和 required scope；普通 token 不受影响，未映射 token endpoint 默认拒绝。
 - MCP 计费语义不改，仍按工具调用次数和 `price_per_call` 扣费。
 
 ## 开发顺序
@@ -33,7 +34,8 @@
 | 9 | SNAPLESS-009 | P2 | Done | 通知管理前端 | 管理员系统设置页可管理全局 preference、webhook、outbox、worker metrics 和 retry；获批应用开发者可在 Profile 开发者卡片中管理 app 级 preference、webhook 和 outbox。 |
 | 10 | SNAPLESS-010 | P2 | Done | 外部通知演练文档 | 审批结果、设备授权、health warning 三类事件均有 curl 触发流程和 webhook HMAC 验签 receiver 样例。 |
 | 11 | SNAPLESS-011 | P2 | Done | 撤销/轮换通知事件 | Snapless 授权批准/拒绝、token rotate/revoke、设备撤销和最后设备触发的 grant 撤销均写入 connected app notification outbox；通知失败不阻断主流程。 |
+| 12 | SNAPLESS-012 | P1 | Done | Connected App scope 强约束 | 绑定 token 只能访问 app allowed scopes 与 grant scopes 同时允许的 endpoint；binding/app/grant 异常或未映射 token endpoint 均拒绝；普通 token 保持兼容。 |
 
 ## 立即下一步
 
-1. Scope 强约束：把 connected app scopes 从“允许 endpoint 描述”升级为 relay 层硬限制，增加 token/app scope 校验。
+1. 应用级自助能力：评估是否允许获批 connected app 在受控范围内自助创建 key、查看自身 API 使用统计和拉取 OpenAPI/SDK 配置。
