@@ -358,6 +358,8 @@ export type EnterpriseAnomalyProtection = {
   id: number
   enterprise_id: number
   protection_key: string
+  scope_type: 'enterprise' | 'org_unit' | 'project' | string
+  scope_id: number
   reason: 'request_spike' | 'cost_spike' | 'failure_rate' | string
   status: 'active' | 'expired' | string
   detected_at: number
@@ -779,6 +781,8 @@ export type EnterpriseAnomalyProtectionParams = {
   status?: string
   reason?: string
   protection_key?: string
+  scope_type?: string
+  scope_id?: number
   start_time?: number
   end_time?: number
 }
@@ -787,6 +791,8 @@ export type EnterpriseAnomalyProtectionTrendParams = {
   status?: string
   reason?: string
   protection_key?: string
+  scope_type?: string
+  scope_id?: number
   start_time?: number
   end_time?: number
   bucket_seconds?: number

@@ -673,6 +673,16 @@ function formatAnomalyReason(reason: string) {
   }
 }
 
+function formatAnomalyScope(protection: EnterpriseAnomalyProtection) {
+  if (protection.scope_type === 'enterprise') return 'Enterprise'
+  if (protection.scope_type === 'org_unit')
+    return `Org Unit #${protection.scope_id || '-'}`
+  if (protection.scope_type === 'project')
+    return `Project #${protection.scope_id || '-'}`
+  if (!protection.scope_type) return '-'
+  return `${protection.scope_type} #${protection.scope_id || '-'}`
+}
+
 function formatAnomalyPayloadSummary(payloadJson: string | undefined) {
   const payload = parseAuditObject(payloadJson)
   const triggerObjects = [
@@ -3989,12 +3999,15 @@ function AnomalyProtectionsPanel() {
   const { t } = useTranslation()
   const [status, setStatus] = useState('')
   const [reason, setReason] = useState('')
+  const [scopeType, setScopeType] = useState('')
+  const [scopeId, setScopeId] = useState('')
   const [protectionKey, setProtectionKey] = useState('')
   const [startDate, setStartDate] = useState(() => daysAgoInputValue(14))
   const [endDate, setEndDate] = useState(() => todayInputValue())
   const [page, setPage] = useState(1)
   const startTime = startDate ? startOfDayUnix(startDate) : undefined
   const endTime = endDate ? endOfDayUnix(endDate) : undefined
+  const scopeIdValue = parsePositiveSearchId(scopeId)
 
   const protectionsQuery = useQuery({
     queryKey: [
@@ -4003,6 +4016,8 @@ function AnomalyProtectionsPanel() {
       page,
       status,
       reason,
+      scopeType,
+      scopeIdValue,
       protectionKey,
       startTime,
       endTime,
@@ -4013,6 +4028,8 @@ function AnomalyProtectionsPanel() {
         page_size: PAGE_SIZE,
         status,
         reason,
+        scope_type: scopeType,
+        scope_id: scopeIdValue,
         protection_key: protectionKey,
         start_time: startTime,
         end_time: endTime,
@@ -4024,6 +4041,8 @@ function AnomalyProtectionsPanel() {
       'anomaly-protection-trends',
       status,
       reason,
+      scopeType,
+      scopeIdValue,
       protectionKey,
       startTime,
       endTime,
@@ -4032,6 +4051,8 @@ function AnomalyProtectionsPanel() {
       getEnterpriseAnomalyProtectionTrends({
         status,
         reason,
+        scope_type: scopeType,
+        scope_id: scopeIdValue,
         protection_key: protectionKey,
         start_time: startTime,
         end_time: endTime,
@@ -4110,6 +4131,35 @@ function AnomalyProtectionsPanel() {
               </SelectGroup>
             </SelectContent>
           </Select>
+          <Select
+            value={scopeType || ALL_VALUE}
+            onValueChange={(value) => {
+              setScopeType(normalizeOptionalSelectValue(value))
+              setPage(1)
+            }}
+          >
+            <SelectTrigger className='w-44'>
+              <SelectValue placeholder={t('Scope')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                <SelectItem value={ALL_VALUE}>{t('All Scopes')}</SelectItem>
+                <SelectItem value='enterprise'>{t('Enterprise')}</SelectItem>
+                <SelectItem value='org_unit'>{t('Org Unit')}</SelectItem>
+                <SelectItem value='project'>{t('Project')}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Input
+            type='number'
+            value={scopeId}
+            onChange={(event) => {
+              setScopeId(event.target.value)
+              setPage(1)
+            }}
+            placeholder={t('Scope ID')}
+            className='w-36'
+          />
           <Input
             value={protectionKey}
             onChange={(event) => {
@@ -4178,6 +4228,7 @@ function AnomalyProtectionsPanel() {
                 <TableHead>{t('Detected')}</TableHead>
                 <TableHead>{t('Status')}</TableHead>
                 <TableHead>{t('Reason')}</TableHead>
+                <TableHead>{t('Scope')}</TableHead>
                 <TableHead>{t('Protection Key')}</TableHead>
                 <TableHead>{t('Protected Until')}</TableHead>
                 <TableHead>{t('Payload')}</TableHead>
@@ -4204,6 +4255,11 @@ function AnomalyProtectionsPanel() {
                   </TableCell>
                   <TableCell>
                     {t(formatAnomalyReason(protection.reason))}
+                  </TableCell>
+                  <TableCell>
+                    <span className='text-muted-foreground font-mono text-xs'>
+                      {t(formatAnomalyScope(protection))}
+                    </span>
                   </TableCell>
                   <TableCell>
                     <span className='text-muted-foreground font-mono text-xs break-all'>

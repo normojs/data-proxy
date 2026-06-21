@@ -3459,6 +3459,14 @@ func applyEnterpriseGovernanceAnomalyProtectionFilters(c *gin.Context, query *go
 	if protectionKey := strings.TrimSpace(c.Query("protection_key")); protectionKey != "" {
 		query = query.Where("protection_key = ?", protectionKey)
 	}
+	if scopeType := strings.TrimSpace(c.Query("scope_type")); scopeType != "" {
+		query = query.Where("scope_type = ?", scopeType)
+	}
+	if scopeId, err := parseOptionalInt64Query(c, "scope_id"); err != nil {
+		return nil, err
+	} else if scopeId > 0 {
+		query = query.Where("scope_id = ?", scopeId)
+	}
 	if startTime, err := parseOptionalInt64Query(c, "start_time"); err != nil {
 		return nil, err
 	} else if startTime > 0 {

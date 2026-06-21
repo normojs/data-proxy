@@ -920,7 +920,9 @@ func TestEnterpriseAnomalyProtectionListAndTrendEndpoints(t *testing.T) {
 	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceAnomalyProtection{
 		{
 			EnterpriseId:   enterprise.Id,
-			ProtectionKey:  "enterprise:1",
+			ProtectionKey:  "project:1:20",
+			ScopeType:      model.EnterpriseGovernanceAnomalyProtectionScopeProject,
+			ScopeId:        20,
 			Reason:         "request_spike",
 			Status:         model.EnterpriseGovernanceAnomalyProtectionStatusActive,
 			DetectedAt:     1700000000,
@@ -929,7 +931,9 @@ func TestEnterpriseAnomalyProtectionListAndTrendEndpoints(t *testing.T) {
 		},
 		{
 			EnterpriseId:   enterprise.Id,
-			ProtectionKey:  "enterprise:1",
+			ProtectionKey:  "project:1:20",
+			ScopeType:      model.EnterpriseGovernanceAnomalyProtectionScopeProject,
+			ScopeId:        20,
 			Reason:         "request_spike",
 			Status:         model.EnterpriseGovernanceAnomalyProtectionStatusActive,
 			DetectedAt:     1700003600,
@@ -938,7 +942,9 @@ func TestEnterpriseAnomalyProtectionListAndTrendEndpoints(t *testing.T) {
 		},
 		{
 			EnterpriseId:   enterprise.Id,
-			ProtectionKey:  "enterprise:1",
+			ProtectionKey:  "org_unit:1:30",
+			ScopeType:      model.EnterpriseGovernanceAnomalyProtectionScopeOrgUnit,
+			ScopeId:        30,
 			Reason:         "cost_spike",
 			Status:         model.EnterpriseGovernanceAnomalyProtectionStatusExpired,
 			DetectedAt:     1700080000,
@@ -950,7 +956,7 @@ func TestEnterpriseAnomalyProtectionListAndTrendEndpoints(t *testing.T) {
 	ctx, recorder := newEnterpriseControllerContext(
 		t,
 		http.MethodGet,
-		"/api/enterprise/anomaly-protections?status=active&reason=request_spike&protection_key=enterprise:1&start_time=1699999000&end_time=1700001000",
+		"/api/enterprise/anomaly-protections?status=active&reason=request_spike&protection_key=project:1:20&scope_type=project&scope_id=20&start_time=1699999000&end_time=1700001000",
 		"",
 	)
 	ListEnterpriseGovernanceAnomalyProtections(ctx)
@@ -964,12 +970,14 @@ func TestEnterpriseAnomalyProtectionListAndTrendEndpoints(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, model.EnterpriseGovernanceAnomalyProtectionStatusActive, item["status"])
 	assert.Equal(t, "request_spike", item["reason"])
+	assert.Equal(t, model.EnterpriseGovernanceAnomalyProtectionScopeProject, item["scope_type"])
+	assert.EqualValues(t, 20, item["scope_id"])
 	assert.EqualValues(t, 1700007200, item["protected_until"])
 
 	ctx, recorder = newEnterpriseControllerContext(
 		t,
 		http.MethodGet,
-		"/api/enterprise/anomaly-protection-trends?status=active&reason=request_spike&start_time=1699990000&end_time=1700100000&bucket_seconds=86400",
+		"/api/enterprise/anomaly-protection-trends?status=active&reason=request_spike&scope_type=project&scope_id=20&start_time=1699990000&end_time=1700100000&bucket_seconds=86400",
 		"",
 	)
 	ListEnterpriseGovernanceAnomalyProtectionTrends(ctx)

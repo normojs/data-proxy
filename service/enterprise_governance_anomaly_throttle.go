@@ -117,6 +117,8 @@ type EnterpriseAnomalyThrottleConfigInput struct {
 }
 
 type enterpriseAnomalyProtection struct {
+	ScopeType      string
+	ScopeId        int
 	Reason         string
 	Triggers       []EnterpriseGovernanceAnomalyTrigger
 	Current        EnterpriseGovernanceAnomalyUsageSnapshot
@@ -126,6 +128,8 @@ type enterpriseAnomalyProtection struct {
 }
 
 type enterpriseAnomalyProtectionPayload struct {
+	ScopeType      string                                   `json:"scope_type"`
+	ScopeId        int                                      `json:"scope_id"`
 	Reason         string                                   `json:"reason"`
 	Triggers       []EnterpriseGovernanceAnomalyTrigger     `json:"triggers"`
 	Current        EnterpriseGovernanceAnomalyUsageSnapshot `json:"current"`
@@ -317,7 +321,10 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 		return result, nil
 	}
 
+	protectionScopeType, protectionScopeId := enterpriseAnomalyProtectionScope(enterpriseCtx)
 	protection := enterpriseAnomalyProtection{
+		ScopeType:      protectionScopeType,
+		ScopeId:        protectionScopeId,
 		Reason:         result.Reason,
 		Triggers:       append([]EnterpriseGovernanceAnomalyTrigger(nil), result.Triggers...),
 		Current:        result.Current,
@@ -448,10 +455,17 @@ func loadEnterpriseAnomalyUsageSnapshot(enterpriseCtx *EnterpriseContext, start 
 		RequestCount int64
 		Quota        int64
 	}
-	if err := model.DB.Model(&model.EnterpriseUsageAttribution{}).
+	query := model.DB.Model(&model.EnterpriseUsageAttribution{}).
 		Select("COUNT(*) AS request_count, COALESCE(SUM(quota), 0) AS quota").
-		Where("enterprise_id = ? AND created_at >= ? AND created_at < ?", enterpriseCtx.EnterpriseId, start.Unix(), end.Unix()).
-		Scan(&usage).Error; err != nil {
+		Where("enterprise_id = ? AND created_at >= ? AND created_at < ?", enterpriseCtx.EnterpriseId, start.Unix(), end.Unix())
+	scopeType, scopeId := enterpriseAnomalyProtectionScope(enterpriseCtx)
+	switch scopeType {
+	case model.EnterpriseGovernanceAnomalyProtectionScopeProject:
+		query = query.Where("project_id = ?", scopeId)
+	case model.EnterpriseGovernanceAnomalyProtectionScopeOrgUnit:
+		query = query.Where("org_unit_id = ?", scopeId)
+	}
+	if err := query.Scan(&usage).Error; err != nil {
 		return snapshot, err
 	}
 	snapshot.SuccessCount = usage.RequestCount
@@ -474,7 +488,7 @@ func loadEnterpriseAnomalyLogCounts(enterpriseCtx *EnterpriseContext, start time
 	if model.LOG_DB == nil {
 		return 0, 0, nil
 	}
-	userIds, err := enterpriseAnomalyUserIds(enterpriseCtx)
+	userIds, scoped, err := enterpriseAnomalyUserIds(enterpriseCtx)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -487,7 +501,7 @@ func loadEnterpriseAnomalyLogCounts(enterpriseCtx *EnterpriseContext, start time
 		Select("type, COUNT(*) AS count").
 		Where("created_at >= ? AND created_at < ? AND type IN ?", start.Unix(), end.Unix(), []int{model.LogTypeConsume, model.LogTypeError}).
 		Group("type")
-	if len(userIds) > 0 {
+	if scoped || len(userIds) > 0 {
 		query = query.Where("user_id IN ?", userIds)
 	}
 	if err := query.Scan(&rows).Error; err != nil {
@@ -506,17 +520,31 @@ func loadEnterpriseAnomalyLogCounts(enterpriseCtx *EnterpriseContext, start time
 	return consumeCount, errorCount, nil
 }
 
-func enterpriseAnomalyUserIds(enterpriseCtx *EnterpriseContext) ([]int, error) {
+func enterpriseAnomalyUserIds(enterpriseCtx *EnterpriseContext) ([]int, bool, error) {
 	if enterpriseCtx == nil || enterpriseCtx.EnterpriseId <= 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 	var userIds []int
-	if err := model.DB.Model(&model.EnterpriseOrgMembership{}).
+	scopeType, scopeId := enterpriseAnomalyProtectionScope(enterpriseCtx)
+	query := model.DB.Model(&model.EnterpriseOrgMembership{}).
 		Where("enterprise_id = ?", enterpriseCtx.EnterpriseId).
-		Pluck("user_id", &userIds).Error; err != nil {
-		return nil, err
+		Where("is_primary = ?", true)
+	scoped := false
+	switch scopeType {
+	case model.EnterpriseGovernanceAnomalyProtectionScopeProject:
+		orgUnitIds := model.DB.Model(&model.EnterpriseProjectOrgUnit{}).
+			Select("org_unit_id").
+			Where("enterprise_id = ? AND project_id = ?", enterpriseCtx.EnterpriseId, scopeId)
+		query = query.Where("org_unit_id IN (?)", orgUnitIds)
+		scoped = true
+	case model.EnterpriseGovernanceAnomalyProtectionScopeOrgUnit:
+		query = query.Where("org_unit_id = ?", scopeId)
+		scoped = true
 	}
-	return userIds, nil
+	if err := query.Pluck("user_id", &userIds).Error; err != nil {
+		return nil, scoped, err
+	}
+	return userIds, scoped, nil
 }
 
 func loadEnterpriseAnomalyProtection(enterpriseCtx *EnterpriseContext, key string, now time.Time) (enterpriseAnomalyProtection, bool) {
@@ -538,6 +566,8 @@ func persistEnterpriseAnomalyProtection(c *gin.Context, enterpriseCtx *Enterpris
 		return
 	}
 	payload := enterpriseAnomalyProtectionPayload{
+		ScopeType:      protection.ScopeType,
+		ScopeId:        protection.ScopeId,
 		Reason:         protection.Reason,
 		Triggers:       append([]EnterpriseGovernanceAnomalyTrigger(nil), protection.Triggers...),
 		Current:        protection.Current,
@@ -562,6 +592,8 @@ func persistEnterpriseAnomalyProtection(c *gin.Context, enterpriseCtx *Enterpris
 	row := model.EnterpriseGovernanceAnomalyProtection{
 		EnterpriseId:   enterpriseCtx.EnterpriseId,
 		ProtectionKey:  key,
+		ScopeType:      protection.ScopeType,
+		ScopeId:        protection.ScopeId,
 		Reason:         protection.Reason,
 		Status:         model.EnterpriseGovernanceAnomalyProtectionStatusActive,
 		DetectedAt:     protection.DetectedAt,
@@ -598,6 +630,8 @@ func loadEnterpriseAnomalyProtectionFromDB(enterpriseCtx *EnterpriseContext, key
 		return enterpriseAnomalyProtection{}, false
 	}
 	protection := enterpriseAnomalyProtection{
+		ScopeType:      row.ScopeType,
+		ScopeId:        row.ScopeId,
 		Reason:         payload.Reason,
 		Triggers:       append([]EnterpriseGovernanceAnomalyTrigger(nil), payload.Triggers...),
 		Current:        payload.Current,
@@ -648,11 +682,32 @@ func enterpriseAnomalyResultFromProtection(protection enterpriseAnomalyProtectio
 	}
 }
 
+func enterpriseAnomalyProtectionScope(enterpriseCtx *EnterpriseContext) (string, int) {
+	if enterpriseCtx == nil {
+		return model.EnterpriseGovernanceAnomalyProtectionScopeEnterprise, 0
+	}
+	if enterpriseCtx.ProjectId > 0 {
+		return model.EnterpriseGovernanceAnomalyProtectionScopeProject, enterpriseCtx.ProjectId
+	}
+	if enterpriseCtx.PrimaryOrgUnitId > 0 {
+		return model.EnterpriseGovernanceAnomalyProtectionScopeOrgUnit, enterpriseCtx.PrimaryOrgUnitId
+	}
+	return model.EnterpriseGovernanceAnomalyProtectionScopeEnterprise, enterpriseCtx.EnterpriseId
+}
+
 func enterpriseAnomalyProtectionKey(enterpriseCtx *EnterpriseContext) string {
-	if enterpriseCtx != nil && enterpriseCtx.EnterpriseId > 0 {
+	if enterpriseCtx == nil || enterpriseCtx.EnterpriseId <= 0 {
+		return "enterprise:unknown"
+	}
+	scopeType, scopeId := enterpriseAnomalyProtectionScope(enterpriseCtx)
+	switch scopeType {
+	case model.EnterpriseGovernanceAnomalyProtectionScopeProject:
+		return fmt.Sprintf("project:%d:%d", enterpriseCtx.EnterpriseId, scopeId)
+	case model.EnterpriseGovernanceAnomalyProtectionScopeOrgUnit:
+		return fmt.Sprintf("org_unit:%d:%d", enterpriseCtx.EnterpriseId, scopeId)
+	default:
 		return fmt.Sprintf("enterprise:%d", enterpriseCtx.EnterpriseId)
 	}
-	return "enterprise:unknown"
 }
 
 func setEnterpriseAnomalyThrottleHeaders(c *gin.Context, result EnterpriseGovernanceAnomalyThrottleResult) {
@@ -670,12 +725,18 @@ func recordEnterpriseGovernanceAnomalyThrottleAudit(c *gin.Context, enterpriseCt
 		return
 	}
 	requestId := enterpriseRequestIdFromRelay(c, relayInfo)
+	scopeType, scopeId := enterpriseAnomalyProtectionScope(enterpriseCtx)
+	targetType := scopeType
+	targetId := scopeId
+	if targetType == model.EnterpriseGovernanceAnomalyProtectionScopeEnterprise {
+		targetId = enterpriseCtx.EnterpriseId
+	}
 	err := model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
 		EnterpriseId:   enterpriseCtx.EnterpriseId,
 		ActorUserId:    enterpriseCtx.UserId,
 		Action:         enterpriseGovernanceAuditActionAnomalyThrottle,
-		TargetType:     "enterprise",
-		TargetId:       enterpriseCtx.EnterpriseId,
+		TargetType:     targetType,
+		TargetId:       targetId,
 		ScopeUserId:    enterpriseCtx.UserId,
 		ScopeOrgUnitId: enterpriseCtx.PrimaryOrgUnitId,
 		ScopeProjectId: enterpriseCtx.ProjectId,
@@ -694,6 +755,7 @@ func enterpriseGovernanceAnomalyThrottleAuditPayload(c *gin.Context, enterpriseC
 		modelName = relayInfo.OriginModelName
 		channelId = enterpriseChannelIdFromRelay(c, relayInfo)
 	}
+	scopeType, scopeId := enterpriseAnomalyProtectionScope(enterpriseCtx)
 	return map[string]any{
 		"request_id":       requestId,
 		"model":            modelName,
@@ -701,6 +763,9 @@ func enterpriseGovernanceAnomalyThrottleAuditPayload(c *gin.Context, enterpriseC
 		"token_id":         enterpriseCtx.TokenId,
 		"org_unit_id":      enterpriseCtx.PrimaryOrgUnitId,
 		"project_id":       enterpriseCtx.ProjectId,
+		"scope_type":       scopeType,
+		"scope_id":         scopeId,
+		"protection_key":   enterpriseAnomalyProtectionKey(enterpriseCtx),
 		"policy_group_ids": cloneIntSlice(enterpriseCtx.PolicyGroupIds),
 		"anomaly_status":   result.Status,
 		"anomaly_reason":   result.Reason,
