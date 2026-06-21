@@ -312,6 +312,16 @@ export async function listConnectedAppRequests(
   return unwrap(res.data)
 }
 
+export async function listSelfConnectedAppRequests(
+  params: ConnectedAppRequestListParams = {}
+): Promise<ApiPage<ConnectedAppRequest>> {
+  const res = await api.get<ApiEnvelope<ApiPage<ConnectedAppRequest>>>(
+    '/api/connected-app-requests/self',
+    { params, skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
 export async function reviewConnectedAppRequest(
   id: number,
   payload: ConnectedAppReviewPayload
@@ -441,5 +451,109 @@ export async function getConnectedAppNotificationOutboxWorkerMetrics(): Promise<
   >('/api/connected-apps/notification-outbox/worker-metrics', {
     skipBusinessError: true,
   })
+  return unwrap(res.data)
+}
+
+function connectedAppDeveloperPath(appSlug: string, suffix: string) {
+  return `/api/connected-apps/${encodeURIComponent(appSlug)}/developer${suffix}`
+}
+
+export async function listConnectedAppDeveloperNotificationPreferences(
+  appSlug: string
+): Promise<ConnectedAppNotificationPreference[]> {
+  const res = await api.get<ApiEnvelope<ConnectedAppNotificationPreference[]>>(
+    connectedAppDeveloperPath(appSlug, '/notification-preferences'),
+    {
+      skipBusinessError: true,
+    }
+  )
+  return unwrap(res.data)
+}
+
+export async function updateConnectedAppDeveloperNotificationPreference(
+  appSlug: string,
+  payload: ConnectedAppNotificationPreferencePayload
+): Promise<ConnectedAppNotificationPreference> {
+  const res = await api.patch<ApiEnvelope<ConnectedAppNotificationPreference>>(
+    connectedAppDeveloperPath(appSlug, '/notification-preferences'),
+    payload,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function listConnectedAppDeveloperWebhooks(
+  appSlug: string
+): Promise<ConnectedAppWebhook[]> {
+  const res = await api.get<ApiEnvelope<ConnectedAppWebhook[]>>(
+    connectedAppDeveloperPath(appSlug, '/webhooks'),
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function createConnectedAppDeveloperWebhook(
+  appSlug: string,
+  payload: ConnectedAppWebhookPayload
+): Promise<ConnectedAppWebhook> {
+  const res = await api.post<ApiEnvelope<ConnectedAppWebhook>>(
+    connectedAppDeveloperPath(appSlug, '/webhooks'),
+    payload,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function updateConnectedAppDeveloperWebhook(
+  appSlug: string,
+  id: number,
+  payload: ConnectedAppWebhookPayload
+): Promise<ConnectedAppWebhook> {
+  const res = await api.patch<ApiEnvelope<ConnectedAppWebhook>>(
+    connectedAppDeveloperPath(appSlug, `/webhooks/${id}`),
+    payload,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function disableConnectedAppDeveloperWebhook(
+  appSlug: string,
+  id: number
+): Promise<ConnectedAppWebhook> {
+  const res = await api.delete<ApiEnvelope<ConnectedAppWebhook>>(
+    connectedAppDeveloperPath(appSlug, `/webhooks/${id}`),
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function testConnectedAppDeveloperWebhook(
+  appSlug: string,
+  id: number
+): Promise<ConnectedAppWebhookTestResult> {
+  const res = await api.post<ApiEnvelope<ConnectedAppWebhookTestResult>>(
+    connectedAppDeveloperPath(appSlug, `/webhooks/${id}/test`),
+    undefined,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function listConnectedAppDeveloperNotificationOutbox(
+  appSlug: string,
+  params: ConnectedAppNotificationOutboxParams = {}
+): Promise<ApiPage<ConnectedAppNotificationOutbox>> {
+  const res = await api.get<
+    ApiEnvelope<ApiPage<ConnectedAppNotificationOutbox>>
+  >(
+    withQuery(
+      connectedAppDeveloperPath(appSlug, '/notification-outbox'),
+      params
+    ),
+    {
+      skipBusinessError: true,
+    }
+  )
   return unwrap(res.data)
 }

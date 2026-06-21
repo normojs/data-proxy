@@ -24,6 +24,7 @@ import {
   CardStaggerItem,
 } from '@/components/page-transition'
 import { SnaplessConnectedAppCard } from '@/features/snapless-device/connected-app-card'
+import { ConnectedAppDeveloperAppsCard } from '@/features/snapless-device/developer-apps-card'
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { PasskeyCard } from './components/passkey-card'
@@ -67,6 +68,7 @@ export function Profile() {
                   onProfileUpdate={refreshProfile}
                 />
                 <ProfileSecurityCard profile={profile} loading={loading} />
+                <ConnectedAppDeveloperAppsCard />
               </div>
 
               <div className='space-y-4 sm:space-y-6 xl:sticky xl:top-6'>

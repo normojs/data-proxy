@@ -84,13 +84,21 @@ import {
   type ConnectedAppWebhookPayload,
   type ConnectedAppWebhookTestResult,
   createConnectedAppWebhook,
+  createConnectedAppDeveloperWebhook,
   disableConnectedAppWebhook,
+  disableConnectedAppDeveloperWebhook,
   getConnectedAppNotificationOutboxWorkerMetrics,
+  listConnectedAppDeveloperNotificationOutbox,
+  listConnectedAppDeveloperNotificationPreferences,
+  listConnectedAppDeveloperWebhooks,
   listConnectedAppNotificationOutbox,
   listConnectedAppNotificationPreferences,
   listConnectedAppWebhooks,
   retryConnectedAppNotificationOutbox,
+  testConnectedAppDeveloperWebhook,
   testConnectedAppWebhook,
+  updateConnectedAppDeveloperNotificationPreference,
+  updateConnectedAppDeveloperWebhook,
   updateConnectedAppNotificationPreference,
   updateConnectedAppWebhook,
 } from './connected-apps-api'
@@ -127,25 +135,49 @@ type WebhookFormState = {
   status: string
 }
 
-export function ConnectedAppNotificationsSection() {
+type ConnectedAppNotificationScope =
+  | {
+      kind: 'admin'
+      appId: number
+    }
+  | {
+      kind: 'developer'
+      appSlug: string
+    }
+
+export function ConnectedAppNotificationsSection({
+  appSlug,
+}: {
+  appSlug?: string
+}) {
+  const scope: ConnectedAppNotificationScope = useMemo(
+    () =>
+      appSlug
+        ? { kind: 'developer', appSlug }
+        : { kind: 'admin', appId: CONNECTED_APP_NOTIFICATION_APP_ID },
+    [appSlug]
+  )
+
   return (
     <div className='space-y-3'>
-      <NotificationPreferencesPanel />
-      <ConnectedAppWebhooksPanel />
-      <ConnectedAppDeliveriesPanel />
+      <NotificationPreferencesPanel scope={scope} />
+      <ConnectedAppWebhooksPanel scope={scope} />
+      <ConnectedAppDeliveriesPanel scope={scope} />
     </div>
   )
 }
 
-function NotificationPreferencesPanel() {
+function NotificationPreferencesPanel({
+  scope,
+}: {
+  scope: ConnectedAppNotificationScope
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const scopeKey = connectedAppNotificationScopeKey(scope)
   const preferencesQuery = useQuery({
-    queryKey: ['connected-apps', 'notification-preferences', 0],
-    queryFn: () =>
-      listConnectedAppNotificationPreferences(
-        CONNECTED_APP_NOTIFICATION_APP_ID
-      ),
+    queryKey: ['connected-apps', 'notification-preferences', scopeKey, scope],
+    queryFn: () => listNotificationPreferences(scope),
   })
   const preferences = useMemo(
     () => preferencesQuery.data ?? [],
@@ -163,7 +195,8 @@ function NotificationPreferencesPanel() {
   }, [preferences])
 
   const mutation = useMutation({
-    mutationFn: updateConnectedAppNotificationPreference,
+    mutationFn: (payload: ConnectedAppNotificationPreferencePayload) =>
+      updateNotificationPreference(scope, payload),
     onSuccess: async () => {
       toast.success(t('Saved'))
       await Promise.all([
@@ -374,9 +407,14 @@ function ScopeCheckbox({
   )
 }
 
-function ConnectedAppWebhooksPanel() {
+function ConnectedAppWebhooksPanel({
+  scope,
+}: {
+  scope: ConnectedAppNotificationScope
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const scopeKey = connectedAppNotificationScopeKey(scope)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editingWebhook, setEditingWebhook] =
     useState<ConnectedAppWebhook | null>(null)
@@ -385,13 +423,13 @@ function ConnectedAppWebhooksPanel() {
   >({})
 
   const webhooksQuery = useQuery({
-    queryKey: ['connected-apps', 'webhooks', 0],
-    queryFn: () => listConnectedAppWebhooks(CONNECTED_APP_NOTIFICATION_APP_ID),
+    queryKey: ['connected-apps', 'webhooks', scopeKey, scope],
+    queryFn: () => listWebhooks(scope),
   })
   const webhooks = webhooksQuery.data ?? []
 
   const disableMutation = useMutation({
-    mutationFn: disableConnectedAppWebhook,
+    mutationFn: (id: number) => disableWebhook(scope, id),
     onSuccess: async () => {
       toast.success(t('Disabled'))
       await Promise.all([
@@ -408,7 +446,7 @@ function ConnectedAppWebhooksPanel() {
     },
   })
   const testMutation = useMutation({
-    mutationFn: testConnectedAppWebhook,
+    mutationFn: (id: number) => testWebhook(scope, id),
     onSuccess: async (result, id) => {
       setTestResults((current) => ({ ...current, [id]: result }))
       toast[result.success ? 'success' : 'error'](
@@ -485,6 +523,7 @@ function ConnectedAppWebhooksPanel() {
       {sheetOpen ? (
         <ConnectedAppWebhookSheet
           key={`connected-app-webhook:${editingWebhook?.id ?? 'new'}`}
+          scope={scope}
           webhook={editingWebhook}
           open={sheetOpen}
           onOpenChange={setSheetOpen}
@@ -619,10 +658,12 @@ function ConnectedAppWebhookRow({
 }
 
 function ConnectedAppWebhookSheet({
+  scope,
   webhook,
   open,
   onOpenChange,
 }: {
+  scope: ConnectedAppNotificationScope
   webhook: ConnectedAppWebhook | null
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -640,9 +681,9 @@ function ConnectedAppWebhookSheet({
 
   const mutation = useMutation({
     mutationFn: () => {
-      const payload = buildWebhookPayload(form)
-      if (webhook) return updateConnectedAppWebhook(webhook.id, payload)
-      return createConnectedAppWebhook(payload)
+      const payload = buildWebhookPayload(form, scope)
+      if (webhook) return updateWebhook(scope, webhook.id, payload)
+      return createWebhook(scope, payload)
     },
     onSuccess: async () => {
       toast.success(t('Saved'))
@@ -792,9 +833,16 @@ function ConnectedAppWebhookSheet({
   )
 }
 
-function ConnectedAppDeliveriesPanel() {
+function ConnectedAppDeliveriesPanel({
+  scope,
+}: {
+  scope: ConnectedAppNotificationScope
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const scopeKey = connectedAppNotificationScopeKey(scope)
+  const canRetry = scope.kind === 'admin'
+  const showMetrics = scope.kind === 'admin'
   const [page, setPage] = useState(1)
   const [channel, setChannel] = useState('')
   const [status, setStatus] = useState('')
@@ -804,13 +852,15 @@ function ConnectedAppDeliveriesPanel() {
     queryKey: [
       'connected-apps',
       'notification-outbox',
+      scopeKey,
+      scope,
       page,
       channel,
       status,
       eventType,
     ],
     queryFn: () =>
-      listConnectedAppNotificationOutbox({
+      listNotificationOutbox(scope, {
         p: page,
         page_size: CONNECTED_APP_DELIVERY_PAGE_SIZE,
         channel,
@@ -821,6 +871,7 @@ function ConnectedAppDeliveriesPanel() {
   const metricsQuery = useQuery({
     queryKey: ['connected-apps', 'notification-outbox', 'worker-metrics'],
     queryFn: getConnectedAppNotificationOutboxWorkerMetrics,
+    enabled: showMetrics,
   })
   const rows = outboxQuery.data?.items ?? []
   const total = outboxQuery.data?.total ?? 0
@@ -848,7 +899,9 @@ function ConnectedAppDeliveriesPanel() {
 
   return (
     <div className='space-y-3'>
-      <ConnectedAppDeliveryMetrics query={metricsQuery} metrics={metrics} />
+      {showMetrics ? (
+        <ConnectedAppDeliveryMetrics query={metricsQuery} metrics={metrics} />
+      ) : null}
       <NotificationPanel
         title={t('Deliveries')}
         description={t('Recent connected app notification outbox rows')}
@@ -952,7 +1005,11 @@ function ConnectedAppDeliveriesPanel() {
                     <TableHead>{t('Next Retry')}</TableHead>
                     <TableHead>{t('Last Error')}</TableHead>
                     <TableHead>{t('Created')}</TableHead>
-                    <TableHead className='text-right'>{t('Actions')}</TableHead>
+                    {canRetry ? (
+                      <TableHead className='text-right'>
+                        {t('Actions')}
+                      </TableHead>
+                    ) : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -960,6 +1017,7 @@ function ConnectedAppDeliveriesPanel() {
                     <ConnectedAppDeliveryRow
                       key={row.id}
                       row={row}
+                      canRetry={canRetry}
                       isRetrying={retryMutation.isPending}
                       onRetry={() => retryMutation.mutate(row.id)}
                     />
@@ -1029,10 +1087,12 @@ function ConnectedAppDeliveryMetrics({
 
 function ConnectedAppDeliveryRow({
   row,
+  canRetry,
   isRetrying,
   onRetry,
 }: {
   row: ConnectedAppNotificationOutbox
+  canRetry: boolean
   isRetrying: boolean
   onRetry: () => void
 }) {
@@ -1073,20 +1133,22 @@ function ConnectedAppDeliveryRow({
       <TableCell className='text-muted-foreground text-xs'>
         {formatOptionalTimestamp(row.created_at)}
       </TableCell>
-      <TableCell>
-        <div className='flex justify-end'>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            disabled={!isRetryableOutboxStatus(row.status) || isRetrying}
-            onClick={onRetry}
-          >
-            <RotateCcw data-icon='inline-start' />
-            <span>{t('Retry')}</span>
-          </Button>
-        </div>
-      </TableCell>
+      {canRetry ? (
+        <TableCell>
+          <div className='flex justify-end'>
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              disabled={!isRetryableOutboxStatus(row.status) || isRetrying}
+              onClick={onRetry}
+            >
+              <RotateCcw data-icon='inline-start' />
+              <span>{t('Retry')}</span>
+            </Button>
+          </div>
+        </TableCell>
+      ) : null}
     </TableRow>
   )
 }
@@ -1259,10 +1321,6 @@ function Pager({
   )
 }
 
-function connectedAppNotificationAuditQueryKey() {
-  return ['connected-app-audit-logs']
-}
-
 function notificationPreferenceKey(channel: string, eventType: string) {
   return `${channel}:${eventType}`
 }
@@ -1282,10 +1340,11 @@ function preferencePayload(
 }
 
 function buildWebhookPayload(
-  form: WebhookFormState
+  form: WebhookFormState,
+  scope: ConnectedAppNotificationScope
 ): ConnectedAppWebhookPayload {
   const payload: ConnectedAppWebhookPayload = {
-    app_id: CONNECTED_APP_NOTIFICATION_APP_ID,
+    app_id: scope.kind === 'admin' ? scope.appId : 0,
     name: form.name.trim(),
     url: form.url.trim(),
     event_types: form.eventTypes,
@@ -1295,6 +1354,89 @@ function buildWebhookPayload(
     payload.secret = form.secret.trim()
   }
   return payload
+}
+
+function connectedAppNotificationScopeKey(
+  scope: ConnectedAppNotificationScope
+) {
+  if (scope.kind === 'developer') return `developer:${scope.appSlug}`
+  return `admin:${scope.appId}`
+}
+
+function connectedAppNotificationAuditQueryKey() {
+  return ['connected-app-audit-logs']
+}
+
+function listNotificationPreferences(scope: ConnectedAppNotificationScope) {
+  if (scope.kind === 'developer') {
+    return listConnectedAppDeveloperNotificationPreferences(scope.appSlug)
+  }
+  return listConnectedAppNotificationPreferences(scope.appId)
+}
+
+function updateNotificationPreference(
+  scope: ConnectedAppNotificationScope,
+  payload: ConnectedAppNotificationPreferencePayload
+) {
+  if (scope.kind === 'developer') {
+    return updateConnectedAppDeveloperNotificationPreference(
+      scope.appSlug,
+      payload
+    )
+  }
+  return updateConnectedAppNotificationPreference(payload)
+}
+
+function listWebhooks(scope: ConnectedAppNotificationScope) {
+  if (scope.kind === 'developer') {
+    return listConnectedAppDeveloperWebhooks(scope.appSlug)
+  }
+  return listConnectedAppWebhooks(scope.appId)
+}
+
+function createWebhook(
+  scope: ConnectedAppNotificationScope,
+  payload: ConnectedAppWebhookPayload
+) {
+  if (scope.kind === 'developer') {
+    return createConnectedAppDeveloperWebhook(scope.appSlug, payload)
+  }
+  return createConnectedAppWebhook(payload)
+}
+
+function updateWebhook(
+  scope: ConnectedAppNotificationScope,
+  id: number,
+  payload: ConnectedAppWebhookPayload
+) {
+  if (scope.kind === 'developer') {
+    return updateConnectedAppDeveloperWebhook(scope.appSlug, id, payload)
+  }
+  return updateConnectedAppWebhook(id, payload)
+}
+
+function disableWebhook(scope: ConnectedAppNotificationScope, id: number) {
+  if (scope.kind === 'developer') {
+    return disableConnectedAppDeveloperWebhook(scope.appSlug, id)
+  }
+  return disableConnectedAppWebhook(id)
+}
+
+function testWebhook(scope: ConnectedAppNotificationScope, id: number) {
+  if (scope.kind === 'developer') {
+    return testConnectedAppDeveloperWebhook(scope.appSlug, id)
+  }
+  return testConnectedAppWebhook(id)
+}
+
+function listNotificationOutbox(
+  scope: ConnectedAppNotificationScope,
+  params: Parameters<typeof listConnectedAppNotificationOutbox>[0]
+) {
+  if (scope.kind === 'developer') {
+    return listConnectedAppDeveloperNotificationOutbox(scope.appSlug, params)
+  }
+  return listConnectedAppNotificationOutbox({ ...params, app_id: scope.appId })
 }
 
 function webhookEventTypesForForm(webhook: ConnectedAppWebhook | null) {
