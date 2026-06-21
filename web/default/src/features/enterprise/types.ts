@@ -402,6 +402,7 @@ export type EnterpriseQueueAdmission = {
   run_ms: number
   dry_run: boolean
   policy_actions_json: string
+  request_payload_json: string
   user_message_key: string
   created_at: number
   updated_at: number

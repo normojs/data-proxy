@@ -32,6 +32,7 @@ type EnterpriseGovernanceQueueAdmission struct {
 	RunMs              int64  `json:"run_ms" gorm:"not null;default:0"`
 	DryRun             bool   `json:"dry_run" gorm:"not null;default:false"`
 	PolicyActionsJson  string `json:"policy_actions_json" gorm:"type:text"`
+	RequestPayloadJson string `json:"request_payload_json" gorm:"type:text"`
 	UserMessageKey     string `json:"user_message_key" gorm:"type:varchar(128);not null;default:''"`
 	CreatedAt          int64  `json:"created_at" gorm:"autoCreateTime;index:idx_enterprise_governance_queue_admissions_created_at,priority:2"`
 	UpdatedAt          int64  `json:"updated_at" gorm:"autoUpdateTime;index"`

@@ -3,12 +3,17 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -25,6 +30,10 @@ func TestApplyEnterpriseGovernanceQueueAdmitsAuditsAndReleases(t *testing.T) {
 
 	relayInfo, policy := prepareEnterpriseGovernanceQueueRequest(t, "req-enterprise-queue-admit", 1030, 120)
 	ctx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-queue-admit", 701)
+	requestBody := `{"model":"gpt-4o","messages":[{"role":"user","content":"queue me"}]}`
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions?stream=false", strings.NewReader(requestBody))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Request.Header.Set("Authorization", "Bearer queue-payload-secret")
 	require.Nil(t, PreCheckEnterpriseGovernance(ctx, relayInfo, 20))
 
 	result, release, err := ApplyEnterpriseGovernanceQueue(ctx, relayInfo)
@@ -65,6 +74,23 @@ func TestApplyEnterpriseGovernanceQueueAdmitsAuditsAndReleases(t *testing.T) {
 	assert.Greater(t, admission.AdmittedAt, int64(0))
 	assert.Zero(t, admission.ReleasedAt)
 	assert.Equal(t, strconv.FormatInt(result.TimeoutMs, 10), ctx.Writer.Header().Get(enterpriseQueueTimeoutMsHeader))
+	var requestPayload enterpriseQueueRequestPayload
+	require.NoError(t, common.UnmarshalJsonStr(admission.RequestPayloadJson, &requestPayload))
+	assert.Equal(t, http.MethodPost, requestPayload.Method)
+	assert.Equal(t, "/v1/chat/completions", requestPayload.Path)
+	assert.Equal(t, "stream=false", requestPayload.RawQuery)
+	assert.Equal(t, "application/json", requestPayload.ContentType)
+	assert.Equal(t, requestBody, requestPayload.Body)
+	assert.Equal(t, len(requestBody), requestPayload.BodyCapturedBytes)
+	assert.False(t, requestPayload.BodyTruncated)
+	assert.Equal(t, enterpriseQueueRequestPayloadMaxBytes, requestPayload.BodyCaptureLimitBytes)
+	assert.Equal(t, "gpt-4o", requestPayload.Model)
+	assert.EqualValues(t, relayconstant.RelayModeChatCompletions, requestPayload.RelayMode)
+	assert.EqualValues(t, 701, requestPayload.ChannelId)
+	assert.NotContains(t, admission.RequestPayloadJson, "queue-payload-secret")
+	restoredBody, err := io.ReadAll(ctx.Request.Body)
+	require.NoError(t, err)
+	assert.Equal(t, requestBody, string(restoredBody))
 	var admissionPolicyActions []PolicyActionObservation
 	require.NoError(t, common.Unmarshal([]byte(admission.PolicyActionsJson), &admissionPolicyActions))
 	require.Len(t, admissionPolicyActions, 1)
@@ -338,6 +364,33 @@ func TestRecoverStaleEnterpriseGovernanceQueueAdmissionsMarksStaleRows(t *testin
 		Where("action = ?", enterpriseGovernanceAuditActionQueueRecovery).
 		Count(&auditCount).Error)
 	assert.EqualValues(t, 2, auditCount)
+}
+
+func TestEnterpriseGovernanceQueuePayloadSnapshotTruncatesAndRestoresBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	requestBody := strings.Repeat("a", enterpriseQueueRequestPayloadMaxBytes+512)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(requestBody))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(ctx, constant.ContextKeyChannelId, 733)
+	relayInfo := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-4o",
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+	}
+
+	payloadJson, err := enterpriseGovernanceQueueRequestPayloadJson(ctx, relayInfo)
+	require.NoError(t, err)
+
+	var payload enterpriseQueueRequestPayload
+	require.NoError(t, common.UnmarshalJsonStr(payloadJson, &payload))
+	assert.True(t, payload.BodyTruncated)
+	assert.Equal(t, enterpriseQueueRequestPayloadMaxBytes, payload.BodyCapturedBytes)
+	assert.Equal(t, strings.Repeat("a", enterpriseQueueRequestPayloadMaxBytes), payload.Body)
+	assert.EqualValues(t, len(requestBody), payload.ContentLength)
+	restoredBody, err := io.ReadAll(ctx.Request.Body)
+	require.NoError(t, err)
+	assert.Equal(t, requestBody, string(restoredBody))
 }
 
 func prepareEnterpriseGovernanceQueueRequest(t *testing.T, requestId string, userId int, tokenId int) (*relaycommon.RelayInfo, model.EnterpriseQuotaPolicy) {

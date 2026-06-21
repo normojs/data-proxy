@@ -1,9 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"sync"
 	"time"
@@ -28,6 +31,7 @@ const (
 	enterpriseQueueStatusHeader                   = "X-Data-Proxy-Enterprise-Queue-Status"
 	enterpriseQueueWaitMsHeader                   = "X-Data-Proxy-Enterprise-Queue-Wait-Ms"
 	enterpriseQueueTimeoutMsHeader                = "X-Data-Proxy-Enterprise-Queue-Timeout-Ms"
+	enterpriseQueueRequestPayloadMaxBytes         = 32 * 1024
 )
 
 var (
@@ -51,6 +55,37 @@ type EnterpriseGovernanceQueueResult struct {
 
 type enterprisePolicyQueue struct {
 	slots chan struct{}
+}
+
+type enterpriseQueueRequestPayload struct {
+	Method                string `json:"method"`
+	Path                  string `json:"path"`
+	RawQuery              string `json:"raw_query,omitempty"`
+	ContentType           string `json:"content_type,omitempty"`
+	ContentLength         int64  `json:"content_length"`
+	Body                  string `json:"body,omitempty"`
+	BodyCapturedBytes     int    `json:"body_captured_bytes"`
+	BodyCaptureLimitBytes int    `json:"body_capture_limit_bytes"`
+	BodyTruncated         bool   `json:"body_truncated"`
+	Model                 string `json:"model,omitempty"`
+	RelayMode             int    `json:"relay_mode"`
+	ChannelId             int    `json:"channel_id"`
+}
+
+type enterpriseQueueRequestBodyRestore struct {
+	reader io.Reader
+	closer io.Closer
+}
+
+func (body *enterpriseQueueRequestBodyRestore) Read(p []byte) (int, error) {
+	return body.reader.Read(p)
+}
+
+func (body *enterpriseQueueRequestBodyRestore) Close() error {
+	if body == nil || body.closer == nil {
+		return nil
+	}
+	return body.closer.Close()
 }
 
 func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo) (EnterpriseGovernanceQueueResult, func(), error) {
@@ -258,6 +293,10 @@ func createEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *Ent
 		logger.LogError(c, "error marshaling enterprise governance queue policy actions: "+err.Error())
 		return nil
 	}
+	requestPayloadJson, err := enterpriseGovernanceQueueRequestPayloadJson(c, relayInfo)
+	if err != nil {
+		logger.LogWarn(c, "error capturing enterprise governance queue request payload: "+err.Error())
+	}
 	modelName := ""
 	relayMode := 0
 	if relayInfo != nil {
@@ -283,6 +322,7 @@ func createEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *Ent
 		TimeoutMs:          result.TimeoutMs,
 		DryRun:             decision.DryRun,
 		PolicyActionsJson:  string(policyActionsJson),
+		RequestPayloadJson: requestPayloadJson,
 		UserMessageKey:     enterpriseQueueUserMessageKey(result.Status),
 	}
 	if err := model.DB.Create(&row).Error; err != nil {
@@ -290,6 +330,70 @@ func createEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *Ent
 		return nil
 	}
 	return &row
+}
+
+func enterpriseGovernanceQueueRequestPayloadJson(c *gin.Context, relayInfo *relaycommon.RelayInfo) (string, error) {
+	if c == nil || c.Request == nil {
+		return "", nil
+	}
+	request := c.Request
+	path := ""
+	rawQuery := ""
+	if request.URL != nil {
+		path = request.URL.Path
+		rawQuery = request.URL.RawQuery
+	}
+	modelName := ""
+	relayMode := 0
+	if relayInfo != nil {
+		modelName = relayInfo.OriginModelName
+		relayMode = relayInfo.RelayMode
+		if path == "" {
+			path = relayInfo.RequestURLPath
+		}
+	}
+	body, truncated, err := captureEnterpriseGovernanceQueueRequestBody(request)
+	if err != nil {
+		return "", err
+	}
+	payload := enterpriseQueueRequestPayload{
+		Method:                request.Method,
+		Path:                  path,
+		RawQuery:              rawQuery,
+		ContentType:           request.Header.Get("Content-Type"),
+		ContentLength:         request.ContentLength,
+		Body:                  string(body),
+		BodyCapturedBytes:     len(body),
+		BodyCaptureLimitBytes: enterpriseQueueRequestPayloadMaxBytes,
+		BodyTruncated:         truncated,
+		Model:                 modelName,
+		RelayMode:             relayMode,
+		ChannelId:             enterpriseChannelIdFromRelay(c, relayInfo),
+	}
+	payloadJson, err := common.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(payloadJson), nil
+}
+
+func captureEnterpriseGovernanceQueueRequestBody(request *http.Request) ([]byte, bool, error) {
+	if request == nil || request.Body == nil {
+		return nil, false, nil
+	}
+	originalBody := request.Body
+	capturedWithMarker, err := io.ReadAll(io.LimitReader(originalBody, enterpriseQueueRequestPayloadMaxBytes+1))
+	request.Body = &enterpriseQueueRequestBodyRestore{
+		reader: io.MultiReader(bytes.NewReader(capturedWithMarker), originalBody),
+		closer: originalBody,
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if len(capturedWithMarker) > enterpriseQueueRequestPayloadMaxBytes {
+		return capturedWithMarker[:enterpriseQueueRequestPayloadMaxBytes], true, nil
+	}
+	return capturedWithMarker, false, nil
 }
 
 func updateEnterpriseGovernanceQueueAdmission(c *gin.Context, admission *model.EnterpriseGovernanceQueueAdmission, result EnterpriseGovernanceQueueResult, updates map[string]any) {
