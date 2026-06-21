@@ -173,7 +173,7 @@ Device Code Flow：
   - 创建和轮换会写入 connected app audit，便于管理员追踪。
 - `GET /api/connected-apps/:slug/developer/usage`
   - 登录接口，需 app allowed scopes 包含 `quota.read`。
-  - 聚合当前 app 绑定 token 的 `logs` 消耗记录，支持 `start_time`、`end_time`、`token_id`、`user_id`、`model_name` 过滤，并返回 total、by_model 和 by_token。
+  - 通过 `connected_app_token_attributions` 聚合当前 app 绑定 token 及其轮换前 token 的 `logs` 消耗记录，支持 `start_time`、`end_time`、`token_id`、`user_id`、`model_name` 过滤，并返回 total、by_model 和 by_token。
 
 通用 device code flow：
 
@@ -211,8 +211,8 @@ Scope 到 endpoint 的当前映射：
 
 - 只有系统管理员或该 app 的已批准申请人可以访问 developer self-service。
 - `POST /developer/keys` 只能给当前登录用户创建该 app 的绑定 token，不能代其他用户创建 key。
-- `GET /developer/usage` 只按该 app 当前 token binding 的 `token_id` 聚合日志；不包含普通 token 或其他 connected app token。
-- 当前 usage MVP 不追溯已经被轮换覆盖的旧 token 绑定历史；如果需要全量历史，需要新增不可变 token/app attribution 表或日志字段。
+- `GET /developer/usage` 只按该 app 的 token attribution 聚合日志；不包含普通 token 或其他 connected app token。
+- 新 token 创建和轮换会写入不可变 `connected_app_token_attributions` 归属记录，轮换前 token 在 by_token 中显示为 `historical`；旧库中尚未写入 attribution 的当前 binding 会作为 fallback 纳入统计。
 
 ## 邮件/Webhook 通知扩展
 
@@ -493,5 +493,5 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. Token/app 历史归属增强：为 connected app token 增加不可变 attribution 历史或在 consume log 中固化 app/binding ID，使 developer usage 可以跨轮换统计完整历史。
-2. 前端自助入口：在 Profile 开发者卡片中展示 SDK/OpenAPI、自助 key 创建/轮换和 usage summary。
+1. 前端自助入口：在 Profile 开发者卡片中展示 SDK/OpenAPI、自助 key 创建/轮换和 usage summary。
+2. 自助 usage 展示增强：按 total/by_model/by_token 展示当前与历史 token 消耗，历史 token 状态显示为 `historical`。

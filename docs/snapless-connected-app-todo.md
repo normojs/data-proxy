@@ -17,7 +17,8 @@
 - 已完成外部通知演练文档：审批结果、设备授权、health warning 均提供 curl 触发和 HMAC webhook 验签样例。
 - 已完成撤销/轮换通知事件：Snapless 授权、token rotate/revoke、设备撤销和最后设备触发的 grant 撤销均可写入 connected app notification outbox。
 - 已完成 Connected App scope 强约束：绑定 token 访问 relay/usage endpoint 时校验 binding、app、grant 和 required scope；普通 token 不受影响，未映射 token endpoint 默认拒绝。
-- 已完成应用级自助能力 MVP：获批 app 开发者可拉取 SDK/OpenAPI 配置，在 `token.manage` 范围内创建或轮换自己的开发者 key，并在 `quota.read` 范围内查看当前绑定 token 的 usage 聚合。
+- 已完成应用级自助能力 MVP：获批 app 开发者可拉取 SDK/OpenAPI 配置，在 `token.manage` 范围内创建或轮换自己的开发者 key，并在 `quota.read` 范围内查看跨 token 轮换的 usage 聚合。
+- 已完成 Connected App token 历史归属：`connected_app_token_attributions` 不可变记录 token/app/binding/device 归属，developer usage 可统计当前 token 和轮换前 token 的消费历史；旧库当前 binding 仍有 fallback。
 - MCP 计费语义不改，仍按工具调用次数和 `price_per_call` 扣费。
 
 ## 开发顺序
@@ -36,11 +37,11 @@
 | 10 | SNAPLESS-010 | P2 | Done | 外部通知演练文档 | 审批结果、设备授权、health warning 三类事件均有 curl 触发流程和 webhook HMAC 验签 receiver 样例。 |
 | 11 | SNAPLESS-011 | P2 | Done | 撤销/轮换通知事件 | Snapless 授权批准/拒绝、token rotate/revoke、设备撤销和最后设备触发的 grant 撤销均写入 connected app notification outbox；通知失败不阻断主流程。 |
 | 12 | SNAPLESS-012 | P1 | Done | Connected App scope 强约束 | 绑定 token 只能访问 app allowed scopes 与 grant scopes 同时允许的 endpoint；binding/app/grant 异常或未映射 token endpoint 均拒绝；普通 token 保持兼容。 |
-| 13 | SNAPLESS-013 | P1 | Done | 应用级自助能力 MVP | 获批 app 开发者可拉取 SDK/OpenAPI 配置；具备 `token.manage` 可自助创建/轮换当前登录用户自己的开发者 key；具备 `quota.read` 可查看当前 app 绑定 token 的 usage 聚合；创建/轮换写入 connected app audit。 |
-| 14 | SNAPLESS-014 | P2 | Todo | Connected App token 历史归属 | 增加不可变 token/app attribution 历史或在 consume log 固化 app/binding ID，使 developer usage 能跨 token 轮换统计完整历史，而不是只看当前 binding token。 |
+| 13 | SNAPLESS-013 | P1 | Done | 应用级自助能力 MVP | 获批 app 开发者可拉取 SDK/OpenAPI 配置；具备 `token.manage` 可自助创建/轮换当前登录用户自己的开发者 key；具备 `quota.read` 可查看当前 app usage 聚合；创建/轮换写入 connected app audit。 |
+| 14 | SNAPLESS-014 | P2 | Done | Connected App token 历史归属 | `connected_app_token_attributions` 记录 token/app/binding/device 不可变归属；developer usage 能跨 token 轮换统计完整历史，并保留当前 binding fallback。 |
 | 15 | SNAPLESS-015 | P2 | Todo | 自助能力前端入口 | Profile 开发者卡片展示 SDK/OpenAPI 下载、自助 key 创建/轮换、usage summary 与按模型/token 聚合。 |
 
 ## 立即下一步
 
-1. Connected App token 历史归属：设计 `connected_app_token_attributions` 或 log 固化字段，先保证不破坏现有 token binding 和 scope auth。
-2. 前端自助入口：在 Profile 开发者卡片接入 `/developer/sdk-config`、`/developer/keys`、`/developer/usage` 和 `/developer/openapi`。
+1. 前端自助入口：在 Profile 开发者卡片接入 `/developer/sdk-config`、`/developer/keys`、`/developer/usage` 和 `/developer/openapi`。
+2. 自助 usage 展示增强：前端按 total/by_model/by_token 展示当前与历史 token 消耗，历史 token 状态显示为 `historical`。

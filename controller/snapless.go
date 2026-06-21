@@ -1102,6 +1102,9 @@ func ensureSnaplessTokenForDeviceTx(c *gin.Context, tx *gorm.DB, app *model.Conn
 	}
 
 	if existingBinding != nil {
+		if err := model.RecordConnectedAppTokenAttribution(tx, *existingBinding, now); err != nil {
+			return snaplessTokenResponse{}, 0, err
+		}
 		if err := model.DisableTokenWithTx(tx, existingBinding.TokenId, userId); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return snaplessTokenResponse{}, 0, err
 		}
@@ -1121,6 +1124,9 @@ func ensureSnaplessTokenForDeviceTx(c *gin.Context, tx *gorm.DB, app *model.Conn
 		AppVersion:        device.AppVersion,
 	}, now)
 	if err != nil {
+		return snaplessTokenResponse{}, 0, err
+	}
+	if err := model.RecordConnectedAppTokenAttribution(tx, *binding, now); err != nil {
 		return snaplessTokenResponse{}, 0, err
 	}
 	response := buildSnaplessTokenResponse(c, app, grant, binding, token, aliases, device, key, true, rotate && existingBinding != nil)

@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -883,6 +884,16 @@ func TestConnectedAppDeveloperSelfService(t *testing.T) {
 	require.NoError(t, model.DB.First(&previousToken, firstKey.Token.ID).Error)
 	require.Equal(t, common.TokenStatusDisabled, previousToken.Status)
 
+	var currentBinding model.ConnectedAppTokenBinding
+	require.NoError(t, model.DB.Where("app_id = ? AND user_id = ? AND device_fingerprint = ?", approved.App.ID, connectedAppRouterDeveloperUserId, rotatedKey.Device.Fingerprint).First(&currentBinding).Error)
+	require.Equal(t, rotatedKey.Token.ID, currentBinding.TokenId)
+
+	var attributionCount int64
+	require.NoError(t, model.DB.Model(&model.ConnectedAppTokenAttribution{}).
+		Where("app_id = ? AND token_id IN ?", approved.App.ID, []int{firstKey.Token.ID, rotatedKey.Token.ID}).
+		Count(&attributionCount).Error)
+	require.EqualValues(t, 2, attributionCount)
+
 	var auditCount int64
 	require.NoError(t, model.DB.Model(&model.ConnectedAppAuditLog{}).
 		Where("target_type = ? AND target_id = ? AND action IN ?", "connected_app", approved.App.ID, []string{"connected_app_developer.key_create", "connected_app_developer.key_rotate"}).
@@ -890,6 +901,17 @@ func TestConnectedAppDeveloperSelfService(t *testing.T) {
 	require.EqualValues(t, 2, auditCount)
 
 	require.NoError(t, model.LOG_DB.Create(&[]model.Log{
+		{
+			UserId:           connectedAppRouterDeveloperUserId,
+			CreatedAt:        950,
+			Type:             model.LogTypeConsume,
+			TokenId:          firstKey.Token.ID,
+			TokenName:        "Developer CI",
+			ModelName:        "gpt-4o-mini",
+			Quota:            5,
+			PromptTokens:     2,
+			CompletionTokens: 1,
+		},
 		{
 			UserId:           connectedAppRouterDeveloperUserId,
 			CreatedAt:        1000,
@@ -944,23 +966,54 @@ func TestConnectedAppDeveloperSelfService(t *testing.T) {
 		"",
 		developerCookies,
 	))
-	require.Equal(t, 1, usage.TokenCount)
-	require.EqualValues(t, 2, usage.Total.RequestCount)
-	require.EqualValues(t, 24, usage.Total.Quota)
-	require.EqualValues(t, 10, usage.Total.PromptTokens)
-	require.EqualValues(t, 7, usage.Total.CompletionTokens)
-	require.Len(t, usage.ByToken, 1)
-	require.Equal(t, rotatedKey.Token.ID, usage.ByToken[0].TokenID)
-	require.Equal(t, model.ConnectedAppTokenBindingStatusActive, usage.ByToken[0].Status)
-	require.Equal(t, "Developer CI", usage.ByToken[0].Device.DeviceName)
-	require.EqualValues(t, 24, usage.ByToken[0].Quota)
+	require.Equal(t, 2, usage.TokenCount)
+	require.EqualValues(t, 3, usage.Total.RequestCount)
+	require.EqualValues(t, 29, usage.Total.Quota)
+	require.EqualValues(t, 12, usage.Total.PromptTokens)
+	require.EqualValues(t, 8, usage.Total.CompletionTokens)
+	require.Len(t, usage.ByToken, 2)
+
+	tokenUsage := map[int]struct {
+		status     string
+		deviceName string
+		quota      int64
+	}{}
+	for _, item := range usage.ByToken {
+		tokenUsage[item.TokenID] = struct {
+			status     string
+			deviceName string
+			quota      int64
+		}{
+			status:     item.Status,
+			deviceName: item.Device.DeviceName,
+			quota:      item.Quota,
+		}
+	}
+	require.Equal(t, "historical", tokenUsage[firstKey.Token.ID].status)
+	require.Equal(t, "Developer CI", tokenUsage[firstKey.Token.ID].deviceName)
+	require.EqualValues(t, 5, tokenUsage[firstKey.Token.ID].quota)
+	require.Equal(t, model.ConnectedAppTokenBindingStatusActive, tokenUsage[rotatedKey.Token.ID].status)
+	require.Equal(t, "Developer CI", tokenUsage[rotatedKey.Token.ID].deviceName)
+	require.EqualValues(t, 24, tokenUsage[rotatedKey.Token.ID].quota)
 
 	modelQuota := map[string]int64{}
 	for _, item := range usage.ByModel {
 		modelQuota[item.ModelName] = item.Quota
 	}
-	require.EqualValues(t, 11, modelQuota["gpt-4o-mini"])
+	require.EqualValues(t, 16, modelQuota["gpt-4o-mini"])
 	require.EqualValues(t, 13, modelQuota["gpt-4o"])
+
+	previousTokenUsage := decodeConnectedAppData[connectedAppDeveloperUsageData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/connected-apps/sdk-addon/developer/usage?token_id=%d", firstKey.Token.ID),
+		"",
+		developerCookies,
+	))
+	require.Equal(t, 1, previousTokenUsage.TokenCount)
+	require.EqualValues(t, 1, previousTokenUsage.Total.RequestCount)
+	require.EqualValues(t, 5, previousTokenUsage.Total.Quota)
 
 	emptyUsage := decodeConnectedAppData[connectedAppDeveloperUsageData](t, requestConnectedAppDeveloper(
 		t,

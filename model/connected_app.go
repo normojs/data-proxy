@@ -98,6 +98,25 @@ func (ConnectedAppTokenBinding) TableName() string {
 	return "connected_app_token_bindings"
 }
 
+type ConnectedAppTokenAttribution struct {
+	Id                int64  `json:"id" gorm:"primaryKey"`
+	AppId             int    `json:"app_id" gorm:"not null;index"`
+	GrantId           int64  `json:"grant_id" gorm:"not null;index"`
+	BindingId         int64  `json:"binding_id" gorm:"not null;index"`
+	UserId            int    `json:"user_id" gorm:"not null;index"`
+	TokenId           int    `json:"token_id" gorm:"not null;uniqueIndex"`
+	DeviceFingerprint string `json:"device_fingerprint" gorm:"type:varchar(128);not null;index"`
+	DeviceName        string `json:"device_name" gorm:"type:varchar(128);not null;default:''"`
+	Platform          string `json:"platform" gorm:"type:varchar(32);not null;default:'';index"`
+	AppVersion        string `json:"app_version" gorm:"type:varchar(64);not null;default:'';index"`
+	CreatedAt         int64  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt         int64  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (ConnectedAppTokenAttribution) TableName() string {
+	return "connected_app_token_attributions"
+}
+
 type ConnectedAppDeviceSession struct {
 	Id                int64  `json:"id" gorm:"primaryKey"`
 	AppId             int    `json:"app_id" gorm:"not null;index"`
@@ -380,6 +399,41 @@ func UpsertConnectedAppTokenBinding(tx *gorm.DB, binding ConnectedAppTokenBindin
 		return nil, err
 	}
 	return &stored, nil
+}
+
+func RecordConnectedAppTokenAttribution(tx *gorm.DB, binding ConnectedAppTokenBinding, now int64) error {
+	if tx == nil {
+		tx = DB
+	}
+	if binding.AppId <= 0 || binding.GrantId <= 0 || binding.Id <= 0 || binding.UserId <= 0 || binding.TokenId <= 0 || binding.DeviceFingerprint == "" {
+		return errors.New("app, grant, binding, user, token and device fingerprint are required")
+	}
+	attribution := ConnectedAppTokenAttribution{
+		AppId:             binding.AppId,
+		GrantId:           binding.GrantId,
+		BindingId:         binding.Id,
+		UserId:            binding.UserId,
+		TokenId:           binding.TokenId,
+		DeviceFingerprint: binding.DeviceFingerprint,
+		DeviceName:        binding.DeviceName,
+		Platform:          binding.Platform,
+		AppVersion:        binding.AppVersion,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "token_id"}},
+		DoNothing: true,
+	}).Create(&attribution).Error
+}
+
+func ListConnectedAppTokenAttributionsByApp(appId int) ([]ConnectedAppTokenAttribution, error) {
+	var attributions []ConnectedAppTokenAttribution
+	err := DB.Where("app_id = ?", appId).
+		Order("created_at asc").
+		Order("id asc").
+		Find(&attributions).Error
+	return attributions, err
 }
 
 func CountActiveConnectedAppTokenBindings(tx *gorm.DB, appId int, userId int) (int64, error) {

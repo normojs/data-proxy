@@ -120,6 +120,13 @@ type connectedAppDeveloperTokenUsage struct {
 	CompletionTokens int64              `json:"completion_tokens"`
 }
 
+type connectedAppDeveloperUsageTokenMeta struct {
+	TokenID int
+	UserID  int
+	Status  string
+	Device  snaplessDeviceInfo
+}
+
 type connectedAppDeveloperSessionResponse struct {
 	ID           int64              `json:"id"`
 	Status       string             `json:"status"`
@@ -935,12 +942,12 @@ func connectedAppDeveloperUsage(app *model.ConnectedApp, filters connectedAppDev
 	if model.LOG_DB == nil {
 		return connectedAppDeveloperUsageResponse{}, errors.New("log database is not initialized")
 	}
-	tokenIDs, bindingsByTokenID, err := connectedAppDeveloperUsageTokenBindings(app.Id)
+	tokenIDs, tokensByID, err := connectedAppDeveloperUsageTokens(app.Id)
 	if err != nil {
 		return connectedAppDeveloperUsageResponse{}, err
 	}
 	if filters.TokenID > 0 {
-		if _, ok := bindingsByTokenID[filters.TokenID]; !ok {
+		if _, ok := tokensByID[filters.TokenID]; !ok {
 			return emptyConnectedAppDeveloperUsage(app, filters, 0), nil
 		}
 		tokenIDs = []int{filters.TokenID}
@@ -948,7 +955,7 @@ func connectedAppDeveloperUsage(app *model.ConnectedApp, filters connectedAppDev
 	if filters.UserID > 0 {
 		filtered := make([]int, 0, len(tokenIDs))
 		for _, tokenID := range tokenIDs {
-			if binding, ok := bindingsByTokenID[tokenID]; ok && binding.UserId == filters.UserID {
+			if token, ok := tokensByID[tokenID]; ok && token.UserID == filters.UserID {
 				filtered = append(filtered, tokenID)
 			}
 		}
@@ -990,16 +997,16 @@ func connectedAppDeveloperUsage(app *model.ConnectedApp, filters connectedAppDev
 	}
 	response.ByToken = make([]connectedAppDeveloperTokenUsage, 0, len(tokenRows))
 	for _, row := range tokenRows {
-		binding, ok := bindingsByTokenID[row.TokenID]
+		token, ok := tokensByID[row.TokenID]
 		if !ok {
 			continue
 		}
 		response.ByToken = append(response.ByToken, connectedAppDeveloperTokenUsage{
 			TokenID:          row.TokenID,
 			TokenName:        row.TokenName,
-			UserID:           row.UserID,
-			Status:           binding.Status,
-			Device:           snaplessDeviceInfoFromBinding(&binding),
+			UserID:           token.UserID,
+			Status:           token.Status,
+			Device:           token.Device,
 			RequestCount:     row.RequestCount,
 			Quota:            row.Quota,
 			PromptTokens:     row.PromptTokens,
@@ -1009,24 +1016,61 @@ func connectedAppDeveloperUsage(app *model.ConnectedApp, filters connectedAppDev
 	return response, nil
 }
 
-func connectedAppDeveloperUsageTokenBindings(appID int) ([]int, map[int]model.ConnectedAppTokenBinding, error) {
+func connectedAppDeveloperUsageTokens(appID int) ([]int, map[int]connectedAppDeveloperUsageTokenMeta, error) {
 	var bindings []model.ConnectedAppTokenBinding
 	if err := model.DB.Where("app_id = ?", appID).Find(&bindings).Error; err != nil {
 		return nil, nil, err
 	}
-	tokenIDs := make([]int, 0, len(bindings))
-	bindingsByTokenID := make(map[int]model.ConnectedAppTokenBinding, len(bindings))
-	for _, binding := range bindings {
-		if binding.TokenId <= 0 {
-			continue
-		}
-		if _, ok := bindingsByTokenID[binding.TokenId]; ok {
-			continue
-		}
-		tokenIDs = append(tokenIDs, binding.TokenId)
-		bindingsByTokenID[binding.TokenId] = binding
+	attributions, err := model.ListConnectedAppTokenAttributionsByApp(appID)
+	if err != nil {
+		return nil, nil, err
 	}
-	return tokenIDs, bindingsByTokenID, nil
+
+	tokenIDs := make([]int, 0, len(attributions)+len(bindings))
+	tokensByID := make(map[int]connectedAppDeveloperUsageTokenMeta, len(attributions)+len(bindings))
+	bindingsByID := make(map[int64]model.ConnectedAppTokenBinding, len(bindings))
+	for _, binding := range bindings {
+		bindingsByID[binding.Id] = binding
+	}
+
+	addToken := func(token connectedAppDeveloperUsageTokenMeta) {
+		if token.TokenID <= 0 {
+			return
+		}
+		if _, ok := tokensByID[token.TokenID]; ok {
+			return
+		}
+		tokenIDs = append(tokenIDs, token.TokenID)
+		tokensByID[token.TokenID] = token
+	}
+
+	for _, attribution := range attributions {
+		status := "historical"
+		if binding, ok := bindingsByID[attribution.BindingId]; ok && binding.TokenId == attribution.TokenId {
+			status = binding.Status
+		}
+		addToken(connectedAppDeveloperUsageTokenMeta{
+			TokenID: attribution.TokenId,
+			UserID:  attribution.UserId,
+			Status:  status,
+			Device: snaplessDeviceInfo{
+				Fingerprint: attribution.DeviceFingerprint,
+				DeviceName:  attribution.DeviceName,
+				Platform:    attribution.Platform,
+				AppVersion:  attribution.AppVersion,
+			},
+		})
+	}
+
+	for _, binding := range bindings {
+		addToken(connectedAppDeveloperUsageTokenMeta{
+			TokenID: binding.TokenId,
+			UserID:  binding.UserId,
+			Status:  binding.Status,
+			Device:  snaplessDeviceInfoFromBinding(&binding),
+		})
+	}
+	return tokenIDs, tokensByID, nil
 }
 
 func emptyConnectedAppDeveloperUsage(app *model.ConnectedApp, filters connectedAppDeveloperUsageFilters, tokenCount int) connectedAppDeveloperUsageResponse {
@@ -1307,6 +1351,9 @@ func ensureConnectedAppTokenForDeviceTx(c *gin.Context, tx *gorm.DB, app *model.
 	}
 
 	if existingBinding != nil {
+		if err := model.RecordConnectedAppTokenAttribution(tx, *existingBinding, now); err != nil {
+			return connectedAppTokenResponse{}, 0, err
+		}
 		if err := model.DisableTokenWithTx(tx, existingBinding.TokenId, userID); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return connectedAppTokenResponse{}, 0, err
 		}
@@ -1326,6 +1373,9 @@ func ensureConnectedAppTokenForDeviceTx(c *gin.Context, tx *gorm.DB, app *model.
 		AppVersion:        device.AppVersion,
 	}, now)
 	if err != nil {
+		return connectedAppTokenResponse{}, 0, err
+	}
+	if err := model.RecordConnectedAppTokenAttribution(tx, *binding, now); err != nil {
 		return connectedAppTokenResponse{}, 0, err
 	}
 	return buildConnectedAppTokenResponse(c, app, grant, binding, token, device, key, true, rotate && existingBinding != nil), token.Id, nil
