@@ -160,6 +160,20 @@ Device Code Flow：
 - `GET /api/connected-apps/:slug/developer/device-sessions`
   - 登录接口。
   - 分页返回该 app 的 device sessions，支持 `status=pending|authorized|consumed|expired|denied` 过滤。
+- `GET /api/connected-apps/:slug/developer/sdk-config`
+  - 登录接口。
+  - 返回 OpenAI-compatible `base_url`、SDK 环境变量约定、按 scope 映射的 `api_endpoints`、device flow 端点、自助 developer endpoints 和 `can_create_key/can_read_usage` 权限提示。
+- `GET /api/connected-apps/:slug/developer/openapi`
+  - 登录接口。
+  - 返回按当前 app allowed scopes 裁剪的最小 OpenAPI 3.0 JSON；当前覆盖 `/v1/models`、`/v1/chat/completions`、`/v1/audio/transcriptions` 和 `/api/usage/token`。
+- `POST /api/connected-apps/:slug/developer/keys`
+  - 登录接口，需 app allowed scopes 包含 `token.manage`。
+  - 为当前登录开发者自己的账号创建或复用一个 app-bound native token；请求体可传 `device_id/device_name/platform/app_version/client` 和 `rotate=true`。
+  - 首次创建或轮换时才返回一次性 `api_key`；复用已有 active token 时只返回 token 摘要，不回显明文 key。
+  - 创建和轮换会写入 connected app audit，便于管理员追踪。
+- `GET /api/connected-apps/:slug/developer/usage`
+  - 登录接口，需 app allowed scopes 包含 `quota.read`。
+  - 聚合当前 app 绑定 token 的 `logs` 消耗记录，支持 `start_time`、`end_time`、`token_id`、`user_id`、`model_name` 过滤，并返回 total、by_model 和 by_token。
 
 通用 device code flow：
 
@@ -191,6 +205,14 @@ Scope 到 endpoint 的当前映射：
 - `openai.chat` -> `/v1/chat/completions`
 - `openai.audio.transcriptions` -> `/v1/audio/transcriptions`
 - `quota.read` -> `/api/usage/token`
+- `token.manage` -> developer self-service key creation only; 不开放给 relay 路由。
+
+`SNAPLESS-013` 增加的应用级自助能力保持受控范围：
+
+- 只有系统管理员或该 app 的已批准申请人可以访问 developer self-service。
+- `POST /developer/keys` 只能给当前登录用户创建该 app 的绑定 token，不能代其他用户创建 key。
+- `GET /developer/usage` 只按该 app 当前 token binding 的 `token_id` 聚合日志；不包含普通 token 或其他 connected app token。
+- 当前 usage MVP 不追溯已经被轮换覆盖的旧 token 绑定历史；如果需要全量历史，需要新增不可变 token/app attribution 表或日志字段。
 
 ## 邮件/Webhook 通知扩展
 
@@ -471,4 +493,5 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 应用级自助能力：评估是否允许获批 connected app 在受控范围内自助创建 key、查看自身 API 使用统计和拉取 OpenAPI/SDK 配置。
+1. Token/app 历史归属增强：为 connected app token 增加不可变 attribution 历史或在 consume log 中固化 app/binding ID，使 developer usage 可以跨轮换统计完整历史。
+2. 前端自助入口：在 Profile 开发者卡片中展示 SDK/OpenAPI、自助 key 创建/轮换和 usage summary。

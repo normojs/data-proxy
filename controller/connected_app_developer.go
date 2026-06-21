@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -13,6 +14,14 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	connectedAppScopeOpenAIModels              = "openai.models"
+	connectedAppScopeOpenAIChat                = "openai.chat"
+	connectedAppScopeOpenAIAudioTranscriptions = "openai.audio.transcriptions"
+	connectedAppScopeQuotaRead                 = "quota.read"
+	connectedAppScopeTokenManage               = "token.manage"
+)
+
 type connectedAppDeveloperConfigResponse struct {
 	App          snaplessAppResponse `json:"app"`
 	Owner        bool                `json:"owner"`
@@ -20,6 +29,32 @@ type connectedAppDeveloperConfigResponse struct {
 	APIEndpoints map[string]string   `json:"api_endpoints"`
 	DeviceFlow   map[string]string   `json:"device_flow"`
 	Scopes       []string            `json:"scopes"`
+}
+
+type connectedAppDeveloperSDKConfigResponse struct {
+	App                snaplessAppResponse                 `json:"app"`
+	Owner              bool                                `json:"owner"`
+	BaseURL            string                              `json:"base_url"`
+	APIEndpoints       map[string]string                   `json:"api_endpoints"`
+	DeviceFlow         map[string]string                   `json:"device_flow"`
+	DeveloperEndpoints map[string]string                   `json:"developer_endpoints"`
+	Scopes             []string                            `json:"scopes"`
+	Permissions        connectedAppDeveloperPermissions    `json:"permissions"`
+	OpenAPIURL         string                              `json:"openapi_url"`
+	SDK                connectedAppDeveloperSDKInstruction `json:"sdk"`
+}
+
+type connectedAppDeveloperPermissions struct {
+	CanCreateKey bool `json:"can_create_key"`
+	CanReadUsage bool `json:"can_read_usage"`
+}
+
+type connectedAppDeveloperSDKInstruction struct {
+	OpenAICompatible bool   `json:"openai_compatible"`
+	BaseURL          string `json:"base_url"`
+	APIKeyEnv        string `json:"api_key_env"`
+	APIKeyPrefix     string `json:"api_key_prefix"`
+	Authorization    string `json:"authorization"`
 }
 
 type connectedAppDeveloperAuthorizationResponse struct {
@@ -37,6 +72,52 @@ type connectedAppDeveloperDevice struct {
 	RevokedAt  int64                `json:"revoked_at,omitempty"`
 	CreatedAt  int64                `json:"created_at,omitempty"`
 	UpdatedAt  int64                `json:"updated_at,omitempty"`
+}
+
+type connectedAppDeveloperKeyRequest struct {
+	DeviceID   string `json:"device_id"`
+	DeviceName string `json:"device_name"`
+	Platform   string `json:"platform"`
+	AppVersion string `json:"app_version"`
+	Client     string `json:"client"`
+	Rotate     bool   `json:"rotate"`
+}
+
+type connectedAppDeveloperUsageResponse struct {
+	App        snaplessAppResponse               `json:"app"`
+	StartTime  int64                             `json:"start_time"`
+	EndTime    int64                             `json:"end_time"`
+	TokenCount int                               `json:"token_count"`
+	Total      connectedAppUsageTotals           `json:"total"`
+	ByModel    []connectedAppUsageByModel        `json:"by_model"`
+	ByToken    []connectedAppDeveloperTokenUsage `json:"by_token"`
+}
+
+type connectedAppUsageTotals struct {
+	RequestCount     int64 `json:"request_count"`
+	Quota            int64 `json:"quota"`
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+}
+
+type connectedAppUsageByModel struct {
+	ModelName        string `json:"model_name"`
+	RequestCount     int64  `json:"request_count"`
+	Quota            int64  `json:"quota"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+}
+
+type connectedAppDeveloperTokenUsage struct {
+	TokenID          int                `json:"token_id"`
+	TokenName        string             `json:"token_name"`
+	UserID           int                `json:"user_id"`
+	Status           string             `json:"status"`
+	Device           snaplessDeviceInfo `json:"device"`
+	RequestCount     int64              `json:"request_count"`
+	Quota            int64              `json:"quota"`
+	PromptTokens     int64              `json:"prompt_tokens"`
+	CompletionTokens int64              `json:"completion_tokens"`
 }
 
 type connectedAppDeveloperSessionResponse struct {
@@ -83,6 +164,132 @@ func GetConnectedAppDeveloperConfig(c *gin.Context) {
 		DeviceFlow:   connectedAppDeviceFlowEndpoints(c, app),
 		Scopes:       app.ScopeList(),
 	})
+}
+
+func GetConnectedAppDeveloperSDKConfig(c *gin.Context) {
+	app, owner, err := connectedAppForDeveloper(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	developerEndpoints := connectedAppDeveloperEndpoints(c, app)
+	common.ApiSuccess(c, connectedAppDeveloperSDKConfigResponse{
+		App:                buildSnaplessAppResponse(app),
+		Owner:              owner,
+		BaseURL:            snaplessAPIBaseURL(c),
+		APIEndpoints:       connectedAppAPIEndpoints(c, app),
+		DeviceFlow:         connectedAppDeviceFlowEndpoints(c, app),
+		DeveloperEndpoints: developerEndpoints,
+		Scopes:             app.ScopeList(),
+		Permissions:        connectedAppDeveloperScopePermissions(app),
+		OpenAPIURL:         developerEndpoints["openapi"],
+		SDK: connectedAppDeveloperSDKInstruction{
+			OpenAICompatible: true,
+			BaseURL:          snaplessAPIBaseURL(c),
+			APIKeyEnv:        "OPENAI_API_KEY",
+			APIKeyPrefix:     "sk-",
+			Authorization:    "Bearer sk-<api_key>",
+		},
+	})
+}
+
+func GetConnectedAppDeveloperOpenAPI(c *gin.Context) {
+	app, _, err := connectedAppForDeveloper(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, connectedAppDeveloperOpenAPISpec(c, app))
+}
+
+func CreateConnectedAppDeveloperKey(c *gin.Context) {
+	app, _, err := connectedAppForDeveloper(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !connectedAppHasAllowedScope(app, connectedAppScopeTokenManage) {
+		common.ApiError(c, errors.New("connected app requires token.manage scope to create developer keys"))
+		return
+	}
+	req, err := bindConnectedAppDeveloperKeyRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	userID := c.GetInt("id")
+	device := connectedAppDeveloperKeyDevice(c, app, userID, req)
+	var response connectedAppTokenResponse
+	var tokenID int
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		var txErr error
+		response, tokenID, txErr = ensureConnectedAppTokenForDeviceTx(c, tx, app, userID, device, req.Rotate)
+		return txErr
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if response.Created || response.Rotated {
+		action := "connected_app_developer.key_create"
+		if response.Rotated {
+			action = "connected_app_developer.key_rotate"
+		}
+		recordConnectedAppAuditBestEffort(c, action, "connected_app", app.Id, nil, gin.H{
+			"token_id":           tokenID,
+			"device_fingerprint": device.Fingerprint,
+			"device_name":        device.DeviceName,
+			"rotated":            response.Rotated,
+			"api_key_once":       response.APIKeyOnce,
+		})
+	}
+	common.ApiSuccess(c, response)
+}
+
+func GetConnectedAppDeveloperUsage(c *gin.Context) {
+	app, _, err := connectedAppForDeveloper(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !connectedAppHasAllowedScope(app, connectedAppScopeQuotaRead) {
+		common.ApiError(c, errors.New("connected app requires quota.read scope to read usage"))
+		return
+	}
+	startTime, err := parseOptionalInt64Query(c, "start_time")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	endTime, err := parseOptionalInt64Query(c, "end_time")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	tokenID, err := parseOptionalIntQuery(c, "token_id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userID, err := parseOptionalIntQuery(c, "user_id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	response, err := connectedAppDeveloperUsage(app, connectedAppDeveloperUsageFilters{
+		StartTime: startTime,
+		EndTime:   endTime,
+		TokenID:   tokenID,
+		UserID:    userID,
+		ModelName: strings.TrimSpace(c.Query("model_name")),
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, response)
 }
 
 func ListConnectedAppDeveloperAuthorizations(c *gin.Context) {
@@ -543,6 +750,312 @@ func PollConnectedAppDeviceFlow(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, response)
+}
+
+type connectedAppDeveloperUsageFilters struct {
+	StartTime int64
+	EndTime   int64
+	TokenID   int
+	UserID    int
+	ModelName string
+}
+
+func bindConnectedAppDeveloperKeyRequest(c *gin.Context) (connectedAppDeveloperKeyRequest, error) {
+	var req connectedAppDeveloperKeyRequest
+	if c.Request.ContentLength != 0 && c.Request.Body != nil {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			return req, err
+		}
+	}
+	return req, nil
+}
+
+func connectedAppDeveloperKeyDevice(c *gin.Context, app *model.ConnectedApp, userID int, req connectedAppDeveloperKeyRequest) snaplessDeviceInfo {
+	if strings.TrimSpace(req.DeviceID) == "" {
+		req.DeviceID = "developer:user"
+		if userID > 0 {
+			req.DeviceID = "developer:user:" + strconv.Itoa(userID)
+		}
+	}
+	if strings.TrimSpace(req.DeviceName) == "" {
+		req.DeviceName = "Developer self-service"
+	}
+	if strings.TrimSpace(req.Platform) == "" {
+		req.Platform = "server"
+	}
+	if strings.TrimSpace(req.Client) == "" && app != nil {
+		req.Client = app.Slug + "-developer"
+	}
+	return connectedAppDeviceFromRequest(c, app, snaplessDeviceRequest{
+		DeviceID:   req.DeviceID,
+		DeviceName: req.DeviceName,
+		Platform:   req.Platform,
+		AppVersion: req.AppVersion,
+		Client:     req.Client,
+	})
+}
+
+func connectedAppDeveloperScopePermissions(app *model.ConnectedApp) connectedAppDeveloperPermissions {
+	return connectedAppDeveloperPermissions{
+		CanCreateKey: connectedAppHasAllowedScope(app, connectedAppScopeTokenManage),
+		CanReadUsage: connectedAppHasAllowedScope(app, connectedAppScopeQuotaRead),
+	}
+}
+
+func connectedAppDeveloperEndpoints(c *gin.Context, app *model.ConnectedApp) map[string]string {
+	if app == nil {
+		return map[string]string{}
+	}
+	base := snaplessServerBaseURL(c) + "/api/connected-apps/" + url.PathEscape(app.Slug) + "/developer"
+	return map[string]string{
+		"keys":       base + "/keys",
+		"openapi":    base + "/openapi",
+		"sdk_config": base + "/sdk-config",
+		"usage":      base + "/usage",
+	}
+}
+
+func connectedAppHasAllowedScope(app *model.ConnectedApp, scope string) bool {
+	if app == nil || strings.TrimSpace(scope) == "" {
+		return false
+	}
+	for _, item := range app.ScopeList() {
+		if item == scope {
+			return true
+		}
+	}
+	return false
+}
+
+func connectedAppDeveloperOpenAPISpec(c *gin.Context, app *model.ConnectedApp) gin.H {
+	paths := gin.H{}
+	if connectedAppHasAllowedScope(app, connectedAppScopeOpenAIModels) {
+		paths["/v1/models"] = gin.H{
+			"get": connectedAppOpenAPIOperation("List models", []string{connectedAppScopeOpenAIModels}, nil),
+		}
+		paths["/v1/models/{model}"] = gin.H{
+			"get": connectedAppOpenAPIOperation("Retrieve model", []string{connectedAppScopeOpenAIModels}, nil),
+		}
+	}
+	if connectedAppHasAllowedScope(app, connectedAppScopeOpenAIChat) {
+		paths["/v1/chat/completions"] = gin.H{
+			"post": connectedAppOpenAPIOperation("Create chat completion", []string{connectedAppScopeOpenAIChat}, gin.H{
+				"required": true,
+				"content": gin.H{
+					"application/json": gin.H{
+						"schema": gin.H{
+							"type":     "object",
+							"required": []string{"model", "messages"},
+							"properties": gin.H{
+								"model": gin.H{"type": "string"},
+								"messages": gin.H{
+									"type":  "array",
+									"items": gin.H{"type": "object"},
+								},
+								"stream": gin.H{"type": "boolean"},
+							},
+						},
+					},
+				},
+			}),
+		}
+	}
+	if connectedAppHasAllowedScope(app, connectedAppScopeOpenAIAudioTranscriptions) {
+		paths["/v1/audio/transcriptions"] = gin.H{
+			"post": connectedAppOpenAPIOperation("Create audio transcription", []string{connectedAppScopeOpenAIAudioTranscriptions}, gin.H{
+				"required": true,
+				"content": gin.H{
+					"multipart/form-data": gin.H{
+						"schema": gin.H{
+							"type":     "object",
+							"required": []string{"file", "model"},
+							"properties": gin.H{
+								"file":  gin.H{"type": "string", "format": "binary"},
+								"model": gin.H{"type": "string"},
+							},
+						},
+					},
+				},
+			}),
+		}
+	}
+	if connectedAppHasAllowedScope(app, connectedAppScopeQuotaRead) {
+		paths["/api/usage/token"] = gin.H{
+			"get": connectedAppOpenAPIOperation("Read current token usage", []string{connectedAppScopeQuotaRead}, nil),
+		}
+	}
+
+	title := "Connected App Data Proxy API"
+	if app != nil && strings.TrimSpace(app.Name) != "" {
+		title = app.Name + " Data Proxy API"
+	}
+	return gin.H{
+		"openapi": "3.0.3",
+		"info": gin.H{
+			"title":   title,
+			"version": "1.0.0",
+		},
+		"servers": []gin.H{
+			{"url": snaplessServerBaseURL(c)},
+		},
+		"security": []gin.H{
+			{"bearerAuth": []string{}},
+		},
+		"paths": paths,
+		"components": gin.H{
+			"securitySchemes": gin.H{
+				"bearerAuth": gin.H{
+					"type":         "http",
+					"scheme":       "bearer",
+					"bearerFormat": "API key",
+				},
+			},
+		},
+	}
+}
+
+func connectedAppOpenAPIOperation(summary string, scopes []string, requestBody gin.H) gin.H {
+	operation := gin.H{
+		"summary":                summary,
+		"x-connected-app-scopes": scopes,
+		"security": []gin.H{
+			{"bearerAuth": []string{}},
+		},
+		"responses": gin.H{
+			"200": gin.H{"description": "OK"},
+		},
+	}
+	if requestBody != nil {
+		operation["requestBody"] = requestBody
+	}
+	return operation
+}
+
+func connectedAppDeveloperUsage(app *model.ConnectedApp, filters connectedAppDeveloperUsageFilters) (connectedAppDeveloperUsageResponse, error) {
+	if model.LOG_DB == nil {
+		return connectedAppDeveloperUsageResponse{}, errors.New("log database is not initialized")
+	}
+	tokenIDs, bindingsByTokenID, err := connectedAppDeveloperUsageTokenBindings(app.Id)
+	if err != nil {
+		return connectedAppDeveloperUsageResponse{}, err
+	}
+	if filters.TokenID > 0 {
+		if _, ok := bindingsByTokenID[filters.TokenID]; !ok {
+			return emptyConnectedAppDeveloperUsage(app, filters, 0), nil
+		}
+		tokenIDs = []int{filters.TokenID}
+	}
+	if filters.UserID > 0 {
+		filtered := make([]int, 0, len(tokenIDs))
+		for _, tokenID := range tokenIDs {
+			if binding, ok := bindingsByTokenID[tokenID]; ok && binding.UserId == filters.UserID {
+				filtered = append(filtered, tokenID)
+			}
+		}
+		tokenIDs = filtered
+	}
+	if len(tokenIDs) == 0 {
+		return emptyConnectedAppDeveloperUsage(app, filters, 0), nil
+	}
+
+	response := emptyConnectedAppDeveloperUsage(app, filters, len(tokenIDs))
+	if err := connectedAppDeveloperUsageLogQuery(filters, tokenIDs).
+		Select("COUNT(*) AS request_count, COALESCE(SUM(quota), 0) AS quota, COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(completion_tokens), 0) AS completion_tokens").
+		Scan(&response.Total).Error; err != nil {
+		return connectedAppDeveloperUsageResponse{}, err
+	}
+	if err := connectedAppDeveloperUsageLogQuery(filters, tokenIDs).
+		Select("model_name, COUNT(*) AS request_count, COALESCE(SUM(quota), 0) AS quota, COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(completion_tokens), 0) AS completion_tokens").
+		Group("model_name").
+		Order("quota DESC").
+		Scan(&response.ByModel).Error; err != nil {
+		return connectedAppDeveloperUsageResponse{}, err
+	}
+
+	var tokenRows []struct {
+		TokenID          int    `gorm:"column:token_id"`
+		TokenName        string `gorm:"column:token_name"`
+		UserID           int    `gorm:"column:user_id"`
+		RequestCount     int64  `gorm:"column:request_count"`
+		Quota            int64  `gorm:"column:quota"`
+		PromptTokens     int64  `gorm:"column:prompt_tokens"`
+		CompletionTokens int64  `gorm:"column:completion_tokens"`
+	}
+	if err := connectedAppDeveloperUsageLogQuery(filters, tokenIDs).
+		Select("token_id, MAX(token_name) AS token_name, MAX(user_id) AS user_id, COUNT(*) AS request_count, COALESCE(SUM(quota), 0) AS quota, COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(completion_tokens), 0) AS completion_tokens").
+		Group("token_id").
+		Order("quota DESC").
+		Scan(&tokenRows).Error; err != nil {
+		return connectedAppDeveloperUsageResponse{}, err
+	}
+	response.ByToken = make([]connectedAppDeveloperTokenUsage, 0, len(tokenRows))
+	for _, row := range tokenRows {
+		binding, ok := bindingsByTokenID[row.TokenID]
+		if !ok {
+			continue
+		}
+		response.ByToken = append(response.ByToken, connectedAppDeveloperTokenUsage{
+			TokenID:          row.TokenID,
+			TokenName:        row.TokenName,
+			UserID:           row.UserID,
+			Status:           binding.Status,
+			Device:           snaplessDeviceInfoFromBinding(&binding),
+			RequestCount:     row.RequestCount,
+			Quota:            row.Quota,
+			PromptTokens:     row.PromptTokens,
+			CompletionTokens: row.CompletionTokens,
+		})
+	}
+	return response, nil
+}
+
+func connectedAppDeveloperUsageTokenBindings(appID int) ([]int, map[int]model.ConnectedAppTokenBinding, error) {
+	var bindings []model.ConnectedAppTokenBinding
+	if err := model.DB.Where("app_id = ?", appID).Find(&bindings).Error; err != nil {
+		return nil, nil, err
+	}
+	tokenIDs := make([]int, 0, len(bindings))
+	bindingsByTokenID := make(map[int]model.ConnectedAppTokenBinding, len(bindings))
+	for _, binding := range bindings {
+		if binding.TokenId <= 0 {
+			continue
+		}
+		if _, ok := bindingsByTokenID[binding.TokenId]; ok {
+			continue
+		}
+		tokenIDs = append(tokenIDs, binding.TokenId)
+		bindingsByTokenID[binding.TokenId] = binding
+	}
+	return tokenIDs, bindingsByTokenID, nil
+}
+
+func emptyConnectedAppDeveloperUsage(app *model.ConnectedApp, filters connectedAppDeveloperUsageFilters, tokenCount int) connectedAppDeveloperUsageResponse {
+	return connectedAppDeveloperUsageResponse{
+		App:        buildSnaplessAppResponse(app),
+		StartTime:  filters.StartTime,
+		EndTime:    filters.EndTime,
+		TokenCount: tokenCount,
+		ByModel:    []connectedAppUsageByModel{},
+		ByToken:    []connectedAppDeveloperTokenUsage{},
+	}
+}
+
+func connectedAppDeveloperUsageLogQuery(filters connectedAppDeveloperUsageFilters, tokenIDs []int) *gorm.DB {
+	query := model.LOG_DB.Model(&model.Log{}).
+		Where("type = ? AND token_id IN ?", model.LogTypeConsume, tokenIDs)
+	if filters.StartTime > 0 {
+		query = query.Where("created_at >= ?", filters.StartTime)
+	}
+	if filters.EndTime > 0 {
+		query = query.Where("created_at <= ?", filters.EndTime)
+	}
+	if filters.UserID > 0 {
+		query = query.Where("user_id = ?", filters.UserID)
+	}
+	if filters.ModelName != "" {
+		query = query.Where("model_name = ?", filters.ModelName)
+	}
+	return query
 }
 
 func connectedAppForDeveloper(c *gin.Context) (*model.ConnectedApp, bool, error) {

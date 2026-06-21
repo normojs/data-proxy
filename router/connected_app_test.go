@@ -105,6 +105,51 @@ type connectedAppDeveloperConfigData struct {
 	Scopes       []string          `json:"scopes"`
 }
 
+type connectedAppDeveloperSDKConfigData struct {
+	OpenAPIURL         string            `json:"openapi_url"`
+	Scopes             []string          `json:"scopes"`
+	APIEndpoints       map[string]string `json:"api_endpoints"`
+	DeveloperEndpoints map[string]string `json:"developer_endpoints"`
+	Permissions        struct {
+		CanCreateKey bool `json:"can_create_key"`
+		CanReadUsage bool `json:"can_read_usage"`
+	} `json:"permissions"`
+	SDK struct {
+		OpenAICompatible bool   `json:"openai_compatible"`
+		BaseURL          string `json:"base_url"`
+		APIKeyEnv        string `json:"api_key_env"`
+		Authorization    string `json:"authorization"`
+	} `json:"sdk"`
+}
+
+type connectedAppDeveloperUsageData struct {
+	TokenCount int `json:"token_count"`
+	Total      struct {
+		RequestCount     int64 `json:"request_count"`
+		Quota            int64 `json:"quota"`
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+	} `json:"total"`
+	ByModel []struct {
+		ModelName        string `json:"model_name"`
+		RequestCount     int64  `json:"request_count"`
+		Quota            int64  `json:"quota"`
+		PromptTokens     int64  `json:"prompt_tokens"`
+		CompletionTokens int64  `json:"completion_tokens"`
+	} `json:"by_model"`
+	ByToken []struct {
+		TokenID int    `json:"token_id"`
+		Status  string `json:"status"`
+		Device  struct {
+			DeviceName string `json:"device_name"`
+		} `json:"device"`
+		RequestCount     int64 `json:"request_count"`
+		Quota            int64 `json:"quota"`
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+	} `json:"by_token"`
+}
+
 type connectedAppDeveloperAuthorizationData struct {
 	UserID   int    `json:"user_id"`
 	UserName string `json:"user_name"`
@@ -731,6 +776,204 @@ func TestConnectedAppDeveloperAPIAndDeviceFlow(t *testing.T) {
 		0,
 	))
 	require.Contains(t, untrustedStart, "not trusted")
+}
+
+func TestConnectedAppDeveloperSelfService(t *testing.T) {
+	setupSnaplessRouterTestDB(t)
+	router := newConnectedAppAdminRouterForTest(t)
+	adminCookies := loginConnectedAppAdmin(t, router)
+	developerCookies := loginConnectedAppDeveloper(t, router)
+
+	submitted := decodeConnectedAppData[connectedAppRequestMutationData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-app-requests",
+		`{"slug":"sdk-addon","name":"SDK Addon","description":"SDK self-service client","requested_scopes":["openai.models","openai.chat","quota.read","token.manage"],"default_scopes":["openai.models","openai.chat","quota.read"],"authorization_flow":"device_code","homepage_url":"https://sdk.example","reason":"sdk integration"}`,
+		developerCookies,
+	))
+
+	approved := decodeConnectedAppData[connectedAppRequestMutationData](t, requestConnectedAppAdmin(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/requests/"+strconv.Itoa(submitted.Request.ID)+"/review",
+		`{"decision":"approved","review_note":"approved for self-service","allowed_scopes":["openai.models","openai.chat","quota.read","token.manage"],"default_scopes":["openai.models","openai.chat","quota.read"]}`,
+		adminCookies,
+	))
+	require.Equal(t, model.ConnectedAppRequestStatusApproved, approved.Request.Status)
+
+	sdkConfig := decodeConnectedAppData[connectedAppDeveloperSDKConfigData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/sdk-addon/developer/sdk-config",
+		"",
+		developerCookies,
+	))
+	require.True(t, sdkConfig.Permissions.CanCreateKey)
+	require.True(t, sdkConfig.Permissions.CanReadUsage)
+	require.True(t, sdkConfig.SDK.OpenAICompatible)
+	require.Equal(t, "https://data-proxy.test/v1", sdkConfig.SDK.BaseURL)
+	require.Equal(t, "OPENAI_API_KEY", sdkConfig.SDK.APIKeyEnv)
+	require.Equal(t, "Bearer sk-<api_key>", sdkConfig.SDK.Authorization)
+	require.Equal(t, "https://data-proxy.test/v1/models", sdkConfig.APIEndpoints["models"])
+	require.Contains(t, sdkConfig.DeveloperEndpoints["keys"], "/api/connected-apps/sdk-addon/developer/keys")
+	require.Contains(t, sdkConfig.OpenAPIURL, "/api/connected-apps/sdk-addon/developer/openapi")
+
+	openAPI := decodeConnectedAppData[map[string]any](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/sdk-addon/developer/openapi",
+		"",
+		developerCookies,
+	))
+	require.Equal(t, "3.0.3", openAPI["openapi"])
+	paths, ok := openAPI["paths"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, paths, "/v1/models")
+	require.Contains(t, paths, "/v1/chat/completions")
+	require.Contains(t, paths, "/api/usage/token")
+	require.NotContains(t, paths, "/v1/audio/transcriptions")
+
+	keyBody := `{"device_id":"developer-ci","device_name":"Developer CI","platform":"server","app_version":"1.0.0","client":"sdk-test"}`
+	firstKey := decodeConnectedAppData[snaplessTokenData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/sdk-addon/developer/keys",
+		keyBody,
+		developerCookies,
+	))
+	require.True(t, firstKey.Created)
+	require.True(t, firstKey.APIKeyOnce)
+	require.True(t, strings.HasPrefix(firstKey.APIKey, "sk-"))
+	require.ElementsMatch(t, []string{"openai.models", "openai.chat", "quota.read"}, firstKey.Grant.Scopes)
+	require.True(t, firstKey.Token.UnlimitedQuota)
+	require.False(t, firstKey.Token.ModelLimitsEnabled)
+
+	reusedKey := decodeConnectedAppData[snaplessTokenData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/sdk-addon/developer/keys",
+		keyBody,
+		developerCookies,
+	))
+	require.False(t, reusedKey.Created)
+	require.False(t, reusedKey.APIKeyOnce)
+	require.Empty(t, reusedKey.APIKey)
+	require.Equal(t, firstKey.Token.ID, reusedKey.Token.ID)
+
+	rotatedKey := decodeConnectedAppData[snaplessTokenData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/sdk-addon/developer/keys",
+		`{"device_id":"developer-ci","device_name":"Developer CI","platform":"server","app_version":"1.0.1","client":"sdk-test","rotate":true}`,
+		developerCookies,
+	))
+	require.True(t, rotatedKey.Created)
+	require.True(t, rotatedKey.Rotated)
+	require.True(t, rotatedKey.APIKeyOnce)
+	require.NotEqual(t, firstKey.Token.ID, rotatedKey.Token.ID)
+
+	var previousToken model.Token
+	require.NoError(t, model.DB.First(&previousToken, firstKey.Token.ID).Error)
+	require.Equal(t, common.TokenStatusDisabled, previousToken.Status)
+
+	var auditCount int64
+	require.NoError(t, model.DB.Model(&model.ConnectedAppAuditLog{}).
+		Where("target_type = ? AND target_id = ? AND action IN ?", "connected_app", approved.App.ID, []string{"connected_app_developer.key_create", "connected_app_developer.key_rotate"}).
+		Count(&auditCount).Error)
+	require.EqualValues(t, 2, auditCount)
+
+	require.NoError(t, model.LOG_DB.Create(&[]model.Log{
+		{
+			UserId:           connectedAppRouterDeveloperUserId,
+			CreatedAt:        1000,
+			Type:             model.LogTypeConsume,
+			TokenId:          rotatedKey.Token.ID,
+			TokenName:        "Developer CI",
+			ModelName:        "gpt-4o-mini",
+			Quota:            11,
+			PromptTokens:     7,
+			CompletionTokens: 5,
+		},
+		{
+			UserId:           connectedAppRouterDeveloperUserId,
+			CreatedAt:        1100,
+			Type:             model.LogTypeConsume,
+			TokenId:          rotatedKey.Token.ID,
+			TokenName:        "Developer CI",
+			ModelName:        "gpt-4o",
+			Quota:            13,
+			PromptTokens:     3,
+			CompletionTokens: 2,
+		},
+		{
+			UserId:           connectedAppRouterDeveloperUserId,
+			CreatedAt:        1300,
+			Type:             model.LogTypeConsume,
+			TokenId:          rotatedKey.Token.ID,
+			TokenName:        "Developer CI",
+			ModelName:        "gpt-4o",
+			Quota:            99,
+			PromptTokens:     9,
+			CompletionTokens: 9,
+		},
+		{
+			UserId:           connectedAppRouterDeveloperUserId,
+			CreatedAt:        1050,
+			Type:             model.LogTypeConsume,
+			TokenId:          123456,
+			TokenName:        "Unbound",
+			ModelName:        "gpt-4o",
+			Quota:            77,
+			PromptTokens:     7,
+			CompletionTokens: 7,
+		},
+	}).Error)
+
+	usage := decodeConnectedAppData[connectedAppDeveloperUsageData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/sdk-addon/developer/usage?start_time=900&end_time=1200",
+		"",
+		developerCookies,
+	))
+	require.Equal(t, 1, usage.TokenCount)
+	require.EqualValues(t, 2, usage.Total.RequestCount)
+	require.EqualValues(t, 24, usage.Total.Quota)
+	require.EqualValues(t, 10, usage.Total.PromptTokens)
+	require.EqualValues(t, 7, usage.Total.CompletionTokens)
+	require.Len(t, usage.ByToken, 1)
+	require.Equal(t, rotatedKey.Token.ID, usage.ByToken[0].TokenID)
+	require.Equal(t, model.ConnectedAppTokenBindingStatusActive, usage.ByToken[0].Status)
+	require.Equal(t, "Developer CI", usage.ByToken[0].Device.DeviceName)
+	require.EqualValues(t, 24, usage.ByToken[0].Quota)
+
+	modelQuota := map[string]int64{}
+	for _, item := range usage.ByModel {
+		modelQuota[item.ModelName] = item.Quota
+	}
+	require.EqualValues(t, 11, modelQuota["gpt-4o-mini"])
+	require.EqualValues(t, 13, modelQuota["gpt-4o"])
+
+	emptyUsage := decodeConnectedAppData[connectedAppDeveloperUsageData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/sdk-addon/developer/usage?token_id=123456",
+		"",
+		developerCookies,
+	))
+	require.Equal(t, 0, emptyUsage.TokenCount)
+	require.EqualValues(t, 0, emptyUsage.Total.RequestCount)
+	require.Empty(t, emptyUsage.ByModel)
+	require.Empty(t, emptyUsage.ByToken)
 }
 
 func TestConnectedAppRequestRejectsDuplicateAndInvalidReview(t *testing.T) {
