@@ -1137,6 +1137,7 @@ export const STATIC_I18N_KEYS = [
   'enterprise_governance.queue_canceled',
   'enterprise_governance.shared_pool_reserved',
   'enterprise_governance.anomaly_throttled',
+  'enterprise_governance.anomaly_orchestrated',
   'Plugin',
   'Proxy Server',
   'Proxy Tool Errors',

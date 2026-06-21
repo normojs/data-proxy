@@ -5280,6 +5280,7 @@
     "enterprise_governance.queue_canceled": "企业队列请求已取消",
     "enterprise_governance.shared_pool_reserved": "已预留企业共享池",
     "enterprise_governance.anomaly_throttled": "企业异常限流已生效",
+    "enterprise_governance.anomaly_orchestrated": "企业异常动作已编排",
     "notification.enterprise_quota_request.title.pending": "额度申请待审批",
     "notification.enterprise_quota_request.title.approved": "额度申请已批准",
     "notification.enterprise_quota_request.title.rejected": "额度申请已拒绝",

@@ -179,7 +179,7 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleRestoresProtectionFromDB(t *tes
 	assert.Equal(t, enterpriseAnomalyStatusThrottled, restoredCtx.Writer.Header().Get(enterpriseAnomalyStatusHeader))
 }
 
-func TestApplyEnterpriseGovernanceAnomalyThrottleScopesProjectProtection(t *testing.T) {
+func TestApplyEnterpriseGovernanceAnomalyThrottleOrchestratesProjectQueueAction(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	resetEnterpriseAnomalyThrottleForTest(t)
 	gin.SetMode(gin.TestMode)
@@ -238,10 +238,11 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleScopesProjectProtection(t *test
 	ctxA.Request.Header.Set(enterpriseProjectIdHeader, strconv.Itoa(projectA.Id))
 	require.Nil(t, PreCheckEnterpriseGovernance(ctxA, relayInfoA, 20))
 	resultA, err := ApplyEnterpriseGovernanceAnomalyThrottle(ctxA, relayInfoA)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrEnterpriseGovernanceAnomalyThrottled))
+	require.NoError(t, err)
 	require.True(t, resultA.Applied)
+	assert.Equal(t, enterpriseAnomalyStatusOrchestrated, resultA.Status)
 	assert.Equal(t, enterpriseAnomalyReasonRequestSpike, resultA.Reason)
+	assert.Equal(t, enterpriseAnomalyStatusOrchestrated, ctxA.Writer.Header().Get(enterpriseAnomalyStatusHeader))
 	require.Len(t, resultA.PolicyActions, 1)
 	assert.Equal(t, actionPolicy.Id, resultA.PolicyActions[0].PolicyId)
 	assert.Equal(t, model.PolicyTargetProject, resultA.PolicyActions[0].TargetType)
@@ -272,6 +273,10 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleScopesProjectProtection(t *test
 	assert.Equal(t, model.EnterpriseGovernanceAnomalyProtectionScopeProject, auditAfter["scope_type"])
 	assert.EqualValues(t, projectA.Id, auditAfter["scope_id"])
 	assert.Equal(t, projectAKey, auditAfter["protection_key"])
+	assert.Equal(t, enterpriseAnomalyStatusOrchestrated, auditAfter["anomaly_status"])
+	assert.Equal(t, "enterprise_governance.anomaly_orchestrated", auditAfter["user_message_key"])
+	assert.Equal(t, "enterprise_governance_anomaly_orchestrated", auditAfter["error_code"])
+	assert.Equal(t, model.PolicyActionQueue, auditAfter["orchestration_action"])
 	policyActions, ok := auditAfter["policy_actions"].([]any)
 	require.True(t, ok)
 	require.Len(t, policyActions, 1)
@@ -281,6 +286,29 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleScopesProjectProtection(t *test
 	assert.Equal(t, model.PolicyTargetProject, policyAction["target_type"])
 	assert.EqualValues(t, projectA.Id, policyAction["target_id"])
 	assert.Equal(t, model.PolicyActionQueue, policyAction["action"])
+
+	protectedQueuedRelayInfo := *relayInfoA
+	protectedQueuedRelayInfo.RequestId = "req-enterprise-anomaly-project-a-protected-queued"
+	protectedQueuedCtx := newEnterpriseGovernanceRelayTestContext(t, protectedQueuedRelayInfo.RequestId, 742)
+	protectedQueuedCtx.Request.Header.Set(enterpriseProjectIdHeader, strconv.Itoa(projectA.Id))
+	require.Nil(t, PreCheckEnterpriseGovernance(protectedQueuedCtx, &protectedQueuedRelayInfo, 20))
+	protectedQueued, err := ApplyEnterpriseGovernanceAnomalyThrottle(protectedQueuedCtx, &protectedQueuedRelayInfo)
+	require.NoError(t, err)
+	assert.Equal(t, enterpriseAnomalyStatusOrchestrated, protectedQueued.Status)
+	assert.Equal(t, enterpriseAnomalyStatusOrchestrated, protectedQueuedCtx.Writer.Header().Get(enterpriseAnomalyStatusHeader))
+
+	require.NoError(t, model.DB.Model(&model.EnterpriseQuotaPolicy{}).
+		Where("id = ?", actionPolicy.Id).
+		Update("status", model.QuotaPolicyStatusDisabled).Error)
+	protectedNoQueueRelayInfo := *relayInfoA
+	protectedNoQueueRelayInfo.RequestId = "req-enterprise-anomaly-project-a-protected-no-queue"
+	protectedNoQueueCtx := newEnterpriseGovernanceRelayTestContext(t, protectedNoQueueRelayInfo.RequestId, 743)
+	protectedNoQueueCtx.Request.Header.Set(enterpriseProjectIdHeader, strconv.Itoa(projectA.Id))
+	require.Nil(t, PreCheckEnterpriseGovernance(protectedNoQueueCtx, &protectedNoQueueRelayInfo, 20))
+	protectedNoQueue, err := ApplyEnterpriseGovernanceAnomalyThrottle(protectedNoQueueCtx, &protectedNoQueueRelayInfo)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrEnterpriseGovernanceAnomalyThrottled))
+	assert.Equal(t, enterpriseAnomalyStatusThrottled, protectedNoQueue.Status)
 
 	ctxB := newEnterpriseGovernanceRelayTestContext(t, relayInfoB.RequestId, 741)
 	ctxB.Request.Header.Set(enterpriseProjectIdHeader, strconv.Itoa(projectB.Id))

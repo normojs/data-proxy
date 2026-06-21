@@ -4778,6 +4778,7 @@
     "enterprise_governance.queue_canceled": "Enterprise queue request canceled",
     "enterprise_governance.shared_pool_reserved": "Enterprise shared pool reserved",
     "enterprise_governance.anomaly_throttled": "Enterprise anomaly throttle active",
+    "enterprise_governance.anomaly_orchestrated": "Enterprise anomaly action orchestrated",
     "notification.enterprise_quota_request.title.pending": "Quota request pending",
     "notification.enterprise_quota_request.title.approved": "Quota request approved",
     "notification.enterprise_quota_request.title.rejected": "Quota request rejected",
