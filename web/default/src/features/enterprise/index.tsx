@@ -3536,6 +3536,23 @@ function AuditTab(props: {
   query: QueryResult<PageInfo<EnterpriseAuditLog>>
   dryRunQuery: QueryResult<PageInfo<EnterpriseAuditLog>>
   queueAdmissionsQuery: QueryResult<PageInfo<EnterpriseQueueAdmission>>
+  queueAdmissionPage: number
+  queueAdmissionsTotal: number
+  setQueueAdmissionPage: (page: number) => void
+  queueAdmissionStatus: string
+  setQueueAdmissionStatus: (value: string) => void
+  queueAdmissionRequestId: string
+  setQueueAdmissionRequestId: (value: string) => void
+  queueAdmissionModelName: string
+  setQueueAdmissionModelName: (value: string) => void
+  queueAdmissionPolicyId: string
+  setQueueAdmissionPolicyId: (value: string) => void
+  queueAdmissionProjectId: string
+  setQueueAdmissionProjectId: (value: string) => void
+  queueAdmissionStartDate: string
+  setQueueAdmissionStartDate: (value: string) => void
+  queueAdmissionEndDate: string
+  setQueueAdmissionEndDate: (value: string) => void
   page: number
   total: number
   setPage: (page: number) => void
@@ -3576,6 +3593,23 @@ function AuditTab(props: {
         <QueueAdmissionsPanel
           admissions={props.queueAdmissions}
           query={props.queueAdmissionsQuery}
+          page={props.queueAdmissionPage}
+          total={props.queueAdmissionsTotal}
+          setPage={props.setQueueAdmissionPage}
+          status={props.queueAdmissionStatus}
+          setStatus={props.setQueueAdmissionStatus}
+          requestId={props.queueAdmissionRequestId}
+          setRequestId={props.setQueueAdmissionRequestId}
+          modelName={props.queueAdmissionModelName}
+          setModelName={props.setQueueAdmissionModelName}
+          policyId={props.queueAdmissionPolicyId}
+          setPolicyId={props.setQueueAdmissionPolicyId}
+          projectId={props.queueAdmissionProjectId}
+          setProjectId={props.setQueueAdmissionProjectId}
+          startDate={props.queueAdmissionStartDate}
+          setStartDate={props.setQueueAdmissionStartDate}
+          endDate={props.queueAdmissionEndDate}
+          setEndDate={props.setQueueAdmissionEndDate}
           canManage={props.canManageQueue}
         />
         <FilterBar>
@@ -3862,6 +3896,23 @@ function DryRunObservationsPanel(props: {
 function QueueAdmissionsPanel(props: {
   admissions: EnterpriseQueueAdmission[]
   query: QueryResult<PageInfo<EnterpriseQueueAdmission>>
+  page: number
+  total: number
+  setPage: (page: number) => void
+  status: string
+  setStatus: (value: string) => void
+  requestId: string
+  setRequestId: (value: string) => void
+  modelName: string
+  setModelName: (value: string) => void
+  policyId: string
+  setPolicyId: (value: string) => void
+  projectId: string
+  setProjectId: (value: string) => void
+  startDate: string
+  setStartDate: (value: string) => void
+  endDate: string
+  setEndDate: (value: string) => void
   canManage: boolean
 }) {
   const { t } = useTranslation()
@@ -3898,7 +3949,86 @@ function QueueAdmissionsPanel(props: {
           {t('Refresh')}
         </Button>
       </div>
-      <div className='p-3'>
+      <div className='space-y-3 p-3'>
+        <FilterBar>
+          <Select
+            value={props.status || ALL_VALUE}
+            onValueChange={(value) => {
+              props.setStatus(normalizeOptionalSelectValue(value))
+              props.setPage(1)
+            }}
+          >
+            <SelectTrigger className='w-40'>
+              <SelectValue placeholder={t('Status')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                <SelectItem value={ALL_VALUE}>{t('All Statuses')}</SelectItem>
+                <SelectItem value='queued'>{t('Queued')}</SelectItem>
+                <SelectItem value='admitted'>{t('Admitted')}</SelectItem>
+                <SelectItem value='released'>{t('Released')}</SelectItem>
+                <SelectItem value='timeout'>{t('Timeout')}</SelectItem>
+                <SelectItem value='canceled'>{t('Canceled')}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Input
+            value={props.requestId}
+            onChange={(event) => {
+              props.setRequestId(event.target.value)
+              props.setPage(1)
+            }}
+            placeholder={t('Request ID')}
+            className='w-52'
+          />
+          <Input
+            value={props.modelName}
+            onChange={(event) => {
+              props.setModelName(event.target.value)
+              props.setPage(1)
+            }}
+            placeholder={t('Model')}
+            className='w-44'
+          />
+          <Input
+            type='number'
+            value={props.policyId}
+            onChange={(event) => {
+              props.setPolicyId(event.target.value)
+              props.setPage(1)
+            }}
+            placeholder={t('Policy ID')}
+            className='w-36'
+          />
+          <Input
+            type='number'
+            value={props.projectId}
+            onChange={(event) => {
+              props.setProjectId(event.target.value)
+              props.setPage(1)
+            }}
+            placeholder={t('Project ID')}
+            className='w-36'
+          />
+          <Input
+            type='date'
+            value={props.startDate}
+            onChange={(event) => {
+              props.setStartDate(event.target.value)
+              props.setPage(1)
+            }}
+            className='w-40'
+          />
+          <Input
+            type='date'
+            value={props.endDate}
+            onChange={(event) => {
+              props.setEndDate(event.target.value)
+              props.setPage(1)
+            }}
+            className='w-40'
+          />
+        </FilterBar>
         <QueryState
           query={props.query}
           empty={props.admissions.length === 0}
@@ -4004,6 +4134,12 @@ function QueueAdmissionsPanel(props: {
               ))}
             </TableBody>
           </Table>
+          <Pager
+            page={props.page}
+            pageSize={PAGE_SIZE}
+            total={props.total}
+            onPageChange={props.setPage}
+          />
         </QueryState>
       </div>
     </div>
@@ -8092,6 +8228,52 @@ export function EnterpriseGovernance() {
       page,
     })
   }
+  const [queueAdmissionStatus, setQueueAdmissionStatus] = useState('')
+  const [queueAdmissionRequestId, setQueueAdmissionRequestId] = useState('')
+  const [queueAdmissionModelName, setQueueAdmissionModelName] = useState('')
+  const [queueAdmissionPolicyId, setQueueAdmissionPolicyId] = useState('')
+  const [queueAdmissionProjectId, setQueueAdmissionProjectId] = useState('')
+  const [queueAdmissionStartDate, setQueueAdmissionStartDate] = useState(() =>
+    daysAgoInputValue(7)
+  )
+  const [queueAdmissionEndDate, setQueueAdmissionEndDate] = useState(() =>
+    todayInputValue()
+  )
+  const queueAdmissionPolicyIdValue = parsePositiveSearchId(
+    queueAdmissionPolicyId
+  )
+  const queueAdmissionProjectIdValue = parsePositiveSearchId(
+    queueAdmissionProjectId
+  )
+  const queueAdmissionStartTime = queueAdmissionStartDate
+    ? startOfDayUnix(queueAdmissionStartDate)
+    : undefined
+  const queueAdmissionEndTime = queueAdmissionEndDate
+    ? endOfDayUnix(queueAdmissionEndDate)
+    : undefined
+  const queueAdmissionFilterKey = [
+    queueAdmissionStatus,
+    queueAdmissionRequestId,
+    queueAdmissionModelName,
+    queueAdmissionPolicyIdValue ?? '',
+    queueAdmissionProjectIdValue ?? '',
+    queueAdmissionStartTime ?? '',
+    queueAdmissionEndTime ?? '',
+  ].join(':')
+  const [queueAdmissionPagination, setQueueAdmissionPagination] = useState({
+    filterKey: queueAdmissionFilterKey,
+    page: 1,
+  })
+  const queueAdmissionPage =
+    queueAdmissionPagination.filterKey === queueAdmissionFilterKey
+      ? queueAdmissionPagination.page
+      : 1
+  const setQueueAdmissionPage = (page: number) => {
+    setQueueAdmissionPagination({
+      filterKey: queueAdmissionFilterKey,
+      page,
+    })
+  }
 
   const currentQuery = useQuery({
     queryKey: ['enterprise', 'current'],
@@ -8415,15 +8597,26 @@ export function EnterpriseGovernance() {
     queryKey: [
       'enterprise',
       'queue-admissions',
-      dryRunObservationStartTime,
-      dryRunObservationEndTime,
+      queueAdmissionPage,
+      queueAdmissionStatus,
+      queueAdmissionRequestId,
+      queueAdmissionModelName,
+      queueAdmissionPolicyIdValue,
+      queueAdmissionProjectIdValue,
+      queueAdmissionStartTime,
+      queueAdmissionEndTime,
     ],
     queryFn: () =>
       getEnterpriseQueueAdmissions({
-        p: 1,
-        page_size: 10,
-        start_time: dryRunObservationStartTime,
-        end_time: dryRunObservationEndTime,
+        p: queueAdmissionPage,
+        page_size: PAGE_SIZE,
+        status: queueAdmissionStatus,
+        request_id: queueAdmissionRequestId,
+        model_name: queueAdmissionModelName,
+        policy_id: queueAdmissionPolicyIdValue,
+        project_id: queueAdmissionProjectIdValue,
+        start_time: queueAdmissionStartTime,
+        end_time: queueAdmissionEndTime,
       }),
     enabled: canReadAudit,
   })
@@ -8898,6 +9091,23 @@ export function EnterpriseGovernance() {
                     error: queueAdmissionsQuery.error,
                     refetch: queueAdmissionsQuery.refetch,
                   }}
+                  queueAdmissionPage={queueAdmissionPage}
+                  queueAdmissionsTotal={getPageTotal(queueAdmissionsQuery.data)}
+                  setQueueAdmissionPage={setQueueAdmissionPage}
+                  queueAdmissionStatus={queueAdmissionStatus}
+                  setQueueAdmissionStatus={setQueueAdmissionStatus}
+                  queueAdmissionRequestId={queueAdmissionRequestId}
+                  setQueueAdmissionRequestId={setQueueAdmissionRequestId}
+                  queueAdmissionModelName={queueAdmissionModelName}
+                  setQueueAdmissionModelName={setQueueAdmissionModelName}
+                  queueAdmissionPolicyId={queueAdmissionPolicyId}
+                  setQueueAdmissionPolicyId={setQueueAdmissionPolicyId}
+                  queueAdmissionProjectId={queueAdmissionProjectId}
+                  setQueueAdmissionProjectId={setQueueAdmissionProjectId}
+                  queueAdmissionStartDate={queueAdmissionStartDate}
+                  setQueueAdmissionStartDate={setQueueAdmissionStartDate}
+                  queueAdmissionEndDate={queueAdmissionEndDate}
+                  setQueueAdmissionEndDate={setQueueAdmissionEndDate}
                   page={auditPage}
                   total={getPageTotal(auditLogsQuery.data)}
                   setPage={setAuditPage}

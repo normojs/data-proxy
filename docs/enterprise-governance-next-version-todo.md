@@ -174,7 +174,7 @@
 | --- | --- | --- | --- |
 | NV-0601 | P1 | 策略 action 扩展 | MVP 已支持 reject、alert、fallback_model、queue、shared_pool 的配置、命中观测、响应提示和审计；unknown action 保守按 reject 处理 |
 | NV-0602 | P1 | 模型自动降级 | 已完成基础交付：fallback_model 命中后会改写 relay 模型、JSON 请求体、重选渠道并按降级模型重新估算预扣费；审计和响应 header 保留降级提示 |
-| NV-0603 | P1 | 低优先级排队 | 已完成基础交付：queue 命中后进入企业维度同步 admission queue，先写入 `queued`，拿到队列槽后更新为 `admitted` 并继续 relay，请求结束释放后更新为 `released` 并记录运行耗时；等待超时返回 429 并更新为 `timeout`，排队阶段请求取消或管理员取消更新为 `canceled`；队列审计、响应 header、管理员取消接口和 `enterprise_governance_queue_admissions` 持久化生命周期记录已可在企业治理 API 和审计页查看；真正的异步后台执行、重试和后台延迟执行仍保留为后续增强 |
+| NV-0603 | P1 | 低优先级排队 | 已完成基础交付：queue 命中后进入企业维度同步 admission queue，先写入 `queued`，拿到队列槽后更新为 `admitted` 并继续 relay，请求结束释放后更新为 `released` 并记录运行耗时；等待超时返回 429 并更新为 `timeout`，排队阶段请求取消或管理员取消更新为 `canceled`；队列审计、响应 header、管理员取消接口和 `enterprise_governance_queue_admissions` 持久化生命周期记录已可在企业治理 API 和审计页按状态、请求 ID、模型、策略、项目和日期范围分页查看；真正的异步后台执行、重试和后台延迟执行仍保留为后续增强 |
 | NV-0604 | P2 | 企业共享池 | 已完成 MVP+：shared_pool 配额超限命中后计算本次请求实际借用量，写入独立池状态 `enterprise_governance_shared_pools` 和借用归属 `enterprise_governance_shared_pool_borrows`；容量不足会在预扣费前阻断并审计；成功借用写入 borrowed/remaining header，结算按实际用量归还未使用借用量，失败或预扣费错误全量退款，并记录 reserve/settle/refund 审计。池容量管理 UI、单独容量配置和趋势报表仍保留为后续增强 |
 | NV-0605 | P2 | 异常检测后自动限流 | 已完成基础交付：基于企业最近窗口和基线窗口检测请求突增、quota 成本突增，以及 consume/error 日志中的异常失败率；命中后进入企业维度短时保护，返回 429、写入异常响应 header 和 `enterprise_governance.anomaly_throttle` 审计；保护状态已写入 `enterprise_governance_anomaly_protections` 并可在进程重启后恢复；企业设置支持配置启用状态、窗口、冷却时间、请求/成本突增阈值和失败率阈值；dry-run 只记录 would-throttle 观测。按项目/部门动作编排和趋势报表仍保留为后续增强 |
 
