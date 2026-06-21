@@ -2615,6 +2615,14 @@ function QuotaRequestsTab(props: {
   setRequestId: (value: string) => void
   policyId: string
   setPolicyId: (value: string) => void
+  projectId: string
+  setProjectId: (value: string) => void
+  targetType: string
+  setTargetType: (value: string) => void
+  targetId: string
+  setTargetId: (value: string) => void
+  applicantUserId: string
+  setApplicantUserId: (value: string) => void
   onCreate: () => void
   onApprove: (request: EnterpriseQuotaRequest) => void
   onReject: (request: EnterpriseQuotaRequest) => void
@@ -2688,6 +2696,61 @@ function QuotaRequestsTab(props: {
             placeholder={t('Request ID')}
             className='w-36'
           />
+          <Input
+            type='number'
+            value={props.projectId}
+            onChange={(event) => {
+              props.setProjectId(event.target.value)
+              props.setPage(1)
+            }}
+            placeholder={t('Project ID')}
+            className='w-36'
+          />
+          <Select
+            value={props.targetType || ALL_VALUE}
+            onValueChange={(value) => {
+              props.setTargetType(normalizeOptionalSelectValue(value))
+              props.setPage(1)
+            }}
+          >
+            <SelectTrigger className='w-44'>
+              <SelectValue placeholder={t('Target Type')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                <SelectItem value={ALL_VALUE}>{t('All Targets')}</SelectItem>
+                <SelectItem value='enterprise'>{t('Enterprise')}</SelectItem>
+                <SelectItem value='org_unit'>{t('Org Unit')}</SelectItem>
+                <SelectItem value='project'>{t('Project')}</SelectItem>
+                <SelectItem value='policy_group'>
+                  {t('Policy Group')}
+                </SelectItem>
+                <SelectItem value='user'>{t('User')}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Input
+            type='number'
+            value={props.targetId}
+            onChange={(event) => {
+              props.setTargetId(event.target.value)
+              props.setPage(1)
+            }}
+            placeholder={t('Target ID')}
+            className='w-36'
+          />
+          {props.isAdmin && (
+            <Input
+              type='number'
+              value={props.applicantUserId}
+              onChange={(event) => {
+                props.setApplicantUserId(event.target.value)
+                props.setPage(1)
+              }}
+              placeholder={t('Applicant User ID')}
+              className='w-44'
+            />
+          )}
         </FilterBar>
         <QueryState
           query={props.query}
@@ -6586,10 +6649,28 @@ export function EnterpriseGovernance() {
     ? Number(quotaRequestPolicyId)
     : undefined
   const quotaRequestIdValue = search.quota_request_id
+  const quotaRequestProjectId = search.quota_request_project_id
+    ? String(search.quota_request_project_id)
+    : ''
+  const quotaRequestProjectIdValue = search.quota_request_project_id
+  const quotaRequestTargetType = search.quota_request_target_type ?? ''
+  const quotaRequestTargetId = search.quota_request_target_id
+    ? String(search.quota_request_target_id)
+    : ''
+  const quotaRequestTargetIdValue = search.quota_request_target_id
+  const quotaRequestApplicantUserId = search.quota_request_applicant_user_id
+    ? String(search.quota_request_applicant_user_id)
+    : ''
+  const quotaRequestApplicantUserIdValue =
+    search.quota_request_applicant_user_id
   const quotaRequestFilterKey = [
     quotaRequestStatus,
     quotaRequestPolicyIdValue ?? '',
     quotaRequestIdValue ?? '',
+    quotaRequestProjectIdValue ?? '',
+    quotaRequestTargetType,
+    quotaRequestTargetIdValue ?? '',
+    quotaRequestApplicantUserIdValue ?? '',
   ].join(':')
   const setQuotaRequestStatus = (value: string) => {
     void navigate({
@@ -6604,6 +6685,38 @@ export function EnterpriseGovernance() {
       search: (prev) => ({
         ...prev,
         quota_request_id: parsePositiveSearchId(value),
+      }),
+    })
+  }
+  const setQuotaRequestProjectId = (value: string) => {
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        quota_request_project_id: parsePositiveSearchId(value),
+      }),
+    })
+  }
+  const setQuotaRequestTargetType = (value: string) => {
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        quota_request_target_type: value || undefined,
+      }),
+    })
+  }
+  const setQuotaRequestTargetId = (value: string) => {
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        quota_request_target_id: parsePositiveSearchId(value),
+      }),
+    })
+  }
+  const setQuotaRequestApplicantUserId = (value: string) => {
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        quota_request_applicant_user_id: parsePositiveSearchId(value),
       }),
     })
   }
@@ -6848,6 +6961,10 @@ export function EnterpriseGovernance() {
       quotaRequestStatus,
       quotaRequestPolicyIdValue,
       quotaRequestIdValue,
+      quotaRequestProjectIdValue,
+      quotaRequestTargetType,
+      quotaRequestTargetIdValue,
+      quotaRequestApplicantUserIdValue,
     ],
     queryFn: () =>
       getEnterpriseQuotaRequests({
@@ -6856,6 +6973,10 @@ export function EnterpriseGovernance() {
         id: quotaRequestIdValue,
         status: quotaRequestStatus,
         policy_id: quotaRequestPolicyIdValue,
+        project_id: quotaRequestProjectIdValue,
+        target_type: quotaRequestTargetType,
+        target_id: quotaRequestTargetIdValue,
+        applicant_user_id: quotaRequestApplicantUserIdValue,
       }),
     enabled: canReadEnterprise,
   })
@@ -7348,6 +7469,14 @@ export function EnterpriseGovernance() {
                   setRequestId={setQuotaRequestId}
                   policyId={quotaRequestPolicyId}
                   setPolicyId={setQuotaRequestPolicyId}
+                  projectId={quotaRequestProjectId}
+                  setProjectId={setQuotaRequestProjectId}
+                  targetType={quotaRequestTargetType}
+                  setTargetType={setQuotaRequestTargetType}
+                  targetId={quotaRequestTargetId}
+                  setTargetId={setQuotaRequestTargetId}
+                  applicantUserId={quotaRequestApplicantUserId}
+                  setApplicantUserId={setQuotaRequestApplicantUserId}
                   onCreate={() => {
                     setQuotaRequestInitialValues(null)
                     setQuotaRequestDialogOpen(true)

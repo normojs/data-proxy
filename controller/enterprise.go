@@ -1618,6 +1618,27 @@ func ListEnterpriseQuotaRequests(c *gin.Context) {
 	} else if policyId > 0 {
 		query = query.Where("policy_id = ?", policyId)
 	}
+	if projectId, err := parseOptionalIntQuery(c, "project_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if projectId > 0 {
+		query = query.Where(
+			"(project_id = ? OR (project_id = ? AND target_type = ? AND target_id = ?))",
+			projectId,
+			0,
+			model.PolicyTargetProject,
+			projectId,
+		)
+	}
+	if targetType := strings.TrimSpace(c.Query("target_type")); targetType != "" {
+		query = query.Where("target_type = ?", targetType)
+	}
+	if targetId, err := parseOptionalIntQuery(c, "target_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if targetId > 0 {
+		query = query.Where("target_id = ?", targetId)
+	}
 	if applicantUserId, err := parseOptionalIntQuery(c, "applicant_user_id"); err != nil {
 		common.ApiError(c, err)
 		return
@@ -3828,6 +3849,7 @@ func quotaRequestFromSubmitRequest(enterpriseId int, applicantUserId int, req en
 		EnterpriseId:    enterpriseId,
 		ApplicantUserId: applicantUserId,
 		PolicyId:        policy.Id,
+		ProjectId:       req.ProjectId,
 		TargetType:      policy.TargetType,
 		TargetId:        policy.TargetId,
 		Metric:          policy.Metric,

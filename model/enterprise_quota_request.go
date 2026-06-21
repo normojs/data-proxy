@@ -14,6 +14,7 @@ type EnterpriseQuotaRequest struct {
 	ApplicantUserId int    `json:"applicant_user_id" gorm:"not null;index"`
 	ApproverUserId  int    `json:"approver_user_id" gorm:"index"`
 	PolicyId        int    `json:"policy_id" gorm:"not null;index"`
+	ProjectId       int    `json:"project_id" gorm:"index"`
 	TargetType      string `json:"target_type" gorm:"type:varchar(32);not null;index:idx_enterprise_quota_requests_target,priority:1"`
 	TargetId        int    `json:"target_id" gorm:"not null;index:idx_enterprise_quota_requests_target,priority:2"`
 	Metric          string `json:"metric" gorm:"type:varchar(32);not null;index"`

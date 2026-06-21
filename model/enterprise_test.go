@@ -168,6 +168,7 @@ func TestRecordEnterpriseAuditLogFillsScope(t *testing.T) {
 		EnterpriseId:    enterprise.Id,
 		ApplicantUserId: 9701,
 		PolicyId:        projectPolicy.Id,
+		ProjectId:       project.Id,
 		TargetType:      projectPolicy.TargetType,
 		TargetId:        projectPolicy.TargetId,
 		Metric:          projectPolicy.Metric,

@@ -21,6 +21,9 @@ import { QuotaRequests } from '@/features/quota-requests'
 const quotaRequestsSearchSchema = z.object({
   quota_request_id: z.number().optional().catch(undefined),
   status: z.string().optional().catch(''),
+  project_id: z.number().optional().catch(undefined),
+  target_type: z.string().optional().catch(''),
+  target_id: z.number().optional().catch(undefined),
 })
 
 export const Route = createFileRoute('/_authenticated/quota-requests/')({

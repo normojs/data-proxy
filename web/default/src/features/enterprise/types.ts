@@ -238,6 +238,7 @@ export type EnterpriseQuotaRequest = {
   approver_user_id: number
   policy_id: number
   policy_name: string
+  project_id: number
   target_type: PolicyTargetType
   target_id: number
   target_name: string
@@ -524,6 +525,9 @@ export type EnterpriseQuotaRequestsParams = {
   id?: number
   status?: EnterpriseQuotaRequestStatus | string
   policy_id?: number
+  project_id?: number
+  target_type?: string
+  target_id?: number
   applicant_user_id?: number
 }
 

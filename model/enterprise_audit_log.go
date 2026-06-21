@@ -168,7 +168,7 @@ func fillEnterpriseAuditQuotaRequestScope(db *gorm.DB, log *EnterpriseAuditLog) 
 		return nil
 	}
 	var request EnterpriseQuotaRequest
-	if err := db.Select("applicant_user_id, target_type, target_id").
+	if err := db.Select("applicant_user_id, project_id, target_type, target_id").
 		Where("enterprise_id = ? AND id = ?", log.EnterpriseId, log.TargetId).
 		First(&request).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -177,6 +177,9 @@ func fillEnterpriseAuditQuotaRequestScope(db *gorm.DB, log *EnterpriseAuditLog) 
 		return err
 	}
 	log.ScopeUserId = request.ApplicantUserId
+	if request.ProjectId > 0 {
+		log.ScopeProjectId = request.ProjectId
+	}
 	if err := fillEnterpriseAuditUserOrgScope(db, log); err != nil {
 		return err
 	}

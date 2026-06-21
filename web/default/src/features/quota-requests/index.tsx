@@ -78,6 +78,10 @@ function parsePositiveSearchId(value: string) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
+function normalizeSelectFilter(value: string | null) {
+  return value === ALL_VALUE ? '' : (value ?? '')
+}
+
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -447,14 +451,31 @@ export function QuotaRequests() {
     ? String(search.quota_request_id)
     : ''
   const requestIdValue = search.quota_request_id
+  const projectId = search.project_id ? String(search.project_id) : ''
+  const projectIdValue = search.project_id
+  const targetType = search.target_type ?? ''
+  const targetId = search.target_id ? String(search.target_id) : ''
+  const targetIdValue = search.target_id
   const query = useQuery({
-    queryKey: ['quota-requests', page, status, requestId, requestIdValue],
+    queryKey: [
+      'quota-requests',
+      page,
+      status,
+      requestId,
+      requestIdValue,
+      projectIdValue,
+      targetType,
+      targetIdValue,
+    ],
     queryFn: () =>
       getEnterpriseQuotaRequests({
         p: page,
         page_size: PAGE_SIZE,
         id: requestIdValue,
         status,
+        project_id: projectIdValue,
+        target_type: targetType,
+        target_id: targetIdValue,
       }),
   })
   const withdrawMutation = useMutation({
@@ -532,6 +553,68 @@ export function QuotaRequests() {
                   setPage(1)
                 }}
                 placeholder={t('Request ID')}
+                className='w-36'
+              />
+              <Input
+                type='number'
+                value={projectId}
+                onChange={(event) => {
+                  const next = parsePositiveSearchId(event.target.value)
+                  void navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      project_id: next,
+                    }),
+                  })
+                  setPage(1)
+                }}
+                placeholder={t('Project ID')}
+                className='w-36'
+              />
+              <Select
+                value={targetType || ALL_VALUE}
+                onValueChange={(value) => {
+                  void navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      target_type: normalizeSelectFilter(value),
+                    }),
+                  })
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger className='w-44'>
+                  <SelectValue placeholder={t('Target Type')} />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    <SelectItem value={ALL_VALUE}>
+                      {t('All Targets')}
+                    </SelectItem>
+                    <SelectItem value='enterprise'>{t('Enterprise')}</SelectItem>
+                    <SelectItem value='org_unit'>{t('Org Unit')}</SelectItem>
+                    <SelectItem value='project'>{t('Project')}</SelectItem>
+                    <SelectItem value='policy_group'>
+                      {t('Policy Group')}
+                    </SelectItem>
+                    <SelectItem value='user'>{t('User')}</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Input
+                type='number'
+                value={targetId}
+                onChange={(event) => {
+                  const next = parsePositiveSearchId(event.target.value)
+                  void navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      target_id: next,
+                    }),
+                  })
+                  setPage(1)
+                }}
+                placeholder={t('Target ID')}
                 className='w-36'
               />
             </div>

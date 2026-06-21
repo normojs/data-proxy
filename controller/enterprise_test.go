@@ -833,6 +833,7 @@ func TestEnterpriseQuotaRequestSubmitApproveListAndAudit(t *testing.T) {
 	SubmitEnterpriseQuotaRequest(ctx)
 	response = decodeEnterpriseControllerResponse(t, recorder)
 	require.True(t, response.Success, response.Message)
+	projectRequestId := int(response.Data["id"].(float64))
 
 	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-requests", `{
     "policy_id": `+itoaForEnterpriseTest(policy.Id)+`,
@@ -864,6 +865,12 @@ func TestEnterpriseQuotaRequestSubmitApproveListAndAudit(t *testing.T) {
 	assert.Equal(t, policy.TargetType, quotaRequest.TargetType)
 	assert.Equal(t, policy.Metric, quotaRequest.Metric)
 
+	var projectQuotaRequest model.EnterpriseQuotaRequest
+	require.NoError(t, model.DB.First(&projectQuotaRequest, projectRequestId).Error)
+	assert.Equal(t, project.Id, projectQuotaRequest.ProjectId)
+	assert.Equal(t, projectPolicy.TargetType, projectQuotaRequest.TargetType)
+	assert.Equal(t, projectPolicy.TargetId, projectQuotaRequest.TargetId)
+
 	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/quota-requests?status=approved&page_size=10", "")
 	ctx.Set("id", 9001)
 	ctx.Set("role", common.RoleAdminUser)
@@ -879,6 +886,30 @@ func TestEnterpriseQuotaRequestSubmitApproveListAndAudit(t *testing.T) {
 	assert.Equal(t, "daily launch quota", item["policy_name"])
 	assert.Equal(t, "Alice", item["applicant_name"])
 	assert.Equal(t, "Admin", item["approver_name"])
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/quota-requests?project_id="+itoaForEnterpriseTest(project.Id)+"&target_type=project&target_id="+itoaForEnterpriseTest(project.Id)+"&applicant_user_id=1001&page_size=10", "")
+	ctx.Set("id", 9001)
+	ctx.Set("role", common.RoleAdminUser)
+	ListEnterpriseQuotaRequests(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.EqualValues(t, 1, response.Data["total"])
+	items, ok = response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok = items[0].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, projectRequestId, item["id"])
+	assert.EqualValues(t, project.Id, item["project_id"])
+	assert.Equal(t, "project quota", item["policy_name"])
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/quota-requests?project_id=999999&page_size=10", "")
+	ctx.Set("id", 9001)
+	ctx.Set("role", common.RoleAdminUser)
+	ListEnterpriseQuotaRequests(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.EqualValues(t, 0, response.Data["total"])
 
 	var auditCount int64
 	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).
