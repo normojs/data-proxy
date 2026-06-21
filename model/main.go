@@ -353,6 +353,8 @@ func migrateDB() error {
 		&EnterpriseWebhook{},
 		&EnterpriseUsageAttribution{},
 		&EnterpriseGovernanceQueueAdmission{},
+		&EnterpriseGovernanceSharedPool{},
+		&EnterpriseGovernanceSharedPoolBorrow{},
 		&EnterpriseGovernanceAnomalyProtection{},
 		&EnterpriseAuditLog{},
 	)
@@ -472,6 +474,8 @@ func migrateDBFast() error {
 		{&EnterpriseWebhook{}, "EnterpriseWebhook"},
 		{&EnterpriseUsageAttribution{}, "EnterpriseUsageAttribution"},
 		{&EnterpriseGovernanceQueueAdmission{}, "EnterpriseGovernanceQueueAdmission"},
+		{&EnterpriseGovernanceSharedPool{}, "EnterpriseGovernanceSharedPool"},
+		{&EnterpriseGovernanceSharedPoolBorrow{}, "EnterpriseGovernanceSharedPoolBorrow"},
 		{&EnterpriseGovernanceAnomalyProtection{}, "EnterpriseGovernanceAnomalyProtection"},
 		{&EnterpriseAuditLog{}, "EnterpriseAuditLog"},
 	}

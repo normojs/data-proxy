@@ -45,6 +45,8 @@ func setupEnterprisePolicyServiceTestDB(t *testing.T) {
 		&model.EnterpriseNotificationOutbox{},
 		&model.EnterpriseUsageAttribution{},
 		&model.EnterpriseGovernanceQueueAdmission{},
+		&model.EnterpriseGovernanceSharedPool{},
+		&model.EnterpriseGovernanceSharedPoolBorrow{},
 		&model.EnterpriseGovernanceAnomalyProtection{},
 		&model.EnterpriseAuditLog{},
 		&model.Log{},

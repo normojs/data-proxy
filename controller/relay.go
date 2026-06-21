@@ -448,6 +448,15 @@ func applyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 
 func applyEnterpriseGovernanceSharedPool(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 	if _, err := service.ApplyEnterpriseGovernanceSharedPool(c, relayInfo); err != nil {
+		if errors.Is(err, service.ErrEnterpriseGovernanceSharedPoolInsufficient) {
+			return types.NewErrorWithStatusCode(
+				fmt.Errorf("%s", common.TranslateMessage(c, i18n.MsgEnterpriseGovernanceQuotaExceeded)),
+				types.ErrorCodeEnterpriseGovernanceQuotaExceeded,
+				http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(),
+				types.ErrOptionWithNoRecordErrorLog(),
+			)
+		}
 		return types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 	}
 	return nil

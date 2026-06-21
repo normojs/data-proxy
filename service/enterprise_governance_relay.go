@@ -199,26 +199,27 @@ func syncEnterpriseGovernanceFallbackJSONBody(c *gin.Context, fallbackModel stri
 
 func SettleEnterpriseGovernanceUsage(ctx *gin.Context, actual UsageAmount) error {
 	reservation, ok := common.GetContextKeyType[*Reservation](ctx, constant.ContextKeyEnterpriseGovernanceReserve)
-	if !ok || reservation == nil {
-		return nil
+	if ok && reservation != nil {
+		if err := SettleEnterpriseReservation(reservation, actual); err != nil {
+			return err
+		}
+		clearEnterpriseGovernanceReservation(ctx)
 	}
-	if err := SettleEnterpriseReservation(reservation, actual); err != nil {
-		return err
-	}
-	clearEnterpriseGovernanceReservation(ctx)
-	return nil
+	return SettleEnterpriseGovernanceSharedPool(ctx, actual)
 }
 
 func RefundEnterpriseGovernanceReservation(ctx *gin.Context) {
 	reservation, ok := common.GetContextKeyType[*Reservation](ctx, constant.ContextKeyEnterpriseGovernanceReserve)
-	if !ok || reservation == nil {
-		return
+	if ok && reservation != nil {
+		if err := RefundEnterpriseReservation(reservation); err != nil {
+			logger.LogError(ctx, "error refunding enterprise governance reservation: "+err.Error())
+		} else {
+			clearEnterpriseGovernanceReservation(ctx)
+		}
 	}
-	if err := RefundEnterpriseReservation(reservation); err != nil {
-		logger.LogError(ctx, "error refunding enterprise governance reservation: "+err.Error())
-		return
+	if err := RefundEnterpriseGovernanceSharedPool(ctx); err != nil {
+		logger.LogError(ctx, "error refunding enterprise governance shared pool reservation: "+err.Error())
 	}
-	clearEnterpriseGovernanceReservation(ctx)
 }
 
 func RecordEnterpriseTextUsageAttribution(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, summary textQuotaSummary) error {

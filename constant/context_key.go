@@ -61,6 +61,7 @@ const (
 	ContextKeyEnterpriseGovernanceDecision ContextKey = "enterprise_governance_decision"
 	ContextKeyEnterpriseGovernanceContext  ContextKey = "enterprise_governance_context"
 	ContextKeyEnterpriseGovernanceReserve  ContextKey = "enterprise_governance_reserve"
+	ContextKeyEnterpriseSharedPoolReserve  ContextKey = "enterprise_shared_pool_reserve"
 
 	// ContextKeyFileSourcesToCleanup stores file sources that need cleanup when request ends
 	ContextKeyFileSourcesToCleanup ContextKey = "file_sources_to_cleanup"

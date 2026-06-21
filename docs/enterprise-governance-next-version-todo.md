@@ -175,7 +175,7 @@
 | NV-0601 | P1 | 策略 action 扩展 | MVP 已支持 reject、alert、fallback_model、queue、shared_pool 的配置、命中观测、响应提示和审计；unknown action 保守按 reject 处理 |
 | NV-0602 | P1 | 模型自动降级 | 已完成基础交付：fallback_model 命中后会改写 relay 模型、JSON 请求体、重选渠道并按降级模型重新估算预扣费；审计和响应 header 保留降级提示 |
 | NV-0603 | P1 | 低优先级排队 | 已完成基础交付：queue 命中后进入企业维度同步 admission queue，拿到队列槽后继续 relay，等待超时返回 429，并写入队列审计、响应 header 和 `enterprise_governance_queue_admissions` 持久化 admission 记录；企业治理 API 和审计页已可查看最近 admission/timeout/canceled 记录；真正的异步执行队列、取消、重试和后台延迟执行仍保留为后续增强 |
-| NV-0604 | P2 | 企业共享池 | 已完成基础交付：shared_pool 配额超限命中后计算本次请求实际借用量，写入响应 header 和 `enterprise_governance.shared_pool_reserve` 审计；独立共享池容量模型、借用上限、归还和报表归属仍保留为后续增强 |
+| NV-0604 | P2 | 企业共享池 | 已完成 MVP+：shared_pool 配额超限命中后计算本次请求实际借用量，写入独立池状态 `enterprise_governance_shared_pools` 和借用归属 `enterprise_governance_shared_pool_borrows`；容量不足会在预扣费前阻断并审计；成功借用写入 borrowed/remaining header，结算按实际用量归还未使用借用量，失败或预扣费错误全量退款，并记录 reserve/settle/refund 审计。池容量管理 UI、单独容量配置和趋势报表仍保留为后续增强 |
 | NV-0605 | P2 | 异常检测后自动限流 | 已完成基础交付：基于企业最近窗口和基线窗口检测请求突增、quota 成本突增，以及 consume/error 日志中的异常失败率；命中后进入企业维度短时保护，返回 429、写入异常响应 header 和 `enterprise_governance.anomaly_throttle` 审计；保护状态已写入 `enterprise_governance_anomaly_protections` 并可在进程重启后恢复；企业设置支持配置启用状态、窗口、冷却时间、请求/成本突增阈值和失败率阈值；dry-run 只记录 would-throttle 观测。按项目/部门动作编排和趋势报表仍保留为后续增强 |
 
 ## V1.7: 多级管理员和财务视图
@@ -193,7 +193,7 @@
 | NV-0707 | P1 | Done (MVP) | 跨部门策略组共享审批流 | 策略组归属部门可发起共享申请，目标部门或企业管理员可批准/拒绝；批准后复用既有共享表生效，申请和审批写入企业审计，发起部门和目标部门均可 scoped 可见 |
 | NV-0708 | P1 | Done (MVP) | 跨部门共享角色权限 | 策略组共享和共享审批申请支持 `viewer/editor`；共享部门 `viewer` 可查看共享策略组并作为额度策略目标，`editor` 才可维护本部门 scope 内成员；旧共享默认 `editor` 兼容既有行为 |
 
-当前 V1.7 已交付最小可用 RBAC 闭环：后端企业治理 API 改为 capability 分组鉴权，前端入口和页签按 `/api/user/self` 的 `permissions.enterprise_governance` 控制；审批、财务和审计入口可分别授权；部门管理员按本部门及子部门 scope 管理成员、部门 scoped 策略组、共享策略组、额度策略、审批、用量和审计日志；策略组成员支持 `viewer/editor` 角色；跨部门共享策略组支持有效期控制、共享申请审批和共享 viewer/editor 角色权限；项目管理员按 owner 或项目 admin 成员 scope 管理项目，项目 member 成员仅能查看 scope 内项目、成员、用量和审计；财务视图支持按筛选导出 CSV。下一步可进入 V1.6 高级策略动作的持久化增强。
+当前 V1.7 已交付最小可用 RBAC 闭环：后端企业治理 API 改为 capability 分组鉴权，前端入口和页签按 `/api/user/self` 的 `permissions.enterprise_governance` 控制；审批、财务和审计入口可分别授权；部门管理员按本部门及子部门 scope 管理成员、部门 scoped 策略组、共享策略组、额度策略、审批、用量和审计日志；策略组成员支持 `viewer/editor` 角色；跨部门共享策略组支持有效期控制、共享申请审批和共享 viewer/editor 角色权限；项目管理员按 owner 或项目 admin 成员 scope 管理项目，项目 member 成员仅能查看 scope 内项目、成员、用量和审计；财务视图支持按筛选导出 CSV。V1.6 shared_pool 持久化增强已补齐独立池状态、借用归属、容量不足阻断和结算/退款归还；下一步可继续做 queue 异步执行或共享池管理 UI/趋势报表。
 
 ## 推荐排期
 
