@@ -354,6 +354,28 @@ export type EnterpriseAuditLog = {
   created_at: number
 }
 
+export type EnterpriseAnomalyProtection = {
+  id: number
+  enterprise_id: number
+  protection_key: string
+  reason: 'request_spike' | 'cost_spike' | 'failure_rate' | string
+  status: 'active' | 'expired' | string
+  detected_at: number
+  protected_until: number
+  payload_json: string
+  created_at: number
+  updated_at: number
+}
+
+export type EnterpriseAnomalyProtectionTrendItem = {
+  bucket_start: number
+  reason: string
+  protection_count: number
+  active_count: number
+  expired_count: number
+  max_protected_until: number
+}
+
 export type EnterpriseQueueAdmission = {
   id: number
   request_id: string
@@ -749,6 +771,25 @@ export type EnterpriseAuditLogParams = {
   request_id?: string
   start_time?: number
   end_time?: number
+}
+
+export type EnterpriseAnomalyProtectionParams = {
+  p?: number
+  page_size?: number
+  status?: string
+  reason?: string
+  protection_key?: string
+  start_time?: number
+  end_time?: number
+}
+
+export type EnterpriseAnomalyProtectionTrendParams = {
+  status?: string
+  reason?: string
+  protection_key?: string
+  start_time?: number
+  end_time?: number
+  bucket_seconds?: number
 }
 
 export type EnterpriseQueueAdmissionParams = {

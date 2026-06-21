@@ -187,6 +187,10 @@ func TestEnterpriseRBACReadOnlyRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK, financeSharedPoolBorrows.Code)
 	require.False(t, decodeEnterpriseAuthResponse(t, financeSharedPoolBorrows).Success)
 
+	financeAnomalyProtections := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/anomaly-protections", "", financeCookies, financeUserId)
+	require.Equal(t, http.StatusOK, financeAnomalyProtections.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, financeAnomalyProtections).Success)
+
 	financeManage := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/current", `{
     "name": "finance cannot manage",
     "timezone": "Asia/Shanghai",
@@ -210,6 +214,14 @@ func TestEnterpriseRBACReadOnlyRoles(t *testing.T) {
 	auditSharedPoolBorrows := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/shared-pool-borrows", "", auditCookies, auditUserId)
 	require.Equal(t, http.StatusOK, auditSharedPoolBorrows.Code)
 	require.True(t, decodeEnterpriseAuthResponse(t, auditSharedPoolBorrows).Success)
+
+	auditAnomalyProtections := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/anomaly-protections", "", auditCookies, auditUserId)
+	require.Equal(t, http.StatusOK, auditAnomalyProtections.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, auditAnomalyProtections).Success)
+
+	auditAnomalyTrends := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/anomaly-protection-trends", "", auditCookies, auditUserId)
+	require.Equal(t, http.StatusOK, auditAnomalyTrends.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, auditAnomalyTrends).Success)
 
 	auditQueueCancel := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/queue-admissions/1/cancel", "", auditCookies, auditUserId)
 	require.Equal(t, http.StatusOK, auditQueueCancel.Code)

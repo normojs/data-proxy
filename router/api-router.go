@@ -524,6 +524,8 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				auditEnterpriseRoute.GET("/notification-outbox", controller.ListEnterpriseNotificationOutbox)
 				auditEnterpriseRoute.GET("/notification-outbox/worker-metrics", controller.GetEnterpriseNotificationOutboxWorkerMetrics)
+				auditEnterpriseRoute.GET("/anomaly-protections", controller.ListEnterpriseGovernanceAnomalyProtections)
+				auditEnterpriseRoute.GET("/anomaly-protection-trends", controller.ListEnterpriseGovernanceAnomalyProtectionTrends)
 			}
 		}
 

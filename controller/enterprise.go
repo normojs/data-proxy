@@ -55,6 +55,15 @@ type enterpriseSharedPoolTrendItem struct {
 	ReturnedValue         int64  `json:"returned_value" gorm:"column:returned_value"`
 }
 
+type enterpriseAnomalyProtectionTrendItem struct {
+	BucketStart       int64  `json:"bucket_start" gorm:"column:bucket_start"`
+	Reason            string `json:"reason"`
+	ProtectionCount   int64  `json:"protection_count" gorm:"column:protection_count"`
+	ActiveCount       int64  `json:"active_count" gorm:"column:active_count"`
+	ExpiredCount      int64  `json:"expired_count" gorm:"column:expired_count"`
+	MaxProtectedUntil int64  `json:"max_protected_until" gorm:"column:max_protected_until"`
+}
+
 type enterprisePolicyGroupRequest struct {
 	Name               string         `json:"name"`
 	Slug               string         `json:"slug"`
@@ -2630,6 +2639,96 @@ func ListEnterpriseGovernanceSharedPoolTrends(c *gin.Context) {
 	common.ApiSuccess(c, rows)
 }
 
+func ListEnterpriseGovernanceAnomalyProtections(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	query := model.DB.Model(&model.EnterpriseGovernanceAnomalyProtection{}).Where("enterprise_id = ?", enterprise.Id)
+	query, err = applyEnterpriseGovernanceAnomalyProtectionFilters(c, query)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var rows []model.EnterpriseGovernanceAnomalyProtection
+	if err := query.Order("detected_at desc, id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&rows).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(rows)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func ListEnterpriseGovernanceAnomalyProtectionTrends(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	now := time.Now().Unix()
+	startTime, err := parseOptionalInt64Query(c, "start_time")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if startTime <= 0 {
+		startTime = now - 14*24*60*60
+	}
+	endTime, err := parseOptionalInt64Query(c, "end_time")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if endTime <= 0 {
+		endTime = now
+	}
+	if startTime > endTime {
+		common.ApiError(c, errors.New("异常保护趋势时间范围无效"))
+		return
+	}
+	bucketSeconds, err := parseOptionalInt64Query(c, "bucket_seconds")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if bucketSeconds <= 0 {
+		bucketSeconds = 24 * 60 * 60
+	}
+	if bucketSeconds < 60*60 {
+		bucketSeconds = 60 * 60
+	}
+	query := model.DB.Model(&model.EnterpriseGovernanceAnomalyProtection{}).
+		Where("enterprise_id = ? AND detected_at >= ? AND detected_at <= ?", enterprise.Id, startTime, endTime)
+	query, err = applyEnterpriseGovernanceAnomalyProtectionFilters(c, query)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var rows []enterpriseAnomalyProtectionTrendItem
+	if err := query.
+		Select(
+			"detected_at - (detected_at % ?) AS bucket_start, reason, COUNT(*) AS protection_count, COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS active_count, COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS expired_count, COALESCE(MAX(protected_until), 0) AS max_protected_until",
+			bucketSeconds,
+			model.EnterpriseGovernanceAnomalyProtectionStatusActive,
+			model.EnterpriseGovernanceAnomalyProtectionStatusExpired,
+		).
+		Group("bucket_start, reason").
+		Order("bucket_start asc, reason asc").
+		Scan(&rows).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, rows)
+}
+
 func ListEnterpriseGovernanceSharedPools(c *gin.Context) {
 	enterprise, err := currentEnterprise()
 	if err != nil {
@@ -3348,6 +3447,29 @@ func applyEnterpriseSharedPoolBorrowScope(query *gorm.DB, enterpriseId int, acce
 		return applyProjectQueueAdmissionScope(query, enterpriseId, access)
 	}
 	return query
+}
+
+func applyEnterpriseGovernanceAnomalyProtectionFilters(c *gin.Context, query *gorm.DB) (*gorm.DB, error) {
+	if status := strings.TrimSpace(c.Query("status")); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if reason := strings.TrimSpace(c.Query("reason")); reason != "" {
+		query = query.Where("reason = ?", reason)
+	}
+	if protectionKey := strings.TrimSpace(c.Query("protection_key")); protectionKey != "" {
+		query = query.Where("protection_key = ?", protectionKey)
+	}
+	if startTime, err := parseOptionalInt64Query(c, "start_time"); err != nil {
+		return nil, err
+	} else if startTime > 0 {
+		query = query.Where("detected_at >= ?", startTime)
+	}
+	if endTime, err := parseOptionalInt64Query(c, "end_time"); err != nil {
+		return nil, err
+	} else if endTime > 0 {
+		query = query.Where("detected_at <= ?", endTime)
+	}
+	return query, nil
 }
 
 func departmentScopedSharedPoolPolicyIds(enterpriseId int, access service.EnterpriseAccess) *gorm.DB {

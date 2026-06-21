@@ -120,6 +120,8 @@ import {
   disableEnterprisePolicyGroup,
   disableEnterpriseProject,
   disableEnterpriseQuotaPolicy,
+  getEnterpriseAnomalyProtectionTrends,
+  getEnterpriseAnomalyProtections,
   getEnterpriseAuditLogs,
   getEnterpriseCurrent,
   getEnterpriseMembers,
@@ -166,6 +168,8 @@ import { QuotaRequestDetailSheet } from './components/quota-request-detail-sheet
 import type {
   ApiResponse,
   Enterprise,
+  EnterpriseAnomalyProtection,
+  EnterpriseAnomalyProtectionTrendItem,
   EnterpriseAnomalyThrottleConfig,
   EnterpriseAuditLog,
   EnterpriseMember,
@@ -632,6 +636,70 @@ function summarizeSharedPoolTrends(items: EnterpriseSharedPoolTrendItem[]) {
     }),
     { borrowCount: 0, borrowed: 0, settled: 0, returned: 0 }
   )
+}
+
+function summarizeAnomalyProtectionTrends(
+  items: EnterpriseAnomalyProtectionTrendItem[]
+) {
+  return items.reduce(
+    (summary, item) => ({
+      protectionCount: summary.protectionCount + item.protection_count,
+      activeCount: summary.activeCount + item.active_count,
+      expiredCount: summary.expiredCount + item.expired_count,
+      maxProtectedUntil: Math.max(
+        summary.maxProtectedUntil,
+        item.max_protected_until
+      ),
+    }),
+    {
+      protectionCount: 0,
+      activeCount: 0,
+      expiredCount: 0,
+      maxProtectedUntil: 0,
+    }
+  )
+}
+
+function formatAnomalyReason(reason: string) {
+  switch (reason) {
+    case 'request_spike':
+      return 'Request Spike'
+    case 'cost_spike':
+      return 'Cost Spike'
+    case 'failure_rate':
+      return 'Failure Rate'
+    default:
+      return reason || '-'
+  }
+}
+
+function formatAnomalyPayloadSummary(payloadJson: string | undefined) {
+  const payload = parseAuditObject(payloadJson)
+  const triggerObjects = [
+    ...auditObjectList(payload, 'triggers'),
+    ...auditObjectList(payload, 'anomaly_triggers'),
+  ]
+  const triggerReasons = Array.from(
+    new Set(
+      triggerObjects
+        .map((trigger) => formatAnomalyReason(auditString(trigger, 'reason')))
+        .filter(Boolean)
+    )
+  )
+  const triggerList = auditList(payload, 'anomaly_triggers')
+  const cooldown = auditNumber(payload, 'cooldown_seconds')
+  const dryRun = auditBoolean(payload, 'dry_run')
+  return [
+    triggerReasons.length > 0
+      ? `triggers=${triggerReasons.join(', ')}`
+      : triggerList
+        ? `triggers=${triggerList}`
+        : '',
+    cooldown !== undefined ? `cooldown=${cooldown}s` : '',
+    dryRun !== undefined ? `dry_run=${dryRun ? 'yes' : 'no'}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function getStatusLabel(status: number) {
@@ -3612,6 +3680,7 @@ function AuditTab(props: {
           onView={setSelectedLog}
           onRequestQuota={props.onRequestQuota}
         />
+        <AnomalyProtectionsPanel />
         <QueueAdmissionsPanel
           admissions={props.queueAdmissions}
           query={props.queueAdmissionsQuery}
@@ -3916,6 +3985,256 @@ function DryRunObservationsPanel(props: {
   )
 }
 
+function AnomalyProtectionsPanel() {
+  const { t } = useTranslation()
+  const [status, setStatus] = useState('')
+  const [reason, setReason] = useState('')
+  const [protectionKey, setProtectionKey] = useState('')
+  const [startDate, setStartDate] = useState(() => daysAgoInputValue(14))
+  const [endDate, setEndDate] = useState(() => todayInputValue())
+  const [page, setPage] = useState(1)
+  const startTime = startDate ? startOfDayUnix(startDate) : undefined
+  const endTime = endDate ? endOfDayUnix(endDate) : undefined
+
+  const protectionsQuery = useQuery({
+    queryKey: [
+      'enterprise',
+      'anomaly-protections',
+      page,
+      status,
+      reason,
+      protectionKey,
+      startTime,
+      endTime,
+    ],
+    queryFn: () =>
+      getEnterpriseAnomalyProtections({
+        p: page,
+        page_size: PAGE_SIZE,
+        status,
+        reason,
+        protection_key: protectionKey,
+        start_time: startTime,
+        end_time: endTime,
+      }),
+  })
+  const trendsQuery = useQuery({
+    queryKey: [
+      'enterprise',
+      'anomaly-protection-trends',
+      status,
+      reason,
+      protectionKey,
+      startTime,
+      endTime,
+    ],
+    queryFn: () =>
+      getEnterpriseAnomalyProtectionTrends({
+        status,
+        reason,
+        protection_key: protectionKey,
+        start_time: startTime,
+        end_time: endTime,
+        bucket_seconds: 24 * 60 * 60,
+      }),
+  })
+  const protections = getPageItems(protectionsQuery.data)
+  const trends = trendsQuery.data?.data ?? []
+  const trendTotals = summarizeAnomalyProtectionTrends(trends)
+
+  return (
+    <div className='bg-muted/20 rounded-lg border'>
+      <div className='flex flex-wrap items-start justify-between gap-3 border-b px-3 py-2.5'>
+        <div className='min-w-0'>
+          <h4 className='text-sm font-semibold'>{t('Anomaly Protections')}</h4>
+          <p className='text-muted-foreground mt-1 text-xs'>
+            {t(
+              'Enterprise anomaly throttle protections and recent trend summary.'
+            )}
+          </p>
+        </div>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={() => {
+            void protectionsQuery.refetch()
+            void trendsQuery.refetch()
+          }}
+          disabled={protectionsQuery.isLoading || trendsQuery.isLoading}
+        >
+          <RefreshCcw className='size-4' />
+          {t('Refresh')}
+        </Button>
+      </div>
+      <div className='space-y-3 p-3'>
+        <FilterBar>
+          <Select
+            value={status || ALL_VALUE}
+            onValueChange={(value) => {
+              setStatus(normalizeOptionalSelectValue(value))
+              setPage(1)
+            }}
+          >
+            <SelectTrigger className='w-40'>
+              <SelectValue placeholder={t('Status')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                <SelectItem value={ALL_VALUE}>{t('All Statuses')}</SelectItem>
+                <SelectItem value='active'>{t('Active')}</SelectItem>
+                <SelectItem value='expired'>{t('Expired')}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Select
+            value={reason || ALL_VALUE}
+            onValueChange={(value) => {
+              setReason(normalizeOptionalSelectValue(value))
+              setPage(1)
+            }}
+          >
+            <SelectTrigger className='w-44'>
+              <SelectValue placeholder={t('Reason')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                <SelectItem value={ALL_VALUE}>{t('All Reasons')}</SelectItem>
+                <SelectItem value='request_spike'>
+                  {t('Request Spike')}
+                </SelectItem>
+                <SelectItem value='cost_spike'>{t('Cost Spike')}</SelectItem>
+                <SelectItem value='failure_rate'>
+                  {t('Failure Rate')}
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Input
+            value={protectionKey}
+            onChange={(event) => {
+              setProtectionKey(event.target.value)
+              setPage(1)
+            }}
+            placeholder={t('Protection Key')}
+            className='w-52'
+          />
+          <Input
+            type='date'
+            value={startDate}
+            onChange={(event) => {
+              setStartDate(event.target.value)
+              setPage(1)
+            }}
+            className='w-40'
+          />
+          <Input
+            type='date'
+            value={endDate}
+            onChange={(event) => {
+              setEndDate(event.target.value)
+              setPage(1)
+            }}
+            className='w-40'
+          />
+        </FilterBar>
+        <div className='grid gap-2 md:grid-cols-4'>
+          <StatCell
+            icon={ShieldCheck}
+            label='Protections'
+            value={formatNumber(trendTotals.protectionCount)}
+          />
+          <StatCell
+            icon={Activity}
+            label='Active'
+            value={formatNumber(trendTotals.activeCount)}
+          />
+          <StatCell
+            icon={Check}
+            label='Expired'
+            value={formatNumber(trendTotals.expiredCount)}
+          />
+          <StatCell
+            icon={TimerReset}
+            label='Latest Until'
+            value={formatDateTime(trendTotals.maxProtectedUntil)}
+          />
+        </div>
+        <QueryState
+          query={{
+            data: protectionsQuery.data,
+            isLoading: protectionsQuery.isLoading,
+            isError: protectionsQuery.isError,
+            error: protectionsQuery.error,
+            refetch: protectionsQuery.refetch,
+          }}
+          empty={protections.length === 0}
+          emptyTitle='No anomaly protections'
+          emptyDescription='Anomaly throttle protection records will appear here after suspicious traffic is detected.'
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('Detected')}</TableHead>
+                <TableHead>{t('Status')}</TableHead>
+                <TableHead>{t('Reason')}</TableHead>
+                <TableHead>{t('Protection Key')}</TableHead>
+                <TableHead>{t('Protected Until')}</TableHead>
+                <TableHead>{t('Payload')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {protections.map((protection: EnterpriseAnomalyProtection) => (
+                <TableRow key={protection.id}>
+                  <TableCell>
+                    {formatDateTime(protection.detected_at)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        protection.status === 'active' ? 'outline' : 'secondary'
+                      }
+                      className={cn(
+                        protection.status === 'active' &&
+                          'border-destructive/40 text-destructive'
+                      )}
+                    >
+                      {protection.status || '-'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {t(formatAnomalyReason(protection.reason))}
+                  </TableCell>
+                  <TableCell>
+                    <span className='text-muted-foreground font-mono text-xs break-all'>
+                      {protection.protection_key || '-'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {formatDateTime(protection.protected_until)}
+                  </TableCell>
+                  <TableCell>
+                    <span className='text-muted-foreground text-xs break-words'>
+                      {formatAnomalyPayloadSummary(protection.payload_json) ||
+                        '-'}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <Pager
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={getPageTotal(protectionsQuery.data)}
+            onPageChange={setPage}
+          />
+        </QueryState>
+      </div>
+    </div>
+  )
+}
+
 function QueueAdmissionsPanel(props: {
   admissions: EnterpriseQueueAdmission[]
   query: QueryResult<PageInfo<EnterpriseQueueAdmission>>
@@ -4207,11 +4526,7 @@ function SharedPoolsPanel(props: { canManage: boolean }) {
   const borrowEndTime = borrowEndDate ? endOfDayUnix(borrowEndDate) : undefined
 
   const configsQuery = useQuery({
-    queryKey: [
-      'enterprise',
-      'shared-pool-configs',
-      configPage,
-    ],
+    queryKey: ['enterprise', 'shared-pool-configs', configPage],
     enabled: props.canManage,
     queryFn: () =>
       getEnterpriseSharedPoolConfigs({
@@ -4355,7 +4670,7 @@ function SharedPoolsPanel(props: { canManage: boolean }) {
       </div>
       <div className='space-y-4 p-3'>
         {props.canManage ? (
-          <div className='space-y-3 rounded-md border bg-background p-3'>
+          <div className='bg-background space-y-3 rounded-md border p-3'>
             <div>
               <h5 className='text-sm font-medium'>{t('Capacity Config')}</h5>
               <p className='text-muted-foreground mt-1 text-xs'>

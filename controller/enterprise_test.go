@@ -913,6 +913,78 @@ func TestEnterpriseSharedPoolConfigAndTrendEndpoints(t *testing.T) {
 	assert.EqualValues(t, 5, trend["returned_value"])
 }
 
+func TestEnterpriseAnomalyProtectionListAndTrendEndpoints(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceAnomalyProtection{
+		{
+			EnterpriseId:   enterprise.Id,
+			ProtectionKey:  "enterprise:1",
+			Reason:         "request_spike",
+			Status:         model.EnterpriseGovernanceAnomalyProtectionStatusActive,
+			DetectedAt:     1700000000,
+			ProtectedUntil: 1700007200,
+			PayloadJson:    `{"anomaly_reason":"request_spike","dry_run":false}`,
+		},
+		{
+			EnterpriseId:   enterprise.Id,
+			ProtectionKey:  "enterprise:1",
+			Reason:         "request_spike",
+			Status:         model.EnterpriseGovernanceAnomalyProtectionStatusActive,
+			DetectedAt:     1700003600,
+			ProtectedUntil: 1700010800,
+			PayloadJson:    `{"anomaly_reason":"request_spike","dry_run":false}`,
+		},
+		{
+			EnterpriseId:   enterprise.Id,
+			ProtectionKey:  "enterprise:1",
+			Reason:         "cost_spike",
+			Status:         model.EnterpriseGovernanceAnomalyProtectionStatusExpired,
+			DetectedAt:     1700080000,
+			ProtectedUntil: 1700083600,
+			PayloadJson:    `{"anomaly_reason":"cost_spike","dry_run":false}`,
+		},
+	}).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(
+		t,
+		http.MethodGet,
+		"/api/enterprise/anomaly-protections?status=active&reason=request_spike&protection_key=enterprise:1&start_time=1699999000&end_time=1700001000",
+		"",
+	)
+	ListEnterpriseGovernanceAnomalyProtections(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.EqualValues(t, 1, response.Data["total"])
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, model.EnterpriseGovernanceAnomalyProtectionStatusActive, item["status"])
+	assert.Equal(t, "request_spike", item["reason"])
+	assert.EqualValues(t, 1700007200, item["protected_until"])
+
+	ctx, recorder = newEnterpriseControllerContext(
+		t,
+		http.MethodGet,
+		"/api/enterprise/anomaly-protection-trends?status=active&reason=request_spike&start_time=1699990000&end_time=1700100000&bucket_seconds=86400",
+		"",
+	)
+	ListEnterpriseGovernanceAnomalyProtectionTrends(ctx)
+	listResponse := decodeEnterpriseControllerListResponse(t, recorder)
+	require.True(t, listResponse.Success, listResponse.Message)
+	require.Len(t, listResponse.Data, 1)
+	trend, ok := listResponse.Data[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "request_spike", trend["reason"])
+	assert.EqualValues(t, 2, trend["protection_count"])
+	assert.EqualValues(t, 2, trend["active_count"])
+	assert.EqualValues(t, 0, trend["expired_count"])
+	assert.EqualValues(t, 1700010800, trend["max_protected_until"])
+}
+
 func TestEnterpriseSharedPoolBorrowFilters(t *testing.T) {
 	setupEnterpriseControllerTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()

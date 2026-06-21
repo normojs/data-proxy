@@ -21,6 +21,10 @@ import type {
   ApiResponse,
   Enterprise,
   EnterpriseAnomalyThrottleConfig,
+  EnterpriseAnomalyProtection,
+  EnterpriseAnomalyProtectionParams,
+  EnterpriseAnomalyProtectionTrendItem,
+  EnterpriseAnomalyProtectionTrendParams,
   EnterpriseAuditLog,
   EnterpriseAuditLogParams,
   EnterpriseListParams,
@@ -519,6 +523,24 @@ export async function getEnterpriseAuditLogs(
   const res = await api.get<ApiResponse<PageInfo<EnterpriseAuditLog>>>(
     withQuery(`${ENTERPRISE_API}/audit-logs`, params)
   )
+  return res.data
+}
+
+export async function getEnterpriseAnomalyProtections(
+  params: EnterpriseAnomalyProtectionParams = {}
+) {
+  const res = await api.get<ApiResponse<PageInfo<EnterpriseAnomalyProtection>>>(
+    withQuery(`${ENTERPRISE_API}/anomaly-protections`, params)
+  )
+  return res.data
+}
+
+export async function getEnterpriseAnomalyProtectionTrends(
+  params: EnterpriseAnomalyProtectionTrendParams = {}
+) {
+  const res = await api.get<
+    ApiResponse<EnterpriseAnomalyProtectionTrendItem[]>
+  >(withQuery(`${ENTERPRISE_API}/anomaly-protection-trends`, params))
   return res.data
 }
 
