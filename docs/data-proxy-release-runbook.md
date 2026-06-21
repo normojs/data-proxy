@@ -4,7 +4,7 @@
 
 ## 发布前检查
 
-1. 确认 GitHub `CI` workflow 在目标 commit 上通过。
+1. 确认 GitHub `CI` workflow 在目标 commit 上通过，至少包含 `Backend`、`Frontend`、`Snapless Connected App` 和 `Fusion Benchmark` jobs。
 2. 本地或 CI 至少覆盖：
    - `go test ./model ./controller ./service ./router ./oauth`
    - `cd web/default && bun run typecheck`

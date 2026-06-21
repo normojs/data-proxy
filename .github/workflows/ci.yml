@@ -116,6 +116,47 @@ jobs:
       - name: Check whitespace
         run: git diff --check
 
+  snapless-connected-app:
+    name: Snapless Connected App
+    runs-on: ubuntu-latest
+    env:
+      GIN_MODE: test
+      NODE_OPTIONS: "--max-old-space-size=4096"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ">=1.25.1"
+          cache-dependency-path: go.sum
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Run Snapless Connected App preflight
+        run: scripts/snapless-connected-app-preflight.sh
+
   fusion-benchmark:
     name: Fusion Benchmark
     runs-on: ubuntu-latest
