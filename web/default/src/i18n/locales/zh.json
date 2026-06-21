@@ -5276,6 +5276,8 @@
     "Queue": "排队",
     "Shared Pool": "共享池",
     "enterprise_governance.policy_action_observed": "已观测到企业策略动作",
+    "enterprise_governance.queue_timeout": "企业队列等待超时",
+    "enterprise_governance.queue_canceled": "企业队列请求已取消",
     "enterprise_governance.shared_pool_reserved": "已预留企业共享池",
     "enterprise_governance.anomaly_throttled": "企业异常限流已生效",
     "notification.enterprise_quota_request.title.pending": "额度申请待审批",

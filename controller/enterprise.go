@@ -2409,6 +2409,31 @@ func ListEnterpriseGovernanceQueueAdmissions(c *gin.Context) {
 	common.ApiSuccess(c, pageInfo)
 }
 
+func CancelEnterpriseGovernanceQueueAdmission(c *gin.Context) {
+	id, err := parsePathInt64(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var before model.EnterpriseGovernanceQueueAdmission
+	if err := model.DB.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&before).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	after, err := service.CancelEnterpriseGovernanceQueuedAdmission(before)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordEnterpriseAudit(c, enterprise.Id, "queue_admission.cancel", "enterprise_governance_queue_admission", int(id), before, after)
+	common.ApiSuccess(c, after)
+}
+
 func ListEnterpriseNotificationOutbox(c *gin.Context) {
 	enterprise, err := currentEnterprise()
 	if err != nil {

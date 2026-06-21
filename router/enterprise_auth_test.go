@@ -180,6 +180,10 @@ func TestEnterpriseRBACReadOnlyRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK, auditQueueAdmissions.Code)
 	require.True(t, decodeEnterpriseAuthResponse(t, auditQueueAdmissions).Success)
 
+	auditQueueCancel := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/queue-admissions/1/cancel", "", auditCookies, auditUserId)
+	require.Equal(t, http.StatusOK, auditQueueCancel.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, auditQueueCancel).Success)
+
 	auditUsage := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/usage/summary", "", auditCookies, auditUserId)
 	require.Equal(t, http.StatusOK, auditUsage.Code)
 	require.False(t, decodeEnterpriseAuthResponse(t, auditUsage).Success)

@@ -426,6 +426,15 @@ func applyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 			types.ErrOptionWithNoRecordErrorLog(),
 		)
 	}
+	if errors.Is(err, service.ErrEnterpriseGovernanceQueueCanceled) {
+		return nil, types.NewErrorWithStatusCode(
+			fmt.Errorf("%s", common.TranslateMessage(c, i18n.MsgEnterpriseGovernanceQueueCanceled)),
+			types.ErrorCodeEnterpriseGovernanceQueueCanceled,
+			http.StatusConflict,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
+	}
 	return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 }
 

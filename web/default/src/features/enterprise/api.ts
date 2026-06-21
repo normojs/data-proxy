@@ -522,6 +522,13 @@ export async function getEnterpriseQueueAdmissions(
   return res.data
 }
 
+export async function cancelEnterpriseQueueAdmission(id: number) {
+  const res = await api.post<ApiResponse<EnterpriseQueueAdmission>>(
+    `${ENTERPRISE_API}/queue-admissions/${id}/cancel`
+  )
+  return res.data
+}
+
 export async function getEnterpriseWebhooks() {
   const res = await api.get<ApiResponse<EnterpriseWebhook[]>>(
     `${ENTERPRISE_API}/webhooks`

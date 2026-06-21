@@ -198,6 +198,71 @@ func TestApplyEnterpriseGovernanceQueueCancelUpdatesQueuedAdmission(t *testing.T
 	assert.EqualValues(t, 1, count)
 }
 
+func TestCancelEnterpriseGovernanceQueuedAdmissionCancelsWaitingRequest(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 200*time.Millisecond)
+	gin.SetMode(gin.TestMode)
+
+	relayInfo, _ := prepareEnterpriseGovernanceQueueRequest(t, "req-enterprise-queue-held-admin-cancel", 1033, 123)
+	heldCtx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-queue-held-admin-cancel", 731)
+	require.Nil(t, PreCheckEnterpriseGovernance(heldCtx, relayInfo, 20))
+	heldResult, heldRelease, err := ApplyEnterpriseGovernanceQueue(heldCtx, relayInfo)
+	require.NoError(t, err)
+	require.NotNil(t, heldRelease)
+	defer heldRelease()
+	require.Equal(t, enterpriseQueueStatusAdmitted, heldResult.Status)
+
+	waitingRelayInfo := *relayInfo
+	waitingRelayInfo.RequestId = "req-enterprise-queue-admin-canceled"
+	waitingCtx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-queue-admin-canceled", 732)
+	require.Nil(t, PreCheckEnterpriseGovernance(waitingCtx, &waitingRelayInfo, 20))
+
+	type queueOutcome struct {
+		result  EnterpriseGovernanceQueueResult
+		release func()
+		err     error
+	}
+	done := make(chan queueOutcome, 1)
+	go func() {
+		result, release, err := ApplyEnterpriseGovernanceQueue(waitingCtx, &waitingRelayInfo)
+		done <- queueOutcome{result: result, release: release, err: err}
+	}()
+
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.Eventually(t, func() bool {
+		err := model.DB.Where("request_id = ?", "req-enterprise-queue-admin-canceled").First(&admission).Error
+		return err == nil && admission.Status == enterpriseQueueStatusQueued
+	}, time.Second, 5*time.Millisecond)
+
+	after, err := CancelEnterpriseGovernanceQueuedAdmission(admission)
+	require.NoError(t, err)
+	assert.Equal(t, enterpriseQueueStatusCanceled, after.Status)
+	assert.Equal(t, "enterprise_governance.queue_canceled", after.UserMessageKey)
+
+	var outcome queueOutcome
+	select {
+	case outcome = <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for admin queue cancellation")
+	}
+	require.ErrorIs(t, outcome.err, ErrEnterpriseGovernanceQueueCanceled)
+	assert.Nil(t, outcome.release)
+	assert.Equal(t, enterpriseQueueStatusCanceled, outcome.result.Status)
+	assert.Equal(t, "canceled", waitingCtx.Writer.Header().Get(enterpriseQueueStatusHeader))
+
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-admin-canceled").First(&admission).Error)
+	assert.Equal(t, enterpriseQueueStatusCanceled, admission.Status)
+	assert.Greater(t, admission.CanceledAt, int64(0))
+	assert.Equal(t, "enterprise_governance.queue_canceled", admission.UserMessageKey)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("request_id = ? AND action = ?", "req-enterprise-queue-admin-canceled", enterpriseGovernanceAuditActionQueueAdmission).
+		First(&audit).Error)
+	auditAfter := enterpriseAuditAfterForTest(t, audit)
+	assert.Equal(t, enterpriseQueueStatusCanceled, auditAfter["queue_status"])
+	assert.Equal(t, "enterprise_governance.queue_canceled", auditAfter["user_message_key"])
+}
+
 func prepareEnterpriseGovernanceQueueRequest(t *testing.T, requestId string, userId int, tokenId int) (*relaycommon.RelayInfo, model.EnterpriseQuotaPolicy) {
 	t.Helper()
 	enterprise, err := model.GetDefaultEnterprise()
@@ -237,10 +302,12 @@ func resetEnterpriseGovernanceQueueForTest(t *testing.T, maxConcurrent int, time
 	enterprisePolicyQueueMaxConcurrent = maxConcurrent
 	enterprisePolicyQueueTimeout = timeout
 	enterprisePolicyQueues = syncMapForEnterpriseGovernanceQueueTest()
+	enterprisePolicyQueueCancelers = syncMapForEnterpriseGovernanceQueueTest()
 	t.Cleanup(func() {
 		enterprisePolicyQueueMaxConcurrent = originalMaxConcurrent
 		enterprisePolicyQueueTimeout = originalTimeout
 		enterprisePolicyQueues = syncMapForEnterpriseGovernanceQueueTest()
+		enterprisePolicyQueueCancelers = syncMapForEnterpriseGovernanceQueueTest()
 	})
 }
 

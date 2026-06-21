@@ -4774,6 +4774,8 @@
     "Queue": "Queue",
     "Shared Pool": "Shared Pool",
     "enterprise_governance.policy_action_observed": "Enterprise policy action observed",
+    "enterprise_governance.queue_timeout": "Enterprise queue timed out",
+    "enterprise_governance.queue_canceled": "Enterprise queue request canceled",
     "enterprise_governance.shared_pool_reserved": "Enterprise shared pool reserved",
     "enterprise_governance.anomaly_throttled": "Enterprise anomaly throttle active",
     "notification.enterprise_quota_request.title.pending": "Quota request pending",

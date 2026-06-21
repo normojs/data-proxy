@@ -33,9 +33,12 @@ var (
 	enterprisePolicyQueueMaxConcurrent = 1
 	enterprisePolicyQueueTimeout       = 30 * time.Second
 	enterprisePolicyQueues             sync.Map
+	enterprisePolicyQueueCancelers     sync.Map
 )
 
 var ErrEnterpriseGovernanceQueueTimeout = errors.New("enterprise governance queue timeout")
+var ErrEnterpriseGovernanceQueueCanceled = errors.New("enterprise governance queue canceled")
+var ErrEnterpriseGovernanceQueueAdmissionNotCancelable = errors.New("enterprise governance queue admission is not queued on this node")
 
 type EnterpriseGovernanceQueueResult struct {
 	Applied   bool
@@ -76,6 +79,14 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 	queue := getEnterprisePolicyQueue(queueKey)
 	start := time.Now()
 	admission := createEnterpriseGovernanceQueueAdmission(c, enterpriseCtx, relayInfo, decision, result, queueKey)
+	cancelRegistration := registerEnterpriseGovernanceQueueCancellation(admission)
+	if cancelRegistration != nil {
+		defer cancelRegistration.Unregister()
+	}
+	var queueCanceled <-chan struct{}
+	if cancelRegistration != nil {
+		queueCanceled = cancelRegistration.Done()
+	}
 	timer := time.NewTimer(enterprisePolicyQueueTimeout)
 	defer timer.Stop()
 	var requestDone <-chan struct{}
@@ -134,6 +145,16 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 			err = c.Request.Context().Err()
 		}
 		return result, nil, err
+	case <-queueCanceled:
+		now := time.Now()
+		result.Status = enterpriseQueueStatusCanceled
+		result.WaitMs = durationMillis(now.Sub(start))
+		setEnterpriseQueueHeaders(c, result)
+		updateEnterpriseGovernanceQueueAdmission(c, admission, result, map[string]any{
+			"canceled_at": now.Unix(),
+		})
+		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
+		return result, nil, ErrEnterpriseGovernanceQueueCanceled
 	}
 }
 
@@ -295,7 +316,86 @@ func enterpriseQueueUserMessageKey(status string) string {
 	if status == enterpriseQueueStatusTimeout {
 		return "enterprise_governance.queue_timeout"
 	}
+	if status == enterpriseQueueStatusCanceled {
+		return "enterprise_governance.queue_canceled"
+	}
 	return "enterprise_governance.policy_action_observed"
+}
+
+type enterpriseQueueCancelRegistration struct {
+	id   int64
+	done chan struct{}
+	once sync.Once
+}
+
+func registerEnterpriseGovernanceQueueCancellation(admission *model.EnterpriseGovernanceQueueAdmission) *enterpriseQueueCancelRegistration {
+	if admission == nil || admission.Id <= 0 {
+		return nil
+	}
+	registration := &enterpriseQueueCancelRegistration{
+		id:   admission.Id,
+		done: make(chan struct{}),
+	}
+	enterprisePolicyQueueCancelers.Store(admission.Id, registration)
+	return registration
+}
+
+func (registration *enterpriseQueueCancelRegistration) Done() <-chan struct{} {
+	if registration == nil {
+		return nil
+	}
+	return registration.done
+}
+
+func (registration *enterpriseQueueCancelRegistration) Cancel() {
+	if registration == nil {
+		return
+	}
+	registration.once.Do(func() {
+		close(registration.done)
+	})
+}
+
+func (registration *enterpriseQueueCancelRegistration) Unregister() {
+	if registration == nil {
+		return
+	}
+	enterprisePolicyQueueCancelers.Delete(registration.id)
+}
+
+func CancelEnterpriseGovernanceQueuedAdmission(admission model.EnterpriseGovernanceQueueAdmission) (model.EnterpriseGovernanceQueueAdmission, error) {
+	if admission.Id <= 0 || admission.Status != enterpriseQueueStatusQueued {
+		return admission, ErrEnterpriseGovernanceQueueAdmissionNotCancelable
+	}
+	value, ok := enterprisePolicyQueueCancelers.Load(admission.Id)
+	if !ok {
+		return admission, ErrEnterpriseGovernanceQueueAdmissionNotCancelable
+	}
+	registration, ok := value.(*enterpriseQueueCancelRegistration)
+	if !ok || registration == nil {
+		return admission, ErrEnterpriseGovernanceQueueAdmissionNotCancelable
+	}
+	now := time.Now().Unix()
+	result := model.DB.Model(&model.EnterpriseGovernanceQueueAdmission{}).
+		Where("id = ? AND status = ?", admission.Id, enterpriseQueueStatusQueued).
+		Updates(map[string]any{
+			"status":           enterpriseQueueStatusCanceled,
+			"canceled_at":      now,
+			"user_message_key": enterpriseQueueUserMessageKey(enterpriseQueueStatusCanceled),
+			"updated_at":       now,
+		})
+	if result.Error != nil {
+		return admission, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return admission, ErrEnterpriseGovernanceQueueAdmissionNotCancelable
+	}
+	registration.Cancel()
+	var after model.EnterpriseGovernanceQueueAdmission
+	if err := model.DB.Where("id = ?", admission.Id).First(&after).Error; err != nil {
+		return admission, err
+	}
+	return after, nil
 }
 
 func enterpriseGovernanceQueueAuditPayload(c *gin.Context, enterpriseCtx *EnterpriseContext, relayInfo *relaycommon.RelayInfo, decision PolicyDecision, result EnterpriseGovernanceQueueResult, requestId string) map[string]any {

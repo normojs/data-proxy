@@ -450,6 +450,7 @@ func SetApiRouter(router *gin.Engine) {
 				manageEnterpriseRoute.GET("/notification-preferences", controller.ListEnterpriseNotificationPreferences)
 				manageEnterpriseRoute.PUT("/notification-preferences", controller.UpdateEnterpriseNotificationPreference)
 				manageEnterpriseRoute.POST("/notification-outbox/:id/retry", controller.RetryEnterpriseNotificationOutbox)
+				manageEnterpriseRoute.POST("/queue-admissions/:id/cancel", controller.CancelEnterpriseGovernanceQueueAdmission)
 			}
 
 			departmentManageEnterpriseRoute := enterpriseRoute.Group("")

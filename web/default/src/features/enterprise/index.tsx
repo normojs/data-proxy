@@ -112,6 +112,7 @@ import {
   approveEnterpriseQuotaRequest,
   batchApproveEnterpriseQuotaRequests,
   batchRejectEnterpriseQuotaRequests,
+  cancelEnterpriseQueueAdmission,
   deleteEnterprisePolicyGroupMember,
   deleteEnterpriseProjectMember,
   disableEnterpriseWebhook,
@@ -3553,6 +3554,7 @@ function AuditTab(props: {
   endDate: string
   setEndDate: (value: string) => void
   onRequestQuota: (initialValues: QuotaRequestInitialValues) => void
+  canManageQueue: boolean
 }) {
   const { t } = useTranslation()
   const [selectedLog, setSelectedLog] = useState<EnterpriseAuditLog | null>(
@@ -3574,6 +3576,7 @@ function AuditTab(props: {
         <QueueAdmissionsPanel
           admissions={props.queueAdmissions}
           query={props.queueAdmissionsQuery}
+          canManage={props.canManageQueue}
         />
         <FilterBar>
           <Input
@@ -3859,8 +3862,19 @@ function DryRunObservationsPanel(props: {
 function QueueAdmissionsPanel(props: {
   admissions: EnterpriseQueueAdmission[]
   query: QueryResult<PageInfo<EnterpriseQueueAdmission>>
+  canManage: boolean
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const cancelMutation = useMutation({
+    mutationFn: cancelEnterpriseQueueAdmission,
+    onSuccess: (response) => {
+      if (!response.success) return
+      toast.success(t('Canceled'))
+      queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+      queryClient.invalidateQueries({ queryKey: ['enterprise', 'audit-logs'] })
+    },
+  })
 
   return (
     <div className='bg-muted/20 rounded-lg border'>
@@ -3902,6 +3916,9 @@ function QueueAdmissionsPanel(props: {
                 <TableHead>{t('Scope')}</TableHead>
                 <TableHead className='text-right'>{t('Wait')}</TableHead>
                 <TableHead className='text-right'>{t('Run')}</TableHead>
+                {props.canManage && (
+                  <TableHead className='text-right'>{t('Actions')}</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -3961,6 +3978,28 @@ function QueueAdmissionsPanel(props: {
                         : '-'}
                     </span>
                   </TableCell>
+                  {props.canManage && (
+                    <TableCell>
+                      <div className='flex justify-end'>
+                        {admission.status === 'queued' ? (
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon-sm'
+                            disabled={cancelMutation.isPending}
+                            onClick={() => cancelMutation.mutate(admission.id)}
+                          >
+                            <Ban className='size-3.5' />
+                            <span className='sr-only'>{t('Cancel')}</span>
+                          </Button>
+                        ) : (
+                          <span className='text-muted-foreground text-xs'>
+                            -
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -8881,6 +8920,7 @@ export function EnterpriseGovernance() {
                     setQuotaRequestDialogOpen(true)
                     setActiveTab('quota-requests')
                   }}
+                  canManageQueue={canManageEnterprise}
                 />
               </TabsContent>
             </Tabs>
