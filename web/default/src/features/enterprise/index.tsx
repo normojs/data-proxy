@@ -135,8 +135,10 @@ import {
   getEnterpriseQuotaPolicies,
   getEnterpriseQuotaRequests,
   getEnterpriseQueueAdmissions,
+  getEnterpriseSharedPoolConfigs,
   getEnterpriseSharedPoolBorrows,
   getEnterpriseSharedPools,
+  getEnterpriseSharedPoolTrends,
   getEnterpriseUsageBreakdown,
   getEnterpriseUsageSummary,
   getEnterpriseWebhooks,
@@ -150,6 +152,7 @@ import {
   updateEnterpriseOrgUnit,
   updateEnterprisePolicyGroup,
   upsertEnterpriseProjectMember,
+  upsertEnterpriseSharedPoolConfig,
   updateEnterpriseProject,
   updateEnterpriseQuotaPolicy,
   rejectEnterpriseQuotaRequest,
@@ -195,6 +198,8 @@ import type {
   EnterpriseUsageBreakdownItem,
   EnterpriseSharedPool,
   EnterpriseSharedPoolBorrow,
+  EnterpriseSharedPoolConfig,
+  EnterpriseSharedPoolTrendItem,
   EnterpriseUsageSummary,
   EnterpriseWebhook,
   EnterpriseWebhookPayload,
@@ -615,6 +620,18 @@ function getPageItems<T>(response?: ApiResponse<PageInfo<T>>) {
 
 function getPageTotal<T>(response?: ApiResponse<PageInfo<T>>) {
   return response?.data?.total ?? 0
+}
+
+function summarizeSharedPoolTrends(items: EnterpriseSharedPoolTrendItem[]) {
+  return items.reduce(
+    (summary, item) => ({
+      borrowCount: summary.borrowCount + item.borrow_count,
+      borrowed: summary.borrowed + item.reserved_borrowed_value,
+      settled: summary.settled + item.settled_borrowed_value,
+      returned: summary.returned + item.returned_value,
+    }),
+    { borrowCount: 0, borrowed: 0, settled: 0, returned: 0 }
+  )
 }
 
 function getStatusLabel(status: number) {
@@ -3576,6 +3593,7 @@ function AuditTab(props: {
   setEndDate: (value: string) => void
   onRequestQuota: (initialValues: QuotaRequestInitialValues) => void
   canManageQueue: boolean
+  canManageSharedPool: boolean
 }) {
   const { t } = useTranslation()
   const [selectedLog, setSelectedLog] = useState<EnterpriseAuditLog | null>(
@@ -3616,7 +3634,7 @@ function AuditTab(props: {
           setEndDate={props.setQueueAdmissionEndDate}
           canManage={props.canManageQueue}
         />
-        <SharedPoolsPanel />
+        <SharedPoolsPanel canManage={props.canManageSharedPool} />
         <FilterBar>
           <Input
             value={props.action}
@@ -4151,8 +4169,14 @@ function QueueAdmissionsPanel(props: {
   )
 }
 
-function SharedPoolsPanel() {
+function SharedPoolsPanel(props: { canManage: boolean }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [configPolicyId, setConfigPolicyId] = useState('')
+  const [configMetric, setConfigMetric] = useState('quota')
+  const [configCapacity, setConfigCapacity] = useState('')
+  const [configStatus, setConfigStatus] = useState(String(ENABLED_STATUS))
+  const [configPage, setConfigPage] = useState(1)
   const [poolMetric, setPoolMetric] = useState('')
   const [poolPolicyId, setPoolPolicyId] = useState('')
   const [poolStartDate, setPoolStartDate] = useState(() => daysAgoInputValue(7))
@@ -4182,6 +4206,51 @@ function SharedPoolsPanel() {
     : undefined
   const borrowEndTime = borrowEndDate ? endOfDayUnix(borrowEndDate) : undefined
 
+  const configsQuery = useQuery({
+    queryKey: [
+      'enterprise',
+      'shared-pool-configs',
+      configPage,
+    ],
+    enabled: props.canManage,
+    queryFn: () =>
+      getEnterpriseSharedPoolConfigs({
+        p: configPage,
+        page_size: PAGE_SIZE,
+      }),
+  })
+  const upsertConfigMutation = useMutation({
+    mutationFn: upsertEnterpriseSharedPoolConfig,
+    onSuccess: () => {
+      toast.success(t('Shared pool capacity saved'))
+      setConfigCapacity('')
+      void queryClient.invalidateQueries({
+        queryKey: ['enterprise', 'shared-pool-configs'],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ['enterprise', 'shared-pools'],
+      })
+    },
+    onError: (error: Error) => toast.error(getErrorMessage(error)),
+  })
+  const trendsQuery = useQuery({
+    queryKey: [
+      'enterprise',
+      'shared-pool-trends',
+      poolMetric,
+      poolPolicyIdValue,
+      poolStartTime,
+      poolEndTime,
+    ],
+    queryFn: () =>
+      getEnterpriseSharedPoolTrends({
+        metric: poolMetric,
+        policy_id: poolPolicyIdValue,
+        start_time: poolStartTime,
+        end_time: poolEndTime,
+        bucket_seconds: 24 * 60 * 60,
+      }),
+  })
   const poolsQuery = useQuery({
     queryKey: [
       'enterprise',
@@ -4230,8 +4299,27 @@ function SharedPoolsPanel() {
         end_time: borrowEndTime,
       }),
   })
+  const configs = getPageItems(configsQuery.data)
   const pools = getPageItems(poolsQuery.data)
   const borrows = getPageItems(borrowsQuery.data)
+  const trends = trendsQuery.data?.data ?? []
+  const trendTotals = summarizeSharedPoolTrends(trends)
+  const submitSharedPoolConfig = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const policyId = parsePositiveSearchId(configPolicyId)
+    const capacity = parsePositiveSearchId(configCapacity)
+    const status = parsePositiveSearchId(configStatus)
+    if (!policyId || !capacity) {
+      toast.error(t('Policy ID and capacity are required'))
+      return
+    }
+    upsertConfigMutation.mutate({
+      policy_id: policyId,
+      metric: configMetric,
+      capacity_value: capacity,
+      status: status || ENABLED_STATUS,
+    })
+  }
 
   return (
     <div className='bg-muted/20 rounded-lg border'>
@@ -4249,16 +4337,159 @@ function SharedPoolsPanel() {
           variant='outline'
           size='sm'
           onClick={() => {
+            if (props.canManage) void configsQuery.refetch()
+            void trendsQuery.refetch()
             void poolsQuery.refetch()
             void borrowsQuery.refetch()
           }}
-          disabled={poolsQuery.isLoading || borrowsQuery.isLoading}
+          disabled={
+            configsQuery.isLoading ||
+            trendsQuery.isLoading ||
+            poolsQuery.isLoading ||
+            borrowsQuery.isLoading
+          }
         >
           <RefreshCcw className='size-4' />
           {t('Refresh')}
         </Button>
       </div>
       <div className='space-y-4 p-3'>
+        {props.canManage ? (
+          <div className='space-y-3 rounded-md border bg-background p-3'>
+            <div>
+              <h5 className='text-sm font-medium'>{t('Capacity Config')}</h5>
+              <p className='text-muted-foreground mt-1 text-xs'>
+                {t(
+                  'Override shared pool capacity per shared_pool quota policy and metric.'
+                )}
+              </p>
+            </div>
+            <form
+              className='flex flex-wrap items-end gap-2'
+              onSubmit={submitSharedPoolConfig}
+            >
+              <Field label='Policy ID'>
+                <Input
+                  type='number'
+                  value={configPolicyId}
+                  onChange={(event) => setConfigPolicyId(event.target.value)}
+                  className='w-36'
+                />
+              </Field>
+              <Field label='Metric'>
+                <Select
+                  value={configMetric}
+                  onValueChange={(value) =>
+                    setConfigMetric(normalizeSelectValue(value))
+                  }
+                >
+                  <SelectTrigger className='w-40'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      <SelectItem value='request_count'>
+                        {t('Requests')}
+                      </SelectItem>
+                      <SelectItem value='quota'>{t('Quota')}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label='Capacity'>
+                <Input
+                  type='number'
+                  value={configCapacity}
+                  onChange={(event) => setConfigCapacity(event.target.value)}
+                  className='w-40'
+                />
+              </Field>
+              <Field label='Status'>
+                <Select
+                  value={configStatus}
+                  onValueChange={(value) =>
+                    setConfigStatus(normalizeSelectValue(value))
+                  }
+                >
+                  <SelectTrigger className='w-36'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      <SelectItem value={String(ENABLED_STATUS)}>
+                        {t('Enabled')}
+                      </SelectItem>
+                      <SelectItem value={String(DISABLED_STATUS)}>
+                        {t('Disabled')}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Button
+                type='submit'
+                size='sm'
+                disabled={upsertConfigMutation.isPending}
+              >
+                <Save className='size-3.5' />
+                {t('Save')}
+              </Button>
+            </form>
+            <QueryState
+              query={{
+                data: configsQuery.data,
+                isLoading: configsQuery.isLoading,
+                isError: configsQuery.isError,
+                error: configsQuery.error,
+                refetch: configsQuery.refetch,
+              }}
+              empty={configs.length === 0}
+              emptyTitle='No shared pool configs'
+              emptyDescription='Configured capacity overrides will appear here.'
+            >
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('Policy')}</TableHead>
+                    <TableHead>{t('Metric')}</TableHead>
+                    <TableHead className='text-right'>
+                      {t('Capacity')}
+                    </TableHead>
+                    <TableHead>{t('Status')}</TableHead>
+                    <TableHead className='text-right'>{t('Updated')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {configs.map((config: EnterpriseSharedPoolConfig) => (
+                    <TableRow key={config.id}>
+                      <TableCell>
+                        {config.policy_id ? `#${config.policy_id}` : '-'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant='outline'>{config.metric}</Badge>
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        {formatNumber(config.capacity_value)}
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={config.status} />
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        {formatDateTime(config.updated_at)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <Pager
+                page={configPage}
+                pageSize={PAGE_SIZE}
+                total={getPageTotal(configsQuery.data)}
+                onPageChange={setConfigPage}
+              />
+            </QueryState>
+          </div>
+        ) : null}
         <div className='space-y-3'>
           <div>
             <h5 className='text-sm font-medium'>{t('Pool Capacity')}</h5>
@@ -4311,6 +4542,28 @@ function SharedPoolsPanel() {
               className='w-40'
             />
           </FilterBar>
+          <div className='grid gap-2 md:grid-cols-4'>
+            <StatCell
+              icon={ClipboardList}
+              label='Borrow Events'
+              value={formatNumber(trendTotals.borrowCount)}
+            />
+            <StatCell
+              icon={Gauge}
+              label='Borrowed'
+              value={formatNumber(trendTotals.borrowed)}
+            />
+            <StatCell
+              icon={Check}
+              label='Settled'
+              value={formatNumber(trendTotals.settled)}
+            />
+            <StatCell
+              icon={RefreshCcw}
+              label='Returned'
+              value={formatNumber(trendTotals.returned)}
+            />
+          </div>
           <QueryState
             query={{
               data: poolsQuery.data,
@@ -9568,6 +9821,7 @@ export function EnterpriseGovernance() {
                     setActiveTab('quota-requests')
                   }}
                   canManageQueue={canManageEnterprise}
+                  canManageSharedPool={canManageEnterprise}
                 />
               </TabsContent>
             </Tabs>

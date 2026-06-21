@@ -152,6 +152,7 @@ func setupEnterpriseControllerTestDB(t *testing.T) {
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseUsageAttribution{},
 		&model.EnterpriseGovernanceQueueAdmission{},
+		&model.EnterpriseGovernanceSharedPoolConfig{},
 		&model.EnterpriseGovernanceSharedPool{},
 		&model.EnterpriseGovernanceSharedPoolBorrow{},
 		&model.EnterpriseGovernanceAnomalyProtection{},
@@ -811,6 +812,105 @@ func TestEnterpriseSharedPoolFilters(t *testing.T) {
 	assert.EqualValues(t, 12, item["policy_id"])
 	assert.EqualValues(t, 1000, item["capacity_value"])
 	assert.EqualValues(t, 200, item["reserved_value"])
+}
+
+func TestEnterpriseSharedPoolConfigAndTrendEndpoints(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	policy := model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "shared pool config policy",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   100,
+		Timezone:     "Asia/Shanghai",
+		ModelScope:   model.PolicyModelScopeAll,
+		Action:       model.PolicyActionSharedPool,
+		Status:       model.QuotaPolicyStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&policy).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(
+		t,
+		http.MethodPut,
+		"/api/enterprise/shared-pool-configs",
+		`{"policy_id":`+strconv.Itoa(policy.Id)+`,"metric":"quota","capacity_value":500,"status":1}`,
+	)
+	UpsertEnterpriseGovernanceSharedPoolConfig(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.EqualValues(t, policy.Id, response.Data["policy_id"])
+	assert.EqualValues(t, 500, response.Data["capacity_value"])
+
+	ctx, recorder = newEnterpriseControllerContext(
+		t,
+		http.MethodGet,
+		"/api/enterprise/shared-pool-configs?metric=quota&policy_id="+strconv.Itoa(policy.Id)+"&status=1",
+		"",
+	)
+	ListEnterpriseGovernanceSharedPoolConfigs(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.EqualValues(t, 1, response.Data["total"])
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("action = ? AND target_type = ?", "shared_pool_config.upsert", "enterprise_governance_shared_pool_config").First(&audit).Error)
+	assert.Equal(t, "req-enterprise-controller-test", audit.RequestId)
+
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceSharedPoolBorrow{
+		{
+			EnterpriseId:          enterprise.Id,
+			PoolId:                201,
+			RequestId:             "req-shared-trend-1",
+			PolicyId:              policy.Id,
+			Metric:                model.PolicyMetricQuota,
+			Status:                model.EnterpriseGovernanceSharedPoolBorrowStatusSettled,
+			ReservedBorrowedValue: 10,
+			SettledBorrowedValue:  7,
+			ReturnedValue:         3,
+			CapacityValue:         500,
+			UserMessageKey:        "enterprise_governance.shared_pool_settled",
+			CreatedAt:             1700000000,
+		},
+		{
+			EnterpriseId:          enterprise.Id,
+			PoolId:                201,
+			RequestId:             "req-shared-trend-2",
+			PolicyId:              policy.Id,
+			Metric:                model.PolicyMetricQuota,
+			Status:                model.EnterpriseGovernanceSharedPoolBorrowStatusSettled,
+			ReservedBorrowedValue: 20,
+			SettledBorrowedValue:  18,
+			ReturnedValue:         2,
+			CapacityValue:         500,
+			UserMessageKey:        "enterprise_governance.shared_pool_settled",
+			CreatedAt:             1700003600,
+		},
+	}).Error)
+
+	ctx, recorder = newEnterpriseControllerContext(
+		t,
+		http.MethodGet,
+		"/api/enterprise/shared-pool-trends?metric=quota&policy_id="+strconv.Itoa(policy.Id)+"&start_time=1699990000&end_time=1700100000&bucket_seconds=86400",
+		"",
+	)
+	ListEnterpriseGovernanceSharedPoolTrends(ctx)
+	listResponse := decodeEnterpriseControllerListResponse(t, recorder)
+	require.True(t, listResponse.Success, listResponse.Message)
+	require.Len(t, listResponse.Data, 1)
+	trend, ok := listResponse.Data[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, model.PolicyMetricQuota, trend["metric"])
+	assert.EqualValues(t, 2, trend["borrow_count"])
+	assert.EqualValues(t, 30, trend["reserved_borrowed_value"])
+	assert.EqualValues(t, 25, trend["settled_borrowed_value"])
+	assert.EqualValues(t, 5, trend["returned_value"])
 }
 
 func TestEnterpriseSharedPoolBorrowFilters(t *testing.T) {

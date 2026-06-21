@@ -182,6 +182,61 @@ func TestEnterpriseGovernanceSharedPoolHeadersExposeRemainingCapacity(t *testing
 	assert.EqualValues(t, 5, pool.CapacityValue-pool.UsedValue-pool.ReservedValue)
 }
 
+func TestEnterpriseGovernanceSharedPoolUsesConfiguredCapacity(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	gin.SetMode(gin.TestMode)
+
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1036,
+		Username: "req-enterprise-shared-pool-config",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+	}).Error)
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "shared pool configured capacity",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   10,
+		ModelScope:   model.PolicyModelScopeAll,
+		Action:       model.PolicyActionSharedPool,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+	require.NoError(t, model.DB.Create(&model.EnterpriseGovernanceSharedPoolConfig{
+		EnterpriseId:  enterprise.Id,
+		PolicyId:      policy.Id,
+		Metric:        model.PolicyMetricQuota,
+		CapacityValue: 30,
+		Status:        model.EnterpriseGovernanceSharedPoolConfigStatusEnabled,
+	}).Error)
+
+	ctx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-shared-pool-config", 725)
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:          1036,
+		TokenId:         126,
+		RequestId:       "req-enterprise-shared-pool-config",
+		OriginModelName: "gpt-4o",
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+	}
+
+	require.Nil(t, PreCheckEnterpriseGovernance(ctx, relayInfo, 15))
+	result, err := ApplyEnterpriseGovernanceSharedPool(ctx, relayInfo)
+	require.NoError(t, err)
+	assert.EqualValues(t, 5, result.BorrowedQuota)
+	assert.EqualValues(t, 25, result.RemainingQuota)
+	assert.Equal(t, "25", ctx.Writer.Header().Get(enterpriseSharedPoolRemainingQuotaHeader))
+
+	var pool model.EnterpriseGovernanceSharedPool
+	require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&pool).Error)
+	assert.EqualValues(t, 30, pool.CapacityValue)
+	assert.EqualValues(t, 5, pool.ReservedValue)
+}
+
 func TestEnterpriseGovernanceSharedPoolSettlesAndReturnsUnusedBorrow(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	gin.SetMode(gin.TestMode)

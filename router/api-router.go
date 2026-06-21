@@ -451,6 +451,8 @@ func SetApiRouter(router *gin.Engine) {
 				manageEnterpriseRoute.PUT("/notification-preferences", controller.UpdateEnterpriseNotificationPreference)
 				manageEnterpriseRoute.POST("/notification-outbox/:id/retry", controller.RetryEnterpriseNotificationOutbox)
 				manageEnterpriseRoute.POST("/queue-admissions/:id/cancel", controller.CancelEnterpriseGovernanceQueueAdmission)
+				manageEnterpriseRoute.GET("/shared-pool-configs", controller.ListEnterpriseGovernanceSharedPoolConfigs)
+				manageEnterpriseRoute.PUT("/shared-pool-configs", controller.UpsertEnterpriseGovernanceSharedPoolConfig)
 			}
 
 			departmentManageEnterpriseRoute := enterpriseRoute.Group("")
@@ -512,6 +514,7 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				auditLogEnterpriseRoute.GET("/audit-logs", controller.ListEnterpriseAuditLogs)
 				auditLogEnterpriseRoute.GET("/queue-admissions", controller.ListEnterpriseGovernanceQueueAdmissions)
+				auditLogEnterpriseRoute.GET("/shared-pool-trends", controller.ListEnterpriseGovernanceSharedPoolTrends)
 				auditLogEnterpriseRoute.GET("/shared-pools", controller.ListEnterpriseGovernanceSharedPools)
 				auditLogEnterpriseRoute.GET("/shared-pool-borrows", controller.ListEnterpriseGovernanceSharedPoolBorrows)
 			}

@@ -63,7 +63,12 @@ import type {
   EnterpriseSharedPool,
   EnterpriseSharedPoolBorrow,
   EnterpriseSharedPoolBorrowParams,
+  EnterpriseSharedPoolConfig,
+  EnterpriseSharedPoolConfigParams,
+  EnterpriseSharedPoolConfigPayload,
   EnterpriseSharedPoolParams,
+  EnterpriseSharedPoolTrendItem,
+  EnterpriseSharedPoolTrendParams,
   EnterpriseUsageBreakdownItem,
   EnterpriseUsageBreakdownParams,
   EnterpriseUsageParams,
@@ -529,6 +534,34 @@ export async function getEnterpriseQueueAdmissions(
 export async function cancelEnterpriseQueueAdmission(id: number) {
   const res = await api.post<ApiResponse<EnterpriseQueueAdmission>>(
     `${ENTERPRISE_API}/queue-admissions/${id}/cancel`
+  )
+  return res.data
+}
+
+export async function getEnterpriseSharedPoolConfigs(
+  params: EnterpriseSharedPoolConfigParams = {}
+) {
+  const res = await api.get<ApiResponse<PageInfo<EnterpriseSharedPoolConfig>>>(
+    withQuery(`${ENTERPRISE_API}/shared-pool-configs`, params)
+  )
+  return res.data
+}
+
+export async function upsertEnterpriseSharedPoolConfig(
+  payload: EnterpriseSharedPoolConfigPayload
+) {
+  const res = await api.put<ApiResponse<EnterpriseSharedPoolConfig>>(
+    `${ENTERPRISE_API}/shared-pool-configs`,
+    payload
+  )
+  return res.data
+}
+
+export async function getEnterpriseSharedPoolTrends(
+  params: EnterpriseSharedPoolTrendParams = {}
+) {
+  const res = await api.get<ApiResponse<EnterpriseSharedPoolTrendItem[]>>(
+    withQuery(`${ENTERPRISE_API}/shared-pool-trends`, params)
   )
   return res.data
 }

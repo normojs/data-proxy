@@ -397,6 +397,33 @@ export type EnterpriseSharedPool = {
   updated_at: number
 }
 
+export type EnterpriseSharedPoolConfig = {
+  id: number
+  enterprise_id: number
+  policy_id: number
+  metric: string
+  capacity_value: number
+  status: number
+  created_at: number
+  updated_at: number
+}
+
+export type EnterpriseSharedPoolConfigPayload = {
+  policy_id: number
+  metric: string
+  capacity_value: number
+  status: number
+}
+
+export type EnterpriseSharedPoolTrendItem = {
+  bucket_start: number
+  metric: string
+  borrow_count: number
+  reserved_borrowed_value: number
+  settled_borrowed_value: number
+  returned_value: number
+}
+
 export type EnterpriseSharedPoolBorrow = {
   id: number
   request_id: string
@@ -747,6 +774,22 @@ export type EnterpriseSharedPoolParams = {
   policy_id?: number
   start_time?: number
   end_time?: number
+}
+
+export type EnterpriseSharedPoolConfigParams = {
+  p?: number
+  page_size?: number
+  metric?: string
+  policy_id?: number
+  status?: number
+}
+
+export type EnterpriseSharedPoolTrendParams = {
+  metric?: string
+  policy_id?: number
+  start_time?: number
+  end_time?: number
+  bucket_seconds?: number
 }
 
 export type EnterpriseSharedPoolBorrowParams = {

@@ -168,7 +168,10 @@ func reserveEnterpriseGovernanceSharedPool(c *gin.Context, enterpriseCtx *Enterp
 		pools := make([]model.EnterpriseGovernanceSharedPool, len(result.Records))
 		for i := range result.Records {
 			record := &result.Records[i]
-			capacity := enterpriseSharedPoolCapacityValue(*record)
+			capacity, err := enterpriseSharedPoolCapacityValue(tx, enterpriseCtx.EnterpriseId, *record)
+			if err != nil {
+				return err
+			}
 			pool, err := lockEnterpriseGovernanceSharedPool(tx, enterpriseCtx.EnterpriseId, *record, capacity)
 			if err != nil {
 				return err
@@ -491,11 +494,27 @@ func lockEnterpriseGovernanceSharedPoolForRecord(tx *gorm.DB, record EnterpriseG
 	return nil, errors.New("enterprise shared pool reservation missing pool id")
 }
 
-func enterpriseSharedPoolCapacityValue(record EnterpriseGovernanceSharedPoolBorrowRecord) int64 {
-	if record.LimitValue > 0 {
-		return record.LimitValue
+func enterpriseSharedPoolCapacityValue(tx *gorm.DB, enterpriseId int, record EnterpriseGovernanceSharedPoolBorrowRecord) (int64, error) {
+	if tx != nil && enterpriseId > 0 && record.PolicyId > 0 && record.Metric != "" {
+		var config model.EnterpriseGovernanceSharedPoolConfig
+		err := tx.Where(
+			"enterprise_id = ? AND policy_id = ? AND metric = ? AND status = ?",
+			enterpriseId,
+			record.PolicyId,
+			record.Metric,
+			model.EnterpriseGovernanceSharedPoolConfigStatusEnabled,
+		).First(&config).Error
+		if err == nil && config.CapacityValue > 0 {
+			return config.CapacityValue, nil
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, err
+		}
 	}
-	return record.BorrowedValue
+	if record.LimitValue > 0 {
+		return record.LimitValue, nil
+	}
+	return record.BorrowedValue, nil
 }
 
 func enterpriseSharedPoolRemainingValue(pool model.EnterpriseGovernanceSharedPool) int64 {

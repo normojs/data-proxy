@@ -4,7 +4,25 @@ const (
 	EnterpriseGovernanceSharedPoolBorrowStatusReserved = "reserved"
 	EnterpriseGovernanceSharedPoolBorrowStatusSettled  = "settled"
 	EnterpriseGovernanceSharedPoolBorrowStatusRefunded = "refunded"
+
+	EnterpriseGovernanceSharedPoolConfigStatusEnabled  = 1
+	EnterpriseGovernanceSharedPoolConfigStatusDisabled = 2
 )
+
+type EnterpriseGovernanceSharedPoolConfig struct {
+	Id            int64  `json:"id" gorm:"primaryKey"`
+	EnterpriseId  int    `json:"enterprise_id" gorm:"not null;uniqueIndex:idx_enterprise_governance_shared_pool_configs_scope,priority:1;index"`
+	PolicyId      int    `json:"policy_id" gorm:"not null;uniqueIndex:idx_enterprise_governance_shared_pool_configs_scope,priority:2;index"`
+	Metric        string `json:"metric" gorm:"type:varchar(32);not null;uniqueIndex:idx_enterprise_governance_shared_pool_configs_scope,priority:3;index"`
+	CapacityValue int64  `json:"capacity_value" gorm:"not null;default:0"`
+	Status        int    `json:"status" gorm:"not null;default:1;index"`
+	CreatedAt     int64  `json:"created_at" gorm:"autoCreateTime;index"`
+	UpdatedAt     int64  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (EnterpriseGovernanceSharedPoolConfig) TableName() string {
+	return "enterprise_governance_shared_pool_configs"
+}
 
 type EnterpriseGovernanceSharedPool struct {
 	Id            int64  `json:"id" gorm:"primaryKey"`

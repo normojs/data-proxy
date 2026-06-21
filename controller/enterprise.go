@@ -39,6 +39,22 @@ type enterpriseMemberOrgUnitRequest struct {
 	OrgUnitId int `json:"org_unit_id"`
 }
 
+type enterpriseSharedPoolConfigRequest struct {
+	PolicyId      int    `json:"policy_id"`
+	Metric        string `json:"metric"`
+	CapacityValue int64  `json:"capacity_value"`
+	Status        int    `json:"status"`
+}
+
+type enterpriseSharedPoolTrendItem struct {
+	BucketStart           int64  `json:"bucket_start" gorm:"column:bucket_start"`
+	Metric                string `json:"metric"`
+	BorrowCount           int64  `json:"borrow_count" gorm:"column:borrow_count"`
+	ReservedBorrowedValue int64  `json:"reserved_borrowed_value" gorm:"column:reserved_borrowed_value"`
+	SettledBorrowedValue  int64  `json:"settled_borrowed_value" gorm:"column:settled_borrowed_value"`
+	ReturnedValue         int64  `json:"returned_value" gorm:"column:returned_value"`
+}
+
 type enterprisePolicyGroupRequest struct {
 	Name               string         `json:"name"`
 	Slug               string         `json:"slug"`
@@ -2434,6 +2450,186 @@ func CancelEnterpriseGovernanceQueueAdmission(c *gin.Context) {
 	common.ApiSuccess(c, after)
 }
 
+func ListEnterpriseGovernanceSharedPoolConfigs(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	query := model.DB.Model(&model.EnterpriseGovernanceSharedPoolConfig{}).Where("enterprise_id = ?", enterprise.Id)
+	if metric := strings.TrimSpace(c.Query("metric")); metric != "" {
+		query = query.Where("metric = ?", metric)
+	}
+	if policyId, err := parseOptionalIntQuery(c, "policy_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if policyId > 0 {
+		query = query.Where("policy_id = ?", policyId)
+	}
+	if status, err := parseOptionalIntQuery(c, "status"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if status > 0 {
+		query = query.Where("status = ?", status)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var rows []model.EnterpriseGovernanceSharedPoolConfig
+	if err := query.Order("updated_at desc, id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&rows).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(rows)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func UpsertEnterpriseGovernanceSharedPoolConfig(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterpriseSharedPoolConfigRequest
+	if err := common.UnmarshalBodyReusable(c, &req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	req.Metric = strings.TrimSpace(req.Metric)
+	if req.PolicyId <= 0 {
+		common.ApiError(c, errors.New("policy_id 不能为空"))
+		return
+	}
+	if !isSupportedEnterprisePolicyMetric(req.Metric) {
+		common.ApiError(c, errors.New("metric 不支持"))
+		return
+	}
+	if req.CapacityValue <= 0 {
+		common.ApiError(c, errors.New("capacity_value 必须大于 0"))
+		return
+	}
+	if req.Status == 0 {
+		req.Status = model.EnterpriseGovernanceSharedPoolConfigStatusEnabled
+	}
+	if req.Status != model.EnterpriseGovernanceSharedPoolConfigStatusEnabled && req.Status != model.EnterpriseGovernanceSharedPoolConfigStatusDisabled {
+		common.ApiError(c, errors.New("status 不支持"))
+		return
+	}
+	var policy model.EnterpriseQuotaPolicy
+	if err := model.DB.Where("id = ? AND enterprise_id = ?", req.PolicyId, enterprise.Id).First(&policy).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if policy.Metric != req.Metric {
+		common.ApiError(c, errors.New("metric 必须与额度策略一致"))
+		return
+	}
+	if policy.Action != model.PolicyActionSharedPool {
+		common.ApiError(c, errors.New("仅 shared_pool 策略可配置共享池容量"))
+		return
+	}
+	var before model.EnterpriseGovernanceSharedPoolConfig
+	err = model.DB.Where("enterprise_id = ? AND policy_id = ? AND metric = ?", enterprise.Id, req.PolicyId, req.Metric).First(&before).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiError(c, err)
+		return
+	}
+	after := before
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		after = model.EnterpriseGovernanceSharedPoolConfig{
+			EnterpriseId: enterprise.Id,
+			PolicyId:     req.PolicyId,
+			Metric:       req.Metric,
+		}
+	}
+	after.CapacityValue = req.CapacityValue
+	after.Status = req.Status
+	if before.Id == 0 {
+		if err := model.DB.Create(&after).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordEnterpriseAudit(c, enterprise.Id, "shared_pool_config.upsert", "enterprise_governance_shared_pool_config", int(after.Id), nil, after)
+	} else {
+		if err := model.DB.Save(&after).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordEnterpriseAudit(c, enterprise.Id, "shared_pool_config.upsert", "enterprise_governance_shared_pool_config", int(after.Id), before, after)
+	}
+	common.ApiSuccess(c, after)
+}
+
+func ListEnterpriseGovernanceSharedPoolTrends(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	query := model.DB.Model(&model.EnterpriseGovernanceSharedPoolBorrow{}).Where("enterprise_id = ?", enterprise.Id)
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	query = applyEnterpriseSharedPoolBorrowScope(query, enterprise.Id, access)
+	if metric := strings.TrimSpace(c.Query("metric")); metric != "" {
+		query = query.Where("metric = ?", metric)
+	}
+	if policyId, err := parseOptionalIntQuery(c, "policy_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if policyId > 0 {
+		query = query.Where("policy_id = ?", policyId)
+	}
+	now := time.Now().Unix()
+	startTime, err := parseOptionalInt64Query(c, "start_time")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if startTime <= 0 {
+		startTime = now - 14*24*60*60
+	}
+	endTime, err := parseOptionalInt64Query(c, "end_time")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if endTime <= 0 {
+		endTime = now
+	}
+	bucketSeconds, err := parseOptionalInt64Query(c, "bucket_seconds")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if bucketSeconds <= 0 {
+		bucketSeconds = 24 * 60 * 60
+	}
+	if bucketSeconds < 60*60 {
+		bucketSeconds = 60 * 60
+	}
+	query = query.Where("created_at >= ? AND created_at <= ?", startTime, endTime)
+	var rows []enterpriseSharedPoolTrendItem
+	if err := query.
+		Select(
+			"created_at - (created_at % ?) AS bucket_start, metric, COUNT(*) AS borrow_count, COALESCE(SUM(reserved_borrowed_value), 0) AS reserved_borrowed_value, COALESCE(SUM(settled_borrowed_value), 0) AS settled_borrowed_value, COALESCE(SUM(returned_value), 0) AS returned_value",
+			bucketSeconds,
+		).
+		Group("bucket_start, metric").
+		Order("bucket_start asc, metric asc").
+		Scan(&rows).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, rows)
+}
+
 func ListEnterpriseGovernanceSharedPools(c *gin.Context) {
 	enterprise, err := currentEnterprise()
 	if err != nil {
@@ -3838,6 +4034,10 @@ func isSupportedEnterpriseUsageGranularity(granularity string) bool {
 	default:
 		return false
 	}
+}
+
+func isSupportedEnterprisePolicyMetric(metric string) bool {
+	return metric == model.PolicyMetricRequestCount || metric == model.PolicyMetricQuota
 }
 
 func enterprisePolicyGroupIdsContain(data string, target int) bool {
