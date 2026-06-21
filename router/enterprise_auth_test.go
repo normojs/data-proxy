@@ -104,6 +104,21 @@ type enterpriseQueueAdmissionItemForTest struct {
 	PolicyId  int    `json:"policy_id"`
 }
 
+type enterpriseSharedPoolItemForTest struct {
+	Id       int64  `json:"id"`
+	PolicyId int    `json:"policy_id"`
+	Metric   string `json:"metric"`
+}
+
+type enterpriseSharedPoolBorrowItemForTest struct {
+	Id        int64  `json:"id"`
+	RequestId string `json:"request_id"`
+	Status    string `json:"status"`
+	OrgUnitId int    `json:"org_unit_id"`
+	ProjectId int    `json:"project_id"`
+	PolicyId  int    `json:"policy_id"`
+}
+
 type enterpriseUsageSummaryResponseForTest struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
@@ -164,6 +179,14 @@ func TestEnterpriseRBACReadOnlyRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK, financeQueueAdmissions.Code)
 	require.False(t, decodeEnterpriseAuthResponse(t, financeQueueAdmissions).Success)
 
+	financeSharedPools := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/shared-pools", "", financeCookies, financeUserId)
+	require.Equal(t, http.StatusOK, financeSharedPools.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, financeSharedPools).Success)
+
+	financeSharedPoolBorrows := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/shared-pool-borrows", "", financeCookies, financeUserId)
+	require.Equal(t, http.StatusOK, financeSharedPoolBorrows.Code)
+	require.False(t, decodeEnterpriseAuthResponse(t, financeSharedPoolBorrows).Success)
+
 	financeManage := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/current", `{
     "name": "finance cannot manage",
     "timezone": "Asia/Shanghai",
@@ -179,6 +202,14 @@ func TestEnterpriseRBACReadOnlyRoles(t *testing.T) {
 	auditQueueAdmissions := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/queue-admissions", "", auditCookies, auditUserId)
 	require.Equal(t, http.StatusOK, auditQueueAdmissions.Code)
 	require.True(t, decodeEnterpriseAuthResponse(t, auditQueueAdmissions).Success)
+
+	auditSharedPools := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/shared-pools", "", auditCookies, auditUserId)
+	require.Equal(t, http.StatusOK, auditSharedPools.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, auditSharedPools).Success)
+
+	auditSharedPoolBorrows := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/shared-pool-borrows", "", auditCookies, auditUserId)
+	require.Equal(t, http.StatusOK, auditSharedPoolBorrows.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, auditSharedPoolBorrows).Success)
 
 	auditQueueCancel := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/queue-admissions/1/cancel", "", auditCookies, auditUserId)
 	require.Equal(t, http.StatusOK, auditQueueCancel.Code)
@@ -1180,6 +1211,87 @@ func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
 			CreatedAt:    1003,
 		},
 	}).Error)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceSharedPool{
+		{
+			EnterpriseId:  enterprise.Id,
+			PolicyId:      engineeringPolicy.Id,
+			Metric:        model.PolicyMetricQuota,
+			PeriodStart:   1000,
+			PeriodEnd:     1999,
+			CapacityValue: 1000,
+			UsedValue:     100,
+			ReservedValue: 200,
+		},
+		{
+			EnterpriseId:  enterprise.Id,
+			PolicyId:      ownedProjectPolicy.Id,
+			Metric:        model.PolicyMetricQuota,
+			PeriodStart:   1000,
+			PeriodEnd:     1999,
+			CapacityValue: 2000,
+			UsedValue:     200,
+			ReservedValue: 300,
+		},
+		{
+			EnterpriseId:  enterprise.Id,
+			PolicyId:      otherProjectPolicy.Id,
+			Metric:        model.PolicyMetricQuota,
+			PeriodStart:   1000,
+			PeriodEnd:     1999,
+			CapacityValue: 3000,
+			UsedValue:     300,
+			ReservedValue: 400,
+		},
+	}).Error)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceSharedPoolBorrow{
+		{
+			EnterpriseId:          enterprise.Id,
+			RequestId:             "shared-pool-engineering-relay",
+			UserId:                engineerId,
+			OrgUnitId:             engineeringId,
+			ProjectId:             ownedProject.Id,
+			PolicyId:              engineeringPolicy.Id,
+			Metric:                model.PolicyMetricQuota,
+			ModelName:             "gpt-4o",
+			Status:                model.EnterpriseGovernanceSharedPoolBorrowStatusReserved,
+			ReservedBorrowedValue: 10,
+			CapacityValue:         1000,
+			UserMessageKey:        "enterprise_governance.shared_pool_reserved",
+			CreatedAt:             1000,
+		},
+		{
+			EnterpriseId:          enterprise.Id,
+			RequestId:             "shared-pool-owned-project-policy",
+			UserId:                projectAdminId,
+			ProjectId:             ownedProject.Id,
+			PolicyId:              ownedProjectPolicy.Id,
+			Metric:                model.PolicyMetricQuota,
+			ModelName:             "gpt-4o",
+			Status:                model.EnterpriseGovernanceSharedPoolBorrowStatusSettled,
+			ReservedBorrowedValue: 20,
+			SettledBorrowedValue:  15,
+			ReturnedValue:         5,
+			CapacityValue:         2000,
+			UserMessageKey:        "enterprise_governance.shared_pool_settled",
+			CreatedAt:             1001,
+		},
+		{
+			EnterpriseId:          enterprise.Id,
+			RequestId:             "shared-pool-sales-relay",
+			UserId:                salesUserId,
+			OrgUnitId:             salesId,
+			ProjectId:             otherProject.Id,
+			PolicyId:              otherProjectPolicy.Id,
+			Metric:                model.PolicyMetricQuota,
+			ModelName:             "gpt-4o-mini",
+			Status:                model.EnterpriseGovernanceSharedPoolBorrowStatusRefunded,
+			ReservedBorrowedValue: 30,
+			ReturnedValue:         30,
+			CapacityValue:         3000,
+			UserMessageKey:        "enterprise_governance.shared_pool_refunded",
+			CreatedAt:             1002,
+		},
+	}).Error)
 
 	router := newEnterpriseRouterForTest(t)
 	departmentCookies := loginEnterpriseRouterUserForTest(t, router, departmentAdminId, common.RoleCommonUser)
@@ -1227,6 +1339,41 @@ func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
 		"queue-owned-project-policy",
 	}, enterpriseQueueAdmissionRequestIdsForTest(projectAdmissionPage.Data.Items))
 
+	departmentSharedPools := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/shared-pools?page_size=50", "", departmentCookies, departmentAdminId)
+	require.Equal(t, http.StatusOK, departmentSharedPools.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, departmentSharedPools).Success)
+	departmentSharedPoolPage := decodeEnterprisePageResponseForTest[enterpriseSharedPoolItemForTest](t, departmentSharedPools)
+	require.ElementsMatch(t, []int{
+		engineeringPolicy.Id,
+		ownedProjectPolicy.Id,
+	}, enterpriseSharedPoolPolicyIdsForTest(departmentSharedPoolPage.Data.Items))
+
+	projectSharedPools := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/shared-pools?page_size=50", "", projectCookies, projectAdminId)
+	require.Equal(t, http.StatusOK, projectSharedPools.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, projectSharedPools).Success)
+	projectSharedPoolPage := decodeEnterprisePageResponseForTest[enterpriseSharedPoolItemForTest](t, projectSharedPools)
+	require.ElementsMatch(t, []int{
+		ownedProjectPolicy.Id,
+	}, enterpriseSharedPoolPolicyIdsForTest(projectSharedPoolPage.Data.Items))
+
+	departmentSharedPoolBorrows := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/shared-pool-borrows?page_size=50", "", departmentCookies, departmentAdminId)
+	require.Equal(t, http.StatusOK, departmentSharedPoolBorrows.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, departmentSharedPoolBorrows).Success)
+	departmentSharedPoolBorrowPage := decodeEnterprisePageResponseForTest[enterpriseSharedPoolBorrowItemForTest](t, departmentSharedPoolBorrows)
+	require.ElementsMatch(t, []string{
+		"shared-pool-engineering-relay",
+		"shared-pool-owned-project-policy",
+	}, enterpriseSharedPoolBorrowRequestIdsForTest(departmentSharedPoolBorrowPage.Data.Items))
+
+	projectSharedPoolBorrows := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/shared-pool-borrows?page_size=50", "", projectCookies, projectAdminId)
+	require.Equal(t, http.StatusOK, projectSharedPoolBorrows.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, projectSharedPoolBorrows).Success)
+	projectSharedPoolBorrowPage := decodeEnterprisePageResponseForTest[enterpriseSharedPoolBorrowItemForTest](t, projectSharedPoolBorrows)
+	require.ElementsMatch(t, []string{
+		"shared-pool-engineering-relay",
+		"shared-pool-owned-project-policy",
+	}, enterpriseSharedPoolBorrowRequestIdsForTest(projectSharedPoolBorrowPage.Data.Items))
+
 	projectOutbox := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/notification-outbox", "", projectCookies, projectAdminId)
 	require.Equal(t, http.StatusOK, projectOutbox.Code)
 	require.False(t, decodeEnterpriseAuthResponse(t, projectOutbox).Success)
@@ -1259,6 +1406,8 @@ func setupEnterpriseRouterTestDB(t *testing.T) {
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseUsageAttribution{},
 		&model.EnterpriseGovernanceQueueAdmission{},
+		&model.EnterpriseGovernanceSharedPool{},
+		&model.EnterpriseGovernanceSharedPoolBorrow{},
 		&model.EnterpriseGovernanceAnomalyProtection{},
 		&model.EnterpriseAuditLog{},
 		&model.EnterpriseNotificationRead{},
@@ -1639,6 +1788,22 @@ func enterpriseAuditRequestIdsForTest(items []enterpriseAuditLogItemForTest) []s
 }
 
 func enterpriseQueueAdmissionRequestIdsForTest(items []enterpriseQueueAdmissionItemForTest) []string {
+	requestIds := make([]string, 0, len(items))
+	for _, item := range items {
+		requestIds = append(requestIds, item.RequestId)
+	}
+	return requestIds
+}
+
+func enterpriseSharedPoolPolicyIdsForTest(items []enterpriseSharedPoolItemForTest) []int {
+	policyIds := make([]int, 0, len(items))
+	for _, item := range items {
+		policyIds = append(policyIds, item.PolicyId)
+	}
+	return policyIds
+}
+
+func enterpriseSharedPoolBorrowRequestIdsForTest(items []enterpriseSharedPoolBorrowItemForTest) []string {
 	requestIds := make([]string, 0, len(items))
 	for _, item := range items {
 		requestIds = append(requestIds, item.RequestId)

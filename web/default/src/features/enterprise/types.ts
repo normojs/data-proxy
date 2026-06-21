@@ -383,6 +383,49 @@ export type EnterpriseQueueAdmission = {
   updated_at: number
 }
 
+export type EnterpriseSharedPool = {
+  id: number
+  enterprise_id: number
+  policy_id: number
+  metric: string
+  period_start: number
+  period_end: number
+  capacity_value: number
+  used_value: number
+  reserved_value: number
+  created_at: number
+  updated_at: number
+}
+
+export type EnterpriseSharedPoolBorrow = {
+  id: number
+  request_id: string
+  pool_id: number
+  enterprise_id: number
+  user_id: number
+  token_id: number
+  org_unit_id: number
+  project_id: number
+  policy_id: number
+  policy_group_ids_json: string
+  model_name: string
+  channel_id: number
+  relay_mode: number
+  metric: string
+  capacity_value: number
+  reserved_borrowed_value: number
+  settled_borrowed_value: number
+  returned_value: number
+  period_start: number
+  period_end: number
+  status: 'reserved' | 'settled' | 'refunded' | string
+  dry_run: boolean
+  policy_actions_json: string
+  user_message_key: string
+  created_at: number
+  updated_at: number
+}
+
 export type EnterpriseWebhook = {
   id: number
   enterprise_id: number
@@ -687,6 +730,33 @@ export type EnterpriseQueueAdmissionParams = {
   status?: string
   request_id?: string
   model_name?: string
+  user_id?: number
+  token_id?: number
+  org_unit_id?: number
+  project_id?: number
+  policy_id?: number
+  channel_id?: number
+  start_time?: number
+  end_time?: number
+}
+
+export type EnterpriseSharedPoolParams = {
+  p?: number
+  page_size?: number
+  metric?: string
+  policy_id?: number
+  start_time?: number
+  end_time?: number
+}
+
+export type EnterpriseSharedPoolBorrowParams = {
+  p?: number
+  page_size?: number
+  status?: string
+  metric?: string
+  request_id?: string
+  model_name?: string
+  pool_id?: number
   user_id?: number
   token_id?: number
   org_unit_id?: number

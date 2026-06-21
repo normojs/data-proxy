@@ -135,6 +135,8 @@ import {
   getEnterpriseQuotaPolicies,
   getEnterpriseQuotaRequests,
   getEnterpriseQueueAdmissions,
+  getEnterpriseSharedPoolBorrows,
+  getEnterpriseSharedPools,
   getEnterpriseUsageBreakdown,
   getEnterpriseUsageSummary,
   getEnterpriseWebhooks,
@@ -191,6 +193,8 @@ import type {
   EnterpriseQuotaRequestStatus,
   EnterpriseQueueAdmission,
   EnterpriseUsageBreakdownItem,
+  EnterpriseSharedPool,
+  EnterpriseSharedPoolBorrow,
   EnterpriseUsageSummary,
   EnterpriseWebhook,
   EnterpriseWebhookPayload,
@@ -3612,6 +3616,7 @@ function AuditTab(props: {
           setEndDate={props.setQueueAdmissionEndDate}
           canManage={props.canManageQueue}
         />
+        <SharedPoolsPanel />
         <FilterBar>
           <Input
             value={props.action}
@@ -4141,6 +4146,438 @@ function QueueAdmissionsPanel(props: {
             onPageChange={props.setPage}
           />
         </QueryState>
+      </div>
+    </div>
+  )
+}
+
+function SharedPoolsPanel() {
+  const { t } = useTranslation()
+  const [poolMetric, setPoolMetric] = useState('')
+  const [poolPolicyId, setPoolPolicyId] = useState('')
+  const [poolStartDate, setPoolStartDate] = useState(() => daysAgoInputValue(7))
+  const [poolEndDate, setPoolEndDate] = useState(() => todayInputValue())
+  const [poolPage, setPoolPage] = useState(1)
+  const [borrowStatus, setBorrowStatus] = useState('')
+  const [borrowMetric, setBorrowMetric] = useState('')
+  const [borrowRequestId, setBorrowRequestId] = useState('')
+  const [borrowModelName, setBorrowModelName] = useState('')
+  const [borrowPolicyId, setBorrowPolicyId] = useState('')
+  const [borrowProjectId, setBorrowProjectId] = useState('')
+  const [borrowStartDate, setBorrowStartDate] = useState(() =>
+    daysAgoInputValue(7)
+  )
+  const [borrowEndDate, setBorrowEndDate] = useState(() => todayInputValue())
+  const [borrowPage, setBorrowPage] = useState(1)
+
+  const poolPolicyIdValue = parsePositiveSearchId(poolPolicyId)
+  const poolStartTime = poolStartDate
+    ? startOfDayUnix(poolStartDate)
+    : undefined
+  const poolEndTime = poolEndDate ? endOfDayUnix(poolEndDate) : undefined
+  const borrowPolicyIdValue = parsePositiveSearchId(borrowPolicyId)
+  const borrowProjectIdValue = parsePositiveSearchId(borrowProjectId)
+  const borrowStartTime = borrowStartDate
+    ? startOfDayUnix(borrowStartDate)
+    : undefined
+  const borrowEndTime = borrowEndDate ? endOfDayUnix(borrowEndDate) : undefined
+
+  const poolsQuery = useQuery({
+    queryKey: [
+      'enterprise',
+      'shared-pools',
+      poolPage,
+      poolMetric,
+      poolPolicyIdValue,
+      poolStartTime,
+      poolEndTime,
+    ],
+    queryFn: () =>
+      getEnterpriseSharedPools({
+        p: poolPage,
+        page_size: PAGE_SIZE,
+        metric: poolMetric,
+        policy_id: poolPolicyIdValue,
+        start_time: poolStartTime,
+        end_time: poolEndTime,
+      }),
+  })
+  const borrowsQuery = useQuery({
+    queryKey: [
+      'enterprise',
+      'shared-pool-borrows',
+      borrowPage,
+      borrowStatus,
+      borrowMetric,
+      borrowRequestId,
+      borrowModelName,
+      borrowPolicyIdValue,
+      borrowProjectIdValue,
+      borrowStartTime,
+      borrowEndTime,
+    ],
+    queryFn: () =>
+      getEnterpriseSharedPoolBorrows({
+        p: borrowPage,
+        page_size: PAGE_SIZE,
+        status: borrowStatus,
+        metric: borrowMetric,
+        request_id: borrowRequestId,
+        model_name: borrowModelName,
+        policy_id: borrowPolicyIdValue,
+        project_id: borrowProjectIdValue,
+        start_time: borrowStartTime,
+        end_time: borrowEndTime,
+      }),
+  })
+  const pools = getPageItems(poolsQuery.data)
+  const borrows = getPageItems(borrowsQuery.data)
+
+  return (
+    <div className='bg-muted/20 rounded-lg border'>
+      <div className='flex flex-wrap items-start justify-between gap-3 border-b px-3 py-2.5'>
+        <div className='min-w-0'>
+          <h4 className='text-sm font-semibold'>{t('Shared Pools')}</h4>
+          <p className='text-muted-foreground mt-1 text-xs'>
+            {t(
+              'Enterprise shared pool capacity and borrow lifecycle records for soft-limit traffic.'
+            )}
+          </p>
+        </div>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={() => {
+            void poolsQuery.refetch()
+            void borrowsQuery.refetch()
+          }}
+          disabled={poolsQuery.isLoading || borrowsQuery.isLoading}
+        >
+          <RefreshCcw className='size-4' />
+          {t('Refresh')}
+        </Button>
+      </div>
+      <div className='space-y-4 p-3'>
+        <div className='space-y-3'>
+          <div>
+            <h5 className='text-sm font-medium'>{t('Pool Capacity')}</h5>
+          </div>
+          <FilterBar>
+            <Select
+              value={poolMetric || ALL_VALUE}
+              onValueChange={(value) => {
+                setPoolMetric(normalizeOptionalSelectValue(value))
+                setPoolPage(1)
+              }}
+            >
+              <SelectTrigger className='w-40'>
+                <SelectValue placeholder={t('Metric')} />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value={ALL_VALUE}>{t('All Metrics')}</SelectItem>
+                  <SelectItem value='request_count'>{t('Requests')}</SelectItem>
+                  <SelectItem value='quota'>{t('Quota')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Input
+              type='number'
+              value={poolPolicyId}
+              onChange={(event) => {
+                setPoolPolicyId(event.target.value)
+                setPoolPage(1)
+              }}
+              placeholder={t('Policy ID')}
+              className='w-36'
+            />
+            <Input
+              type='date'
+              value={poolStartDate}
+              onChange={(event) => {
+                setPoolStartDate(event.target.value)
+                setPoolPage(1)
+              }}
+              className='w-40'
+            />
+            <Input
+              type='date'
+              value={poolEndDate}
+              onChange={(event) => {
+                setPoolEndDate(event.target.value)
+                setPoolPage(1)
+              }}
+              className='w-40'
+            />
+          </FilterBar>
+          <QueryState
+            query={{
+              data: poolsQuery.data,
+              isLoading: poolsQuery.isLoading,
+              isError: poolsQuery.isError,
+              error: poolsQuery.error,
+              refetch: poolsQuery.refetch,
+            }}
+            empty={pools.length === 0}
+            emptyTitle='No shared pools'
+            emptyDescription='Shared pool capacity rows will appear after shared_pool actions reserve capacity.'
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('Period')}</TableHead>
+                  <TableHead>{t('Metric')}</TableHead>
+                  <TableHead>{t('Policy')}</TableHead>
+                  <TableHead className='text-right'>{t('Capacity')}</TableHead>
+                  <TableHead className='text-right'>{t('Used')}</TableHead>
+                  <TableHead className='text-right'>{t('Reserved')}</TableHead>
+                  <TableHead className='text-right'>{t('Remaining')}</TableHead>
+                  <TableHead className='text-right'>{t('Updated')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pools.map((pool: EnterpriseSharedPool) => {
+                  const remaining = Math.max(
+                    0,
+                    pool.capacity_value - pool.used_value - pool.reserved_value
+                  )
+                  return (
+                    <TableRow key={pool.id}>
+                      <TableCell>
+                        <div className='text-muted-foreground text-xs'>
+                          {formatDateTime(pool.period_start)} -{' '}
+                          {formatDateTime(pool.period_end)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant='outline'>{pool.metric}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {pool.policy_id ? `#${pool.policy_id}` : '-'}
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        {formatNumber(pool.capacity_value)}
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        {formatNumber(pool.used_value)}
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        {formatNumber(pool.reserved_value)}
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        {formatNumber(remaining)}
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        {formatDateTime(pool.updated_at)}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+            <Pager
+              page={poolPage}
+              pageSize={PAGE_SIZE}
+              total={getPageTotal(poolsQuery.data)}
+              onPageChange={setPoolPage}
+            />
+          </QueryState>
+        </div>
+
+        <div className='space-y-3'>
+          <div>
+            <h5 className='text-sm font-medium'>{t('Borrow Records')}</h5>
+          </div>
+          <FilterBar>
+            <Select
+              value={borrowStatus || ALL_VALUE}
+              onValueChange={(value) => {
+                setBorrowStatus(normalizeOptionalSelectValue(value))
+                setBorrowPage(1)
+              }}
+            >
+              <SelectTrigger className='w-40'>
+                <SelectValue placeholder={t('Status')} />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value={ALL_VALUE}>{t('All Statuses')}</SelectItem>
+                  <SelectItem value='reserved'>{t('Reserved')}</SelectItem>
+                  <SelectItem value='settled'>{t('Settled')}</SelectItem>
+                  <SelectItem value='refunded'>{t('Refunded')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={borrowMetric || ALL_VALUE}
+              onValueChange={(value) => {
+                setBorrowMetric(normalizeOptionalSelectValue(value))
+                setBorrowPage(1)
+              }}
+            >
+              <SelectTrigger className='w-40'>
+                <SelectValue placeholder={t('Metric')} />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value={ALL_VALUE}>{t('All Metrics')}</SelectItem>
+                  <SelectItem value='request_count'>{t('Requests')}</SelectItem>
+                  <SelectItem value='quota'>{t('Quota')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Input
+              value={borrowRequestId}
+              onChange={(event) => {
+                setBorrowRequestId(event.target.value)
+                setBorrowPage(1)
+              }}
+              placeholder={t('Request ID')}
+              className='w-52'
+            />
+            <Input
+              value={borrowModelName}
+              onChange={(event) => {
+                setBorrowModelName(event.target.value)
+                setBorrowPage(1)
+              }}
+              placeholder={t('Model')}
+              className='w-44'
+            />
+            <Input
+              type='number'
+              value={borrowPolicyId}
+              onChange={(event) => {
+                setBorrowPolicyId(event.target.value)
+                setBorrowPage(1)
+              }}
+              placeholder={t('Policy ID')}
+              className='w-36'
+            />
+            <Input
+              type='number'
+              value={borrowProjectId}
+              onChange={(event) => {
+                setBorrowProjectId(event.target.value)
+                setBorrowPage(1)
+              }}
+              placeholder={t('Project ID')}
+              className='w-36'
+            />
+            <Input
+              type='date'
+              value={borrowStartDate}
+              onChange={(event) => {
+                setBorrowStartDate(event.target.value)
+                setBorrowPage(1)
+              }}
+              className='w-40'
+            />
+            <Input
+              type='date'
+              value={borrowEndDate}
+              onChange={(event) => {
+                setBorrowEndDate(event.target.value)
+                setBorrowPage(1)
+              }}
+              className='w-40'
+            />
+          </FilterBar>
+          <QueryState
+            query={{
+              data: borrowsQuery.data,
+              isLoading: borrowsQuery.isLoading,
+              isError: borrowsQuery.isError,
+              error: borrowsQuery.error,
+              refetch: borrowsQuery.refetch,
+            }}
+            empty={borrows.length === 0}
+            emptyTitle='No shared pool borrows'
+            emptyDescription='Shared pool borrow lifecycle rows will appear after shared_pool actions reserve capacity.'
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('Time')}</TableHead>
+                  <TableHead>{t('Status')}</TableHead>
+                  <TableHead>{t('Request ID')}</TableHead>
+                  <TableHead>{t('Metric')}</TableHead>
+                  <TableHead>{t('Model')}</TableHead>
+                  <TableHead>{t('Policy')}</TableHead>
+                  <TableHead>{t('Scope')}</TableHead>
+                  <TableHead className='text-right'>{t('Borrowed')}</TableHead>
+                  <TableHead className='text-right'>{t('Settled')}</TableHead>
+                  <TableHead className='text-right'>{t('Returned')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {borrows.map((borrow: EnterpriseSharedPoolBorrow) => (
+                  <TableRow key={borrow.id}>
+                    <TableCell>{formatDateTime(borrow.created_at)}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          borrow.status === 'refunded'
+                            ? 'destructive'
+                            : borrow.status === 'settled'
+                              ? 'secondary'
+                              : 'outline'
+                        }
+                      >
+                        {borrow.status || '-'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span className='text-muted-foreground font-mono text-xs'>
+                        {borrow.request_id || '-'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant='outline'>{borrow.metric}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span className='font-mono text-xs'>
+                        {borrow.model_name || '-'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      {borrow.policy_id ? `#${borrow.policy_id}` : '-'}
+                    </TableCell>
+                    <TableCell>
+                      <div className='text-muted-foreground flex flex-wrap gap-2 text-xs'>
+                        <span>
+                          {t('User')} #{borrow.user_id || '-'}
+                        </span>
+                        <span>
+                          {t('Org')} #{borrow.org_unit_id || '-'}
+                        </span>
+                        <span>
+                          {t('Project')} #{borrow.project_id || '-'}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className='text-right'>
+                      {formatNumber(borrow.reserved_borrowed_value)}
+                    </TableCell>
+                    <TableCell className='text-right'>
+                      {formatNumber(borrow.settled_borrowed_value)}
+                    </TableCell>
+                    <TableCell className='text-right'>
+                      {formatNumber(borrow.returned_value)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <Pager
+              page={borrowPage}
+              pageSize={PAGE_SIZE}
+              total={getPageTotal(borrowsQuery.data)}
+              onPageChange={setBorrowPage}
+            />
+          </QueryState>
+        </div>
       </div>
     </div>
   )

@@ -60,6 +60,10 @@ import type {
   EnterpriseQuotaRequestPolicy,
   EnterpriseQuotaRequestPolicyParams,
   EnterpriseQuotaRequestsParams,
+  EnterpriseSharedPool,
+  EnterpriseSharedPoolBorrow,
+  EnterpriseSharedPoolBorrowParams,
+  EnterpriseSharedPoolParams,
   EnterpriseUsageBreakdownItem,
   EnterpriseUsageBreakdownParams,
   EnterpriseUsageParams,
@@ -525,6 +529,24 @@ export async function getEnterpriseQueueAdmissions(
 export async function cancelEnterpriseQueueAdmission(id: number) {
   const res = await api.post<ApiResponse<EnterpriseQueueAdmission>>(
     `${ENTERPRISE_API}/queue-admissions/${id}/cancel`
+  )
+  return res.data
+}
+
+export async function getEnterpriseSharedPools(
+  params: EnterpriseSharedPoolParams = {}
+) {
+  const res = await api.get<ApiResponse<PageInfo<EnterpriseSharedPool>>>(
+    withQuery(`${ENTERPRISE_API}/shared-pools`, params)
+  )
+  return res.data
+}
+
+export async function getEnterpriseSharedPoolBorrows(
+  params: EnterpriseSharedPoolBorrowParams = {}
+) {
+  const res = await api.get<ApiResponse<PageInfo<EnterpriseSharedPoolBorrow>>>(
+    withQuery(`${ENTERPRISE_API}/shared-pool-borrows`, params)
   )
   return res.data
 }

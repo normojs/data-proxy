@@ -2434,6 +2434,151 @@ func CancelEnterpriseGovernanceQueueAdmission(c *gin.Context) {
 	common.ApiSuccess(c, after)
 }
 
+func ListEnterpriseGovernanceSharedPools(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	query := model.DB.Model(&model.EnterpriseGovernanceSharedPool{}).Where("enterprise_id = ?", enterprise.Id)
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	query = applyEnterpriseSharedPoolScope(query, enterprise.Id, access)
+	if metric := strings.TrimSpace(c.Query("metric")); metric != "" {
+		query = query.Where("metric = ?", metric)
+	}
+	if policyId, err := parseOptionalIntQuery(c, "policy_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if policyId > 0 {
+		query = query.Where("policy_id = ?", policyId)
+	}
+	if startTime, err := parseOptionalInt64Query(c, "start_time"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if startTime > 0 {
+		query = query.Where("period_start >= ?", startTime)
+	}
+	if endTime, err := parseOptionalInt64Query(c, "end_time"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if endTime > 0 {
+		query = query.Where("period_start <= ?", endTime)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var rows []model.EnterpriseGovernanceSharedPool
+	if err := query.Order("period_start desc, id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&rows).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(rows)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func ListEnterpriseGovernanceSharedPoolBorrows(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	query := model.DB.Model(&model.EnterpriseGovernanceSharedPoolBorrow{}).Where("enterprise_id = ?", enterprise.Id)
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	query = applyEnterpriseSharedPoolBorrowScope(query, enterprise.Id, access)
+	if status := strings.TrimSpace(c.Query("status")); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if metric := strings.TrimSpace(c.Query("metric")); metric != "" {
+		query = query.Where("metric = ?", metric)
+	}
+	if requestId := strings.TrimSpace(c.Query("request_id")); requestId != "" {
+		query = query.Where("request_id = ?", requestId)
+	}
+	if modelName := strings.TrimSpace(c.Query("model_name")); modelName != "" {
+		query = query.Where("model_name = ?", modelName)
+	}
+	if poolId, err := parseOptionalInt64Query(c, "pool_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if poolId > 0 {
+		query = query.Where("pool_id = ?", poolId)
+	}
+	if userId, err := parseOptionalIntQuery(c, "user_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if userId > 0 {
+		query = query.Where("user_id = ?", userId)
+	}
+	if tokenId, err := parseOptionalIntQuery(c, "token_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if tokenId > 0 {
+		query = query.Where("token_id = ?", tokenId)
+	}
+	if orgUnitId, err := parseOptionalIntQuery(c, "org_unit_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if orgUnitId > 0 {
+		query = query.Where("org_unit_id = ?", orgUnitId)
+	}
+	if projectId, err := parseOptionalIntQuery(c, "project_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if projectId > 0 {
+		query = query.Where("project_id = ?", projectId)
+	}
+	if policyId, err := parseOptionalIntQuery(c, "policy_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if policyId > 0 {
+		query = query.Where("policy_id = ?", policyId)
+	}
+	if channelId, err := parseOptionalIntQuery(c, "channel_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if channelId > 0 {
+		query = query.Where("channel_id = ?", channelId)
+	}
+	if startTime, err := parseOptionalInt64Query(c, "start_time"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if startTime > 0 {
+		query = query.Where("created_at >= ?", startTime)
+	}
+	if endTime, err := parseOptionalInt64Query(c, "end_time"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if endTime > 0 {
+		query = query.Where("created_at <= ?", endTime)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var rows []model.EnterpriseGovernanceSharedPoolBorrow
+	if err := query.Order("created_at desc, id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&rows).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(rows)
+	common.ApiSuccess(c, pageInfo)
+}
+
 func ListEnterpriseNotificationOutbox(c *gin.Context) {
 	enterprise, err := currentEnterprise()
 	if err != nil {
@@ -2984,6 +3129,59 @@ func applyProjectQueueAdmissionScope(query *gorm.DB, enterpriseId int, access se
 		Select("id").
 		Where("enterprise_id = ? AND target_type = ? AND target_id IN (?)", enterpriseId, model.PolicyTargetProject, access.ScopedProjectIds)
 	return query.Where("project_id IN ? OR policy_id IN (?)", access.ScopedProjectIds, scopedQuotaPolicyIds)
+}
+
+func applyEnterpriseSharedPoolScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	if access.HasDepartmentScope() {
+		return query.Where("policy_id IN (?)", departmentScopedSharedPoolPolicyIds(enterpriseId, access))
+	}
+	if access.HasProjectScope() {
+		if len(access.ScopedProjectIds) == 0 {
+			return query.Where("1 = 0")
+		}
+		return query.Where("policy_id IN (?)", projectScopedSharedPoolPolicyIds(enterpriseId, access))
+	}
+	return query
+}
+
+func applyEnterpriseSharedPoolBorrowScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	if access.HasDepartmentScope() {
+		return applyDepartmentQueueAdmissionScope(query, enterpriseId, access)
+	}
+	if access.HasProjectScope() {
+		return applyProjectQueueAdmissionScope(query, enterpriseId, access)
+	}
+	return query
+}
+
+func departmentScopedSharedPoolPolicyIds(enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
+		Select("user_id").
+		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
+	scopedProjectIds := model.DB.Model(&model.EnterpriseProjectOrgUnit{}).
+		Select("project_id").
+		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
+	scopedPolicyGroupIds := departmentScopedPolicyGroupIds(enterpriseId, access)
+	return model.DB.Model(&model.EnterpriseQuotaPolicy{}).
+		Select("id").
+		Where(
+			"enterprise_id = ? AND ((target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)))",
+			enterpriseId,
+			model.PolicyTargetOrgUnit,
+			access.ScopedOrgUnitIds,
+			model.PolicyTargetUser,
+			scopedUserIds,
+			model.PolicyTargetPolicyGroup,
+			scopedPolicyGroupIds,
+			model.PolicyTargetProject,
+			scopedProjectIds,
+		)
+}
+
+func projectScopedSharedPoolPolicyIds(enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	return model.DB.Model(&model.EnterpriseQuotaPolicy{}).
+		Select("id").
+		Where("enterprise_id = ? AND target_type = ? AND target_id IN (?)", enterpriseId, model.PolicyTargetProject, access.ScopedProjectIds)
 }
 
 func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {

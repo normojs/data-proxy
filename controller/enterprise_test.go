@@ -152,6 +152,8 @@ func setupEnterpriseControllerTestDB(t *testing.T) {
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseUsageAttribution{},
 		&model.EnterpriseGovernanceQueueAdmission{},
+		&model.EnterpriseGovernanceSharedPool{},
+		&model.EnterpriseGovernanceSharedPoolBorrow{},
 		&model.EnterpriseGovernanceAnomalyProtection{},
 		&model.EnterpriseAuditLog{},
 		&model.EnterpriseNotificationPreference{},
@@ -760,6 +762,122 @@ func TestEnterpriseQueueAdmissionFilters(t *testing.T) {
 	assert.Equal(t, "req-queue-timeout", item["request_id"])
 	assert.Equal(t, "gpt-4o-mini", item["model_name"])
 	assert.EqualValues(t, 12, item["policy_id"])
+}
+
+func TestEnterpriseSharedPoolFilters(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceSharedPool{
+		{
+			EnterpriseId:  enterprise.Id,
+			PolicyId:      11,
+			Metric:        model.PolicyMetricRequestCount,
+			PeriodStart:   1000,
+			PeriodEnd:     1999,
+			CapacityValue: 100,
+			UsedValue:     10,
+			ReservedValue: 20,
+		},
+		{
+			EnterpriseId:  enterprise.Id,
+			PolicyId:      12,
+			Metric:        model.PolicyMetricQuota,
+			PeriodStart:   2000,
+			PeriodEnd:     2999,
+			CapacityValue: 1000,
+			UsedValue:     100,
+			ReservedValue: 200,
+		},
+	}).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(
+		t,
+		http.MethodGet,
+		"/api/enterprise/shared-pools?metric=quota&policy_id=12&start_time=1500&end_time=2500",
+		"",
+	)
+	ListEnterpriseGovernanceSharedPools(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	assert.EqualValues(t, 1, response.Data["total"])
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, model.PolicyMetricQuota, item["metric"])
+	assert.EqualValues(t, 12, item["policy_id"])
+	assert.EqualValues(t, 1000, item["capacity_value"])
+	assert.EqualValues(t, 200, item["reserved_value"])
+}
+
+func TestEnterpriseSharedPoolBorrowFilters(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceSharedPoolBorrow{
+		{
+			EnterpriseId:          enterprise.Id,
+			PoolId:                101,
+			RequestId:             "req-shared-pool-reserved",
+			UserId:                9101,
+			TokenId:               101,
+			PolicyId:              11,
+			Metric:                model.PolicyMetricRequestCount,
+			ModelName:             "gpt-4o",
+			ChannelId:             701,
+			Status:                model.EnterpriseGovernanceSharedPoolBorrowStatusReserved,
+			ReservedBorrowedValue: 5,
+			CapacityValue:         100,
+			UserMessageKey:        "enterprise_governance.shared_pool_reserved",
+			CreatedAt:             1000,
+		},
+		{
+			EnterpriseId:          enterprise.Id,
+			PoolId:                102,
+			RequestId:             "req-shared-pool-settled",
+			UserId:                9102,
+			TokenId:               102,
+			OrgUnitId:             22,
+			ProjectId:             32,
+			PolicyId:              12,
+			Metric:                model.PolicyMetricQuota,
+			ModelName:             "gpt-4o-mini",
+			ChannelId:             702,
+			Status:                model.EnterpriseGovernanceSharedPoolBorrowStatusSettled,
+			ReservedBorrowedValue: 50,
+			SettledBorrowedValue:  30,
+			ReturnedValue:         20,
+			CapacityValue:         1000,
+			UserMessageKey:        "enterprise_governance.shared_pool_settled",
+			CreatedAt:             2000,
+		},
+	}).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(
+		t,
+		http.MethodGet,
+		"/api/enterprise/shared-pool-borrows?status=settled&metric=quota&request_id=req-shared-pool-settled&model_name=gpt-4o-mini&pool_id=102&policy_id=12&project_id=32&start_time=1500&end_time=2500",
+		"",
+	)
+	ListEnterpriseGovernanceSharedPoolBorrows(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	assert.EqualValues(t, 1, response.Data["total"])
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, model.EnterpriseGovernanceSharedPoolBorrowStatusSettled, item["status"])
+	assert.Equal(t, "req-shared-pool-settled", item["request_id"])
+	assert.Equal(t, "gpt-4o-mini", item["model_name"])
+	assert.EqualValues(t, 12, item["policy_id"])
+	assert.EqualValues(t, 30, item["settled_borrowed_value"])
+	assert.EqualValues(t, 20, item["returned_value"])
 }
 
 func TestEnterpriseQuotaRequestSubmitApproveListAndAudit(t *testing.T) {

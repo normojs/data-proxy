@@ -512,6 +512,8 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				auditLogEnterpriseRoute.GET("/audit-logs", controller.ListEnterpriseAuditLogs)
 				auditLogEnterpriseRoute.GET("/queue-admissions", controller.ListEnterpriseGovernanceQueueAdmissions)
+				auditLogEnterpriseRoute.GET("/shared-pools", controller.ListEnterpriseGovernanceSharedPools)
+				auditLogEnterpriseRoute.GET("/shared-pool-borrows", controller.ListEnterpriseGovernanceSharedPoolBorrows)
 			}
 
 			auditEnterpriseRoute := enterpriseRoute.Group("")
