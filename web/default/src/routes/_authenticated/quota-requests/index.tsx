@@ -18,12 +18,24 @@ import z from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
 import { QuotaRequests } from '@/features/quota-requests'
 
+const positiveSearchNumber = z
+  .preprocess((value) => {
+    if (value === undefined || value === null || value === '') return undefined
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+  }, z.number().optional())
+  .catch(undefined)
+
 const quotaRequestsSearchSchema = z.object({
-  quota_request_id: z.number().optional().catch(undefined),
+  quota_request_id: positiveSearchNumber,
   status: z.string().optional().catch(''),
-  project_id: z.number().optional().catch(undefined),
+  project_id: positiveSearchNumber,
   target_type: z.string().optional().catch(''),
-  target_id: z.number().optional().catch(undefined),
+  target_id: positiveSearchNumber,
+  request_quota: z.string().optional().catch(''),
+  policy_id: positiveSearchNumber,
+  limit_delta: positiveSearchNumber,
+  reason: z.string().optional().catch(''),
 })
 
 export const Route = createFileRoute('/_authenticated/quota-requests/')({

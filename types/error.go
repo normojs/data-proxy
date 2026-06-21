@@ -214,6 +214,9 @@ func (e *NewAPIError) ToOpenAIError() OpenAIError {
 	if result.Message == "" {
 		result.Message = string(e.errorType)
 	}
+	if len(e.Metadata) > 0 {
+		result.Metadata = e.Metadata
+	}
 	return result
 }
 

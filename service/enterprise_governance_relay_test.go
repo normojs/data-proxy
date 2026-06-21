@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -226,6 +227,16 @@ func TestPreCheckEnterpriseGovernanceHardLimitRejectsWithEnterpriseErrorCode(t *
 	assert.Equal(t, types.ErrorCodeEnterpriseGovernanceQuotaExceeded, apiErr.GetErrorCode())
 	assert.Equal(t, "enterprise_governance.quota_exceeded", apiErr.Error())
 	assertEnterpriseGovernanceUserErrorIsRedacted(t, apiErr)
+	openAIError := apiErr.ToOpenAIError()
+	var metadata map[string]any
+	require.NoError(t, json.Unmarshal(openAIError.Metadata, &metadata))
+	hint, ok := metadata["quota_request_hint"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, hint["available"])
+	assert.EqualValues(t, policy.Id, hint["policy_id"])
+	assert.EqualValues(t, 10, hint["limit_delta"])
+	assert.Contains(t, hint["reason"], "gpt-4o")
+	assert.Contains(t, hint["reason"], "req-enterprise-hard-reject")
 	internalReason := decisionInternalReasonForTest(t, ctx)
 	assert.Contains(t, internalReason, fmt.Sprintf("policy_id=%d", policy.Id))
 	var audit model.EnterpriseAuditLog

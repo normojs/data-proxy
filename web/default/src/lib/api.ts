@@ -72,6 +72,113 @@ api.get = ((url: string, config: ApiRequestConfig = {}) => {
   return req
 }) as typeof api.get
 
+type EnterpriseQuotaRequestHint = {
+  available?: boolean
+  policy_id?: number | string
+  project_id?: number | string
+  limit_delta?: number | string
+  reason?: string
+}
+
+type NormalizedQuotaRequestHint = {
+  policyId?: number
+  projectId?: number
+  limitDelta?: number
+  reason?: string
+}
+
+const enterpriseQuotaExceededCodes = new Set([
+  'enterprise_governance_quota_exceeded',
+  'enterprise_governance_org_quota_exceeded',
+  'enterprise_governance_group_quota_exceeded',
+  'enterprise_governance_user_quota_exceeded',
+])
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
+function responseErrorData(error: unknown): Record<string, unknown> | undefined {
+  const response = asRecord(asRecord(error)?.response)
+  return asRecord(response?.data)
+}
+
+function responseErrorMessage(error: unknown): string {
+  const data = responseErrorData(error)
+  const openAIError = asRecord(data?.error)
+  return (
+    stringValue(data?.message) ||
+    stringValue(openAIError?.message) ||
+    (error instanceof Error ? error.message : undefined) ||
+    t('Request failed')
+  )
+}
+
+function enterpriseQuotaRequestHintFromError(
+  error: unknown
+): NormalizedQuotaRequestHint | null {
+  const data = responseErrorData(error)
+  const openAIError = asRecord(data?.error)
+  const code = stringValue(openAIError?.code) || stringValue(data?.error_code)
+  if (!code || !enterpriseQuotaExceededCodes.has(code)) return null
+
+  const metadata = asRecord(openAIError?.metadata)
+  const rawHint = asRecord(
+    metadata?.quota_request_hint
+  ) as EnterpriseQuotaRequestHint | undefined
+  if (rawHint?.available === false) return null
+
+  return {
+    policyId: positiveNumber(rawHint?.policy_id),
+    projectId: positiveNumber(rawHint?.project_id),
+    limitDelta: positiveNumber(rawHint?.limit_delta),
+    reason: stringValue(rawHint?.reason),
+  }
+}
+
+function quotaRequestUrl(hint: NormalizedQuotaRequestHint) {
+  const params = new URLSearchParams()
+  params.set('request_quota', '1')
+  if (hint.policyId) params.set('policy_id', String(hint.policyId))
+  if (hint.projectId) params.set('project_id', String(hint.projectId))
+  if (hint.limitDelta) params.set('limit_delta', String(hint.limitDelta))
+  if (hint.reason) params.set('reason', hint.reason)
+  return `/quota-requests?${params.toString()}`
+}
+
+function showResponseErrorToast(error: unknown) {
+  const msg = responseErrorMessage(error)
+  const quotaRequestHint = enterpriseQuotaRequestHintFromError(error)
+  if (!quotaRequestHint) {
+    toast.error(msg)
+    return
+  }
+  toast.error(msg, {
+    action: {
+      label: t('Request quota'),
+      onClick: () => {
+        window.location.assign(quotaRequestUrl(quotaRequestHint))
+      },
+    },
+  })
+}
+
 // ============================================================================
 // Response Interceptor
 // ============================================================================
@@ -111,10 +218,7 @@ api.interceptors.response.use(
         toast.error(t('Session expired!'))
       }
     } else if (!skip) {
-      // Other errors: show error message from response or default
-      const msg =
-        error?.response?.data?.message || error?.message || t('Request failed')
-      toast.error(msg)
+      showResponseErrorToast(error)
     }
     return Promise.reject(error)
   }

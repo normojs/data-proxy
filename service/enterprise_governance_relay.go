@@ -2,12 +2,14 @@ package service
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -35,6 +37,18 @@ type EnterpriseGovernanceFallbackResult struct {
 	Applied       bool
 	OriginalModel string
 	FallbackModel string
+}
+
+type EnterpriseQuotaRequestHint struct {
+	Available  bool   `json:"available"`
+	PolicyId   int    `json:"policy_id,omitempty"`
+	ProjectId  int    `json:"project_id,omitempty"`
+	LimitDelta int64  `json:"limit_delta,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type enterpriseQuotaRequestHintMetadata struct {
+	QuotaRequestHint EnterpriseQuotaRequestHint `json:"quota_request_hint"`
 }
 
 func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayInfo, estimatedQuota int) *types.NewAPIError {
@@ -90,13 +104,17 @@ func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayIn
 		if decision.DenyReason != "" {
 			logger.LogWarn(c, fmt.Sprintf("enterprise governance hard-limit rejected request: %s", decision.DenyReason))
 		}
-		return types.NewErrorWithStatusCode(
+		apiErr := types.NewErrorWithStatusCode(
 			fmt.Errorf("%s", message),
 			errorCode,
 			http.StatusForbidden,
 			types.ErrOptionWithSkipRetry(),
 			types.ErrOptionWithNoRecordErrorLog(),
 		)
+		if metadata := enterpriseQuotaRequestHintMetadataForDecision(enterpriseCtx, req, decision); len(metadata) > 0 {
+			apiErr.Metadata = metadata
+		}
+		return apiErr
 	}
 	return nil
 }
@@ -338,6 +356,62 @@ func enterpriseGovernanceUserFacingMessageKey(decision PolicyDecision) (string, 
 		}
 	}
 	return messageKey, errorCode
+}
+
+func enterpriseQuotaRequestHintMetadataForDecision(enterpriseCtx *EnterpriseContext, req PolicyEvaluationRequest, decision PolicyDecision) json.RawMessage {
+	hint := enterpriseQuotaRequestHintForDecision(enterpriseCtx, req, decision)
+	if !hint.Available {
+		return nil
+	}
+	payload, err := json.Marshal(enterpriseQuotaRequestHintMetadata{QuotaRequestHint: hint})
+	if err != nil {
+		return nil
+	}
+	return payload
+}
+
+func enterpriseQuotaRequestHintForDecision(enterpriseCtx *EnterpriseContext, req PolicyEvaluationRequest, decision PolicyDecision) EnterpriseQuotaRequestHint {
+	if enterpriseCtx == nil {
+		return EnterpriseQuotaRequestHint{}
+	}
+	var quotaErr EnterpriseQuotaExceededError
+	if !errors.As(decision.DenyError, &quotaErr) || quotaErr.PolicyId <= 0 {
+		return EnterpriseQuotaRequestHint{}
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	policy, ok, err := IsEnterpriseQuotaPolicyRequestable(enterpriseCtx, quotaErr.PolicyId, now)
+	if err != nil || !ok || policy.EnterpriseId != enterpriseCtx.EnterpriseId {
+		return EnterpriseQuotaRequestHint{}
+	}
+	limitDelta := quotaErr.UsedValue + quotaErr.ReservedValue + quotaErr.RequestedValue - quotaErr.LimitValue
+	if limitDelta <= 0 {
+		limitDelta = quotaErr.RequestedValue
+	}
+	if limitDelta <= 0 {
+		limitDelta = 1
+	}
+	hint := EnterpriseQuotaRequestHint{
+		Available:  true,
+		PolicyId:   quotaErr.PolicyId,
+		ProjectId:  enterpriseCtx.ProjectId,
+		LimitDelta: limitDelta,
+		Reason:     enterpriseQuotaRequestHintReason(req),
+	}
+	return hint
+}
+
+func enterpriseQuotaRequestHintReason(req PolicyEvaluationRequest) string {
+	parts := []string{"Request temporary quota after a quota limit rejection."}
+	if strings.TrimSpace(req.ModelName) != "" {
+		parts = append(parts, "Model: "+strings.TrimSpace(req.ModelName)+".")
+	}
+	if strings.TrimSpace(req.RequestId) != "" {
+		parts = append(parts, "Request ID: "+strings.TrimSpace(req.RequestId)+".")
+	}
+	return strings.Join(parts, " ")
 }
 
 func recordEnterpriseGovernanceRejectAudit(c *gin.Context, enterpriseCtx *EnterpriseContext, req PolicyEvaluationRequest, decision PolicyDecision) {

@@ -160,6 +160,7 @@
 ### Phase D 当前进度
 
 - V13-UX-003 已完成基础交付：审批申请列表返回策略 limit、当前用量、批准后叠加 limit、近 7 天策略命中和 dry-run 命中次数；单条批准/拒绝弹窗展示风险摘要和剩余有效期。
+- V13-UX-005 已完成基础交付：hard limit 错误返回可申请 metadata hint；前端错误 toast 提供 `Request quota` 动作，跳转 `/quota-requests` 并预填可申请 policy、项目、建议 extra limit 和原因；不可申请 policy 不会提交。
 
 ## Phase E: 发布收口
 

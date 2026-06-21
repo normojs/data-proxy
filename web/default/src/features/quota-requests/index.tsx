@@ -14,7 +14,7 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Route } from '@/routes/_authenticated/quota-requests'
 import { Eye, Plus, RefreshCcw, Trash2 } from 'lucide-react'
@@ -106,6 +106,13 @@ function formatNumber(value: number | undefined) {
   return new Intl.NumberFormat().format(value ?? 0)
 }
 
+type QuotaRequestInitialValues = {
+  projectId?: number
+  policyId?: number
+  limitDelta?: number
+  reason?: string
+}
+
 function statusLabel(status: EnterpriseQuotaRequestStatus) {
   switch (status) {
     case 'approved':
@@ -161,6 +168,7 @@ function TableSkeleton() {
 function QuotaRequestDialog(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  initialValues?: QuotaRequestInitialValues | null
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -169,6 +177,28 @@ function QuotaRequestDialog(props: {
   const [limitDelta, setLimitDelta] = useState('')
   const [expiresAt, setExpiresAt] = useState(todayInputValue())
   const [reason, setReason] = useState('')
+
+  useEffect(() => {
+    if (!props.open) return
+    const initialValues = props.initialValues
+    setProjectId(
+      initialValues?.projectId && initialValues.projectId > 0
+        ? String(initialValues.projectId)
+        : NO_PROJECT_VALUE
+    )
+    setPolicyId(
+      initialValues?.policyId && initialValues.policyId > 0
+        ? String(initialValues.policyId)
+        : ''
+    )
+    setLimitDelta(
+      initialValues?.limitDelta && initialValues.limitDelta > 0
+        ? String(initialValues.limitDelta)
+        : ''
+    )
+    setExpiresAt(todayInputValue())
+    setReason(initialValues?.reason ?? '')
+  }, [props.open, props.initialValues])
 
   const projectsQuery = useQuery({
     queryKey: ['quota-request-projects'],
@@ -206,6 +236,7 @@ function QuotaRequestDialog(props: {
       setProjectId(NO_PROJECT_VALUE)
       setPolicyId('')
       setLimitDelta('')
+      setExpiresAt(todayInputValue())
       setReason('')
       props.onOpenChange(false)
       queryClient.invalidateQueries({ queryKey: ['quota-requests'] })
@@ -323,6 +354,10 @@ function QuotaRequestDialog(props: {
               <p className='text-muted-foreground text-xs'>
                 {t('No requestable quota policies are available.')}
               </p>
+            ) : policiesQuery.isSuccess && policyId && !selectedPolicy ? (
+              <p className='text-muted-foreground text-xs'>
+                {t('The prefilled policy is not available for your account.')}
+              </p>
             ) : selectedPolicy ? (
               <p className='text-muted-foreground text-xs'>
                 {t(policyTargetLabel(selectedPolicy))} ·{' '}
@@ -357,7 +392,7 @@ function QuotaRequestDialog(props: {
             <Button
               type='submit'
               disabled={
-                mutation.isPending || !policyId || policies.length === 0
+                mutation.isPending || !selectedPolicy || policies.length === 0
               }
             >
               {t('Submit')}
@@ -443,9 +478,13 @@ export function QuotaRequests() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [quotaRequestInitialValues, setQuotaRequestInitialValues] =
+    useState<QuotaRequestInitialValues | null>(null)
   const [viewingRequest, setViewingRequest] =
     useState<EnterpriseQuotaRequest | null>(null)
   const [page, setPage] = useState(1)
+  const requestQuota =
+    search.request_quota === '1' || search.request_quota === 'true'
   const status = search.status ?? ''
   const requestId = search.quota_request_id
     ? String(search.quota_request_id)
@@ -456,6 +495,40 @@ export function QuotaRequests() {
   const targetType = search.target_type ?? ''
   const targetId = search.target_id ? String(search.target_id) : ''
   const targetIdValue = search.target_id
+
+  useEffect(() => {
+    if (!requestQuota) return
+    setQuotaRequestInitialValues({
+      projectId: search.project_id,
+      policyId: search.policy_id,
+      limitDelta: search.limit_delta,
+      reason: search.reason,
+    })
+    setDialogOpen(true)
+  }, [
+    requestQuota,
+    search.project_id,
+    search.policy_id,
+    search.limit_delta,
+    search.reason,
+  ])
+
+  const setQuotaRequestDialogOpen = (open: boolean) => {
+    setDialogOpen(open)
+    if (open) return
+    setQuotaRequestInitialValues(null)
+    if (!requestQuota) return
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        request_quota: undefined,
+        policy_id: undefined,
+        limit_delta: undefined,
+        reason: undefined,
+      }),
+    })
+  }
+
   const query = useQuery({
     queryKey: [
       'quota-requests',
@@ -503,7 +576,13 @@ export function QuotaRequests() {
             <RefreshCcw className='size-3.5' />
             {t('Refresh')}
           </Button>
-          <Button size='sm' onClick={() => setDialogOpen(true)}>
+          <Button
+            size='sm'
+            onClick={() => {
+              setQuotaRequestInitialValues(null)
+              setDialogOpen(true)
+            }}
+          >
             <Plus className='size-3.5' />
             {t('Quota Request')}
           </Button>
@@ -669,7 +748,11 @@ export function QuotaRequests() {
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
-      <QuotaRequestDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <QuotaRequestDialog
+        open={dialogOpen}
+        initialValues={quotaRequestInitialValues}
+        onOpenChange={setQuotaRequestDialogOpen}
+      />
       <QuotaRequestDetailSheet
         open={Boolean(viewingRequest)}
         request={viewingRequest}
