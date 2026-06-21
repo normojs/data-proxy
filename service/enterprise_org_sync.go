@@ -82,13 +82,15 @@ type EnterpriseOrgSyncSummary struct {
 }
 
 type EnterpriseOrgSyncConflict struct {
-	Type       string `json:"type"`
-	ExternalId string `json:"external_id,omitempty"`
-	UserId     int    `json:"user_id,omitempty"`
-	Username   string `json:"username,omitempty"`
-	Email      string `json:"email,omitempty"`
-	Field      string `json:"field,omitempty"`
-	Message    string `json:"message"`
+	Type             string `json:"type"`
+	ExternalId       string `json:"external_id,omitempty"`
+	UserId           int    `json:"user_id,omitempty"`
+	Username         string `json:"username,omitempty"`
+	Email            string `json:"email,omitempty"`
+	ProviderUserId   string `json:"provider_user_id,omitempty"`
+	Field            string `json:"field,omitempty"`
+	Message          string `json:"message"`
+	CandidateUserIds []int  `json:"candidate_user_ids,omitempty"`
 }
 
 type EnterpriseOrgSyncOperation struct {
@@ -138,6 +140,14 @@ type enterpriseOrgSyncImporter interface {
 }
 
 type enterpriseOrgSyncPayloadImporter struct{}
+
+type enterpriseOrgSyncMemberIdentityConflictError struct {
+	userIds []int
+}
+
+func (err enterpriseOrgSyncMemberIdentityConflictError) Error() string {
+	return "同步成员匹配到多个不同用户"
+}
 
 type enterpriseOrgSyncPlanner struct {
 	db                   *gorm.DB
@@ -417,6 +427,11 @@ func (p *enterpriseOrgSyncPlanner) planMembers() error {
 	for index, member := range p.snapshot.Members {
 		user, ok, err := p.resolveSyncMemberUser(member)
 		if err != nil {
+			var identityConflict enterpriseOrgSyncMemberIdentityConflictError
+			if errors.As(err, &identityConflict) {
+				p.addMemberIdentityConflict(index, member, identityConflict.userIds)
+				continue
+			}
 			return err
 		}
 		if !ok {
@@ -838,7 +853,18 @@ func (p *enterpriseOrgSyncPlanner) policyGroupMembershipsByUserId(userId int) ([
 }
 
 func (p *enterpriseOrgSyncPlanner) resolveSyncMemberUser(member enterpriseOrgSyncMember) (model.User, bool, error) {
-	var matched *model.User
+	if member.UserId > 0 {
+		var user model.User
+		err := p.db.Where("id = ?", member.UserId).First(&user).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.User{}, false, nil
+		}
+		if err != nil {
+			return model.User{}, false, err
+		}
+		return user, true, nil
+	}
+	candidates := map[int]model.User{}
 	match := func(query string, args ...any) error {
 		var user model.User
 		err := p.db.Where(query, args...).First(&user).Error
@@ -848,16 +874,8 @@ func (p *enterpriseOrgSyncPlanner) resolveSyncMemberUser(member enterpriseOrgSyn
 		if err != nil {
 			return err
 		}
-		if matched != nil && matched.Id != user.Id {
-			return errors.New("同步成员匹配到多个不同用户")
-		}
-		matched = &user
+		candidates[user.Id] = user
 		return nil
-	}
-	if member.UserId > 0 {
-		if err := match("id = ?", member.UserId); err != nil {
-			return model.User{}, false, err
-		}
 	}
 	if member.ProviderUserId != "" {
 		column, ok := providerUserIdColumn(p.snapshot.Provider)
@@ -877,10 +895,21 @@ func (p *enterpriseOrgSyncPlanner) resolveSyncMemberUser(member enterpriseOrgSyn
 			return model.User{}, false, err
 		}
 	}
-	if matched == nil {
+	if len(candidates) == 0 {
 		return model.User{}, false, nil
 	}
-	return *matched, true, nil
+	if len(candidates) > 1 {
+		userIds := make([]int, 0, len(candidates))
+		for userId := range candidates {
+			userIds = append(userIds, userId)
+		}
+		sort.Ints(userIds)
+		return model.User{}, false, enterpriseOrgSyncMemberIdentityConflictError{userIds: userIds}
+	}
+	for _, user := range candidates {
+		return user, true, nil
+	}
+	return model.User{}, false, nil
 }
 
 func providerUserIdColumn(provider string) (string, bool) {
@@ -1053,13 +1082,29 @@ func (p *enterpriseOrgSyncPlanner) addOrgConflict(unit enterpriseOrgSyncOrgUnit,
 func (p *enterpriseOrgSyncPlanner) addMemberConflict(index int, member enterpriseOrgSyncMember, field string, message string) {
 	p.skipMemberIndex[index] = struct{}{}
 	p.result.Conflicts = append(p.result.Conflicts, EnterpriseOrgSyncConflict{
-		Type:       "member",
-		ExternalId: member.OrgUnitExternalId,
-		UserId:     member.UserId,
-		Username:   member.Username,
-		Email:      member.Email,
-		Field:      field,
-		Message:    message,
+		Type:           "member",
+		ExternalId:     member.OrgUnitExternalId,
+		UserId:         member.UserId,
+		Username:       member.Username,
+		Email:          member.Email,
+		ProviderUserId: member.ProviderUserId,
+		Field:          field,
+		Message:        message,
+	})
+}
+
+func (p *enterpriseOrgSyncPlanner) addMemberIdentityConflict(index int, member enterpriseOrgSyncMember, candidateUserIds []int) {
+	p.skipMemberIndex[index] = struct{}{}
+	p.result.Conflicts = append(p.result.Conflicts, EnterpriseOrgSyncConflict{
+		Type:             "member",
+		ExternalId:       member.OrgUnitExternalId,
+		UserId:           member.UserId,
+		Username:         member.Username,
+		Email:            member.Email,
+		ProviderUserId:   member.ProviderUserId,
+		Field:            "user",
+		Message:          "同步成员的 provider ID、邮箱或用户名匹配到多个用户，请确认后指定 user_id",
+		CandidateUserIds: candidateUserIds,
 	})
 }
 

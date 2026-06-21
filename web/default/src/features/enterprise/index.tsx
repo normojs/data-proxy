@@ -183,6 +183,7 @@ import type {
   EnterpriseNotificationRecipientScope,
   EnterpriseOrgUnit,
   EnterpriseOrgUnitPayload,
+  EnterpriseOrgSyncConflict,
   EnterpriseOrgSyncPayload,
   EnterpriseOrgSyncResult,
   EnterprisePolicyGroup,
@@ -1449,6 +1450,49 @@ function SsoOrgSyncPanel() {
     }
   }
 
+  const applyUserIdResolution = (
+    conflict: EnterpriseOrgSyncConflict,
+    userId: number
+  ) => {
+    try {
+      const parsed = JSON.parse(payloadText) as Record<string, unknown>
+      const members = Array.isArray(parsed.members) ? parsed.members : []
+      const index = members.findIndex((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return false
+        }
+        const member = item as Record<string, unknown>
+        return (
+          (conflict.provider_user_id &&
+            String(member.provider_user_id ?? '') ===
+              conflict.provider_user_id) ||
+          (conflict.email &&
+            String(member.email ?? '') === conflict.email) ||
+          (conflict.username &&
+            String(member.username ?? '') === conflict.username) ||
+          ((conflict.user_id ?? 0) > 0 &&
+            Number(member.user_id) === conflict.user_id)
+        )
+      })
+      if (index < 0) {
+        toast.error(t('Unable to locate the conflicted member in JSON'))
+        return
+      }
+      members[index] = {
+        ...(members[index] as Record<string, unknown>),
+        user_id: userId,
+      }
+      parsed.members = members
+      setPayloadText(JSON.stringify(parsed, null, 2))
+      setResult(null)
+      toast.success(t('User ID confirmed'))
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('Invalid JSON payload')
+      toast.error(message)
+    }
+  }
+
   const previewMutation = useMutation({
     mutationFn: previewEnterpriseOrgSync,
     onSuccess: (response) => {
@@ -1645,6 +1689,23 @@ function SsoOrgSyncPanel() {
                     <div className='text-muted-foreground mt-0.5'>
                       {conflict.message}
                     </div>
+                    {(conflict.candidate_user_ids?.length ?? 0) > 0 && (
+                      <div className='mt-2 flex flex-wrap gap-1'>
+                        {conflict.candidate_user_ids?.map((userId) => (
+                          <Button
+                            key={userId}
+                            variant='outline'
+                            size='sm'
+                            className='h-6 px-2 text-xs'
+                            onClick={() =>
+                              applyUserIdResolution(conflict, userId)
+                            }
+                          >
+                            #{userId}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -135,8 +135,10 @@ export type EnterpriseOrgSyncConflict = {
   user_id?: number
   username?: string
   email?: string
+  provider_user_id?: string
   field?: string
   message: string
+  candidate_user_ids?: number[]
 }
 
 export type EnterpriseOrgSyncOperation = {

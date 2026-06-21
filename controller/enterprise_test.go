@@ -519,6 +519,52 @@ func TestEnterpriseOrgSyncPreviewReportsConflicts(t *testing.T) {
 	assert.Contains(t, response.Message, "冲突")
 }
 
+func TestEnterpriseOrgSyncPreviewReportsMemberIdentityConflictAndUserIdOverride(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	require.NoError(t, model.DB.Create(&[]model.User{
+		{Id: 1201, Username: "alice-sync", Email: "alice-sync@example.com", HStationId: "hs-conflict", AffCode: "aff1201", Status: common.UserStatusEnabled},
+		{Id: 1202, Username: "bob-sync", Email: "bob-sync@example.com", AffCode: "aff1202", Status: common.UserStatusEnabled},
+	}).Error)
+
+	conflictPayload := `{
+		"provider": "hstation",
+		"org_units": [
+			{"external_id": "engineering", "name": "Engineering", "slug": "engineering"}
+		],
+		"members": [
+			{"provider_user_id": "hs-conflict", "email": "bob-sync@example.com", "org_unit_external_id": "engineering"}
+		]
+	}`
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-sync/preview", conflictPayload)
+	PreviewEnterpriseOrgSync(ctx)
+	preview := decodeEnterpriseOrgSyncResponse(t, recorder)
+	require.True(t, preview.Success, preview.Message)
+	require.Len(t, preview.Data.Conflicts, 1)
+	assert.Equal(t, "user", preview.Data.Conflicts[0].Field)
+	assert.Equal(t, "hs-conflict", preview.Data.Conflicts[0].ProviderUserId)
+	assert.Equal(t, []int{1201, 1202}, preview.Data.Conflicts[0].CandidateUserIds)
+
+	overridePayload := `{
+		"provider": "hstation",
+		"org_units": [
+			{"external_id": "engineering", "name": "Engineering", "slug": "engineering"}
+		],
+		"members": [
+			{"user_id": 1201, "provider_user_id": "hs-conflict", "email": "bob-sync@example.com", "org_unit_external_id": "engineering"}
+		]
+	}`
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-sync/preview", overridePayload)
+	PreviewEnterpriseOrgSync(ctx)
+	overridePreview := decodeEnterpriseOrgSyncResponse(t, recorder)
+	require.True(t, overridePreview.Success, overridePreview.Message)
+	assert.Empty(t, overridePreview.Data.Conflicts)
+	assert.EqualValues(t, 1, overridePreview.Data.Summary.AssignMembers)
+	require.Len(t, overridePreview.Data.Operations, 2)
+	assert.Equal(t, "member", overridePreview.Data.Operations[1].Type)
+	assert.Equal(t, service.EnterpriseOrgSyncOperationMemberAssign, overridePreview.Data.Operations[1].Action)
+	assert.Equal(t, 1201, overridePreview.Data.Operations[1].UserId)
+}
+
 func TestEnterprisePolicyGroupDisableRejectsReferencedGroup(t *testing.T) {
 	setupEnterpriseControllerTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()
