@@ -64,6 +64,12 @@ func TestMain(m *testing.M) {
 		&EnterpriseQuotaCounter{},
 		&EnterpriseQuotaRequest{},
 		&EnterpriseUsageAttribution{},
+		&EnterpriseGovernanceQueueAdmission{},
+		&EnterpriseGovernanceQueuePayload{},
+		&EnterpriseGovernanceSharedPoolConfig{},
+		&EnterpriseGovernanceSharedPool{},
+		&EnterpriseGovernanceSharedPoolBorrow{},
+		&EnterpriseGovernanceAnomalyProtection{},
 		&EnterpriseAuditLog{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())

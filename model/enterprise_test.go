@@ -56,6 +56,12 @@ func TestEnterpriseGovernanceTablesMigrated(t *testing.T) {
 		&EnterpriseQuotaCounter{},
 		&EnterpriseQuotaRequest{},
 		&EnterpriseUsageAttribution{},
+		&EnterpriseGovernanceQueueAdmission{},
+		&EnterpriseGovernanceQueuePayload{},
+		&EnterpriseGovernanceSharedPoolConfig{},
+		&EnterpriseGovernanceSharedPool{},
+		&EnterpriseGovernanceSharedPoolBorrow{},
+		&EnterpriseGovernanceAnomalyProtection{},
 		&EnterpriseAuditLog{},
 	}
 	for _, model := range models {

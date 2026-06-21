@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"mime"
 	"net/http"
 	"strings"
 	"sync"
@@ -221,9 +220,6 @@ func BuildEnterpriseGovernanceQueueReplayRequest(admission model.EnterpriseGover
 	if err := common.UnmarshalJsonStr(admission.RequestPayloadJson, &payload); err != nil {
 		return EnterpriseGovernanceQueueReplayRequest{}, fmt.Errorf("%w: %v", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported, err)
 	}
-	if payload.BodyTruncated {
-		return EnterpriseGovernanceQueueReplayRequest{}, ErrEnterpriseGovernanceQueueReplayPayloadTruncated
-	}
 	method := strings.ToUpper(strings.TrimSpace(payload.Method))
 	if method != http.MethodPost {
 		return EnterpriseGovernanceQueueReplayRequest{}, fmt.Errorf("%w: unsupported method %q", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported, payload.Method)
@@ -232,7 +228,11 @@ func BuildEnterpriseGovernanceQueueReplayRequest(admission model.EnterpriseGover
 	if !isEnterpriseGovernanceQueueReplayPathSupported(path) {
 		return EnterpriseGovernanceQueueReplayRequest{}, fmt.Errorf("%w: unsupported path %q", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported, path)
 	}
-	if !isEnterpriseGovernanceQueueReplayContentTypeSupported(payload.ContentType) {
+	body, durableBody, err := enterpriseGovernanceQueueReplayBody(admission, payload)
+	if err != nil {
+		return EnterpriseGovernanceQueueReplayRequest{}, err
+	}
+	if !isEnterpriseGovernanceQueueReplayContentTypeSupported(payload.ContentType, durableBody) {
 		return EnterpriseGovernanceQueueReplayRequest{}, fmt.Errorf("%w: unsupported content type %q", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported, payload.ContentType)
 	}
 	token, err := model.GetTokenById(admission.TokenId)
@@ -252,9 +252,52 @@ func BuildEnterpriseGovernanceQueueReplayRequest(admission model.EnterpriseGover
 		Path:        path,
 		RawQuery:    payload.RawQuery,
 		ContentType: payload.ContentType,
-		Body:        []byte(payload.Body),
+		Body:        body,
 		TokenKey:    token.Key,
 	}, nil
+}
+
+func enterpriseGovernanceQueueReplayBody(admission model.EnterpriseGovernanceQueueAdmission, payload EnterpriseGovernanceQueueRequestPayload) ([]byte, bool, error) {
+	if payload.PayloadId > 0 || payload.BodyStorage == enterpriseQueueRequestBodyStorageDB {
+		if payload.PayloadId <= 0 {
+			return nil, true, fmt.Errorf("%w: missing payload id", ErrEnterpriseGovernanceQueueReplayPayloadMissing)
+		}
+		var row model.EnterpriseGovernanceQueuePayload
+		if err := model.DB.Where("id = ?", payload.PayloadId).First(&row).Error; err != nil {
+			return nil, true, fmt.Errorf("%w: durable payload %d: %v", ErrEnterpriseGovernanceQueueReplayPayloadMissing, payload.PayloadId, err)
+		}
+		if row.AdmissionId != admission.Id {
+			return nil, true, fmt.Errorf("%w: durable payload admission mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		if row.RequestId != "" && admission.RequestId != "" && row.RequestId != admission.RequestId {
+			return nil, true, fmt.Errorf("%w: durable payload request mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		if row.EnterpriseId != 0 && row.EnterpriseId != admission.EnterpriseId {
+			return nil, true, fmt.Errorf("%w: durable payload enterprise mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		if row.UserId != 0 && row.UserId != admission.UserId {
+			return nil, true, fmt.Errorf("%w: durable payload user mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		if row.TokenId != 0 && row.TokenId != admission.TokenId {
+			return nil, true, fmt.Errorf("%w: durable payload token mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		body := append([]byte(nil), row.Body...)
+		if row.BodyBytes > 0 && row.BodyBytes != int64(len(body)) {
+			return nil, true, fmt.Errorf("%w: durable payload byte length mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		expectedSHA256 := strings.TrimSpace(payload.BodySHA256)
+		if expectedSHA256 == "" {
+			expectedSHA256 = strings.TrimSpace(row.SHA256)
+		}
+		if expectedSHA256 != "" && !strings.EqualFold(enterpriseGovernanceQueueBodySHA256(body), expectedSHA256) {
+			return nil, true, fmt.Errorf("%w: durable payload sha256 mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		return body, true, nil
+	}
+	if payload.BodyTruncated {
+		return nil, false, ErrEnterpriseGovernanceQueueReplayPayloadTruncated
+	}
+	return []byte(payload.Body), false, nil
 }
 
 func claimEnterpriseGovernanceQueueReplay(row model.EnterpriseGovernanceQueueAdmission, now int64) (model.EnterpriseGovernanceQueueAdmission, bool, error) {
@@ -381,6 +424,7 @@ func isEnterpriseGovernanceQueueReplayPathSupported(path string) bool {
 	}
 	switch path {
 	case "/v1/messages",
+		"/v1/edits",
 		"/v1/completions",
 		"/v1/chat/completions",
 		"/v1/responses",
@@ -388,7 +432,10 @@ func isEnterpriseGovernanceQueueReplayPathSupported(path string) bool {
 		"/v1/embeddings",
 		"/v1/rerank",
 		"/v1/moderations",
+		"/v1/images/edits",
 		"/v1/images/generations",
+		"/v1/audio/transcriptions",
+		"/v1/audio/translations",
 		"/v1/audio/speech":
 		return true
 	default:
@@ -396,16 +443,14 @@ func isEnterpriseGovernanceQueueReplayPathSupported(path string) bool {
 	}
 }
 
-func isEnterpriseGovernanceQueueReplayContentTypeSupported(contentType string) bool {
-	contentType = strings.TrimSpace(contentType)
-	if contentType == "" {
+func isEnterpriseGovernanceQueueReplayContentTypeSupported(contentType string, durableBody bool) bool {
+	mediaType, params := enterpriseGovernanceQueueMediaType(contentType)
+	if mediaType == "" {
 		return true
 	}
-	mediaType, _, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		mediaType = strings.TrimSpace(strings.Split(contentType, ";")[0])
+	if mediaType == "multipart/form-data" {
+		return durableBody && strings.TrimSpace(params["boundary"]) != ""
 	}
-	mediaType = strings.ToLower(mediaType)
 	return mediaType == "application/json" ||
 		mediaType == "application/x-ndjson" ||
 		mediaType == "text/json" ||

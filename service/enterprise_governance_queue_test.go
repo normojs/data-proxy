@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -13,7 +15,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -438,28 +439,47 @@ func TestRetryEnterpriseGovernanceQueueAdmissionMarksRetryPending(t *testing.T) 
 	require.ErrorIs(t, err, ErrEnterpriseGovernanceQueueAdmissionNotRetryable)
 }
 
-func TestEnterpriseGovernanceQueuePayloadSnapshotTruncatesAndRestoresBody(t *testing.T) {
+func TestEnterpriseGovernanceQueuePersistsLargePayloadAndRestoresBody(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 50*time.Millisecond)
 	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	requestBody := strings.Repeat("a", enterpriseQueueRequestPayloadMaxBytes+512)
+
+	relayInfo, _ := prepareEnterpriseGovernanceQueueRequest(t, "req-enterprise-queue-large-payload", 1043, 143)
+	ctx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-queue-large-payload", 733)
+	requestBody := `{"model":"gpt-4o","messages":[{"role":"user","content":"` + strings.Repeat("a", enterpriseQueueRequestPayloadMaxBytes+512) + `"}]}`
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(requestBody))
 	ctx.Request.Header.Set("Content-Type", "application/json")
-	common.SetContextKey(ctx, constant.ContextKeyChannelId, 733)
-	relayInfo := &relaycommon.RelayInfo{
-		OriginModelName: "gpt-4o",
-		RelayMode:       relayconstant.RelayModeChatCompletions,
-	}
+	require.Nil(t, PreCheckEnterpriseGovernance(ctx, relayInfo, 20))
 
-	payloadJson, err := enterpriseGovernanceQueueRequestPayloadJson(ctx, relayInfo)
+	result, release, err := ApplyEnterpriseGovernanceQueue(ctx, relayInfo)
 	require.NoError(t, err)
+	require.NotNil(t, release)
+	defer release()
+	assert.Equal(t, enterpriseQueueStatusAdmitted, result.Status)
+
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-large-payload").First(&admission).Error)
 
 	var payload enterpriseQueueRequestPayload
-	require.NoError(t, common.UnmarshalJsonStr(payloadJson, &payload))
-	assert.True(t, payload.BodyTruncated)
+	require.NoError(t, common.UnmarshalJsonStr(admission.RequestPayloadJson, &payload))
+	assert.False(t, payload.BodyTruncated)
+	assert.Equal(t, enterpriseQueueRequestBodyStorageDB, payload.BodyStorage)
+	assert.Greater(t, payload.PayloadId, int64(0))
 	assert.Equal(t, enterpriseQueueRequestPayloadMaxBytes, payload.BodyCapturedBytes)
-	assert.Equal(t, strings.Repeat("a", enterpriseQueueRequestPayloadMaxBytes), payload.Body)
+	assert.Equal(t, requestBody[:enterpriseQueueRequestPayloadMaxBytes], payload.Body)
 	assert.EqualValues(t, len(requestBody), payload.ContentLength)
+	assert.EqualValues(t, len(requestBody), payload.BodyBytes)
+	assert.Equal(t, enterpriseGovernanceQueueBodySHA256([]byte(requestBody)), payload.BodySHA256)
+
+	var durablePayload model.EnterpriseGovernanceQueuePayload
+	require.NoError(t, model.DB.Where("id = ?", payload.PayloadId).First(&durablePayload).Error)
+	assert.Equal(t, admission.Id, durablePayload.AdmissionId)
+	assert.Equal(t, admission.RequestId, durablePayload.RequestId)
+	assert.Equal(t, enterpriseQueueRequestBodyStorageDB, durablePayload.StorageKind)
+	assert.EqualValues(t, len(requestBody), durablePayload.BodyBytes)
+	assert.Equal(t, enterpriseGovernanceQueueBodySHA256([]byte(requestBody)), durablePayload.SHA256)
+	assert.Equal(t, requestBody, string(durablePayload.Body))
+
 	restoredBody, err := io.ReadAll(ctx.Request.Body)
 	require.NoError(t, err)
 	assert.Equal(t, requestBody, string(restoredBody))
@@ -550,6 +570,118 @@ func TestProcessEnterpriseGovernanceQueueReplayBatchReplaysDueAdmission(t *testi
 	assert.EqualValues(t, http.StatusOK, replay["status_code"])
 	assert.Equal(t, "/v1/chat/completions", replay["path"])
 	assert.NotContains(t, audit.AfterJson, "queue-replay-token")
+}
+
+func TestProcessEnterpriseGovernanceQueueReplayBatchReplaysDurableLargePayload(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000250)
+	createEnterpriseGovernanceQueueReplayToken(t, 1043, 143, "queue-replay-large-token", now)
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"` + strings.Repeat("b", enterpriseQueueRequestPayloadMaxBytes+1024) + `"}]}`)
+	admission := createEnterpriseGovernanceQueueReplayAdmissionWithPayload(t, enterprise.Id, 1043, 143, "req-enterprise-queue-replay-large", now, "/v1/chat/completions", "application/json", body)
+
+	var gotRequest EnterpriseGovernanceQueueReplayRequest
+	stats, err := processEnterpriseGovernanceQueueReplayBatchWithStats(context.Background(), now, 10, func(ctx context.Context, request EnterpriseGovernanceQueueReplayRequest) EnterpriseGovernanceQueueReplayResult {
+		gotRequest = request
+		return EnterpriseGovernanceQueueReplayResult{StatusCode: http.StatusOK, DurationMs: 21}
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, stats.Scanned)
+	assert.EqualValues(t, 1, stats.Claimed)
+	assert.EqualValues(t, 1, stats.Replayed)
+	assert.Zero(t, stats.Failed)
+	assert.Equal(t, admission.Id, gotRequest.Admission.Id)
+	assert.Equal(t, enterpriseQueueRequestBodyStorageDB, gotRequest.Payload.BodyStorage)
+	assert.Equal(t, body, gotRequest.Body)
+	assert.Equal(t, "queue-replay-large-token", gotRequest.TokenKey)
+
+	require.NoError(t, model.DB.Where("id = ?", admission.Id).First(&admission).Error)
+	assert.Equal(t, enterpriseQueueStatusReleased, admission.Status)
+	assert.EqualValues(t, 21, admission.RunMs)
+	assert.Empty(t, admission.LastError)
+}
+
+func TestBuildEnterpriseGovernanceQueueReplayRequestAcceptsDurableMultipartPayload(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000260)
+	createEnterpriseGovernanceQueueReplayToken(t, 1044, 144, "queue-replay-multipart-token", now)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "whisper-1"))
+	part, err := writer.CreateFormFile("file", "sample.wav")
+	require.NoError(t, err)
+	_, err = part.Write([]byte(strings.Repeat("wave", 256)))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	admission := createEnterpriseGovernanceQueueReplayAdmissionWithPayload(t, enterprise.Id, 1044, 144, "req-enterprise-queue-replay-multipart", now, "/v1/audio/transcriptions", writer.FormDataContentType(), body.Bytes())
+	request, err := BuildEnterpriseGovernanceQueueReplayRequest(admission)
+	require.NoError(t, err)
+	assert.Equal(t, "/v1/audio/transcriptions", request.Path)
+	assert.Equal(t, writer.FormDataContentType(), request.ContentType)
+	assert.Equal(t, body.Bytes(), request.Body)
+	assert.Equal(t, "queue-replay-multipart-token", request.TokenKey)
+}
+
+func TestProcessEnterpriseGovernanceQueueReplayBatchFailsMissingDurablePayload(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000270)
+	payload := EnterpriseGovernanceQueueRequestPayload{
+		Method:                http.MethodPost,
+		Path:                  "/v1/chat/completions",
+		ContentType:           "application/json",
+		BodyCapturedBytes:     enterpriseQueueRequestPayloadMaxBytes,
+		BodyCaptureLimitBytes: enterpriseQueueRequestPayloadMaxBytes,
+		BodyStorage:           enterpriseQueueRequestBodyStorageDB,
+		PayloadId:             999999,
+		BodySHA256:            enterpriseGovernanceQueueBodySHA256([]byte("missing")),
+	}
+	payloadJson, err := common.Marshal(payload)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.EnterpriseGovernanceQueueAdmission{
+		RequestId:          "req-enterprise-queue-replay-missing-payload",
+		EnterpriseId:       enterprise.Id,
+		UserId:             1045,
+		TokenId:            145,
+		QueueKey:           "enterprise:1",
+		Status:             model.EnterpriseGovernanceQueueAdmissionStatusRetryPending,
+		RetryCount:         1,
+		NextRetryAt:        now,
+		RequestPayloadJson: string(payloadJson),
+		UserMessageKey:     "enterprise_governance.queue_retry_pending",
+		CreatedAt:          now - 60,
+		UpdatedAt:          now - 60,
+	}).Error)
+
+	called := false
+	stats, err := processEnterpriseGovernanceQueueReplayBatchWithStats(context.Background(), now, 10, func(ctx context.Context, request EnterpriseGovernanceQueueReplayRequest) EnterpriseGovernanceQueueReplayResult {
+		called = true
+		return EnterpriseGovernanceQueueReplayResult{StatusCode: http.StatusOK}
+	})
+	require.NoError(t, err)
+	assert.False(t, called)
+	assert.EqualValues(t, 1, stats.Claimed)
+	assert.EqualValues(t, 1, stats.Failed)
+	assert.Zero(t, stats.Replayed)
+
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-replay-missing-payload").First(&admission).Error)
+	assert.Equal(t, enterpriseQueueStatusTimeout, admission.Status)
+	assert.Contains(t, admission.LastError, ErrEnterpriseGovernanceQueueReplayPayloadMissing.Error())
+	assert.Contains(t, admission.LastError, "durable payload 999999")
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("request_id = ? AND action = ?", "req-enterprise-queue-replay-missing-payload", enterpriseGovernanceAuditActionQueueReplay).First(&audit).Error)
+	assert.Contains(t, audit.AfterJson, ErrEnterpriseGovernanceQueueReplayPayloadMissing.Error())
 }
 
 func TestProcessEnterpriseGovernanceQueueReplayBatchFailsTruncatedPayload(t *testing.T) {
@@ -660,6 +792,91 @@ func TestProcessEnterpriseGovernanceQueueReplayBatchRequiresExecutor(t *testing.
 	setupEnterprisePolicyServiceTestDB(t)
 	_, err := processEnterpriseGovernanceQueueReplayBatchWithStats(context.Background(), 1700000500, 10, nil)
 	require.ErrorIs(t, err, ErrEnterpriseGovernanceQueueReplayExecutorNotConfigured)
+}
+
+func createEnterpriseGovernanceQueueReplayToken(t *testing.T, userId int, tokenId int, key string, now int64) {
+	t.Helper()
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       userId,
+		Username: key + "-user",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.Token{
+		Id:           tokenId,
+		UserId:       userId,
+		Key:          key,
+		Status:       common.TokenStatusEnabled,
+		RemainQuota:  1000,
+		ExpiredTime:  -1,
+		Name:         key,
+		CreatedTime:  now - 100,
+		AccessedTime: now - 100,
+	}).Error)
+}
+
+func createEnterpriseGovernanceQueueReplayAdmissionWithPayload(t *testing.T, enterpriseId int, userId int, tokenId int, requestId string, now int64, path string, contentType string, body []byte) model.EnterpriseGovernanceQueueAdmission {
+	t.Helper()
+	admission := model.EnterpriseGovernanceQueueAdmission{
+		RequestId:      requestId,
+		EnterpriseId:   enterpriseId,
+		UserId:         userId,
+		TokenId:        tokenId,
+		QueueKey:       "enterprise:1",
+		Status:         model.EnterpriseGovernanceQueueAdmissionStatusRetryPending,
+		RetryCount:     1,
+		NextRetryAt:    now,
+		UserMessageKey: "enterprise_governance.queue_retry_pending",
+		CreatedAt:      now - 60,
+		UpdatedAt:      now - 60,
+	}
+	require.NoError(t, model.DB.Create(&admission).Error)
+
+	bodySnapshot := body
+	if len(bodySnapshot) > enterpriseQueueRequestPayloadMaxBytes {
+		bodySnapshot = bodySnapshot[:enterpriseQueueRequestPayloadMaxBytes]
+	}
+	bodyText := ""
+	if isEnterpriseGovernanceQueueTextPreviewContentType(contentType) {
+		bodyText = string(bodySnapshot)
+	}
+	bodySHA256 := enterpriseGovernanceQueueBodySHA256(body)
+	payloadRow := model.EnterpriseGovernanceQueuePayload{
+		AdmissionId:   admission.Id,
+		RequestId:     admission.RequestId,
+		EnterpriseId:  enterpriseId,
+		UserId:        userId,
+		TokenId:       tokenId,
+		ContentType:   contentType,
+		ContentLength: int64(len(body)),
+		Body:          append([]byte(nil), body...),
+		BodyBytes:     int64(len(body)),
+		SHA256:        bodySHA256,
+		StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageDB,
+	}
+	require.NoError(t, model.DB.Create(&payloadRow).Error)
+
+	payload := EnterpriseGovernanceQueueRequestPayload{
+		Method:                http.MethodPost,
+		Path:                  path,
+		ContentType:           contentType,
+		ContentLength:         int64(len(body)),
+		Body:                  bodyText,
+		BodyBytes:             int64(len(body)),
+		BodyCapturedBytes:     len(bodySnapshot),
+		BodyCaptureLimitBytes: enterpriseQueueRequestPayloadMaxBytes,
+		BodyStorage:           enterpriseQueueRequestBodyStorageDB,
+		PayloadId:             payloadRow.Id,
+		BodySHA256:            bodySHA256,
+	}
+	payloadJson, err := common.Marshal(payload)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Model(&model.EnterpriseGovernanceQueueAdmission{}).
+		Where("id = ?", admission.Id).
+		Update("request_payload_json", string(payloadJson)).Error)
+	admission.RequestPayloadJson = string(payloadJson)
+	return admission
 }
 
 func prepareEnterpriseGovernanceQueueRequest(t *testing.T, requestId string, userId int, tokenId int) (*relaycommon.RelayInfo, model.EnterpriseQuotaPolicy) {

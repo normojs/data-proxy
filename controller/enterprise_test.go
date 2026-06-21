@@ -152,6 +152,7 @@ func setupEnterpriseControllerTestDB(t *testing.T) {
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseUsageAttribution{},
 		&model.EnterpriseGovernanceQueueAdmission{},
+		&model.EnterpriseGovernanceQueuePayload{},
 		&model.EnterpriseGovernanceSharedPoolConfig{},
 		&model.EnterpriseGovernanceSharedPool{},
 		&model.EnterpriseGovernanceSharedPoolBorrow{},

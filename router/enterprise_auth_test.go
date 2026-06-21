@@ -1422,6 +1422,7 @@ func setupEnterpriseRouterTestDB(t *testing.T) {
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseUsageAttribution{},
 		&model.EnterpriseGovernanceQueueAdmission{},
+		&model.EnterpriseGovernanceQueuePayload{},
 		&model.EnterpriseGovernanceSharedPool{},
 		&model.EnterpriseGovernanceSharedPoolBorrow{},
 		&model.EnterpriseGovernanceAnomalyProtection{},

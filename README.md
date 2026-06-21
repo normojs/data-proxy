@@ -42,6 +42,7 @@ Data Proxy 适合需要集中管理大模型 API 资产的团队：
 - HStation OAuth：登录、注册、绑定、解绑、管理员配置和自动化测试覆盖。
 - SSO 组织同步：支持 payload preview、dry-run、冲突列表、事务 apply 和同步审计。
 - 企业额度 Redis 计数：可选 Redis 原子 reserve/settle/refund，DB 降级和 DB/Redis 对账修复。
+- 高级治理动作：支持模型降级、企业排队、共享池、异常保护和队列 replay；排队请求可记录审计生命周期，并支持 inline JSON、大 payload DB 持久化和 multipart/audio upload 重放。
 - fusion-benchmark：离线数据集、配置校验、fixture、自检和 CI 检查脚本。
 
 ## 快速开始

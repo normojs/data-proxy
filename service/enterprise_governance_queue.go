@@ -3,11 +3,15 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +38,9 @@ const (
 	enterpriseQueueWaitMsHeader                   = "X-Data-Proxy-Enterprise-Queue-Wait-Ms"
 	enterpriseQueueTimeoutMsHeader                = "X-Data-Proxy-Enterprise-Queue-Timeout-Ms"
 	enterpriseQueueRequestPayloadMaxBytes         = 32 * 1024
+	enterpriseQueueReplayPayloadMaxBytes          = 32 * 1024 * 1024
+	enterpriseQueueRequestBodyStorageInline       = "inline"
+	enterpriseQueueRequestBodyStorageDB           = model.EnterpriseGovernanceQueuePayloadStorageDB
 )
 
 var (
@@ -67,9 +74,13 @@ type EnterpriseGovernanceQueueRequestPayload struct {
 	ContentType           string `json:"content_type,omitempty"`
 	ContentLength         int64  `json:"content_length"`
 	Body                  string `json:"body,omitempty"`
+	BodyBytes             int64  `json:"body_bytes,omitempty"`
 	BodyCapturedBytes     int    `json:"body_captured_bytes"`
 	BodyCaptureLimitBytes int    `json:"body_capture_limit_bytes"`
 	BodyTruncated         bool   `json:"body_truncated"`
+	BodyStorage           string `json:"body_storage,omitempty"`
+	PayloadId             int64  `json:"payload_id,omitempty"`
+	BodySHA256            string `json:"body_sha256,omitempty"`
 	Model                 string `json:"model,omitempty"`
 	RelayMode             int    `json:"relay_mode"`
 	ChannelId             int    `json:"channel_id"`
@@ -80,6 +91,18 @@ type enterpriseQueueRequestPayload = EnterpriseGovernanceQueueRequestPayload
 type enterpriseQueueRequestBodyRestore struct {
 	reader io.Reader
 	closer io.Closer
+}
+
+type enterpriseQueueCapturedRequestPayload struct {
+	Payload       enterpriseQueueRequestPayload
+	Body          []byte
+	ShouldPersist bool
+}
+
+type enterpriseQueueCapturedBody struct {
+	Body              []byte
+	FullBodyAvailable bool
+	Truncated         bool
 }
 
 func (body *enterpriseQueueRequestBodyRestore) Read(p []byte) (int, error) {
@@ -303,9 +326,16 @@ func createEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *Ent
 		logger.LogError(c, "error marshaling enterprise governance queue policy actions: "+err.Error())
 		return nil
 	}
-	requestPayloadJson, err := enterpriseGovernanceQueueRequestPayloadJson(c, relayInfo)
+	capturedPayload, err := captureEnterpriseGovernanceQueueRequestPayload(c, relayInfo)
 	if err != nil {
 		logger.LogWarn(c, "error capturing enterprise governance queue request payload: "+err.Error())
+	}
+	requestPayloadJson := ""
+	if err == nil {
+		requestPayloadJson, err = enterpriseGovernanceQueueRequestPayloadJSON(capturedPayload.Payload)
+		if err != nil {
+			logger.LogWarn(c, "error marshaling enterprise governance queue request payload: "+err.Error())
+		}
 	}
 	modelName := ""
 	relayMode := 0
@@ -339,12 +369,32 @@ func createEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *Ent
 		logger.LogError(c, "error recording enterprise governance queue admission: "+err.Error())
 		return nil
 	}
+	if capturedPayload.ShouldPersist {
+		persistEnterpriseGovernanceQueueRequestPayload(c, &row, capturedPayload)
+	}
 	return &row
 }
 
 func enterpriseGovernanceQueueRequestPayloadJson(c *gin.Context, relayInfo *relaycommon.RelayInfo) (string, error) {
+	captured, err := captureEnterpriseGovernanceQueueRequestPayload(c, relayInfo)
+	if err != nil {
+		return "", err
+	}
+	return enterpriseGovernanceQueueRequestPayloadJSON(captured.Payload)
+}
+
+func enterpriseGovernanceQueueRequestPayloadJSON(payload enterpriseQueueRequestPayload) (string, error) {
+	payloadJson, err := common.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(payloadJson), nil
+}
+
+func captureEnterpriseGovernanceQueueRequestPayload(c *gin.Context, relayInfo *relaycommon.RelayInfo) (enterpriseQueueCapturedRequestPayload, error) {
+	captured := enterpriseQueueCapturedRequestPayload{}
 	if c == nil || c.Request == nil {
-		return "", nil
+		return captured, nil
 	}
 	request := c.Request
 	path := ""
@@ -362,48 +412,196 @@ func enterpriseGovernanceQueueRequestPayloadJson(c *gin.Context, relayInfo *rela
 			path = relayInfo.RequestURLPath
 		}
 	}
-	body, truncated, err := captureEnterpriseGovernanceQueueRequestBody(request)
+	bodyCapture, err := captureEnterpriseGovernanceQueueRequestBody(c, request)
 	if err != nil {
-		return "", err
+		return captured, err
+	}
+	body := bodyCapture.Body
+	bodyBytes := int64(len(body))
+	if request.ContentLength > bodyBytes {
+		bodyBytes = request.ContentLength
+	}
+	bodySnapshot := body
+	if len(bodySnapshot) > enterpriseQueueRequestPayloadMaxBytes {
+		bodySnapshot = bodySnapshot[:enterpriseQueueRequestPayloadMaxBytes]
+	}
+	contentType := request.Header.Get("Content-Type")
+	shouldPersist := bodyCapture.FullBodyAvailable &&
+		len(body) > 0 &&
+		(len(body) > enterpriseQueueRequestPayloadMaxBytes || isEnterpriseGovernanceQueueMultipartContentType(contentType))
+	bodyText := ""
+	if !shouldPersist || isEnterpriseGovernanceQueueTextPreviewContentType(contentType) {
+		bodyText = string(bodySnapshot)
+	}
+	bodyStorage := enterpriseQueueRequestBodyStorageInline
+	if shouldPersist {
+		bodyStorage = enterpriseQueueRequestBodyStorageDB
+	}
+	bodySHA256 := ""
+	if bodyCapture.FullBodyAvailable {
+		bodySHA256 = enterpriseGovernanceQueueBodySHA256(body)
 	}
 	payload := enterpriseQueueRequestPayload{
 		Method:                request.Method,
 		Path:                  path,
 		RawQuery:              rawQuery,
-		ContentType:           request.Header.Get("Content-Type"),
+		ContentType:           contentType,
 		ContentLength:         request.ContentLength,
-		Body:                  string(body),
-		BodyCapturedBytes:     len(body),
+		Body:                  bodyText,
+		BodyBytes:             bodyBytes,
+		BodyCapturedBytes:     len(bodySnapshot),
 		BodyCaptureLimitBytes: enterpriseQueueRequestPayloadMaxBytes,
-		BodyTruncated:         truncated,
+		BodyTruncated:         bodyCapture.Truncated,
+		BodyStorage:           bodyStorage,
+		BodySHA256:            bodySHA256,
 		Model:                 modelName,
 		RelayMode:             relayMode,
 		ChannelId:             enterpriseChannelIdFromRelay(c, relayInfo),
 	}
-	payloadJson, err := common.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	return string(payloadJson), nil
+	captured.Payload = payload
+	captured.Body = body
+	captured.ShouldPersist = shouldPersist
+	return captured, nil
 }
 
-func captureEnterpriseGovernanceQueueRequestBody(request *http.Request) ([]byte, bool, error) {
+func captureEnterpriseGovernanceQueueRequestBody(c *gin.Context, request *http.Request) (enterpriseQueueCapturedBody, error) {
+	result := enterpriseQueueCapturedBody{FullBodyAvailable: true}
 	if request == nil || request.Body == nil {
-		return nil, false, nil
+		return result, nil
+	}
+	if c != nil {
+		if storageValue, exists := c.Get(common.KeyBodyStorage); exists && storageValue != nil {
+			if storage, ok := storageValue.(common.BodyStorage); ok {
+				return captureEnterpriseGovernanceQueueRequestBodyFromStorage(request, storage)
+			}
+		}
 	}
 	originalBody := request.Body
-	capturedWithMarker, err := io.ReadAll(io.LimitReader(originalBody, enterpriseQueueRequestPayloadMaxBytes+1))
+	capturedWithMarker, err := io.ReadAll(io.LimitReader(originalBody, enterpriseQueueReplayPayloadMaxBytes+1))
 	request.Body = &enterpriseQueueRequestBodyRestore{
 		reader: io.MultiReader(bytes.NewReader(capturedWithMarker), originalBody),
 		closer: originalBody,
 	}
 	if err != nil {
-		return nil, false, err
+		return result, err
 	}
-	if len(capturedWithMarker) > enterpriseQueueRequestPayloadMaxBytes {
-		return capturedWithMarker[:enterpriseQueueRequestPayloadMaxBytes], true, nil
+	if len(capturedWithMarker) > enterpriseQueueReplayPayloadMaxBytes {
+		result.FullBodyAvailable = false
+		result.Truncated = true
+		result.Body = capturedWithMarker[:enterpriseQueueRequestPayloadMaxBytes]
+		return result, nil
 	}
-	return capturedWithMarker, false, nil
+	result.Body = capturedWithMarker
+	return result, nil
+}
+
+func captureEnterpriseGovernanceQueueRequestBodyFromStorage(request *http.Request, storage common.BodyStorage) (enterpriseQueueCapturedBody, error) {
+	result := enterpriseQueueCapturedBody{FullBodyAvailable: true}
+	if storage.Size() > enterpriseQueueReplayPayloadMaxBytes {
+		result.FullBodyAvailable = false
+		result.Truncated = true
+		if _, err := storage.Seek(0, io.SeekStart); err != nil {
+			return result, err
+		}
+		body, err := io.ReadAll(io.LimitReader(storage, enterpriseQueueRequestPayloadMaxBytes))
+		if err != nil {
+			return result, err
+		}
+		result.Body = body
+		if _, err := storage.Seek(0, io.SeekStart); err != nil {
+			return result, err
+		}
+		request.Body = io.NopCloser(storage)
+		return result, nil
+	}
+	body, err := storage.Bytes()
+	if err != nil {
+		return result, err
+	}
+	if _, err := storage.Seek(0, io.SeekStart); err != nil {
+		return result, err
+	}
+	request.Body = io.NopCloser(storage)
+	result.Body = body
+	return result, nil
+}
+
+func persistEnterpriseGovernanceQueueRequestPayload(c *gin.Context, admission *model.EnterpriseGovernanceQueueAdmission, captured enterpriseQueueCapturedRequestPayload) {
+	if admission == nil || admission.Id <= 0 || !captured.ShouldPersist {
+		return
+	}
+	body := append([]byte(nil), captured.Body...)
+	payload := captured.Payload
+	if payload.BodySHA256 == "" {
+		payload.BodySHA256 = enterpriseGovernanceQueueBodySHA256(body)
+	}
+	row := model.EnterpriseGovernanceQueuePayload{
+		AdmissionId:   admission.Id,
+		RequestId:     admission.RequestId,
+		EnterpriseId:  admission.EnterpriseId,
+		UserId:        admission.UserId,
+		TokenId:       admission.TokenId,
+		ContentType:   payload.ContentType,
+		ContentLength: payload.ContentLength,
+		Body:          body,
+		BodyBytes:     int64(len(body)),
+		SHA256:        payload.BodySHA256,
+		StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageDB,
+	}
+	if err := model.DB.Create(&row).Error; err != nil {
+		logger.LogWarn(c, "error persisting enterprise governance queue request payload: "+err.Error())
+		return
+	}
+	payload.PayloadId = row.Id
+	payload.BodyStorage = enterpriseQueueRequestBodyStorageDB
+	payload.BodyBytes = int64(len(body))
+	payload.BodyTruncated = false
+	payloadJson, err := enterpriseGovernanceQueueRequestPayloadJSON(payload)
+	if err != nil {
+		logger.LogWarn(c, "error marshaling enterprise governance queue persisted request payload: "+err.Error())
+		return
+	}
+	if err := model.DB.Model(&model.EnterpriseGovernanceQueueAdmission{}).
+		Where("id = ?", admission.Id).
+		Update("request_payload_json", payloadJson).Error; err != nil {
+		logger.LogWarn(c, "error updating enterprise governance queue persisted request payload reference: "+err.Error())
+		return
+	}
+	admission.RequestPayloadJson = payloadJson
+}
+
+func enterpriseGovernanceQueueBodySHA256(body []byte) string {
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
+}
+
+func isEnterpriseGovernanceQueueMultipartContentType(contentType string) bool {
+	mediaType, _ := enterpriseGovernanceQueueMediaType(contentType)
+	return mediaType == "multipart/form-data"
+}
+
+func isEnterpriseGovernanceQueueTextPreviewContentType(contentType string) bool {
+	mediaType, _ := enterpriseGovernanceQueueMediaType(contentType)
+	return mediaType == "" ||
+		mediaType == "application/json" ||
+		mediaType == "application/x-ndjson" ||
+		mediaType == "application/x-www-form-urlencoded" ||
+		mediaType == "text/json" ||
+		strings.HasPrefix(mediaType, "text/") ||
+		strings.HasSuffix(mediaType, "+json")
+}
+
+func enterpriseGovernanceQueueMediaType(contentType string) (string, map[string]string) {
+	contentType = strings.TrimSpace(contentType)
+	if contentType == "" {
+		return "", nil
+	}
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.TrimSpace(strings.Split(contentType, ";")[0])
+		params = nil
+	}
+	return strings.ToLower(mediaType), params
 }
 
 func updateEnterpriseGovernanceQueueAdmission(c *gin.Context, admission *model.EnterpriseGovernanceQueueAdmission, result EnterpriseGovernanceQueueResult, updates map[string]any) {
