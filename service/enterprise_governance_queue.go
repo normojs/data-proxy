@@ -41,6 +41,7 @@ const (
 	enterpriseQueueReplayPayloadMaxBytes          = 32 * 1024 * 1024
 	enterpriseQueueRequestBodyStorageInline       = "inline"
 	enterpriseQueueRequestBodyStorageDB           = model.EnterpriseGovernanceQueuePayloadStorageDB
+	enterpriseQueueRequestBodyStorageObject       = model.EnterpriseGovernanceQueuePayloadStorageObject
 )
 
 var (
@@ -548,12 +549,29 @@ func persistEnterpriseGovernanceQueueRequestPayload(c *gin.Context, admission *m
 		SHA256:        payload.BodySHA256,
 		StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageDB,
 	}
+	if EnterpriseGovernanceQueuePayloadObjectStorageEnabled() {
+		object, err := SaveEnterpriseGovernanceQueuePayloadObject(context.Background(), row, body)
+		if err != nil {
+			logger.LogWarn(c, "error storing enterprise governance queue request payload object, falling back to db: "+err.Error())
+		} else {
+			row.Body = []byte{}
+			row.StorageKind = model.EnterpriseGovernanceQueuePayloadStorageObject
+			row.ObjectId = object.Id
+			row.Provider = object.Provider
+			row.StorageKey = object.StorageKey
+		}
+	}
 	if err := model.DB.Create(&row).Error; err != nil {
+		if row.StorageKind == model.EnterpriseGovernanceQueuePayloadStorageObject && row.ObjectId != "" {
+			if deleteErr := DeleteEnterpriseGovernanceQueuePayloadObjectFromRegistry(context.Background(), row.Provider, row.ObjectId); deleteErr != nil {
+				logger.LogWarn(c, "error deleting orphaned enterprise governance queue request payload object after db failure: "+deleteErr.Error())
+			}
+		}
 		logger.LogWarn(c, "error persisting enterprise governance queue request payload: "+err.Error())
 		return
 	}
 	payload.PayloadId = row.Id
-	payload.BodyStorage = enterpriseQueueRequestBodyStorageDB
+	payload.BodyStorage = row.StorageKind
 	payload.BodyBytes = int64(len(body))
 	payload.BodyTruncated = false
 	payloadJson, err := enterpriseGovernanceQueueRequestPayloadJSON(payload)

@@ -258,7 +258,7 @@ func BuildEnterpriseGovernanceQueueReplayRequest(admission model.EnterpriseGover
 }
 
 func enterpriseGovernanceQueueReplayBody(admission model.EnterpriseGovernanceQueueAdmission, payload EnterpriseGovernanceQueueRequestPayload) ([]byte, bool, error) {
-	if payload.PayloadId > 0 || payload.BodyStorage == enterpriseQueueRequestBodyStorageDB {
+	if payload.PayloadId > 0 || enterpriseGovernanceQueueRequestBodyStorageIsDurable(payload.BodyStorage) {
 		if payload.PayloadId <= 0 {
 			return nil, true, fmt.Errorf("%w: missing payload id", ErrEnterpriseGovernanceQueueReplayPayloadMissing)
 		}
@@ -281,7 +281,10 @@ func enterpriseGovernanceQueueReplayBody(admission model.EnterpriseGovernanceQue
 		if row.TokenId != 0 && row.TokenId != admission.TokenId {
 			return nil, true, fmt.Errorf("%w: durable payload token mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
 		}
-		body := append([]byte(nil), row.Body...)
+		body, err := enterpriseGovernanceQueueDurablePayloadBody(row)
+		if err != nil {
+			return nil, true, err
+		}
 		if row.BodyBytes > 0 && row.BodyBytes != int64(len(body)) {
 			return nil, true, fmt.Errorf("%w: durable payload byte length mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
 		}
@@ -298,6 +301,49 @@ func enterpriseGovernanceQueueReplayBody(admission model.EnterpriseGovernanceQue
 		return nil, false, ErrEnterpriseGovernanceQueueReplayPayloadTruncated
 	}
 	return []byte(payload.Body), false, nil
+}
+
+func enterpriseGovernanceQueueRequestBodyStorageIsDurable(storage string) bool {
+	switch strings.TrimSpace(storage) {
+	case enterpriseQueueRequestBodyStorageDB, enterpriseQueueRequestBodyStorageObject:
+		return true
+	default:
+		return false
+	}
+}
+
+func enterpriseGovernanceQueueDurablePayloadBody(row model.EnterpriseGovernanceQueuePayload) ([]byte, error) {
+	switch strings.TrimSpace(row.StorageKind) {
+	case "", model.EnterpriseGovernanceQueuePayloadStorageDB:
+		return append([]byte(nil), row.Body...), nil
+	case model.EnterpriseGovernanceQueuePayloadStorageObject:
+		objectId := strings.TrimSpace(row.ObjectId)
+		if objectId == "" {
+			return nil, fmt.Errorf("%w: durable payload object id missing", ErrEnterpriseGovernanceQueueReplayPayloadMissing)
+		}
+		object, body, err := LoadEnterpriseGovernanceQueuePayloadObjectFromRegistry(context.Background(), row.Provider, objectId)
+		if err != nil {
+			return nil, fmt.Errorf("%w: durable payload object %s: %v", ErrEnterpriseGovernanceQueueReplayPayloadMissing, objectId, err)
+		}
+		if object.AdmissionId != 0 && object.AdmissionId != row.AdmissionId {
+			return nil, fmt.Errorf("%w: durable payload object admission mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		if object.RequestId != "" && row.RequestId != "" && object.RequestId != row.RequestId {
+			return nil, fmt.Errorf("%w: durable payload object request mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		if object.EnterpriseId != 0 && object.EnterpriseId != row.EnterpriseId {
+			return nil, fmt.Errorf("%w: durable payload object enterprise mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		if object.UserId != 0 && object.UserId != row.UserId {
+			return nil, fmt.Errorf("%w: durable payload object user mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		if object.TokenId != 0 && object.TokenId != row.TokenId {
+			return nil, fmt.Errorf("%w: durable payload object token mismatch", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported)
+		}
+		return body, nil
+	default:
+		return nil, fmt.Errorf("%w: durable payload storage %q", ErrEnterpriseGovernanceQueueReplayPayloadUnsupported, row.StorageKind)
+	}
 }
 
 func claimEnterpriseGovernanceQueueReplay(row model.EnterpriseGovernanceQueueAdmission, now int64) (model.EnterpriseGovernanceQueueAdmission, bool, error) {

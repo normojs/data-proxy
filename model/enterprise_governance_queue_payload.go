@@ -1,7 +1,8 @@
 package model
 
 const (
-	EnterpriseGovernanceQueuePayloadStorageDB = "db"
+	EnterpriseGovernanceQueuePayloadStorageDB     = "db"
+	EnterpriseGovernanceQueuePayloadStorageObject = "object"
 )
 
 type EnterpriseGovernanceQueuePayload struct {
@@ -13,10 +14,13 @@ type EnterpriseGovernanceQueuePayload struct {
 	TokenId       int    `json:"token_id" gorm:"not null;default:0;index"`
 	ContentType   string `json:"content_type" gorm:"type:varchar(255);not null;default:''"`
 	ContentLength int64  `json:"content_length" gorm:"not null;default:0"`
-	Body          []byte `json:"-" gorm:"not null"`
+	Body          []byte `json:"-"`
 	BodyBytes     int64  `json:"body_bytes" gorm:"not null;default:0"`
 	SHA256        string `json:"sha256" gorm:"type:varchar(64);not null;default:'';index"`
 	StorageKind   string `json:"storage_kind" gorm:"type:varchar(32);not null;default:'db';index"`
+	ObjectId      string `json:"object_id" gorm:"type:varchar(64);not null;default:'';index"`
+	Provider      string `json:"provider" gorm:"type:varchar(32);not null;default:'';index"`
+	StorageKey    string `json:"storage_key" gorm:"type:varchar(512);not null;default:''"`
 	CreatedAt     int64  `json:"created_at" gorm:"autoCreateTime;index"`
 	UpdatedAt     int64  `json:"updated_at" gorm:"autoUpdateTime"`
 }

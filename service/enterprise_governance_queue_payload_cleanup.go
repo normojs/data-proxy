@@ -37,6 +37,7 @@ type EnterpriseGovernanceQueuePayloadCleanupStats struct {
 	DeletedReleased int   `json:"deleted_released"`
 	DeletedOrphaned int   `json:"deleted_orphaned"`
 	DeletedBytes    int64 `json:"deleted_bytes"`
+	DeletedObjects  int   `json:"deleted_objects"`
 	Skipped         int   `json:"skipped"`
 	Errors          int   `json:"errors"`
 }
@@ -97,7 +98,7 @@ func runEnterpriseGovernanceQueuePayloadCleanupOnce() {
 		return
 	}
 	if stats.Deleted > 0 || stats.Errors > 0 {
-		logger.LogInfo(context.Background(), fmt.Sprintf("enterprise governance queue payload cleanup: scanned=%d deleted=%d released=%d orphaned=%d bytes=%d skipped=%d errors=%d", stats.Scanned, stats.Deleted, stats.DeletedReleased, stats.DeletedOrphaned, stats.DeletedBytes, stats.Skipped, stats.Errors))
+		logger.LogInfo(context.Background(), fmt.Sprintf("enterprise governance queue payload cleanup: scanned=%d deleted=%d released=%d orphaned=%d objects=%d bytes=%d skipped=%d errors=%d", stats.Scanned, stats.Deleted, stats.DeletedReleased, stats.DeletedOrphaned, stats.DeletedObjects, stats.DeletedBytes, stats.Skipped, stats.Errors))
 	}
 }
 
@@ -117,7 +118,7 @@ func CleanupEnterpriseGovernanceQueuePayloads(now int64, ttlSeconds int64, batch
 
 	var rows []model.EnterpriseGovernanceQueuePayload
 	if err := model.DB.
-		Select("id", "admission_id", "request_id", "enterprise_id", "user_id", "token_id", "content_length", "body_bytes", "storage_kind", "created_at", "updated_at").
+		Select("id", "admission_id", "request_id", "enterprise_id", "user_id", "token_id", "content_length", "body_bytes", "storage_kind", "object_id", "provider", "storage_key", "created_at", "updated_at").
 		Where("created_at <= ?", stats.CutoffTime).
 		Order("created_at asc, id asc").
 		Limit(batchSize).
@@ -137,6 +138,10 @@ func CleanupEnterpriseGovernanceQueuePayloads(now int64, ttlSeconds int64, batch
 			continue
 		}
 		if !dryRun {
+			if err := deleteEnterpriseGovernanceQueuePayloadObjectForCleanup(row); err != nil {
+				stats.Errors++
+				return stats, err
+			}
 			result := model.DB.Where("id = ?", row.Id).Delete(&model.EnterpriseGovernanceQueuePayload{})
 			if result.Error != nil {
 				stats.Errors++
@@ -154,9 +159,26 @@ func CleanupEnterpriseGovernanceQueuePayloads(now int64, ttlSeconds int64, batch
 		if reason == "orphaned" {
 			stats.DeletedOrphaned++
 		}
+		if strings.TrimSpace(row.StorageKind) == model.EnterpriseGovernanceQueuePayloadStorageObject && strings.TrimSpace(row.ObjectId) != "" {
+			stats.DeletedObjects++
+		}
 		stats.DeletedBytes += enterpriseGovernanceQueuePayloadCleanupBytes(row)
 	}
 	return stats, nil
+}
+
+func deleteEnterpriseGovernanceQueuePayloadObjectForCleanup(row model.EnterpriseGovernanceQueuePayload) error {
+	if strings.TrimSpace(row.StorageKind) != model.EnterpriseGovernanceQueuePayloadStorageObject {
+		return nil
+	}
+	objectId := strings.TrimSpace(row.ObjectId)
+	if objectId == "" {
+		return nil
+	}
+	if err := DeleteEnterpriseGovernanceQueuePayloadObjectFromRegistry(context.Background(), row.Provider, objectId); err != nil {
+		return fmt.Errorf("delete enterprise governance queue payload object %s: %w", objectId, err)
+	}
+	return nil
 }
 
 func enterpriseGovernanceQueuePayloadCleanupReason(row model.EnterpriseGovernanceQueuePayload, cutoff int64) (string, error) {

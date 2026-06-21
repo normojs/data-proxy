@@ -42,7 +42,7 @@ Data Proxy 适合需要集中管理大模型 API 资产的团队：
 - HStation OAuth：登录、注册、绑定、解绑、管理员配置和自动化测试覆盖。
 - SSO 组织同步：支持 payload preview、dry-run、冲突列表、事务 apply 和同步审计。
 - 企业额度 Redis 计数：可选 Redis 原子 reserve/settle/refund，DB 降级和 DB/Redis 对账修复。
-- 高级治理动作：支持模型降级、企业排队、共享池、异常保护和队列 replay；排队请求可记录审计生命周期，并支持 inline JSON、大 payload DB 持久化、payload TTL 清理和 multipart/audio upload 重放。
+- 高级治理动作：支持模型降级、企业排队、共享池、异常保护和队列 replay；排队请求可记录审计生命周期，并支持 inline JSON、大 payload DB 或本地/S3 对象存储持久化、payload TTL 清理和 multipart/audio upload 重放。
 - fusion-benchmark：离线数据集、配置校验、fixture、自检和 CI 检查脚本。
 
 ## 快速开始
@@ -106,6 +106,10 @@ docker pull ghcr.io/normojs/data-proxy:v1.3.0
 | `NODE_TYPE` | 主节点可设为 `master`，用于周期任务。 |
 | `NODE_NAME` | 节点名称，会进入审计和运维排查链路。 |
 | `DATA_PROXY_SETUP_AUTO_RESTART` | 控制初始化向导保存配置后是否自动触发容器重启。 |
+| `ENTERPRISE_QUEUE_PAYLOAD_TTL_SECONDS` | queue replay payload 保留秒数，默认 7 天；只清理已 released 的旧 payload 和旧孤儿 payload。 |
+| `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_PROVIDER` | queue replay 大 payload 外部对象存储 provider；未设置时使用 DB，支持 `local` 或 `s3`。 |
+| `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_DIR` | `local` provider 的对象目录；未设置时使用系统临时目录。 |
+| `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_ENDPOINT` / `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_BUCKET` | `s3` provider 的 S3 或 S3-compatible endpoint 和 bucket。 |
 
 完整部署说明见 [Data Proxy Operator Guide](./docs/data-proxy-operator-guide.md)。
 

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -578,6 +580,111 @@ func TestCleanupEnterpriseGovernanceQueuePayloadsDeletesOnlySafeRows(t *testing.
 	}
 }
 
+func TestCleanupEnterpriseGovernanceQueuePayloadsDeletesObjectStorage(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_PROVIDER", "local")
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_DIR", t.TempDir())
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000150)
+	ttlSeconds := int64(3600)
+	cutoff := now - ttlSeconds
+	admission := model.EnterpriseGovernanceQueueAdmission{
+		RequestId:      "req-queue-payload-cleanup-object",
+		EnterpriseId:   enterprise.Id,
+		UserId:         1050,
+		TokenId:        150,
+		QueueKey:       "enterprise:1",
+		Status:         model.EnterpriseGovernanceQueueAdmissionStatusReleased,
+		ReleasedAt:     cutoff - 10,
+		UserMessageKey: "enterprise_governance.policy_action_observed",
+		CreatedAt:      cutoff - 120,
+		UpdatedAt:      cutoff - 10,
+	}
+	require.NoError(t, model.DB.Create(&admission).Error)
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"object cleanup"}]}`)
+	bodySHA256 := enterpriseGovernanceQueueBodySHA256(body)
+	row := model.EnterpriseGovernanceQueuePayload{
+		AdmissionId:   admission.Id,
+		RequestId:     admission.RequestId,
+		EnterpriseId:  admission.EnterpriseId,
+		UserId:        admission.UserId,
+		TokenId:       admission.TokenId,
+		ContentType:   "application/json",
+		ContentLength: int64(len(body)),
+		BodyBytes:     int64(len(body)),
+		SHA256:        bodySHA256,
+		StorageKind:   model.EnterpriseGovernanceQueuePayloadStorageObject,
+		CreatedAt:     cutoff - 120,
+		UpdatedAt:     cutoff - 120,
+	}
+	object, err := SaveEnterpriseGovernanceQueuePayloadObject(context.Background(), row, body)
+	require.NoError(t, err)
+	row.ObjectId = object.Id
+	row.Provider = object.Provider
+	row.StorageKey = object.StorageKey
+	require.NoError(t, model.DB.Create(&row).Error)
+
+	preview, err := CleanupEnterpriseGovernanceQueuePayloads(now, ttlSeconds, 10, true)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, preview.Deleted)
+	assert.EqualValues(t, 1, preview.DeletedObjects)
+	_, loadedBody, err := LoadEnterpriseGovernanceQueuePayloadObject(context.Background(), object.Id)
+	require.NoError(t, err)
+	assert.Equal(t, body, loadedBody)
+
+	cleaned, err := CleanupEnterpriseGovernanceQueuePayloads(now, ttlSeconds, 10, false)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, cleaned.Deleted)
+	assert.EqualValues(t, 1, cleaned.DeletedObjects)
+	_, _, err = LoadEnterpriseGovernanceQueuePayloadObject(context.Background(), object.Id)
+	require.Error(t, err)
+
+	var count int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseGovernanceQueuePayload{}).Where("id = ?", row.Id).Count(&count).Error)
+	assert.Zero(t, count)
+}
+
+func TestEnterpriseGovernanceQueuePayloadObjectStoreS3SaveLoadDelete(t *testing.T) {
+	server, objects := newEnterpriseQueuePayloadFakeS3Server(t)
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_PROVIDER", "s3")
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_ENDPOINT", server.URL)
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_BUCKET", "bucket")
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_REGION", "us-east-1")
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_ACCESS_KEY", "access-key")
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_SECRET_KEY", "secret-key")
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_KEY_PREFIX", "queue-test-prefix")
+
+	body := []byte("queue payload s3 body")
+	row := model.EnterpriseGovernanceQueuePayload{
+		AdmissionId:   123,
+		RequestId:     "req-queue-payload-s3",
+		EnterpriseId:  1,
+		UserId:        2,
+		TokenId:       3,
+		ContentType:   "application/json",
+		ContentLength: int64(len(body)),
+		BodyBytes:     int64(len(body)),
+		SHA256:        enterpriseGovernanceQueueBodySHA256(body),
+	}
+	object, err := SaveEnterpriseGovernanceQueuePayloadObject(context.Background(), row, body)
+	require.NoError(t, err)
+	assert.Equal(t, "s3", object.Provider)
+	assert.Equal(t, "queue-test-prefix/"+object.Id[:2]+"/"+object.Id, object.StorageKey)
+	assert.True(t, objects.exists(object.StorageKey+"/body.bin"))
+	assert.True(t, objects.exists(object.StorageKey+"/metadata.json"))
+
+	loaded, loadedBody, err := LoadEnterpriseGovernanceQueuePayloadObject(context.Background(), object.Id)
+	require.NoError(t, err)
+	assert.Equal(t, object.Id, loaded.Id)
+	assert.Equal(t, row.AdmissionId, loaded.AdmissionId)
+	assert.Equal(t, body, loadedBody)
+
+	require.NoError(t, DeleteEnterpriseGovernanceQueuePayloadObject(context.Background(), object.Id))
+	assert.False(t, objects.exists(object.StorageKey+"/body.bin"))
+	assert.False(t, objects.exists(object.StorageKey+"/metadata.json"))
+}
+
 func TestRetryEnterpriseGovernanceQueueAdmissionMarksRetryPending(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
@@ -672,6 +779,78 @@ func TestEnterpriseGovernanceQueuePersistsLargePayloadAndRestoresBody(t *testing
 	restoredBody, err := io.ReadAll(ctx.Request.Body)
 	require.NoError(t, err)
 	assert.Equal(t, requestBody, string(restoredBody))
+}
+
+func TestEnterpriseGovernanceQueuePersistsLargePayloadToObjectStore(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 50*time.Millisecond)
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_PROVIDER", "local")
+	t.Setenv("ENTERPRISE_QUEUE_PAYLOAD_OBJECT_DIR", t.TempDir())
+	gin.SetMode(gin.TestMode)
+
+	relayInfo, _ := prepareEnterpriseGovernanceQueueRequest(t, "req-enterprise-queue-object-payload", 1046, 146)
+	ctx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-queue-object-payload", 736)
+	requestBody := `{"model":"gpt-4o","messages":[{"role":"user","content":"` + strings.Repeat("o", enterpriseQueueRequestPayloadMaxBytes+512) + `"}]}`
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(requestBody))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	require.Nil(t, PreCheckEnterpriseGovernance(ctx, relayInfo, 20))
+
+	result, release, err := ApplyEnterpriseGovernanceQueue(ctx, relayInfo)
+	require.NoError(t, err)
+	require.NotNil(t, release)
+	defer release()
+	assert.Equal(t, enterpriseQueueStatusAdmitted, result.Status)
+
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-object-payload").First(&admission).Error)
+	var payload enterpriseQueueRequestPayload
+	require.NoError(t, common.UnmarshalJsonStr(admission.RequestPayloadJson, &payload))
+	assert.Equal(t, enterpriseQueueRequestBodyStorageObject, payload.BodyStorage)
+	assert.Greater(t, payload.PayloadId, int64(0))
+	assert.Equal(t, enterpriseGovernanceQueueBodySHA256([]byte(requestBody)), payload.BodySHA256)
+
+	var durablePayload model.EnterpriseGovernanceQueuePayload
+	require.NoError(t, model.DB.Where("id = ?", payload.PayloadId).First(&durablePayload).Error)
+	assert.Equal(t, model.EnterpriseGovernanceQueuePayloadStorageObject, durablePayload.StorageKind)
+	assert.Empty(t, durablePayload.Body)
+	assert.NotEmpty(t, durablePayload.ObjectId)
+	assert.Equal(t, "local", durablePayload.Provider)
+	assert.Equal(t, durablePayload.ObjectId, durablePayload.StorageKey)
+	assert.EqualValues(t, len(requestBody), durablePayload.BodyBytes)
+
+	object, body, err := LoadEnterpriseGovernanceQueuePayloadObject(context.Background(), durablePayload.ObjectId)
+	require.NoError(t, err)
+	assert.Equal(t, durablePayload.ObjectId, object.Id)
+	assert.Equal(t, admission.Id, object.AdmissionId)
+	assert.Equal(t, []byte(requestBody), body)
+
+	now := common.GetTimestamp()
+	require.NoError(t, model.DB.Create(&model.Token{
+		Id:           146,
+		UserId:       1046,
+		Key:          "queue-replay-object-token",
+		Status:       common.TokenStatusEnabled,
+		RemainQuota:  1000,
+		ExpiredTime:  -1,
+		Name:         "Queue Replay Object Token",
+		CreatedTime:  now - 100,
+		AccessedTime: now - 100,
+	}).Error)
+	admission.Status = model.EnterpriseGovernanceQueueAdmissionStatusRetryPending
+	admission.RetryCount = 1
+	admission.NextRetryAt = now
+	require.NoError(t, model.DB.Model(&model.EnterpriseGovernanceQueueAdmission{}).
+		Where("id = ?", admission.Id).
+		Updates(map[string]any{
+			"status":        admission.Status,
+			"retry_count":   admission.RetryCount,
+			"next_retry_at": admission.NextRetryAt,
+		}).Error)
+	request, err := BuildEnterpriseGovernanceQueueReplayRequest(admission)
+	require.NoError(t, err)
+	assert.Equal(t, enterpriseQueueRequestBodyStorageObject, request.Payload.BodyStorage)
+	assert.Equal(t, []byte(requestBody), request.Body)
+	assert.Equal(t, "queue-replay-object-token", request.TokenKey)
 }
 
 func TestProcessEnterpriseGovernanceQueueReplayBatchReplaysDueAdmission(t *testing.T) {
@@ -1121,4 +1300,91 @@ func resetEnterpriseGovernanceQueueForTest(t *testing.T, maxConcurrent int, time
 
 func syncMapForEnterpriseGovernanceQueueTest() sync.Map {
 	return sync.Map{}
+}
+
+type enterpriseQueuePayloadFakeS3Objects struct {
+	mu      sync.Mutex
+	objects map[string][]byte
+}
+
+func newEnterpriseQueuePayloadFakeS3Server(t *testing.T) (*httptest.Server, *enterpriseQueuePayloadFakeS3Objects) {
+	t.Helper()
+	state := &enterpriseQueuePayloadFakeS3Objects{objects: map[string][]byte{}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NotEmpty(t, r.Header.Get("Authorization"))
+		bucket, key, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+		if !ok {
+			bucket = strings.TrimPrefix(r.URL.Path, "/")
+		}
+		require.Equal(t, "bucket", bucket)
+		if r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2" {
+			state.writeList(w, r.URL.Query().Get("prefix"))
+			return
+		}
+		switch r.Method {
+		case http.MethodPut:
+			body, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			state.set(key, body)
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			body, ok := state.get(key)
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write(body)
+		case http.MethodDelete:
+			state.delete(key)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server, state
+}
+
+func (f *enterpriseQueuePayloadFakeS3Objects) set(key string, content []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.objects[key] = append([]byte(nil), content...)
+}
+
+func (f *enterpriseQueuePayloadFakeS3Objects) get(key string) ([]byte, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	content, ok := f.objects[key]
+	return append([]byte(nil), content...), ok
+}
+
+func (f *enterpriseQueuePayloadFakeS3Objects) delete(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.objects, key)
+}
+
+func (f *enterpriseQueuePayloadFakeS3Objects) exists(key string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.objects[key]
+	return ok
+}
+
+func (f *enterpriseQueuePayloadFakeS3Objects) writeList(w http.ResponseWriter, prefix string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keys := make([]string, 0, len(f.objects))
+	for key := range f.objects {
+		if strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	w.Header().Set("Content-Type", "application/xml")
+	_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>`)
+	for _, key := range keys {
+		_, _ = fmt.Fprintf(w, "<Contents><Key>%s</Key><Size>%d</Size></Contents>", key, len(f.objects[key]))
+	}
+	_, _ = fmt.Fprint(w, `<IsTruncated>false</IsTruncated></ListBucketResult>`)
 }
