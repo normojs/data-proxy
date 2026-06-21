@@ -766,9 +766,139 @@ func TestEnterpriseQueueAdmissionFilters(t *testing.T) {
 	assert.EqualValues(t, 12, item["policy_id"])
 }
 
+func TestEnterpriseQueueAdmissionListRedactsRequestPayload(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	payload := service.EnterpriseGovernanceQueueRequestPayload{
+		Method:      http.MethodPost,
+		Path:        "/v1/chat/completions",
+		RawQuery:    "stream=false&api_key=sk-controller-query-secret",
+		ContentType: "application/json",
+		Body:        `{"model":"gpt-4o","api_key":"sk-controller-body-secret","messages":[{"role":"user","content":"visible"}]}`,
+	}
+	payloadJson, err := common.Marshal(payload)
+	require.NoError(t, err)
+	row := model.EnterpriseGovernanceQueueAdmission{
+		EnterpriseId:       enterprise.Id,
+		RequestId:          "req-queue-redact",
+		UserId:             9104,
+		TokenId:            104,
+		PolicyId:           14,
+		ModelName:          "gpt-4o",
+		QueueKey:           "enterprise:1",
+		Status:             model.EnterpriseGovernanceQueueAdmissionStatusTimeout,
+		RequestPayloadJson: string(payloadJson),
+		UserMessageKey:     "enterprise_governance.queue_timeout",
+		CreatedAt:          4000,
+	}
+	require.NoError(t, model.DB.Create(&row).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/queue-admissions?request_id=req-queue-redact", "")
+	ListEnterpriseGovernanceQueueAdmissions(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	visibleJson, ok := item["request_payload_json"].(string)
+	require.True(t, ok)
+	assert.NotContains(t, visibleJson, "sk-controller-query-secret")
+	assert.NotContains(t, visibleJson, "sk-controller-body-secret")
+	var visiblePayload service.EnterpriseGovernanceQueueRequestPayload
+	require.NoError(t, common.UnmarshalJsonStr(visibleJson, &visiblePayload))
+	assert.Equal(t, "stream=false&api_key=[REDACTED]", visiblePayload.RawQuery)
+	assert.Contains(t, visiblePayload.Body, `"api_key":"[REDACTED]"`)
+	assert.Contains(t, visiblePayload.Body, "visible")
+
+	var stored model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("id = ?", row.Id).First(&stored).Error)
+	assert.Contains(t, stored.RequestPayloadJson, "sk-controller-query-secret")
+	assert.Contains(t, stored.RequestPayloadJson, "sk-controller-body-secret")
+}
+
+func TestEnterpriseAuditLogsRedactHistoricalQueuePayload(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	payload := service.EnterpriseGovernanceQueueRequestPayload{
+		Method:      http.MethodPost,
+		Path:        "/v1/chat/completions",
+		RawQuery:    "api_key=sk-history-query-secret&stream=false",
+		ContentType: "application/json",
+		Body:        `{"model":"gpt-4o","client_secret":"history-body-secret"}`,
+	}
+	payloadJson, err := common.Marshal(payload)
+	require.NoError(t, err)
+	admission := model.EnterpriseGovernanceQueueAdmission{
+		EnterpriseId:       enterprise.Id,
+		RequestId:          "req-history-audit",
+		RequestPayloadJson: string(payloadJson),
+		Status:             model.EnterpriseGovernanceQueueAdmissionStatusTimeout,
+	}
+	beforeJson, err := common.Marshal(admission)
+	require.NoError(t, err)
+	afterJson, err := common.Marshal(gin.H{
+		"admission": admission,
+		"replay": gin.H{
+			"raw_query": "api_key=sk-history-replay-query",
+		},
+	})
+	require.NoError(t, err)
+	rawLog := model.EnterpriseAuditLog{
+		EnterpriseId: enterprise.Id,
+		Action:       "enterprise_governance.queue_admission.replay",
+		TargetType:   "enterprise_governance_queue_admission",
+		TargetId:     8801,
+		BeforeJson:   string(beforeJson),
+		AfterJson:    string(afterJson),
+		RequestId:    "req-history-audit",
+		CreatedAt:    4100,
+	}
+	require.NoError(t, model.DB.Create(&rawLog).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/audit-logs?request_id=req-history-audit", "")
+	ListEnterpriseAuditLogs(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	beforeVisible, ok := item["before_json"].(string)
+	require.True(t, ok)
+	afterVisible, ok := item["after_json"].(string)
+	require.True(t, ok)
+	assert.NotContains(t, beforeVisible, "sk-history-query-secret")
+	assert.NotContains(t, beforeVisible, "history-body-secret")
+	assert.NotContains(t, afterVisible, "sk-history-replay-query")
+	assert.Contains(t, beforeVisible, "api_key=[REDACTED]")
+	assert.Contains(t, beforeVisible, "client_secret")
+	assert.Contains(t, beforeVisible, "[REDACTED]")
+	assert.Contains(t, afterVisible, "api_key=[REDACTED]")
+
+	var stored model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("id = ?", rawLog.Id).First(&stored).Error)
+	assert.Contains(t, stored.BeforeJson, "sk-history-query-secret")
+	assert.Contains(t, stored.AfterJson, "sk-history-replay-query")
+}
+
 func TestRetryEnterpriseGovernanceQueueAdmission(t *testing.T) {
 	setupEnterpriseControllerTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	payload := service.EnterpriseGovernanceQueueRequestPayload{
+		Method:      http.MethodPost,
+		Path:        "/v1/chat/completions",
+		RawQuery:    "api_key=sk-retry-query-secret",
+		ContentType: "application/json",
+		Body:        `{"model":"gpt-4o","api_key":"sk-retry-body-secret"}`,
+	}
+	payloadJson, err := common.Marshal(payload)
 	require.NoError(t, err)
 	row := model.EnterpriseGovernanceQueueAdmission{
 		EnterpriseId:       enterprise.Id,
@@ -780,7 +910,7 @@ func TestRetryEnterpriseGovernanceQueueAdmission(t *testing.T) {
 		QueueKey:           "enterprise:1",
 		Status:             model.EnterpriseGovernanceQueueAdmissionStatusTimeout,
 		TimeoutMs:          30000,
-		RequestPayloadJson: `{"method":"POST","path":"/v1/chat/completions"}`,
+		RequestPayloadJson: string(payloadJson),
 		LastError:          service.ErrEnterpriseGovernanceQueueTimeout.Error(),
 		UserMessageKey:     "enterprise_governance.queue_timeout",
 		CreatedAt:          3000,
@@ -799,10 +929,37 @@ func TestRetryEnterpriseGovernanceQueueAdmission(t *testing.T) {
 	assert.Greater(t, after.NextRetryAt, int64(0))
 	assert.Empty(t, after.LastError)
 	assert.Equal(t, "enterprise_governance.queue_retry_pending", after.UserMessageKey)
+	assert.NotContains(t, after.RequestPayloadJson, "sk-retry-query-secret")
+	assert.NotContains(t, after.RequestPayloadJson, "sk-retry-body-secret")
 
 	var audit model.EnterpriseAuditLog
 	require.NoError(t, model.DB.Where("action = ? AND target_type = ? AND target_id = ?", "queue_admission.retry", "enterprise_governance_queue_admission", row.Id).First(&audit).Error)
 	assert.Equal(t, "req-enterprise-controller-test", audit.RequestId)
+	assert.NotContains(t, audit.BeforeJson, "sk-retry-query-secret")
+	assert.NotContains(t, audit.BeforeJson, "sk-retry-body-secret")
+	assert.NotContains(t, audit.AfterJson, "sk-retry-query-secret")
+	assert.NotContains(t, audit.AfterJson, "sk-retry-body-secret")
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/audit-logs?action=queue_admission.retry", "")
+	ListEnterpriseAuditLogs(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	items, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	beforeVisible, ok := item["before_json"].(string)
+	require.True(t, ok)
+	afterVisible, ok := item["after_json"].(string)
+	require.True(t, ok)
+	assert.NotContains(t, beforeVisible, "sk-retry-query-secret")
+	assert.NotContains(t, afterVisible, "sk-retry-body-secret")
+
+	var stored model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("id = ?", row.Id).First(&stored).Error)
+	assert.Contains(t, stored.RequestPayloadJson, "sk-retry-query-secret")
+	assert.Contains(t, stored.RequestPayloadJson, "sk-retry-body-secret")
 }
 
 func TestEnterpriseSharedPoolFilters(t *testing.T) {

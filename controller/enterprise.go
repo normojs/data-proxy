@@ -2344,7 +2344,7 @@ func ListEnterpriseAuditLogs(c *gin.Context) {
 		return
 	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(logs)
+	pageInfo.SetItems(service.RedactEnterpriseAuditLogsForVisibility(logs))
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -2430,7 +2430,7 @@ func ListEnterpriseGovernanceQueueAdmissions(c *gin.Context) {
 		return
 	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(rows)
+	pageInfo.SetItems(service.RedactEnterpriseGovernanceQueueAdmissionsForVisibility(rows))
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -2455,8 +2455,10 @@ func CancelEnterpriseGovernanceQueueAdmission(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	recordEnterpriseAudit(c, enterprise.Id, "queue_admission.cancel", "enterprise_governance_queue_admission", int(id), before, after)
-	common.ApiSuccess(c, after)
+	visibleBefore := service.RedactEnterpriseGovernanceQueueAdmissionForVisibility(before)
+	visibleAfter := service.RedactEnterpriseGovernanceQueueAdmissionForVisibility(after)
+	recordEnterpriseAudit(c, enterprise.Id, "queue_admission.cancel", "enterprise_governance_queue_admission", int(id), visibleBefore, visibleAfter)
+	common.ApiSuccess(c, visibleAfter)
 }
 
 func RetryEnterpriseGovernanceQueueAdmission(c *gin.Context) {
@@ -2480,8 +2482,10 @@ func RetryEnterpriseGovernanceQueueAdmission(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	recordEnterpriseAudit(c, enterprise.Id, "queue_admission.retry", "enterprise_governance_queue_admission", int(id), before, after)
-	common.ApiSuccess(c, after)
+	visibleBefore := service.RedactEnterpriseGovernanceQueueAdmissionForVisibility(before)
+	visibleAfter := service.RedactEnterpriseGovernanceQueueAdmissionForVisibility(after)
+	recordEnterpriseAudit(c, enterprise.Id, "queue_admission.retry", "enterprise_governance_queue_admission", int(id), visibleBefore, visibleAfter)
+	common.ApiSuccess(c, visibleAfter)
 }
 
 func ListEnterpriseGovernanceSharedPoolConfigs(c *gin.Context) {

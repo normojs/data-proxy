@@ -433,10 +433,12 @@ func recordEnterpriseGovernanceQueueReplayAudit(before, after model.EnterpriseGo
 	if replayRequest != nil {
 		replay["method"] = replayRequest.Method
 		replay["path"] = replayRequest.Path
-		replay["raw_query"] = replayRequest.RawQuery
+		replay["raw_query"] = redactEnterpriseGovernanceQueueRawQuery(replayRequest.RawQuery)
 		replay["content_type"] = replayRequest.ContentType
 		replay["body_bytes"] = len(replayRequest.Body)
 	}
+	visibleBefore := RedactEnterpriseGovernanceQueueAdmissionForVisibility(before)
+	visibleAfter := RedactEnterpriseGovernanceQueueAdmissionForVisibility(after)
 	return model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
 		EnterpriseId:   after.EnterpriseId,
 		Action:         enterpriseGovernanceAuditActionQueueReplay,
@@ -445,9 +447,9 @@ func recordEnterpriseGovernanceQueueReplayAudit(before, after model.EnterpriseGo
 		ScopeUserId:    after.UserId,
 		ScopeOrgUnitId: after.OrgUnitId,
 		ScopeProjectId: after.ProjectId,
-		Before:         before,
+		Before:         visibleBefore,
 		After: map[string]any{
-			"admission": after,
+			"admission": visibleAfter,
 			"replay":    replay,
 		},
 		RequestId: after.RequestId,

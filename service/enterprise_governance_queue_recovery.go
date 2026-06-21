@@ -175,6 +175,8 @@ func enterpriseGovernanceQueueRecoveryUpdates(row model.EnterpriseGovernanceQueu
 }
 
 func recordEnterpriseGovernanceQueueRecoveryAudit(before, after model.EnterpriseGovernanceQueueAdmission) error {
+	visibleBefore := RedactEnterpriseGovernanceQueueAdmissionForVisibility(before)
+	visibleAfter := RedactEnterpriseGovernanceQueueAdmissionForVisibility(after)
 	return model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
 		EnterpriseId:   after.EnterpriseId,
 		Action:         enterpriseGovernanceAuditActionQueueRecovery,
@@ -183,8 +185,8 @@ func recordEnterpriseGovernanceQueueRecoveryAudit(before, after model.Enterprise
 		ScopeUserId:    after.UserId,
 		ScopeOrgUnitId: after.OrgUnitId,
 		ScopeProjectId: after.ProjectId,
-		Before:         before,
-		After:          after,
+		Before:         visibleBefore,
+		After:          visibleAfter,
 		RequestId:      after.RequestId,
 	})
 }

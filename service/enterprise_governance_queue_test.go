@@ -735,6 +735,70 @@ func TestRetryEnterpriseGovernanceQueueAdmissionMarksRetryPending(t *testing.T) 
 	require.ErrorIs(t, err, ErrEnterpriseGovernanceQueueAdmissionNotRetryable)
 }
 
+func TestRedactEnterpriseGovernanceQueueAdmissionForVisibility(t *testing.T) {
+	payload := EnterpriseGovernanceQueueRequestPayload{
+		Method:      http.MethodPost,
+		Path:        "/v1/chat/completions",
+		RawQuery:    "stream=false&api_key=sk-query-secret&safe=ok&client_secret=client-secret-value",
+		ContentType: "application/json",
+		Body: `{
+			"model": "gpt-4o",
+			"api_key": "sk-body-secret",
+			"messages": [{"role": "user", "content": "keep me"}],
+			"metadata": {
+				"client_secret": "nested-secret",
+				"safe": "visible"
+			},
+			"tools": [{"credentials": {"token": "tool-token", "name": "visible-tool"}}]
+		}`,
+		BodyCapturedBytes:     256,
+		BodyCaptureLimitBytes: enterpriseQueueRequestPayloadMaxBytes,
+	}
+	payloadJson, err := common.Marshal(payload)
+	require.NoError(t, err)
+	row := model.EnterpriseGovernanceQueueAdmission{
+		RequestPayloadJson: string(payloadJson),
+	}
+
+	visible := RedactEnterpriseGovernanceQueueAdmissionForVisibility(row)
+
+	assert.Contains(t, row.RequestPayloadJson, "sk-body-secret")
+	assert.Contains(t, row.RequestPayloadJson, "sk-query-secret")
+	assert.NotContains(t, visible.RequestPayloadJson, "sk-body-secret")
+	assert.NotContains(t, visible.RequestPayloadJson, "sk-query-secret")
+	assert.NotContains(t, visible.RequestPayloadJson, "nested-secret")
+	assert.NotContains(t, visible.RequestPayloadJson, "tool-token")
+	assert.Contains(t, visible.RequestPayloadJson, "[REDACTED]")
+
+	var visiblePayload EnterpriseGovernanceQueueRequestPayload
+	require.NoError(t, common.UnmarshalJsonStr(visible.RequestPayloadJson, &visiblePayload))
+	assert.Equal(t, "stream=false&api_key=[REDACTED]&safe=ok&client_secret=[REDACTED]", visiblePayload.RawQuery)
+	assert.Contains(t, visiblePayload.Body, `"api_key":"[REDACTED]"`)
+	assert.Contains(t, visiblePayload.Body, `"content":"keep me"`)
+	assert.Contains(t, visiblePayload.Body, `"safe":"visible"`)
+	assert.NotContains(t, visiblePayload.Body, "sk-body-secret")
+	assert.NotContains(t, visiblePayload.Body, "nested-secret")
+}
+
+func TestRedactEnterpriseGovernanceQueueAdmissionFormBodyForVisibility(t *testing.T) {
+	payload := EnterpriseGovernanceQueueRequestPayload{
+		Method:      http.MethodPost,
+		Path:        "/v1/chat/completions",
+		ContentType: "application/x-www-form-urlencoded",
+		Body:        "model=gpt-4o&api_key=sk-form-secret&prompt=visible&signature=sig-secret",
+	}
+	payloadJson, err := common.Marshal(payload)
+	require.NoError(t, err)
+
+	visibleJson := RedactEnterpriseGovernanceQueueRequestPayloadJSONForVisibility(string(payloadJson))
+
+	assert.NotContains(t, visibleJson, "sk-form-secret")
+	assert.NotContains(t, visibleJson, "sig-secret")
+	assert.Contains(t, visibleJson, "prompt=visible")
+	assert.Contains(t, visibleJson, "api_key=[REDACTED]")
+	assert.Contains(t, visibleJson, "signature=[REDACTED]")
+}
+
 func TestEnterpriseGovernanceQueuePersistsLargePayloadAndRestoresBody(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	resetEnterpriseGovernanceQueueForTest(t, 1, 50*time.Millisecond)
@@ -880,9 +944,9 @@ func TestProcessEnterpriseGovernanceQueueReplayBatchReplaysDueAdmission(t *testi
 	payload := EnterpriseGovernanceQueueRequestPayload{
 		Method:                http.MethodPost,
 		Path:                  "/v1/chat/completions",
-		RawQuery:              "stream=false",
+		RawQuery:              "stream=false&api_key=sk-replay-query-secret",
 		ContentType:           "application/json",
-		Body:                  `{"model":"gpt-4o","messages":[{"role":"user","content":"again"}]}`,
+		Body:                  `{"model":"gpt-4o","api_key":"sk-replay-body-secret","messages":[{"role":"user","content":"again"}]}`,
 		BodyCapturedBytes:     66,
 		BodyCaptureLimitBytes: enterpriseQueueRequestPayloadMaxBytes,
 		Model:                 "gpt-4o",
@@ -916,9 +980,10 @@ func TestProcessEnterpriseGovernanceQueueReplayBatchReplaysDueAdmission(t *testi
 	assert.EqualValues(t, 1, stats.Replayed)
 	assert.Zero(t, stats.Failed)
 	assert.Equal(t, "/v1/chat/completions", gotRequest.Path)
-	assert.Equal(t, "stream=false", gotRequest.RawQuery)
+	assert.Equal(t, "stream=false&api_key=sk-replay-query-secret", gotRequest.RawQuery)
 	assert.Equal(t, "queue-replay-token", gotRequest.TokenKey)
 	assert.Contains(t, string(gotRequest.Body), "again")
+	assert.Contains(t, string(gotRequest.Body), "sk-replay-body-secret")
 
 	var admission model.EnterpriseGovernanceQueueAdmission
 	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-replay-success").First(&admission).Error)
@@ -937,7 +1002,21 @@ func TestProcessEnterpriseGovernanceQueueReplayBatchReplaysDueAdmission(t *testi
 	assert.Equal(t, true, replay["success"])
 	assert.EqualValues(t, http.StatusOK, replay["status_code"])
 	assert.Equal(t, "/v1/chat/completions", replay["path"])
+	assert.Equal(t, "stream=false&api_key=[REDACTED]", replay["raw_query"])
+	assert.NotContains(t, audit.BeforeJson, "sk-replay-query-secret")
+	assert.NotContains(t, audit.BeforeJson, "sk-replay-body-secret")
+	assert.NotContains(t, audit.AfterJson, "sk-replay-query-secret")
+	assert.NotContains(t, audit.AfterJson, "sk-replay-body-secret")
+	assert.Contains(t, audit.AfterJson, "api_key=[REDACTED]")
 	assert.NotContains(t, audit.AfterJson, "queue-replay-token")
+	admissionPayload, ok := auditAfter["admission"].(map[string]any)
+	require.True(t, ok)
+	redactedPayloadJson, ok := admissionPayload["request_payload_json"].(string)
+	require.True(t, ok)
+	var redactedPayload EnterpriseGovernanceQueueRequestPayload
+	require.NoError(t, common.UnmarshalJsonStr(redactedPayloadJson, &redactedPayload))
+	assert.Equal(t, "stream=false&api_key=[REDACTED]", redactedPayload.RawQuery)
+	assert.Contains(t, redactedPayload.Body, `"api_key":"[REDACTED]"`)
 }
 
 func TestProcessEnterpriseGovernanceQueueReplayBatchReplaysDurableLargePayload(t *testing.T) {
