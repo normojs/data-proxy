@@ -174,6 +174,7 @@ import type {
   EnterpriseOrgSyncResult,
   EnterprisePolicyGroup,
   EnterprisePolicyGroupPayload,
+  EnterprisePolicyGroupShareRole,
   EnterprisePolicyGroupShareRequest,
   EnterprisePolicyGroupShareRequestDecisionPayload,
   EnterprisePolicyGroupShareRequestPayload,
@@ -740,6 +741,37 @@ function formatPolicyGroupShareRequestStatus(
     default:
       return 'Pending'
   }
+}
+
+function normalizePolicyGroupShareRole(
+  role?: EnterprisePolicyGroupShareRole | string | null
+): EnterprisePolicyGroupShareRole {
+  return role === 'viewer' ? 'viewer' : 'editor'
+}
+
+function formatPolicyGroupShareRole(
+  role?: EnterprisePolicyGroupShareRole | string | null
+) {
+  return normalizePolicyGroupShareRole(role) === 'viewer' ? 'Viewer' : 'Editor'
+}
+
+function PolicyGroupShareRoleBadge(props: {
+  role?: EnterprisePolicyGroupShareRole | string
+}) {
+  const { t } = useTranslation()
+  const role = normalizePolicyGroupShareRole(props.role)
+  return (
+    <Badge
+      variant='outline'
+      className={
+        role === 'editor'
+          ? 'border-emerald-500/40 text-emerald-700'
+          : 'text-muted-foreground'
+      }
+    >
+      {t(formatPolicyGroupShareRole(role))}
+    </Badge>
+  )
 }
 
 function QueryState<T>(props: {
@@ -1837,7 +1869,7 @@ function PolicyGroupsTab(props: {
                   </TableCell>
                   <TableCell>
                     <div className='space-y-1'>
-                      <ProjectOrgUnitList names={group.shared_org_unit_names} />
+                      <PolicyGroupSharedOrgUnitList group={group} />
                       {group.shared_expires_at > 0 ? (
                         <div className='text-muted-foreground text-xs'>
                           {t('Until')} {formatDateTime(group.shared_expires_at)}
@@ -1960,6 +1992,7 @@ function PolicyGroupsTab(props: {
                   <TableHead>{t('Policy Group')}</TableHead>
                   <TableHead>{t('From')}</TableHead>
                   <TableHead>{t('To')}</TableHead>
+                  <TableHead>{t('Role')}</TableHead>
                   <TableHead>{t('Status')}</TableHead>
                   <TableHead>{t('Expires')}</TableHead>
                   <TableHead>{t('Updated')}</TableHead>
@@ -1984,6 +2017,9 @@ function PolicyGroupsTab(props: {
                       {request.requester_org_unit_name || '-'}
                     </TableCell>
                     <TableCell>{request.target_org_unit_name || '-'}</TableCell>
+                    <TableCell>
+                      <PolicyGroupShareRoleBadge role={request.role} />
+                    </TableCell>
                     <TableCell>
                       <PolicyGroupShareRequestStatusBadge
                         status={request.status}
@@ -2308,6 +2344,40 @@ function ProjectDisableDialog(props: {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+function PolicyGroupSharedOrgUnitList(props: { group: EnterprisePolicyGroup }) {
+  const { t } = useTranslation()
+  if (props.group.shared_org_unit_ids.length === 0) {
+    return <span className='text-muted-foreground'>{t('Unassigned')}</span>
+  }
+  const visible = props.group.shared_org_unit_ids.slice(0, 2)
+  const remaining = props.group.shared_org_unit_ids.length - visible.length
+  return (
+    <div className='flex max-w-80 flex-wrap gap-1'>
+      {visible.map((orgUnitId, index) => (
+        <Badge
+          key={orgUnitId}
+          variant='secondary'
+          className='max-w-56 gap-1 truncate'
+        >
+          <span className='truncate'>
+            {props.group.shared_org_unit_names[index] || `#${orgUnitId}`}
+          </span>
+          <span className='text-muted-foreground'>
+            {t(
+              formatPolicyGroupShareRole(
+                props.group.shared_org_unit_roles?.[String(orgUnitId)]
+              )
+            )}
+          </span>
+        </Badge>
+      ))}
+      {remaining > 0 && (
+        <Badge variant='outline'>+{formatNumber(remaining)}</Badge>
+      )}
+    </div>
   )
 }
 
@@ -5683,6 +5753,7 @@ type PolicyGroupFormState = {
   slug: string
   description: string
   shared_org_unit_ids: string[]
+  shared_org_unit_roles: Record<string, EnterprisePolicyGroupShareRole | string>
   shared_expires_at: string
   status: string
 }
@@ -5701,6 +5772,7 @@ function PolicyGroupDialog(props: {
     slug: props.group?.slug ?? '',
     description: props.group?.description ?? '',
     shared_org_unit_ids: (props.group?.shared_org_unit_ids ?? []).map(String),
+    shared_org_unit_roles: props.group?.shared_org_unit_roles ?? {},
     shared_expires_at: dateInputValueFromUnix(props.group?.shared_expires_at),
     status: String(props.group?.status ?? ENABLED_STATUS),
   }))
@@ -5711,6 +5783,12 @@ function PolicyGroupDialog(props: {
     slug: (form.slug.trim() || slugify(form.name)).trim(),
     description: form.description,
     shared_org_unit_ids: form.shared_org_unit_ids.map(Number),
+    shared_org_unit_roles: Object.fromEntries(
+      form.shared_org_unit_ids.map((id) => [
+        id,
+        normalizePolicyGroupShareRole(form.shared_org_unit_roles[id]),
+      ])
+    ),
     shared_expires_at:
       form.shared_org_unit_ids.length > 0 && form.shared_expires_at
         ? endOfDayUnix(form.shared_expires_at)
@@ -5810,32 +5888,84 @@ function PolicyGroupDialog(props: {
                   {t('No org units')}
                 </p>
               ) : (
-                orgOptions.map((option) => (
-                  <label
-                    key={option.value}
-                    className='flex items-center gap-2 text-sm'
-                  >
-                    <Checkbox
-                      checked={form.shared_org_unit_ids.includes(option.value)}
-                      onCheckedChange={(checked) =>
-                        setForm((current) => ({
-                          ...current,
-                          shared_org_unit_ids: checked
-                            ? Array.from(
-                                new Set([
-                                  ...current.shared_org_unit_ids,
-                                  option.value,
-                                ])
-                              )
-                            : current.shared_org_unit_ids.filter(
-                                (item) => item !== option.value
-                              ),
-                        }))
-                      }
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                ))
+                orgOptions.map((option) => {
+                  const checked = form.shared_org_unit_ids.includes(
+                    option.value
+                  )
+                  return (
+                    <div
+                      key={option.value}
+                      className='flex items-center gap-2 text-sm'
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(checked) =>
+                          setForm((current) => {
+                            const nextRoles = {
+                              ...current.shared_org_unit_roles,
+                            }
+                            const nextIds = checked
+                              ? Array.from(
+                                  new Set([
+                                    ...current.shared_org_unit_ids,
+                                    option.value,
+                                  ])
+                                )
+                              : current.shared_org_unit_ids.filter(
+                                  (item) => item !== option.value
+                                )
+                            if (checked) {
+                              nextRoles[option.value] =
+                                normalizePolicyGroupShareRole(
+                                  nextRoles[option.value]
+                                )
+                            } else {
+                              delete nextRoles[option.value]
+                            }
+                            return {
+                              ...current,
+                              shared_org_unit_ids: nextIds,
+                              shared_org_unit_roles: nextRoles,
+                            }
+                          })
+                        }
+                      />
+                      <span className='min-w-0 flex-1 truncate'>
+                        {option.label}
+                      </span>
+                      <Select
+                        value={normalizePolicyGroupShareRole(
+                          form.shared_org_unit_roles[option.value]
+                        )}
+                        disabled={!checked}
+                        onValueChange={(value) =>
+                          setForm((current) => ({
+                            ...current,
+                            shared_org_unit_roles: {
+                              ...current.shared_org_unit_roles,
+                              [option.value]:
+                                normalizePolicyGroupShareRole(value),
+                            },
+                          }))
+                        }
+                      >
+                        <SelectTrigger className='h-8 w-28'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            <SelectItem value='editor'>
+                              {t('Editor')}
+                            </SelectItem>
+                            <SelectItem value='viewer'>
+                              {t('Viewer')}
+                            </SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )
+                })
               )}
             </div>
           </Field>
@@ -5864,6 +5994,7 @@ function PolicyGroupDialog(props: {
 
 type PolicyGroupShareRequestFormState = {
   org_unit_id: string
+  role: EnterprisePolicyGroupShareRole
   shared_expires_at: string
   reason: string
 }
@@ -5881,12 +6012,14 @@ function PolicyGroupShareRequestDialog(props: {
   )
   const [form, setForm] = useState<PolicyGroupShareRequestFormState>(() => ({
     org_unit_id: '',
+    role: 'editor',
     shared_expires_at: '',
     reason: '',
   }))
 
   const payload = (): EnterprisePolicyGroupShareRequestPayload => ({
     org_unit_id: Number(form.org_unit_id),
+    role: form.role,
     shared_expires_at: form.shared_expires_at
       ? endOfDayUnix(form.shared_expires_at)
       : 0,
@@ -5954,6 +6087,27 @@ function PolicyGroupShareRequestDialog(props: {
                         {option.label}
                       </SelectItem>
                     ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label='Role'>
+              <Select
+                value={form.role}
+                onValueChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    role: normalizePolicyGroupShareRole(value),
+                  }))
+                }
+              >
+                <SelectTrigger className='w-full'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    <SelectItem value='editor'>{t('Editor')}</SelectItem>
+                    <SelectItem value='viewer'>{t('Viewer')}</SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
@@ -6090,6 +6244,7 @@ function PolicyGroupMembersDialog(props: {
   const [userIds, setUserIds] = useState('')
   const [role, setRole] = useState('viewer')
   const groupId = props.group?.id ?? 0
+  const canManageMembers = props.group?.can_manage_members ?? true
 
   const membersQuery = useQuery({
     queryKey: [
@@ -6158,38 +6313,40 @@ function PolicyGroupMembersDialog(props: {
           </DialogDescription>
         </DialogHeader>
 
-        <form className='flex flex-wrap items-end gap-2' onSubmit={handleAdd}>
-          <Field label='User IDs'>
-            <Input
-              value={userIds}
-              onChange={(event) => setUserIds(event.target.value)}
-              placeholder={t('1, 2, 3')}
-              className='min-w-64'
-            />
-          </Field>
-          <Field label='Role'>
-            <Select
-              value={role}
-              onValueChange={(value) =>
-                setRole(normalizeSelectValue(value) || 'viewer')
-              }
-            >
-              <SelectTrigger className='w-40'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectGroup>
-                  <SelectItem value='viewer'>{t('Viewer')}</SelectItem>
-                  <SelectItem value='editor'>{t('Editor')}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Button type='submit' disabled={addMutation.isPending}>
-            <UserPlus className='size-3.5' />
-            {t('Add')}
-          </Button>
-        </form>
+        {canManageMembers ? (
+          <form className='flex flex-wrap items-end gap-2' onSubmit={handleAdd}>
+            <Field label='User IDs'>
+              <Input
+                value={userIds}
+                onChange={(event) => setUserIds(event.target.value)}
+                placeholder={t('1, 2, 3')}
+                className='min-w-64'
+              />
+            </Field>
+            <Field label='Role'>
+              <Select
+                value={role}
+                onValueChange={(value) =>
+                  setRole(normalizeSelectValue(value) || 'viewer')
+                }
+              >
+                <SelectTrigger className='w-40'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    <SelectItem value='viewer'>{t('Viewer')}</SelectItem>
+                    <SelectItem value='editor'>{t('Editor')}</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Button type='submit' disabled={addMutation.isPending}>
+              <UserPlus className='size-3.5' />
+              {t('Add')}
+            </Button>
+          </form>
+        ) : null}
 
         <FilterBar>
           <SearchInput
@@ -6249,7 +6406,7 @@ function PolicyGroupMembersDialog(props: {
                       <Button
                         variant='ghost'
                         size='icon-sm'
-                        disabled={deleteMutation.isPending}
+                        disabled={deleteMutation.isPending || !canManageMembers}
                         onClick={() => deleteMutation.mutate(member.user_id)}
                       >
                         <Trash2 className='size-3.5' />

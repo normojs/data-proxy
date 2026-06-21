@@ -7,6 +7,9 @@ const (
 	PolicyGroupMemberRoleEditor = "editor"
 	PolicyGroupMemberRoleViewer = "viewer"
 
+	PolicyGroupShareRoleEditor = "editor"
+	PolicyGroupShareRoleViewer = "viewer"
+
 	PolicyGroupShareRequestStatusPending   = "pending"
 	PolicyGroupShareRequestStatusApproved  = "approved"
 	PolicyGroupShareRequestStatusRejected  = "rejected"
@@ -44,13 +47,14 @@ func (EnterprisePolicyGroupMember) TableName() string {
 }
 
 type EnterprisePolicyGroupShare struct {
-	Id            int   `json:"id" gorm:"primaryKey"`
-	EnterpriseId  int   `json:"enterprise_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_shares,priority:1;index"`
-	PolicyGroupId int   `json:"policy_group_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_shares,priority:2;index"`
-	OrgUnitId     int   `json:"org_unit_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_shares,priority:3;index"`
-	ExpiresAt     int64 `json:"expires_at" gorm:"not null;default:0;index"`
-	CreatedAt     int64 `json:"created_at" gorm:"autoCreateTime;index"`
-	UpdatedAt     int64 `json:"updated_at" gorm:"autoUpdateTime"`
+	Id            int    `json:"id" gorm:"primaryKey"`
+	EnterpriseId  int    `json:"enterprise_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_shares,priority:1;index"`
+	PolicyGroupId int    `json:"policy_group_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_shares,priority:2;index"`
+	OrgUnitId     int    `json:"org_unit_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_shares,priority:3;index"`
+	Role          string `json:"role" gorm:"type:varchar(32);not null;default:'editor';index"`
+	ExpiresAt     int64  `json:"expires_at" gorm:"not null;default:0;index"`
+	CreatedAt     int64  `json:"created_at" gorm:"autoCreateTime;index"`
+	UpdatedAt     int64  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (EnterprisePolicyGroupShare) TableName() string {
@@ -64,6 +68,7 @@ type EnterprisePolicyGroupShareRequest struct {
 	RequesterUserId    int    `json:"requester_user_id" gorm:"not null;index"`
 	RequesterOrgUnitId int    `json:"requester_org_unit_id" gorm:"not null;index"`
 	TargetOrgUnitId    int    `json:"target_org_unit_id" gorm:"not null;index"`
+	Role               string `json:"role" gorm:"type:varchar(32);not null;default:'editor';index"`
 	SharedExpiresAt    int64  `json:"shared_expires_at" gorm:"not null;default:0;index"`
 	Reason             string `json:"reason" gorm:"type:text"`
 	Status             string `json:"status" gorm:"type:varchar(32);not null;default:'pending';index:idx_enterprise_policy_group_share_requests_status,priority:2"`

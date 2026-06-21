@@ -40,13 +40,14 @@ type enterpriseMemberOrgUnitRequest struct {
 }
 
 type enterprisePolicyGroupRequest struct {
-	Name             string `json:"name"`
-	Slug             string `json:"slug"`
-	Description      string `json:"description"`
-	OrgUnitId        *int   `json:"org_unit_id"`
-	SharedOrgUnitIds []int  `json:"shared_org_unit_ids"`
-	SharedExpiresAt  *int64 `json:"shared_expires_at"`
-	Status           int    `json:"status"`
+	Name               string         `json:"name"`
+	Slug               string         `json:"slug"`
+	Description        string         `json:"description"`
+	OrgUnitId          *int           `json:"org_unit_id"`
+	SharedOrgUnitIds   []int          `json:"shared_org_unit_ids"`
+	SharedOrgUnitRoles map[int]string `json:"shared_org_unit_roles"`
+	SharedExpiresAt    *int64         `json:"shared_expires_at"`
+	Status             int            `json:"status"`
 }
 
 type enterprisePolicyGroupMembersRequest struct {
@@ -56,6 +57,7 @@ type enterprisePolicyGroupMembersRequest struct {
 
 type enterprisePolicyGroupShareRequestCreateRequest struct {
 	OrgUnitId       int    `json:"org_unit_id"`
+	Role            string `json:"role"`
 	SharedExpiresAt int64  `json:"shared_expires_at"`
 	Reason          string `json:"reason"`
 }
@@ -186,12 +188,14 @@ type enterpriseMemberItem struct {
 
 type enterprisePolicyGroupItem struct {
 	model.EnterprisePolicyGroup
-	SharedOrgUnitIds   []int    `json:"shared_org_unit_ids"`
-	SharedOrgUnitNames []string `json:"shared_org_unit_names"`
-	SharedExpiresAt    int64    `json:"shared_expires_at"`
-	CanManage          bool     `json:"can_manage"`
-	MemberCount        int64    `json:"member_count"`
-	PolicyCount        int64    `json:"policy_count"`
+	SharedOrgUnitIds   []int          `json:"shared_org_unit_ids"`
+	SharedOrgUnitNames []string       `json:"shared_org_unit_names"`
+	SharedOrgUnitRoles map[int]string `json:"shared_org_unit_roles"`
+	SharedExpiresAt    int64          `json:"shared_expires_at"`
+	CanManage          bool           `json:"can_manage"`
+	CanManageMembers   bool           `json:"can_manage_members"`
+	MemberCount        int64          `json:"member_count"`
+	PolicyCount        int64          `json:"policy_count"`
 }
 
 type enterprisePolicyGroupShareRequestItem struct {
@@ -776,6 +780,11 @@ func CreateEnterprisePolicyGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	sharedOrgUnitRoles, err := normalizeEnterprisePolicyGroupShareRoles(sharedOrgUnitIds, req.SharedOrgUnitRoles, nil)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	sharedExpiresAt := int64(0)
 	if req.SharedExpiresAt != nil {
 		sharedExpiresAt, err = normalizeEnterprisePolicyGroupShareExpiresAt(*req.SharedExpiresAt)
@@ -803,12 +812,12 @@ func CreateEnterprisePolicyGroup(c *gin.Context) {
 		if err := tx.Create(&group).Error; err != nil {
 			return err
 		}
-		return replaceEnterprisePolicyGroupShares(tx, enterprise.Id, group.Id, sharedOrgUnitIds, sharedExpiresAt)
+		return replaceEnterprisePolicyGroupShares(tx, enterprise.Id, group.Id, sharedOrgUnitIds, sharedOrgUnitRoles, sharedExpiresAt)
 	}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	recordEnterpriseAudit(c, enterprise.Id, "policy_group.create", "policy_group", group.Id, nil, gin.H{"group": group, "shared_org_unit_ids": sharedOrgUnitIds, "shared_expires_at": sharedExpiresAt})
+	recordEnterpriseAudit(c, enterprise.Id, "policy_group.create", "policy_group", group.Id, nil, gin.H{"group": group, "shared_org_unit_ids": sharedOrgUnitIds, "shared_org_unit_roles": sharedOrgUnitRoles, "shared_expires_at": sharedExpiresAt})
 	common.ApiSuccess(c, gin.H{"id": group.Id})
 }
 
@@ -860,7 +869,16 @@ func UpdateEnterprisePolicyGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	beforeSharedOrgUnitIds, beforeSharedExpiresAt, err := enterprisePolicyGroupShareState(enterprise.Id, id)
+	beforeSharedOrgUnitIds, beforeSharedOrgUnitRoles, beforeSharedExpiresAt, err := enterprisePolicyGroupShareState(enterprise.Id, id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	shareRoleFallbacks := map[int]string(nil)
+	if req.SharedOrgUnitRoles == nil {
+		shareRoleFallbacks = beforeSharedOrgUnitRoles
+	}
+	sharedOrgUnitRoles, err := normalizeEnterprisePolicyGroupShareRoles(sharedOrgUnitIds, req.SharedOrgUnitRoles, shareRoleFallbacks)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -888,12 +906,12 @@ func UpdateEnterprisePolicyGroup(c *gin.Context) {
 		if err := tx.Save(&group).Error; err != nil {
 			return err
 		}
-		return replaceEnterprisePolicyGroupShares(tx, enterprise.Id, group.Id, sharedOrgUnitIds, sharedExpiresAt)
+		return replaceEnterprisePolicyGroupShares(tx, enterprise.Id, group.Id, sharedOrgUnitIds, sharedOrgUnitRoles, sharedExpiresAt)
 	}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	recordEnterpriseAudit(c, enterprise.Id, "policy_group.update", "policy_group", id, gin.H{"group": before, "shared_org_unit_ids": beforeSharedOrgUnitIds, "shared_expires_at": beforeSharedExpiresAt}, gin.H{"group": group, "shared_org_unit_ids": sharedOrgUnitIds, "shared_expires_at": sharedExpiresAt})
+	recordEnterpriseAudit(c, enterprise.Id, "policy_group.update", "policy_group", id, gin.H{"group": before, "shared_org_unit_ids": beforeSharedOrgUnitIds, "shared_org_unit_roles": beforeSharedOrgUnitRoles, "shared_expires_at": beforeSharedExpiresAt}, gin.H{"group": group, "shared_org_unit_ids": sharedOrgUnitIds, "shared_org_unit_roles": sharedOrgUnitRoles, "shared_expires_at": sharedExpiresAt})
 	common.ApiSuccess(c, gin.H{"id": id})
 }
 
@@ -1020,6 +1038,10 @@ func AddEnterprisePolicyGroupMembers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := requireDepartmentPolicyGroupMemberManageInScope(access, group); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	var req enterprisePolicyGroupMembersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiError(c, err)
@@ -1113,6 +1135,10 @@ func DeleteEnterprisePolicyGroupMember(c *gin.Context) {
 		return
 	}
 	if err := requireDepartmentPolicyGroupInScope(access, group); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentPolicyGroupMemberManageInScope(access, group); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1301,10 +1327,11 @@ func decideEnterprisePolicyGroupShareRequest(c *gin.Context, status string) {
 				EnterpriseId:  enterprise.Id,
 				PolicyGroupId: shareRequest.PolicyGroupId,
 				OrgUnitId:     shareRequest.TargetOrgUnitId,
+				Role:          normalizeEnterprisePolicyGroupShareRoleOrDefault(shareRequest.Role),
 				ExpiresAt:     shareRequest.SharedExpiresAt,
 			}
 			if err := tx.Where("enterprise_id = ? AND policy_group_id = ? AND org_unit_id = ?", enterprise.Id, shareRequest.PolicyGroupId, shareRequest.TargetOrgUnitId).
-				Assign(model.EnterprisePolicyGroupShare{ExpiresAt: shareRequest.SharedExpiresAt}).
+				Assign(model.EnterprisePolicyGroupShare{Role: share.Role, ExpiresAt: shareRequest.SharedExpiresAt}).
 				FirstOrCreate(&share).Error; err != nil {
 				return err
 			}
@@ -2708,6 +2735,30 @@ func requireDepartmentPolicyGroupManageInScope(access service.EnterpriseAccess, 
 	return nil
 }
 
+func requireDepartmentPolicyGroupMemberManageInScope(access service.EnterpriseAccess, group model.EnterprisePolicyGroup) error {
+	if !access.HasDepartmentScope() {
+		return nil
+	}
+	if access.OrgUnitInScope(group.OrgUnitId) {
+		return nil
+	}
+	if group.Id <= 0 || len(access.ScopedOrgUnitIds) == 0 {
+		return scopedEnterpriseError()
+	}
+	var count int64
+	if err := model.DB.Model(&model.EnterprisePolicyGroupShare{}).
+		Where("enterprise_id = ? AND policy_group_id = ? AND org_unit_id IN ?", group.EnterpriseId, group.Id, access.ScopedOrgUnitIds).
+		Where("(expires_at = 0 OR expires_at > ?)", common.GetTimestamp()).
+		Where("(role = ? OR role = '')", model.PolicyGroupShareRoleEditor).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
 func requireDepartmentPolicyGroupShareRequestDecisionScope(access service.EnterpriseAccess, shareRequest model.EnterprisePolicyGroupShareRequest) error {
 	if !access.HasDepartmentScope() {
 		return nil
@@ -3634,6 +3685,10 @@ func enterprisePolicyGroupShareRequestFromCreateRequest(enterpriseId int, actorU
 	if sharedExpiresAt > 0 && sharedExpiresAt <= common.GetTimestamp() {
 		return model.EnterprisePolicyGroupShareRequest{}, errors.New("共享有效期必须晚于当前时间")
 	}
+	role, err := normalizeEnterprisePolicyGroupShareRole(req.Role)
+	if err != nil {
+		return model.EnterprisePolicyGroupShareRequest{}, err
+	}
 	var activeShareCount int64
 	if err := model.DB.Model(&model.EnterprisePolicyGroupShare{}).
 		Where("enterprise_id = ? AND policy_group_id = ? AND org_unit_id = ?", enterpriseId, group.Id, req.OrgUnitId).
@@ -3659,6 +3714,7 @@ func enterprisePolicyGroupShareRequestFromCreateRequest(enterpriseId int, actorU
 		RequesterUserId:    actorUserId,
 		RequesterOrgUnitId: group.OrgUnitId,
 		TargetOrgUnitId:    req.OrgUnitId,
+		Role:               role,
 		SharedExpiresAt:    sharedExpiresAt,
 		Reason:             strings.TrimSpace(req.Reason),
 		Status:             model.PolicyGroupShareRequestStatusPending,
@@ -3698,6 +3754,22 @@ func normalizeEnterprisePolicyGroupShareExpiresAt(expiresAt int64) (int64, error
 	return expiresAt, nil
 }
 
+func normalizeEnterprisePolicyGroupShareRoles(orgUnitIds []int, roleMap map[int]string, fallbackRoles map[int]string) (map[int]string, error) {
+	roles := make(map[int]string, len(orgUnitIds))
+	for _, orgUnitId := range orgUnitIds {
+		roleValue, ok := roleMap[orgUnitId]
+		if !ok && fallbackRoles != nil {
+			roleValue = fallbackRoles[orgUnitId]
+		}
+		role, err := normalizeEnterprisePolicyGroupShareRole(roleValue)
+		if err != nil {
+			return nil, err
+		}
+		roles[orgUnitId] = role
+	}
+	return roles, nil
+}
+
 func policyGroupOrgUnitFromRequest(enterpriseId int, access service.EnterpriseAccess, orgUnitId *int, currentOrgUnitId int) (int, error) {
 	if access.HasDepartmentScope() {
 		value := currentOrgUnitId
@@ -3727,7 +3799,7 @@ func policyGroupOrgUnitFromRequest(enterpriseId int, access service.EnterpriseAc
 	return *orgUnitId, nil
 }
 
-func replaceEnterprisePolicyGroupShares(tx *gorm.DB, enterpriseId int, groupId int, orgUnitIds []int, expiresAt int64) error {
+func replaceEnterprisePolicyGroupShares(tx *gorm.DB, enterpriseId int, groupId int, orgUnitIds []int, roles map[int]string, expiresAt int64) error {
 	if err := tx.Where("enterprise_id = ? AND policy_group_id = ?", enterpriseId, groupId).Delete(&model.EnterprisePolicyGroupShare{}).Error; err != nil {
 		return err
 	}
@@ -3736,6 +3808,7 @@ func replaceEnterprisePolicyGroupShares(tx *gorm.DB, enterpriseId int, groupId i
 			EnterpriseId:  enterpriseId,
 			PolicyGroupId: groupId,
 			OrgUnitId:     orgUnitId,
+			Role:          normalizeEnterprisePolicyGroupShareRoleOrDefault(roles[orgUnitId]),
 			ExpiresAt:     expiresAt,
 		}
 		if err := tx.Create(&share).Error; err != nil {
@@ -3745,23 +3818,25 @@ func replaceEnterprisePolicyGroupShares(tx *gorm.DB, enterpriseId int, groupId i
 	return nil
 }
 
-func enterprisePolicyGroupShareState(enterpriseId int, groupId int) ([]int, int64, error) {
+func enterprisePolicyGroupShareState(enterpriseId int, groupId int) ([]int, map[int]string, int64, error) {
 	var shares []model.EnterprisePolicyGroupShare
 	if err := model.DB.Where("enterprise_id = ? AND policy_group_id = ?", enterpriseId, groupId).
 		Where("(expires_at = 0 OR expires_at > ?)", common.GetTimestamp()).
 		Order("org_unit_id asc").
 		Find(&shares).Error; err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 	ids := make([]int, 0, len(shares))
+	roles := make(map[int]string, len(shares))
 	expiresAt := int64(0)
 	for _, share := range shares {
 		ids = append(ids, share.OrgUnitId)
+		roles[share.OrgUnitId] = normalizeEnterprisePolicyGroupShareRoleOrDefault(share.Role)
 		if share.ExpiresAt > 0 && (expiresAt == 0 || share.ExpiresAt < expiresAt) {
 			expiresAt = share.ExpiresAt
 		}
 	}
-	return ids, expiresAt, nil
+	return ids, roles, expiresAt, nil
 }
 
 func projectFromRequest(enterpriseId int, req enterpriseProjectRequest) (model.EnterpriseProject, []int, error) {
@@ -3888,7 +3963,7 @@ func buildEnterprisePolicyGroupItems(enterpriseId int, groups []model.Enterprise
 	}
 	items := make([]enterprisePolicyGroupItem, 0, len(groups))
 	for _, group := range groups {
-		sharedOrgUnitIds, sharedExpiresAt, err := enterprisePolicyGroupShareState(enterpriseId, group.Id)
+		sharedOrgUnitIds, sharedOrgUnitRoles, sharedExpiresAt, err := enterprisePolicyGroupShareState(enterpriseId, group.Id)
 		if err != nil {
 			return nil, err
 		}
@@ -3902,8 +3977,10 @@ func buildEnterprisePolicyGroupItems(enterpriseId int, groups []model.Enterprise
 			EnterprisePolicyGroup: group,
 			SharedOrgUnitIds:      sharedOrgUnitIds,
 			SharedOrgUnitNames:    sharedOrgUnitNames,
+			SharedOrgUnitRoles:    sharedOrgUnitRoles,
 			SharedExpiresAt:       sharedExpiresAt,
 			CanManage:             enterprisePolicyGroupCanManage(access, group),
+			CanManageMembers:      enterprisePolicyGroupCanManageMembers(access, group),
 			MemberCount:           countEnterprisePolicyGroupMembers(group.Id),
 			PolicyCount:           countEnterprisePoliciesForTarget(enterpriseId, model.PolicyTargetPolicyGroup, group.Id),
 		})
@@ -3947,6 +4024,10 @@ func enterprisePolicyGroupCanManage(access service.EnterpriseAccess, group model
 		return false
 	}
 	return access.OrgUnitInScope(group.OrgUnitId)
+}
+
+func enterprisePolicyGroupCanManageMembers(access service.EnterpriseAccess, group model.EnterprisePolicyGroup) bool {
+	return requireDepartmentPolicyGroupMemberManageInScope(access, group) == nil
 }
 
 func enterprisePolicyGroupShareRequestCanDecide(access service.EnterpriseAccess, shareRequest model.EnterprisePolicyGroupShareRequest) bool {
@@ -4025,6 +4106,24 @@ func normalizeEnterprisePolicyGroupMemberRoleOrDefault(role string) string {
 	role = strings.ToLower(strings.TrimSpace(role))
 	if role == "" {
 		return model.PolicyGroupMemberRoleViewer
+	}
+	return role
+}
+
+func normalizeEnterprisePolicyGroupShareRole(role string) (string, error) {
+	role = normalizeEnterprisePolicyGroupShareRoleOrDefault(role)
+	switch role {
+	case model.PolicyGroupShareRoleEditor, model.PolicyGroupShareRoleViewer:
+		return role, nil
+	default:
+		return "", errors.New("策略组共享角色无效")
+	}
+}
+
+func normalizeEnterprisePolicyGroupShareRoleOrDefault(role string) string {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		return model.PolicyGroupShareRoleEditor
 	}
 	return role
 }

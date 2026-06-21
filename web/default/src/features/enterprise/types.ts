@@ -164,14 +164,18 @@ export type EnterprisePolicyGroup = {
   description: string
   shared_org_unit_ids: number[]
   shared_org_unit_names: string[]
+  shared_org_unit_roles: Record<string, EnterprisePolicyGroupShareRole | string>
   shared_expires_at: number
   can_manage: boolean
+  can_manage_members: boolean
   status: number
   created_at: number
   updated_at: number
   member_count: number
   policy_count: number
 }
+
+export type EnterprisePolicyGroupShareRole = 'editor' | 'viewer'
 
 export type EnterprisePolicyGroupShareRequestStatus =
   | 'pending'
@@ -186,6 +190,7 @@ export type EnterprisePolicyGroupShareRequest = {
   requester_user_id: number
   requester_org_unit_id: number
   target_org_unit_id: number
+  role: EnterprisePolicyGroupShareRole | string
   shared_expires_at: number
   reason: string
   status: EnterprisePolicyGroupShareRequestStatus
@@ -485,6 +490,7 @@ export type EnterpriseOrgUnitPayload = {
 export type EnterprisePolicyGroupPayload = {
   org_unit_id?: number
   shared_org_unit_ids?: number[]
+  shared_org_unit_roles?: Record<string, EnterprisePolicyGroupShareRole | string>
   shared_expires_at?: number
   name: string
   slug: string
@@ -499,6 +505,7 @@ export type EnterprisePolicyGroupMembersPayload = {
 
 export type EnterprisePolicyGroupShareRequestPayload = {
   org_unit_id: number
+  role?: EnterprisePolicyGroupShareRole | string
   shared_expires_at?: number
   reason?: string
 }

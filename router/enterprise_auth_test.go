@@ -46,11 +46,13 @@ type enterpriseQuotaPolicyItemForTest struct {
 }
 
 type enterprisePolicyGroupItemForTest struct {
-	Id               int   `json:"id"`
-	OrgUnitId        int   `json:"org_unit_id"`
-	SharedOrgUnitIds []int `json:"shared_org_unit_ids"`
-	SharedExpiresAt  int64 `json:"shared_expires_at"`
-	CanManage        bool  `json:"can_manage"`
+	Id                 int            `json:"id"`
+	OrgUnitId          int            `json:"org_unit_id"`
+	SharedOrgUnitIds   []int          `json:"shared_org_unit_ids"`
+	SharedOrgUnitRoles map[int]string `json:"shared_org_unit_roles"`
+	SharedExpiresAt    int64          `json:"shared_expires_at"`
+	CanManage          bool           `json:"can_manage"`
+	CanManageMembers   bool           `json:"can_manage_members"`
 }
 
 type enterprisePolicyGroupShareRequestItemForTest struct {
@@ -58,6 +60,7 @@ type enterprisePolicyGroupShareRequestItemForTest struct {
 	PolicyGroupId      int    `json:"policy_group_id"`
 	RequesterOrgUnitId int    `json:"requester_org_unit_id"`
 	TargetOrgUnitId    int    `json:"target_org_unit_id"`
+	Role               string `json:"role"`
 	Status             string `json:"status"`
 	CanDecide          bool   `json:"can_decide"`
 }
@@ -336,16 +339,18 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 
 	shareRequestExpiresAt := common.GetTimestamp() + 7200
 	createShareRequest := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(engineeringGroup.Id)+"/share-requests", `{
-    "org_unit_id": `+strconv.Itoa(salesId)+`,
-    "shared_expires_at": `+strconv.FormatInt(shareRequestExpiresAt, 10)+`,
-    "reason": "sales collaboration"
-  }`, departmentCookies, departmentAdminId)
+	    "org_unit_id": `+strconv.Itoa(salesId)+`,
+	    "role": "viewer",
+	    "shared_expires_at": `+strconv.FormatInt(shareRequestExpiresAt, 10)+`,
+	    "reason": "sales collaboration"
+	  }`, departmentCookies, departmentAdminId)
 	require.True(t, decodeEnterpriseAuthResponse(t, createShareRequest).Success)
 	var shareRequest model.EnterprisePolicyGroupShareRequest
 	require.NoError(t, model.DB.Where("enterprise_id = ? AND policy_group_id = ? AND target_org_unit_id = ?", enterprise.Id, engineeringGroup.Id, salesId).First(&shareRequest).Error)
 	require.Equal(t, model.PolicyGroupShareRequestStatusPending, shareRequest.Status)
 	require.Equal(t, engineeringId, shareRequest.RequesterOrgUnitId)
 	require.Equal(t, salesId, shareRequest.TargetOrgUnitId)
+	require.Equal(t, model.PolicyGroupShareRoleViewer, shareRequest.Role)
 
 	salesPolicyGroupsBeforeApproval := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-groups?page_size=20", "", salesDepartmentCookies, salesDepartmentAdminId)
 	require.True(t, decodeEnterpriseAuthResponse(t, salesPolicyGroupsBeforeApproval).Success)
@@ -357,6 +362,7 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	outgoingShareRequestPage := decodeEnterprisePageResponseForTest[enterprisePolicyGroupShareRequestItemForTest](t, outgoingShareRequests)
 	require.Len(t, outgoingShareRequestPage.Data.Items, 1)
 	require.Equal(t, shareRequest.Id, outgoingShareRequestPage.Data.Items[0].Id)
+	require.Equal(t, model.PolicyGroupShareRoleViewer, outgoingShareRequestPage.Data.Items[0].Role)
 	require.False(t, outgoingShareRequestPage.Data.Items[0].CanDecide)
 
 	incomingShareRequests := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-group-share-requests?page_size=20", "", salesDepartmentCookies, salesDepartmentAdminId)
@@ -364,6 +370,7 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	incomingShareRequestPage := decodeEnterprisePageResponseForTest[enterprisePolicyGroupShareRequestItemForTest](t, incomingShareRequests)
 	require.Len(t, incomingShareRequestPage.Data.Items, 1)
 	require.Equal(t, shareRequest.Id, incomingShareRequestPage.Data.Items[0].Id)
+	require.Equal(t, model.PolicyGroupShareRoleViewer, incomingShareRequestPage.Data.Items[0].Role)
 	require.True(t, incomingShareRequestPage.Data.Items[0].CanDecide)
 
 	approveAsRequester := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-group-share-requests/"+strconv.Itoa(shareRequest.Id)+"/approve", `{}`, departmentCookies, departmentAdminId)
@@ -380,6 +387,7 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.Equal(t, salesDepartmentAdminId, shareRequest.ApproverUserId)
 	var approvedShare model.EnterprisePolicyGroupShare
 	require.NoError(t, model.DB.Where("enterprise_id = ? AND policy_group_id = ? AND org_unit_id = ?", enterprise.Id, engineeringGroup.Id, salesId).First(&approvedShare).Error)
+	require.Equal(t, model.PolicyGroupShareRoleViewer, approvedShare.Role)
 	require.Equal(t, shareRequestExpiresAt, approvedShare.ExpiresAt)
 
 	salesPolicyGroupsAfterApproval := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-groups?page_size=20", "", salesDepartmentCookies, salesDepartmentAdminId)
@@ -388,7 +396,9 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.Contains(t, enterprisePolicyGroupIdsForTest(salesPolicyGroupPageAfterApproval.Data.Items), engineeringGroup.Id)
 	salesGroupsById := enterprisePolicyGroupsByIdForTest(salesPolicyGroupPageAfterApproval.Data.Items)
 	require.False(t, salesGroupsById[engineeringGroup.Id].CanManage)
+	require.False(t, salesGroupsById[engineeringGroup.Id].CanManageMembers)
 	require.ElementsMatch(t, []int{salesId}, salesGroupsById[engineeringGroup.Id].SharedOrgUnitIds)
+	require.Equal(t, model.PolicyGroupShareRoleViewer, salesGroupsById[engineeringGroup.Id].SharedOrgUnitRoles[salesId])
 
 	createSharedPolicyGroupPolicy := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-policies", `{
     "name": "Engineering Shared For Sales",
@@ -415,13 +425,14 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 
 	shareExpiresAt := common.GetTimestamp() + 3600
 	shareSalesGroup := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id), `{
-    "name": "Sales Pilot",
-    "slug": "sales-pilot",
-    "description": "shared with engineering",
-    "shared_org_unit_ids": [`+strconv.Itoa(engineeringId)+`],
-    "shared_expires_at": `+strconv.FormatInt(shareExpiresAt, 10)+`,
-    "status": 1
-  }`, enterpriseAdminCookies, 1)
+	    "name": "Sales Pilot",
+	    "slug": "sales-pilot",
+	    "description": "shared with engineering",
+	    "shared_org_unit_ids": [`+strconv.Itoa(engineeringId)+`],
+	    "shared_org_unit_roles": {"`+strconv.Itoa(engineeringId)+`": "viewer"},
+	    "shared_expires_at": `+strconv.FormatInt(shareExpiresAt, 10)+`,
+	    "status": 1
+	  }`, enterpriseAdminCookies, 1)
 	require.True(t, decodeEnterpriseAuthResponse(t, shareSalesGroup).Success)
 
 	sharedPolicyGroups := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-groups?page_size=20", "", departmentCookies, departmentAdminId)
@@ -430,8 +441,11 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.ElementsMatch(t, []int{engineeringGroup.Id, salesGroup.Id}, enterprisePolicyGroupIdsForTest(sharedPolicyGroupPage.Data.Items))
 	sharedGroupsById := enterprisePolicyGroupsByIdForTest(sharedPolicyGroupPage.Data.Items)
 	require.True(t, sharedGroupsById[engineeringGroup.Id].CanManage)
+	require.True(t, sharedGroupsById[engineeringGroup.Id].CanManageMembers)
 	require.False(t, sharedGroupsById[salesGroup.Id].CanManage)
+	require.False(t, sharedGroupsById[salesGroup.Id].CanManageMembers)
 	require.ElementsMatch(t, []int{engineeringId}, sharedGroupsById[salesGroup.Id].SharedOrgUnitIds)
+	require.Equal(t, model.PolicyGroupShareRoleViewer, sharedGroupsById[salesGroup.Id].SharedOrgUnitRoles[engineeringId])
 	require.Equal(t, shareExpiresAt, sharedGroupsById[salesGroup.Id].SharedExpiresAt)
 
 	createPolicyGroup := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups", `{
@@ -494,9 +508,34 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.Contains(t, updateCrossGroupResponse.Message, "权限范围外")
 
 	addSharedGroupMember := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id)+"/members", `{
-    "user_ids": [`+strconv.Itoa(engineerId)+`],
-    "role": "viewer"
-  }`, departmentCookies, departmentAdminId)
+	    "user_ids": [`+strconv.Itoa(engineerId)+`],
+	    "role": "viewer"
+	  }`, departmentCookies, departmentAdminId)
+	addSharedGroupMemberResponse := decodeEnterpriseAuthResponse(t, addSharedGroupMember)
+	require.False(t, addSharedGroupMemberResponse.Success)
+	require.Contains(t, addSharedGroupMemberResponse.Message, "权限范围外")
+
+	shareSalesGroupAsEditor := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id), `{
+	    "name": "Sales Pilot",
+	    "slug": "sales-pilot",
+	    "description": "shared with engineering as editor",
+	    "shared_org_unit_ids": [`+strconv.Itoa(engineeringId)+`],
+	    "shared_org_unit_roles": {"`+strconv.Itoa(engineeringId)+`": "editor"},
+	    "shared_expires_at": `+strconv.FormatInt(shareExpiresAt, 10)+`,
+	    "status": 1
+	  }`, enterpriseAdminCookies, 1)
+	require.True(t, decodeEnterpriseAuthResponse(t, shareSalesGroupAsEditor).Success)
+	sharedPolicyGroupsAfterEditor := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-groups?page_size=20", "", departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, sharedPolicyGroupsAfterEditor).Success)
+	sharedPolicyGroupPageAfterEditor := decodeEnterprisePageResponseForTest[enterprisePolicyGroupItemForTest](t, sharedPolicyGroupsAfterEditor)
+	sharedGroupsByIdAfterEditor := enterprisePolicyGroupsByIdForTest(sharedPolicyGroupPageAfterEditor.Data.Items)
+	require.True(t, sharedGroupsByIdAfterEditor[salesGroup.Id].CanManageMembers)
+	require.Equal(t, model.PolicyGroupShareRoleEditor, sharedGroupsByIdAfterEditor[salesGroup.Id].SharedOrgUnitRoles[engineeringId])
+
+	addSharedGroupMember = requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id)+"/members", `{
+	    "user_ids": [`+strconv.Itoa(engineerId)+`],
+	    "role": "viewer"
+	  }`, departmentCookies, departmentAdminId)
 	require.True(t, decodeEnterpriseAuthResponse(t, addSharedGroupMember).Success)
 
 	addSharedGroupCrossMember := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id)+"/members", `{
