@@ -244,7 +244,12 @@ func newEnterpriseGovernanceQueueReplayExecutor(server *gin.Engine) service.Ente
 		if request.RawQuery != "" {
 			target += "?" + request.RawQuery
 		}
-		httpRequest := httptest.NewRequest(request.Method, target, bytes.NewReader(request.Body)).WithContext(ctx)
+		httpRequest, err := http.NewRequestWithContext(ctx, request.Method, target, bytes.NewReader(request.Body))
+		if err != nil {
+			return service.EnterpriseGovernanceQueueReplayResult{Error: err}
+		}
+		httpRequest.Host = "127.0.0.1"
+		httpRequest.RequestURI = target
 		httpRequest.RemoteAddr = remoteAddrForQueueReplay("127.0.0.1")
 		httpRequest.Header.Set("Authorization", "Bearer "+request.TokenKey)
 		httpRequest.Header.Set("X-Data-Proxy-Enterprise-Queue-Replay", strconv.FormatInt(request.Admission.Id, 10))
