@@ -722,12 +722,50 @@ func ApplyEnterpriseOrgSync(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	req.ActorUserId = c.GetInt("id")
 	result, err := service.ApplyEnterpriseOrgSync(enterprise.Id, service.EnterpriseOrgSyncInput(req))
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	recordEnterpriseAudit(c, enterprise.Id, "org_sync.apply", "org_sync", 0, nil, result)
+	common.ApiSuccess(c, result)
+}
+
+func ListEnterpriseOrgSyncRuns(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	items, total, err := service.ListEnterpriseOrgSyncRuns(enterprise.Id, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(items)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func RollbackEnterpriseOrgSyncRun(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	id, err := parsePathInt(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	result, err := service.RollbackEnterpriseOrgSyncRun(enterprise.Id, int64(id), c.GetInt("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordEnterpriseAudit(c, enterprise.Id, "org_sync.rollback", "org_sync_run", id, nil, result)
 	common.ApiSuccess(c, result)
 }
 

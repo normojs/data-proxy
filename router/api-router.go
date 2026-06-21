@@ -441,6 +441,8 @@ func SetApiRouter(router *gin.Engine) {
 				manageEnterpriseRoute.DELETE("/org-units/:id", controller.DeleteEnterpriseOrgUnit)
 				manageEnterpriseRoute.POST("/org-sync/preview", controller.PreviewEnterpriseOrgSync)
 				manageEnterpriseRoute.POST("/org-sync/apply", controller.ApplyEnterpriseOrgSync)
+				manageEnterpriseRoute.GET("/org-sync/runs", controller.ListEnterpriseOrgSyncRuns)
+				manageEnterpriseRoute.POST("/org-sync/runs/:id/rollback", controller.RollbackEnterpriseOrgSyncRun)
 				manageEnterpriseRoute.POST("/quota-counters/reconcile", controller.ReconcileEnterpriseQuotaCounters)
 				manageEnterpriseRoute.GET("/webhooks", controller.ListEnterpriseWebhooks)
 				manageEnterpriseRoute.POST("/webhooks", controller.CreateEnterpriseWebhook)

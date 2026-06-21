@@ -139,6 +139,7 @@ func setupEnterpriseControllerTestDB(t *testing.T) {
 		&model.Enterprise{},
 		&model.EnterpriseOrgUnit{},
 		&model.EnterpriseOrgMembership{},
+		&model.EnterpriseOrgSyncRun{},
 		&model.EnterpriseProject{},
 		&model.EnterpriseProjectOrgUnit{},
 		&model.EnterpriseProjectMember{},
@@ -473,6 +474,8 @@ func TestEnterpriseOrgSyncPreviewAndApply(t *testing.T) {
 	ApplyEnterpriseOrgSync(ctx)
 	disableApplied := decodeEnterpriseOrgSyncResponse(t, recorder)
 	require.True(t, disableApplied.Success, disableApplied.Message)
+	assert.NotEmpty(t, disableApplied.Data.BatchId)
+	assert.NotZero(t, disableApplied.Data.RunId)
 	assert.EqualValues(t, 1, disableApplied.Data.Summary.DisableMembers)
 	assert.EqualValues(t, 1, disableApplied.Data.Summary.DisableMemberTokens)
 	assert.EqualValues(t, 1, disableApplied.Data.Summary.RemovePolicyGroupMembers)
@@ -491,6 +494,36 @@ func TestEnterpriseOrgSyncPreviewAndApply(t *testing.T) {
 	assert.Contains(t, disableAudit.AfterJson, `"disable_member_tokens":1`)
 	assert.Contains(t, disableAudit.AfterJson, `"remove_policy_group_members":1`)
 	assert.NotContains(t, disableAudit.AfterJson, "alice-org-sync-key")
+
+	var syncRun model.EnterpriseOrgSyncRun
+	require.NoError(t, model.DB.First(&syncRun, disableApplied.Data.RunId).Error)
+	assert.Equal(t, disableApplied.Data.BatchId, syncRun.BatchId)
+	assert.Equal(t, model.EnterpriseOrgSyncRunStatusApplied, syncRun.Status)
+	assert.Contains(t, syncRun.OperationsJson, "policy_group_members")
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-sync/runs/"+strconv.FormatInt(disableApplied.Data.RunId, 10)+"/rollback", "{}")
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.FormatInt(disableApplied.Data.RunId, 10)}}
+	RollbackEnterpriseOrgSyncRun(ctx)
+	rollbackResponse := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, rollbackResponse.Success, rollbackResponse.Message)
+	rollbackSummary, ok := rollbackResponse.Data["summary"].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, 1, rollbackSummary["restored_members"])
+	assert.EqualValues(t, 1, rollbackSummary["restored_tokens"])
+	assert.EqualValues(t, 1, rollbackSummary["restored_policy_group_members"])
+
+	aliceMembership = model.EnterpriseOrgMembership{}
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND user_id = ?", enterprise.Id, 1101).First(&aliceMembership).Error)
+	assert.Equal(t, engineering.Id, aliceMembership.OrgUnitId)
+	token = model.Token{}
+	require.NoError(t, model.DB.First(&token, 3101).Error)
+	assert.Equal(t, common.TokenStatusEnabled, token.Status)
+	policyGroupMember = model.EnterprisePolicyGroupMember{}
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND policy_group_id = ? AND user_id = ?", enterprise.Id, policyGroup.Id, 1101).First(&policyGroupMember).Error)
+	assert.Equal(t, model.PolicyGroupMemberRoleViewer, policyGroupMember.Role)
+	require.NoError(t, model.DB.First(&syncRun, disableApplied.Data.RunId).Error)
+	assert.Equal(t, model.EnterpriseOrgSyncRunStatusRolledBack, syncRun.Status)
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND action = ?", enterprise.Id, "org_sync.rollback").First(&model.EnterpriseAuditLog{}).Error)
 }
 
 func TestEnterpriseOrgSyncPreviewReportsConflicts(t *testing.T) {

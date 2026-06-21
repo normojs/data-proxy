@@ -130,6 +130,7 @@ import {
   getEnterpriseNotificationOutbox,
   getEnterpriseNotificationOutboxWorkerMetrics,
   getEnterpriseNotificationPreferences,
+  getEnterpriseOrgSyncRuns,
   getEnterpriseOrgUnits,
   getEnterprisePolicyGroupMembers,
   getEnterprisePolicyGroups,
@@ -147,6 +148,7 @@ import {
   getEnterpriseUsageSummary,
   getEnterpriseWebhooks,
   previewEnterpriseOrgSync,
+  rollbackEnterpriseOrgSyncRun,
   retryEnterpriseQueueAdmission,
   retryEnterpriseNotificationOutbox,
   testEnterpriseWebhook,
@@ -1515,6 +1517,26 @@ function SsoOrgSyncPanel() {
       setResult(response.data)
       toast.success(t('Synced'))
       queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+      queryClient.invalidateQueries({ queryKey: ['enterprise', 'org-sync-runs'] })
+    },
+  })
+
+  const runsQuery = useQuery({
+    queryKey: ['enterprise', 'org-sync-runs'],
+    queryFn: () => getEnterpriseOrgSyncRuns({ p: 1, page_size: 5 }),
+  })
+
+  const rollbackMutation = useMutation({
+    mutationFn: rollbackEnterpriseOrgSyncRun,
+    onSuccess: (response) => {
+      if (!response.success || !response.data) {
+        toast.error(response.message ?? t('Rollback failed'))
+        return
+      }
+      toast.success(t('Rolled back'))
+      queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+      queryClient.invalidateQueries({ queryKey: ['enterprise', 'org-sync-runs'] })
+      queryClient.invalidateQueries({ queryKey: ['enterprise', 'audit-logs'] })
     },
   })
 
@@ -1522,6 +1544,7 @@ function SsoOrgSyncPanel() {
   const summary = result?.summary
   const operations = result?.operations ?? []
   const conflicts = result?.conflicts ?? []
+  const runs = getPageItems(runsQuery.data)
 
   return (
     <Panel
@@ -1737,6 +1760,77 @@ function SsoOrgSyncPanel() {
               </div>
             </div>
           )}
+
+          <div className='rounded-lg border'>
+            <div className='flex items-center justify-between gap-2 border-b px-3 py-2'>
+              <div className='text-xs font-medium'>{t('Recent Sync Runs')}</div>
+              <Button
+                variant='ghost'
+                size='sm'
+                className='h-7 px-2'
+                onClick={() => runsQuery.refetch()}
+              >
+                <RefreshCcw className='size-3.5' />
+              </Button>
+            </div>
+            <div className='max-h-56 overflow-auto'>
+              <QueryState
+                query={runsQuery}
+                empty={runs.length === 0}
+                emptyContent={
+                  <div className='text-muted-foreground p-3 text-xs'>
+                    {t('No sync runs')}
+                  </div>
+                }
+              >
+                {runs.map((run) => (
+                  <div
+                    key={run.id}
+                    className='flex items-center justify-between gap-3 border-b px-3 py-2 text-xs last:border-b-0'
+                  >
+                    <div className='min-w-0'>
+                      <div className='flex items-center gap-2'>
+                        <span className='truncate font-mono'>
+                          {run.batch_id}
+                        </span>
+                        <Badge variant='outline'>{run.status}</Badge>
+                      </div>
+                      <div className='text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-1'>
+                        <span>{formatDateTime(run.applied_at)}</span>
+                        <span>
+                          {t('Ops')} {formatNumber(run.operations_count)}
+                        </span>
+                        <span>
+                          {t('Members')}{' '}
+                          {formatNumber(
+                            run.summary.assign_members +
+                              run.summary.disable_members
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      className='h-7 shrink-0 px-2 text-xs'
+                      disabled={
+                        rollbackMutation.isPending || run.status !== 'applied'
+                      }
+                      onClick={() => {
+                        if (!window.confirm(t('Rollback this sync run?'))) {
+                          return
+                        }
+                        rollbackMutation.mutate(run.id)
+                      }}
+                    >
+                      <RefreshCcw className='size-3.5' />
+                      {t('Rollback')}
+                    </Button>
+                  </div>
+                ))}
+              </QueryState>
+            </div>
+          </div>
         </div>
       </div>
     </Panel>

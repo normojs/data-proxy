@@ -39,6 +39,8 @@ import type {
   EnterpriseOrgUnitPayload,
   EnterpriseOrgSyncPayload,
   EnterpriseOrgSyncResult,
+  EnterpriseOrgSyncRollbackResult,
+  EnterpriseOrgSyncRun,
   EnterprisePolicyGroup,
   EnterprisePolicyGroupMembersParams,
   EnterprisePolicyGroupMembersPayload,
@@ -192,6 +194,23 @@ export async function applyEnterpriseOrgSync(
   const res = await api.post<ApiResponse<EnterpriseOrgSyncResult>>(
     `${ENTERPRISE_API}/org-sync/apply`,
     payload
+  )
+  return res.data
+}
+
+export async function getEnterpriseOrgSyncRuns(
+  params: EnterpriseListParams = {}
+) {
+  const res = await api.get<ApiResponse<PageInfo<EnterpriseOrgSyncRun>>>(
+    withQuery(`${ENTERPRISE_API}/org-sync/runs`, params)
+  )
+  return res.data
+}
+
+export async function rollbackEnterpriseOrgSyncRun(id: number) {
+  const res = await api.post<ApiResponse<EnterpriseOrgSyncRollbackResult>>(
+    `${ENTERPRISE_API}/org-sync/runs/${id}/rollback`,
+    {}
   )
   return res.data
 }

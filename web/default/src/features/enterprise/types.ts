@@ -158,9 +158,42 @@ export type EnterpriseOrgSyncResult = {
   snapshot_at: number
   dry_run: boolean
   applied_at?: number
+  batch_id?: string
+  run_id?: number
   summary: EnterpriseOrgSyncSummary
   conflicts: EnterpriseOrgSyncConflict[]
   operations: EnterpriseOrgSyncOperation[]
+}
+
+export type EnterpriseOrgSyncRollbackSummary = {
+  restored_members: number
+  deleted_members: number
+  restored_tokens: number
+  restored_policy_group_members: number
+  skipped_operations: number
+}
+
+export type EnterpriseOrgSyncRun = {
+  id: number
+  enterprise_id: number
+  batch_id: string
+  provider: string
+  snapshot_at: number
+  status: string
+  summary: EnterpriseOrgSyncSummary
+  operations_count: number
+  applied_by_user_id: number
+  applied_at: number
+  rolled_back_by_user_id: number
+  rolled_back_at: number
+  rollback_summary: EnterpriseOrgSyncRollbackSummary
+  created_at: number
+  updated_at: number
+}
+
+export type EnterpriseOrgSyncRollbackResult = {
+  run: EnterpriseOrgSyncRun
+  summary: EnterpriseOrgSyncRollbackSummary
 }
 
 export type EnterprisePolicyGroup = {

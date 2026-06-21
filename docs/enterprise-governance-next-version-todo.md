@@ -170,6 +170,10 @@
   preview 不再中断为错误，而是返回 `candidate_user_ids` 冲突；SSO Sync 面板可点击候选 ID 写回
   当前 JSON 的 `user_id`，后端把显式 `user_id` 视为人工确认并跳过其它身份字段的二次匹配。部门
   结构冲突、用户不存在冲突和批量确认体验仍保留为后续增强。
+- NV-0405 已完成同步批次和安全回滚 MVP：每次 apply 会写入 `enterprise_org_sync_runs`，保存
+  batch_id、provider、summary 和 operations；SSO Sync 面板可查看最近批次并触发 rollback。
+  回滚按操作逆序恢复安全子集：成员分配、成员离职移除、离职导致的 API Key disabled、策略组成员移除；
+  部门创建/移动/禁用等组织树结构变更暂不自动反向迁移，只在 rollback summary 中计为 skipped。
 
 ## V1.5: 高并发和精细额度
 

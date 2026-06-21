@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,7 @@ type EnterpriseOrgSyncInput struct {
 	AllowConflicts           bool                            `json:"allow_conflicts"`
 	DisableMemberApiKeys     bool                            `json:"disable_member_api_keys"`
 	RemoveMemberPolicyGroups bool                            `json:"remove_member_policy_groups"`
+	ActorUserId              int                             `json:"-"`
 }
 
 type EnterpriseOrgSyncOrgUnitInput struct {
@@ -62,6 +64,8 @@ type EnterpriseOrgSyncResult struct {
 	SnapshotAt int64                        `json:"snapshot_at"`
 	DryRun     bool                         `json:"dry_run"`
 	AppliedAt  int64                        `json:"applied_at,omitempty"`
+	BatchId    string                       `json:"batch_id,omitempty"`
+	RunId      int64                        `json:"run_id,omitempty"`
 	Summary    EnterpriseOrgSyncSummary     `json:"summary"`
 	Conflicts  []EnterpriseOrgSyncConflict  `json:"conflicts"`
 	Operations []EnterpriseOrgSyncOperation `json:"operations"`
@@ -103,6 +107,37 @@ type EnterpriseOrgSyncOperation struct {
 	TargetName string         `json:"target_name,omitempty"`
 	Before     map[string]any `json:"before,omitempty"`
 	After      map[string]any `json:"after,omitempty"`
+}
+
+type EnterpriseOrgSyncRunItem struct {
+	Id                 int64                            `json:"id"`
+	EnterpriseId       int                              `json:"enterprise_id"`
+	BatchId            string                           `json:"batch_id"`
+	Provider           string                           `json:"provider"`
+	SnapshotAt         int64                            `json:"snapshot_at"`
+	Status             string                           `json:"status"`
+	Summary            EnterpriseOrgSyncSummary         `json:"summary"`
+	OperationsCount    int                              `json:"operations_count"`
+	AppliedByUserId    int                              `json:"applied_by_user_id"`
+	AppliedAt          int64                            `json:"applied_at"`
+	RolledBackByUserId int                              `json:"rolled_back_by_user_id"`
+	RolledBackAt       int64                            `json:"rolled_back_at"`
+	RollbackSummary    EnterpriseOrgSyncRollbackSummary `json:"rollback_summary"`
+	CreatedAt          int64                            `json:"created_at"`
+	UpdatedAt          int64                            `json:"updated_at"`
+}
+
+type EnterpriseOrgSyncRollbackSummary struct {
+	RestoredMembers            int `json:"restored_members"`
+	DeletedMembers             int `json:"deleted_members"`
+	RestoredTokens             int `json:"restored_tokens"`
+	RestoredPolicyGroupMembers int `json:"restored_policy_group_members"`
+	SkippedOperations          int `json:"skipped_operations"`
+}
+
+type EnterpriseOrgSyncRollbackResult struct {
+	Run     EnterpriseOrgSyncRunItem         `json:"run"`
+	Summary EnterpriseOrgSyncRollbackSummary `json:"summary"`
 }
 
 type enterpriseOrgSyncSnapshot struct {
@@ -173,6 +208,73 @@ func ApplyEnterpriseOrgSync(enterpriseId int, input EnterpriseOrgSyncInput) (Ent
 	return runEnterpriseOrgSync(model.DB, enterpriseId, input, true)
 }
 
+func ListEnterpriseOrgSyncRuns(enterpriseId int, offset int, limit int) ([]EnterpriseOrgSyncRunItem, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	query := model.DB.Model(&model.EnterpriseOrgSyncRun{}).Where("enterprise_id = ?", enterpriseId)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var runs []model.EnterpriseOrgSyncRun
+	if err := query.Order("created_at desc, id desc").Limit(limit).Offset(offset).Find(&runs).Error; err != nil {
+		return nil, 0, err
+	}
+	items := make([]EnterpriseOrgSyncRunItem, 0, len(runs))
+	for _, run := range runs {
+		items = append(items, EnterpriseOrgSyncRunToItem(run))
+	}
+	return items, total, nil
+}
+
+func RollbackEnterpriseOrgSyncRun(enterpriseId int, runId int64, actorUserId int) (EnterpriseOrgSyncRollbackResult, error) {
+	var result EnterpriseOrgSyncRollbackResult
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		var run model.EnterpriseOrgSyncRun
+		if err := tx.Where("enterprise_id = ? AND id = ?", enterpriseId, runId).First(&run).Error; err != nil {
+			return err
+		}
+		if run.Status != model.EnterpriseOrgSyncRunStatusApplied {
+			return errors.New("组织同步批次不是可回滚状态")
+		}
+		operations, err := enterpriseOrgSyncRunOperations(run)
+		if err != nil {
+			return err
+		}
+		summary, err := rollbackEnterpriseOrgSyncOperations(tx, enterpriseId, operations)
+		if err != nil {
+			return err
+		}
+		rollbackSummaryJson, err := common.Marshal(summary)
+		if err != nil {
+			return err
+		}
+		now := time.Now().Unix()
+		if err := tx.Model(&run).Updates(map[string]any{
+			"status":                 model.EnterpriseOrgSyncRunStatusRolledBack,
+			"rolled_back_by_user_id": actorUserId,
+			"rolled_back_at":         now,
+			"rollback_summary_json":  string(rollbackSummaryJson),
+		}).Error; err != nil {
+			return err
+		}
+		run.Status = model.EnterpriseOrgSyncRunStatusRolledBack
+		run.RolledBackByUserId = actorUserId
+		run.RolledBackAt = now
+		run.RollbackSummaryJson = string(rollbackSummaryJson)
+		result = EnterpriseOrgSyncRollbackResult{
+			Run:     EnterpriseOrgSyncRunToItem(run),
+			Summary: summary,
+		}
+		return nil
+	})
+	return result, err
+}
+
 func runEnterpriseOrgSync(db *gorm.DB, enterpriseId int, input EnterpriseOrgSyncInput, apply bool) (EnterpriseOrgSyncResult, error) {
 	snapshot, err := enterpriseOrgSyncPayloadImporter{}.BuildSnapshot(input)
 	if err != nil {
@@ -219,10 +321,11 @@ func runEnterpriseOrgSync(db *gorm.DB, enterpriseId int, input EnterpriseOrgSync
 	if len(planner.result.Conflicts) > 0 && !input.AllowConflicts {
 		return EnterpriseOrgSyncResult{}, errors.New("组织同步存在冲突，请先预览并处理冲突")
 	}
-	if err := planner.apply(); err != nil {
+	planner.result.AppliedAt = time.Now().Unix()
+	planner.result.BatchId = newEnterpriseOrgSyncBatchId(enterpriseId)
+	if err := planner.apply(input.ActorUserId); err != nil {
 		return EnterpriseOrgSyncResult{}, err
 	}
-	planner.result.AppliedAt = time.Now().Unix()
 	return planner.result, nil
 }
 
@@ -565,7 +668,7 @@ func (p *enterpriseOrgSyncPlanner) planDisabledMember(user model.User, existing 
 			return false, err
 		}
 		if len(memberships) > 0 {
-			groupIds, groupNames := policyGroupValuesForOrgSync(memberships)
+			groupIds, groupNames, groupMembers := policyGroupValuesForOrgSync(memberships)
 			p.result.Summary.RemovePolicyGroupMembers += len(memberships)
 			p.result.Operations = append(p.result.Operations, EnterpriseOrgSyncOperation{
 				Type:       "policy_group_member",
@@ -573,10 +676,11 @@ func (p *enterpriseOrgSyncPlanner) planDisabledMember(user model.User, existing 
 				UserId:     user.Id,
 				TargetName: syncMemberTargetName(user),
 				Before: map[string]any{
-					"user_id":            user.Id,
-					"policy_group_ids":   groupIds,
-					"policy_group_names": groupNames,
-					"member_count":       len(memberships),
+					"user_id":              user.Id,
+					"policy_group_ids":     groupIds,
+					"policy_group_names":   groupNames,
+					"policy_group_members": groupMembers,
+					"member_count":         len(memberships),
 				},
 				After: map[string]any{
 					"user_id":         user.Id,
@@ -590,7 +694,7 @@ func (p *enterpriseOrgSyncPlanner) planDisabledMember(user model.User, existing 
 	return changed, nil
 }
 
-func (p *enterpriseOrgSyncPlanner) apply() error {
+func (p *enterpriseOrgSyncPlanner) apply(actorUserId int) error {
 	return p.db.Transaction(func(tx *gorm.DB) error {
 		p.db = tx
 		if err := p.applyOrgUnits(); err != nil {
@@ -599,8 +703,238 @@ func (p *enterpriseOrgSyncPlanner) apply() error {
 		if err := p.applyMembers(); err != nil {
 			return err
 		}
+		run, err := p.createRun(actorUserId)
+		if err != nil {
+			return err
+		}
+		p.result.RunId = run.Id
 		return nil
 	})
+}
+
+func (p *enterpriseOrgSyncPlanner) createRun(actorUserId int) (model.EnterpriseOrgSyncRun, error) {
+	summaryJson, err := common.Marshal(p.result.Summary)
+	if err != nil {
+		return model.EnterpriseOrgSyncRun{}, err
+	}
+	operationsJson, err := common.Marshal(p.result.Operations)
+	if err != nil {
+		return model.EnterpriseOrgSyncRun{}, err
+	}
+	run := model.EnterpriseOrgSyncRun{
+		EnterpriseId:    p.enterpriseId,
+		BatchId:         p.result.BatchId,
+		Provider:        p.result.Provider,
+		SnapshotAt:      p.result.SnapshotAt,
+		Status:          model.EnterpriseOrgSyncRunStatusApplied,
+		SummaryJson:     string(summaryJson),
+		OperationsJson:  string(operationsJson),
+		AppliedByUserId: actorUserId,
+		AppliedAt:       p.result.AppliedAt,
+	}
+	if err := p.db.Create(&run).Error; err != nil {
+		return model.EnterpriseOrgSyncRun{}, err
+	}
+	return run, nil
+}
+
+func EnterpriseOrgSyncRunToItem(run model.EnterpriseOrgSyncRun) EnterpriseOrgSyncRunItem {
+	var summary EnterpriseOrgSyncSummary
+	if run.SummaryJson != "" {
+		_ = common.Unmarshal([]byte(run.SummaryJson), &summary)
+	}
+	operations, _ := enterpriseOrgSyncRunOperations(run)
+	var rollbackSummary EnterpriseOrgSyncRollbackSummary
+	if run.RollbackSummaryJson != "" {
+		_ = common.Unmarshal([]byte(run.RollbackSummaryJson), &rollbackSummary)
+	}
+	return EnterpriseOrgSyncRunItem{
+		Id:                 run.Id,
+		EnterpriseId:       run.EnterpriseId,
+		BatchId:            run.BatchId,
+		Provider:           run.Provider,
+		SnapshotAt:         run.SnapshotAt,
+		Status:             run.Status,
+		Summary:            summary,
+		OperationsCount:    len(operations),
+		AppliedByUserId:    run.AppliedByUserId,
+		AppliedAt:          run.AppliedAt,
+		RolledBackByUserId: run.RolledBackByUserId,
+		RolledBackAt:       run.RolledBackAt,
+		RollbackSummary:    rollbackSummary,
+		CreatedAt:          run.CreatedAt,
+		UpdatedAt:          run.UpdatedAt,
+	}
+}
+
+func enterpriseOrgSyncRunOperations(run model.EnterpriseOrgSyncRun) ([]EnterpriseOrgSyncOperation, error) {
+	if run.OperationsJson == "" {
+		return nil, nil
+	}
+	var operations []EnterpriseOrgSyncOperation
+	if err := common.Unmarshal([]byte(run.OperationsJson), &operations); err != nil {
+		return nil, err
+	}
+	return operations, nil
+}
+
+func rollbackEnterpriseOrgSyncOperations(tx *gorm.DB, enterpriseId int, operations []EnterpriseOrgSyncOperation) (EnterpriseOrgSyncRollbackSummary, error) {
+	var summary EnterpriseOrgSyncRollbackSummary
+	for index := len(operations) - 1; index >= 0; index-- {
+		operation := operations[index]
+		switch {
+		case operation.Type == "member" && operation.Action == EnterpriseOrgSyncOperationMemberAssign:
+			deleted, restored, err := rollbackEnterpriseOrgSyncMemberAssign(tx, enterpriseId, operation)
+			if err != nil {
+				return summary, err
+			}
+			if deleted {
+				summary.DeletedMembers++
+			}
+			if restored {
+				summary.RestoredMembers++
+			}
+		case operation.Type == "member" && operation.Action == EnterpriseOrgSyncOperationMemberDisable:
+			restored, err := restoreEnterpriseOrgSyncMembership(tx, enterpriseId, operation.Before)
+			if err != nil {
+				return summary, err
+			}
+			if restored {
+				summary.RestoredMembers++
+			}
+		case operation.Type == "token" && operation.Action == EnterpriseOrgSyncOperationTokenDisable:
+			count, err := rollbackEnterpriseOrgSyncTokens(tx, operation)
+			if err != nil {
+				return summary, err
+			}
+			summary.RestoredTokens += count
+		case operation.Type == "policy_group_member" && operation.Action == EnterpriseOrgSyncOperationPolicyRemove:
+			count, err := rollbackEnterpriseOrgSyncPolicyGroupMembers(tx, enterpriseId, operation)
+			if err != nil {
+				return summary, err
+			}
+			if count == 0 {
+				summary.SkippedOperations++
+			}
+			summary.RestoredPolicyGroupMembers += count
+		default:
+			summary.SkippedOperations++
+		}
+	}
+	return summary, nil
+}
+
+func rollbackEnterpriseOrgSyncMemberAssign(tx *gorm.DB, enterpriseId int, operation EnterpriseOrgSyncOperation) (bool, bool, error) {
+	if len(operation.Before) == 0 {
+		userId := operation.UserId
+		if userId == 0 {
+			userId = orgSyncMapInt(operation.After, "user_id")
+		}
+		if userId == 0 {
+			return false, false, nil
+		}
+		result := tx.Where("enterprise_id = ? AND user_id = ?", enterpriseId, userId).Delete(&model.EnterpriseOrgMembership{})
+		return result.RowsAffected > 0, false, result.Error
+	}
+	restored, err := restoreEnterpriseOrgSyncMembership(tx, enterpriseId, operation.Before)
+	return false, restored, err
+}
+
+func restoreEnterpriseOrgSyncMembership(tx *gorm.DB, enterpriseId int, value map[string]any) (bool, error) {
+	userId := orgSyncMapInt(value, "user_id")
+	orgUnitId := orgSyncMapInt(value, "org_unit_id")
+	if userId == 0 || orgUnitId == 0 {
+		return false, nil
+	}
+	role := orgSyncMapString(value, "role")
+	isPrimary := orgSyncMapBool(value, "is_primary", true)
+	var membership model.EnterpriseOrgMembership
+	err := tx.Where("enterprise_id = ? AND user_id = ?", enterpriseId, userId).First(&membership).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		membership = model.EnterpriseOrgMembership{
+			EnterpriseId: enterpriseId,
+			UserId:       userId,
+			OrgUnitId:    orgUnitId,
+			Role:         role,
+			IsPrimary:    isPrimary,
+		}
+		return true, tx.Create(&membership).Error
+	}
+	membership.OrgUnitId = orgUnitId
+	membership.Role = role
+	membership.IsPrimary = isPrimary
+	return true, tx.Save(&membership).Error
+}
+
+func rollbackEnterpriseOrgSyncTokens(tx *gorm.DB, operation EnterpriseOrgSyncOperation) (int, error) {
+	tokenIds := orgSyncMapIntSlice(operation.Before, "token_ids")
+	if len(tokenIds) == 0 {
+		return 0, nil
+	}
+	status := orgSyncMapInt(operation.Before, "status")
+	if status == 0 {
+		status = common.TokenStatusEnabled
+	}
+	result := tx.Model(&model.Token{}).
+		Where("id IN ? AND status = ?", tokenIds, common.TokenStatusDisabled).
+		Update("status", status)
+	return int(result.RowsAffected), result.Error
+}
+
+func rollbackEnterpriseOrgSyncPolicyGroupMembers(tx *gorm.DB, enterpriseId int, operation EnterpriseOrgSyncOperation) (int, error) {
+	userId := operation.UserId
+	if userId == 0 {
+		userId = orgSyncMapInt(operation.Before, "user_id")
+	}
+	if userId == 0 {
+		return 0, nil
+	}
+	values, ok := operation.Before["policy_group_members"].([]any)
+	if !ok || len(values) == 0 {
+		return 0, nil
+	}
+	restored := 0
+	for _, value := range values {
+		memberMap, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		groupId := orgSyncMapInt(memberMap, "policy_group_id")
+		if groupId == 0 {
+			continue
+		}
+		role := orgSyncMapString(memberMap, "role")
+		if role == "" {
+			role = model.PolicyGroupMemberRoleViewer
+		}
+		var member model.EnterprisePolicyGroupMember
+		err := tx.Where("enterprise_id = ? AND policy_group_id = ? AND user_id = ?", enterpriseId, groupId, userId).First(&member).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return restored, err
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			member = model.EnterprisePolicyGroupMember{
+				EnterpriseId:  enterpriseId,
+				PolicyGroupId: groupId,
+				UserId:        userId,
+				Role:          role,
+			}
+			if err := tx.Create(&member).Error; err != nil {
+				return restored, err
+			}
+			restored++
+			continue
+		}
+		member.Role = role
+		if err := tx.Save(&member).Error; err != nil {
+			return restored, err
+		}
+		restored++
+	}
+	return restored, nil
 }
 
 func (p *enterpriseOrgSyncPlanner) applyOrgUnits() error {
@@ -829,6 +1163,7 @@ func (p *enterpriseOrgSyncPlanner) existingMembershipsByUserId() (map[int]model.
 type enterpriseOrgSyncPolicyGroupMembership struct {
 	PolicyGroupId   int
 	PolicyGroupName string
+	Role            string
 }
 
 func (p *enterpriseOrgSyncPlanner) enabledTokensByUserId(userId int) ([]model.Token, error) {
@@ -844,7 +1179,7 @@ func (p *enterpriseOrgSyncPlanner) enabledTokensByUserId(userId int) ([]model.To
 func (p *enterpriseOrgSyncPlanner) policyGroupMembershipsByUserId(userId int) ([]enterpriseOrgSyncPolicyGroupMembership, error) {
 	var memberships []enterpriseOrgSyncPolicyGroupMembership
 	err := p.db.Table("enterprise_policy_group_members AS pgm").
-		Select("pgm.policy_group_id, pg.name AS policy_group_name").
+		Select("pgm.policy_group_id, pg.name AS policy_group_name, pgm.role").
 		Joins("LEFT JOIN enterprise_policy_groups AS pg ON pg.id = pgm.policy_group_id").
 		Where("pgm.enterprise_id = ? AND pgm.user_id = ?", p.enterpriseId, userId).
 		Order("pgm.policy_group_id asc").
@@ -1017,6 +1352,10 @@ func syncMemberTargetName(user model.User) string {
 	return firstNonEmptyString(user.DisplayName, user.Username, fmt.Sprintf("#%d", user.Id))
 }
 
+func newEnterpriseOrgSyncBatchId(enterpriseId int) string {
+	return fmt.Sprintf("orgsync-%d-%d", enterpriseId, time.Now().UnixNano())
+}
+
 func tokenIdsForOrgSync(tokens []model.Token) []int {
 	ids := make([]int, 0, len(tokens))
 	for _, token := range tokens {
@@ -1025,16 +1364,94 @@ func tokenIdsForOrgSync(tokens []model.Token) []int {
 	return ids
 }
 
-func policyGroupValuesForOrgSync(memberships []enterpriseOrgSyncPolicyGroupMembership) ([]int, []string) {
+func policyGroupValuesForOrgSync(memberships []enterpriseOrgSyncPolicyGroupMembership) ([]int, []string, []map[string]any) {
 	ids := make([]int, 0, len(memberships))
 	names := make([]string, 0, len(memberships))
+	memberValues := make([]map[string]any, 0, len(memberships))
 	for _, membership := range memberships {
 		ids = append(ids, membership.PolicyGroupId)
 		if membership.PolicyGroupName != "" {
 			names = append(names, membership.PolicyGroupName)
 		}
+		memberValues = append(memberValues, map[string]any{
+			"policy_group_id":   membership.PolicyGroupId,
+			"policy_group_name": membership.PolicyGroupName,
+			"role":              membership.Role,
+		})
 	}
-	return ids, names
+	return ids, names, memberValues
+}
+
+func orgSyncMapInt(value map[string]any, key string) int {
+	if value == nil {
+		return 0
+	}
+	switch typed := value[key].(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case string:
+		parsed, _ := strconv.Atoi(typed)
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func orgSyncMapString(value map[string]any, key string) string {
+	if value == nil {
+		return ""
+	}
+	switch typed := value[key].(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func orgSyncMapBool(value map[string]any, key string, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	switch typed := value[key].(type) {
+	case bool:
+		return typed
+	default:
+		return fallback
+	}
+}
+
+func orgSyncMapIntSlice(value map[string]any, key string) []int {
+	if value == nil {
+		return nil
+	}
+	raw, ok := value[key].([]any)
+	if !ok {
+		if typed, ok := value[key].([]int); ok {
+			return typed
+		}
+		return nil
+	}
+	result := make([]int, 0, len(raw))
+	for _, item := range raw {
+		switch typed := item.(type) {
+		case int:
+			result = append(result, typed)
+		case int64:
+			result = append(result, int(typed))
+		case float64:
+			result = append(result, int(typed))
+		case string:
+			if parsed, err := strconv.Atoi(typed); err == nil {
+				result = append(result, parsed)
+			}
+		}
+	}
+	return result
 }
 
 func (p *enterpriseOrgSyncPlanner) rememberOrgUnit(unit model.EnterpriseOrgUnit) {

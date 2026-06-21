@@ -340,6 +340,7 @@ func migrateDB() error {
 		&Enterprise{},
 		&EnterpriseOrgUnit{},
 		&EnterpriseOrgMembership{},
+		&EnterpriseOrgSyncRun{},
 		&EnterpriseProject{},
 		&EnterpriseProjectOrgUnit{},
 		&EnterpriseProjectMember{},
