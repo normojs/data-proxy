@@ -352,6 +352,17 @@ function formatDurationMs(value: number | undefined) {
   return `${formatNumber(value)}ms`
 }
 
+function formatRemainingTime(expiresAt: number | undefined) {
+  if (!expiresAt) return '-'
+  const seconds = Math.max(0, expiresAt - Math.floor(Date.now() / 1000))
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+}
+
 function formatAuditJson(value: string | undefined) {
   const raw = value?.trim()
   if (!raw) return '{}'
@@ -6467,6 +6478,7 @@ function QuotaRequestDecisionDialog(props: {
                 {formatDateTime(request.expires_at)}
               </div>
             </div>
+            <QuotaRequestRiskSummary request={request} />
             <Field label='Decision Reason'>
               <Textarea
                 value={decisionReason}
@@ -6487,6 +6499,47 @@ function QuotaRequestDecisionDialog(props: {
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function QuotaRequestRiskSummary(props: { request: EnterpriseQuotaRequest }) {
+  const { t } = useTranslation()
+  const request = props.request
+  const stackedLimit =
+    request.stacked_limit_value ||
+    (request.policy_limit_value || 0) + request.limit_delta
+
+  return (
+    <div className='rounded-lg border p-3 text-sm'>
+      <div className='mb-3 font-medium'>{t('Risk Summary')}</div>
+      <div className='grid gap-3 sm:grid-cols-2'>
+        <AuditDetailField
+          label='Current Usage'
+          value={`${formatNumber(request.policy_used_value)} / ${formatNumber(request.policy_limit_value)}`}
+        />
+        <AuditDetailField
+          label='Limit after approval'
+          value={formatNumber(stackedLimit)}
+        />
+        <AuditDetailField
+          label='Remaining validity'
+          value={formatRemainingTime(request.expires_at)}
+        />
+        <AuditDetailField
+          label='Recent policy hits'
+          value={formatNumber(request.recent_policy_hits)}
+        />
+        <AuditDetailField
+          label='Recent dry-run hits'
+          value={formatNumber(request.recent_dry_run_hits)}
+        />
+        <AuditDetailField
+          label='Target'
+          value={`${request.target_type} #${request.target_id || '-'}`}
+          mono
+        />
+      </div>
+    </div>
   )
 }
 

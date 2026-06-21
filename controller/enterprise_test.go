@@ -723,6 +723,61 @@ func TestEnterpriseQuotaRequestSubmitApproveListAndAudit(t *testing.T) {
 		Status:       model.QuotaPolicyStatusEnabled,
 	}
 	require.NoError(t, model.DB.Create(&policy).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseQuotaCounter{
+		EnterpriseId: enterprise.Id,
+		PolicyId:     policy.Id,
+		TargetType:   policy.TargetType,
+		TargetId:     policy.TargetId,
+		Metric:       policy.Metric,
+		PeriodStart:  1000,
+		PeriodEnd:    2000,
+		UsedValue:    7,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseQuotaCounter{
+		EnterpriseId: enterprise.Id,
+		PolicyId:     policy.Id,
+		TargetType:   policy.TargetType,
+		TargetId:     policy.TargetId + 100,
+		Metric:       policy.Metric,
+		PeriodStart:  1000,
+		PeriodEnd:    2000,
+		UsedValue:    99,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseQuotaCounter{
+		EnterpriseId: enterprise.Id + 100,
+		PolicyId:     policy.Id,
+		TargetType:   policy.TargetType,
+		TargetId:     policy.TargetId,
+		Metric:       policy.Metric,
+		PeriodStart:  3000,
+		PeriodEnd:    4000,
+		UsedValue:    41,
+	}).Error)
+	require.NoError(t, model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
+		EnterpriseId: enterprise.Id,
+		ActorUserId:  1001,
+		Action:       "enterprise_governance.dry_run_reject",
+		TargetType:   "quota_policy",
+		TargetId:     policy.Id,
+		After: gin.H{
+			"policy_id":          policy.Id,
+			"matched_policy_ids": []int{policy.Id},
+			"dry_run":            true,
+		},
+		RequestId: "quota-risk-dry-run",
+	}))
+	require.NoError(t, model.RecordEnterpriseAuditLog(model.EnterpriseAuditInput{
+		EnterpriseId: enterprise.Id,
+		ActorUserId:  1001,
+		Action:       "enterprise_governance.hard_limit_reject",
+		TargetType:   "quota_policy",
+		TargetId:     policy.Id,
+		After: gin.H{
+			"matched_policy_ids": []int{policy.Id},
+			"dry_run":            false,
+		},
+		RequestId: "quota-risk-hard-limit",
+	}))
 	webhook := model.EnterpriseWebhook{
 		EnterpriseId:   enterprise.Id,
 		Name:           "approval webhook",
@@ -886,6 +941,11 @@ func TestEnterpriseQuotaRequestSubmitApproveListAndAudit(t *testing.T) {
 	assert.Equal(t, "daily launch quota", item["policy_name"])
 	assert.Equal(t, "Alice", item["applicant_name"])
 	assert.Equal(t, "Admin", item["approver_name"])
+	assert.EqualValues(t, 10, item["policy_limit_value"])
+	assert.EqualValues(t, 7, item["policy_used_value"])
+	assert.EqualValues(t, 15, item["stacked_limit_value"])
+	assert.EqualValues(t, 2, item["recent_policy_hits"])
+	assert.EqualValues(t, 1, item["recent_dry_run_hits"])
 
 	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/quota-requests?project_id="+itoaForEnterpriseTest(project.Id)+"&target_type=project&target_id="+itoaForEnterpriseTest(project.Id)+"&applicant_user_id=1001&page_size=10", "")
 	ctx.Set("id", 9001)

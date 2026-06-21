@@ -239,6 +239,11 @@ export type EnterpriseQuotaRequest = {
   policy_id: number
   policy_name: string
   project_id: number
+  policy_limit_value: number
+  policy_used_value: number
+  stacked_limit_value: number
+  recent_policy_hits: number
+  recent_dry_run_hits: number
   target_type: PolicyTargetType
   target_id: number
   target_name: string

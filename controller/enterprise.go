@@ -138,10 +138,26 @@ type enterpriseOrgSyncRequest = service.EnterpriseOrgSyncInput
 
 type enterpriseQuotaRequestItem struct {
 	model.EnterpriseQuotaRequest
-	PolicyName    string `json:"policy_name"`
-	TargetName    string `json:"target_name"`
-	ApplicantName string `json:"applicant_name"`
-	ApproverName  string `json:"approver_name"`
+	PolicyName        string `json:"policy_name"`
+	PolicyLimitValue  int64  `json:"policy_limit_value"`
+	PolicyUsedValue   int64  `json:"policy_used_value"`
+	StackedLimitValue int64  `json:"stacked_limit_value"`
+	RecentPolicyHits  int64  `json:"recent_policy_hits"`
+	RecentDryRunHits  int64  `json:"recent_dry_run_hits"`
+	TargetName        string `json:"target_name"`
+	ApplicantName     string `json:"applicant_name"`
+	ApproverName      string `json:"approver_name"`
+}
+
+type enterpriseQuotaRequestPolicySummary struct {
+	Name             string
+	LimitValue       int64
+	UsedValue        int64
+	TargetType       string
+	TargetId         int
+	Metric           string
+	RecentPolicyHits int64
+	RecentDryRunHits int64
 }
 
 type enterpriseMemberItem struct {
@@ -4095,7 +4111,7 @@ func decideEnterpriseQuotaRequestById(c *gin.Context, enterprise *model.Enterpri
 }
 
 func buildEnterpriseQuotaRequestItems(enterpriseId int, requests []model.EnterpriseQuotaRequest) ([]enterpriseQuotaRequestItem, error) {
-	policyNames, err := enterpriseQuotaRequestPolicyNames(enterpriseId, requests)
+	policySummaries, err := enterpriseQuotaRequestPolicySummaries(enterpriseId, requests)
 	if err != nil {
 		return nil, err
 	}
@@ -4105,9 +4121,15 @@ func buildEnterpriseQuotaRequestItems(enterpriseId int, requests []model.Enterpr
 	}
 	items := make([]enterpriseQuotaRequestItem, 0, len(requests))
 	for _, req := range requests {
+		policySummary := policySummaries[req.PolicyId]
 		items = append(items, enterpriseQuotaRequestItem{
 			EnterpriseQuotaRequest: req,
-			PolicyName:             policyNames[req.PolicyId],
+			PolicyName:             policySummary.Name,
+			PolicyLimitValue:       policySummary.LimitValue,
+			PolicyUsedValue:        policySummary.UsedValue,
+			StackedLimitValue:      policySummary.LimitValue + req.LimitDelta,
+			RecentPolicyHits:       policySummary.RecentPolicyHits,
+			RecentDryRunHits:       policySummary.RecentDryRunHits,
 			TargetName:             resolveEnterprisePolicyTargetName(enterpriseId, req.TargetType, req.TargetId),
 			ApplicantName:          userNames[req.ApplicantUserId],
 			ApproverName:           userNames[req.ApproverUserId],
@@ -4116,7 +4138,7 @@ func buildEnterpriseQuotaRequestItems(enterpriseId int, requests []model.Enterpr
 	return items, nil
 }
 
-func enterpriseQuotaRequestPolicyNames(enterpriseId int, requests []model.EnterpriseQuotaRequest) (map[int]string, error) {
+func enterpriseQuotaRequestPolicySummaries(enterpriseId int, requests []model.EnterpriseQuotaRequest) (map[int]enterpriseQuotaRequestPolicySummary, error) {
 	ids := make([]int, 0, len(requests))
 	seen := map[int]struct{}{}
 	for _, req := range requests {
@@ -4130,17 +4152,156 @@ func enterpriseQuotaRequestPolicyNames(enterpriseId int, requests []model.Enterp
 		ids = append(ids, req.PolicyId)
 	}
 	if len(ids) == 0 {
-		return map[int]string{}, nil
+		return map[int]enterpriseQuotaRequestPolicySummary{}, nil
 	}
 	var policies []model.EnterpriseQuotaPolicy
-	if err := model.DB.Select("id, name").Where("enterprise_id = ? AND id IN ?", enterpriseId, ids).Find(&policies).Error; err != nil {
+	if err := model.DB.Select("id, name, limit_value, target_type, target_id, metric").Where("enterprise_id = ? AND id IN ?", enterpriseId, ids).Find(&policies).Error; err != nil {
 		return nil, err
 	}
-	names := map[int]string{}
+	summaries := map[int]enterpriseQuotaRequestPolicySummary{}
 	for _, policy := range policies {
-		names[policy.Id] = policy.Name
+		summary := summaries[policy.Id]
+		summary.Name = policy.Name
+		summary.LimitValue = policy.LimitValue
+		summary.TargetType = policy.TargetType
+		summary.TargetId = policy.TargetId
+		summary.Metric = policy.Metric
+		summaries[policy.Id] = summary
 	}
-	return names, nil
+	var counterSums []struct {
+		PolicyId   int
+		TargetType string
+		TargetId   int
+		Metric     string
+		UsedValue  int64
+	}
+	if err := model.DB.Model(&model.EnterpriseQuotaCounter{}).
+		Select("policy_id, target_type, target_id, metric, COALESCE(SUM(used_value), 0) AS used_value").
+		Where("enterprise_id = ? AND policy_id IN ?", enterpriseId, ids).
+		Group("policy_id, target_type, target_id, metric").
+		Scan(&counterSums).Error; err != nil {
+		return nil, err
+	}
+	for _, counter := range counterSums {
+		summary := summaries[counter.PolicyId]
+		if summary.TargetType != counter.TargetType || summary.TargetId != counter.TargetId || summary.Metric != counter.Metric {
+			continue
+		}
+		summary.UsedValue = counter.UsedValue
+		summaries[counter.PolicyId] = summary
+	}
+	if err := fillEnterpriseQuotaRequestRecentPolicyHits(enterpriseId, ids, summaries); err != nil {
+		return nil, err
+	}
+	return summaries, nil
+}
+
+func fillEnterpriseQuotaRequestRecentPolicyHits(enterpriseId int, policyIds []int, summaries map[int]enterpriseQuotaRequestPolicySummary) error {
+	if len(policyIds) == 0 {
+		return nil
+	}
+	policySet := map[int]struct{}{}
+	for _, id := range policyIds {
+		policySet[id] = struct{}{}
+	}
+	var logs []model.EnterpriseAuditLog
+	if err := model.DB.Select("action, after_json").
+		Where("enterprise_id = ? AND action IN ? AND created_at >= ?", enterpriseId, []string{
+			"enterprise_governance.hard_limit_reject",
+			"enterprise_governance.dry_run_reject",
+			"enterprise_governance.policy_action",
+		}, common.GetTimestamp()-7*86400).
+		Order("id desc").
+		Limit(500).
+		Find(&logs).Error; err != nil {
+		return err
+	}
+	for _, log := range logs {
+		var payload map[string]any
+		if err := common.UnmarshalJsonStr(log.AfterJson, &payload); err != nil {
+			continue
+		}
+		for policyId := range policySet {
+			if !enterpriseAuditPayloadMatchesPolicy(payload, policyId) {
+				continue
+			}
+			summary := summaries[policyId]
+			summary.RecentPolicyHits++
+			if enterpriseAuditPayloadBool(payload, "dry_run") || log.Action == "enterprise_governance.dry_run_reject" {
+				summary.RecentDryRunHits++
+			}
+			summaries[policyId] = summary
+		}
+	}
+	return nil
+}
+
+func enterpriseAuditPayloadMatchesPolicy(payload map[string]any, policyId int) bool {
+	if enterpriseAuditPayloadInt(payload["policy_id"]) == policyId {
+		return true
+	}
+	for _, key := range []string{"matched_policy_ids", "counter_policy_ids"} {
+		if enterpriseAuditPayloadIntSliceContains(payload[key], policyId) {
+			return true
+		}
+	}
+	actions, ok := payload["policy_actions"].([]any)
+	if !ok {
+		return false
+	}
+	for _, action := range actions {
+		actionPayload, ok := action.(map[string]any)
+		if ok && enterpriseAuditPayloadInt(actionPayload["policy_id"]) == policyId {
+			return true
+		}
+	}
+	return false
+}
+
+func enterpriseAuditPayloadInt(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case float32:
+		return int(typed)
+	case string:
+		parsed, _ := strconv.Atoi(strings.TrimSpace(typed))
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func enterpriseAuditPayloadIntSliceContains(value any, target int) bool {
+	values, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range values {
+		if enterpriseAuditPayloadInt(value) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func enterpriseAuditPayloadBool(payload map[string]any, key string) bool {
+	value, ok := payload[key]
+	if !ok {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
 }
 
 func enterpriseQuotaRequestUserNames(requests []model.EnterpriseQuotaRequest) (map[int]string, error) {
