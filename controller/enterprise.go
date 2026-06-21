@@ -100,6 +100,19 @@ type enterpriseQuotaRequestDecisionRequest struct {
 	ExpiresAt      int64  `json:"expires_at"`
 }
 
+type enterpriseQuotaRequestBatchDecisionRequest struct {
+	Ids            []int  `json:"ids"`
+	DecisionReason string `json:"decision_reason"`
+	ExpiresAt      int64  `json:"expires_at"`
+}
+
+type enterpriseQuotaRequestBatchDecisionItem struct {
+	Id      int    `json:"id"`
+	Success bool   `json:"success"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
 type enterpriseWebhookRequest struct {
 	Name       string   `json:"name"`
 	Url        string   `json:"url"`
@@ -1745,6 +1758,14 @@ func RejectEnterpriseQuotaRequest(c *gin.Context) {
 	decideEnterpriseQuotaRequest(c, model.EnterpriseQuotaRequestStatusRejected)
 }
 
+func BatchApproveEnterpriseQuotaRequests(c *gin.Context) {
+	batchDecideEnterpriseQuotaRequests(c, model.EnterpriseQuotaRequestStatusApproved)
+}
+
+func BatchRejectEnterpriseQuotaRequests(c *gin.Context) {
+	batchDecideEnterpriseQuotaRequests(c, model.EnterpriseQuotaRequestStatusRejected)
+}
+
 func WithdrawEnterpriseQuotaRequest(c *gin.Context) {
 	id, err := parsePathInt(c, "id")
 	if err != nil {
@@ -2713,6 +2734,22 @@ func parsePathInt64(c *gin.Context, name string) (int64, error) {
 		return 0, errors.New("无效的 ID")
 	}
 	return id, nil
+}
+
+func uniquePositiveIds(values []int) []int {
+	ids := make([]int, 0, len(values))
+	seen := map[int]struct{}{}
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		ids = append(ids, value)
+	}
+	return ids
 }
 
 func enterpriseUsageQueryFromRequest(c *gin.Context) (enterpriseUsageQuery, error) {
@@ -3932,9 +3969,37 @@ func decideEnterpriseQuotaRequest(c *gin.Context, status string) {
 		common.ApiError(c, err)
 		return
 	}
-	var quotaRequest model.EnterpriseQuotaRequest
-	if err := model.DB.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&quotaRequest).Error; err != nil {
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	quotaRequest, err := decideEnterpriseQuotaRequestById(c, enterprise, access, id, status, req)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"id": quotaRequest.Id})
+}
+
+func batchDecideEnterpriseQuotaRequests(c *gin.Context, status string) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterpriseQuotaRequestBatchDecisionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	ids := uniquePositiveIds(req.Ids)
+	if len(ids) == 0 {
+		common.ApiError(c, errors.New("请选择要处理的申请"))
+		return
+	}
+	if len(ids) > 100 {
+		common.ApiError(c, errors.New("单次最多处理 100 条申请"))
 		return
 	}
 	access, err := enterpriseAccessForRequest(c)
@@ -3942,13 +4007,43 @@ func decideEnterpriseQuotaRequest(c *gin.Context, status string) {
 		common.ApiError(c, err)
 		return
 	}
+	decision := enterpriseQuotaRequestDecisionRequest{
+		DecisionReason: req.DecisionReason,
+		ExpiresAt:      req.ExpiresAt,
+	}
+	items := make([]enterpriseQuotaRequestBatchDecisionItem, 0, len(ids))
+	successCount := 0
+	for _, id := range ids {
+		quotaRequest, err := decideEnterpriseQuotaRequestById(c, enterprise, access, id, status, decision)
+		item := enterpriseQuotaRequestBatchDecisionItem{
+			Id:      id,
+			Success: err == nil,
+			Status:  quotaRequest.Status,
+		}
+		if err != nil {
+			item.Message = err.Error()
+		} else {
+			successCount++
+		}
+		items = append(items, item)
+	}
+	common.ApiSuccess(c, gin.H{
+		"items":         items,
+		"success_count": successCount,
+		"failure_count": len(items) - successCount,
+	})
+}
+
+func decideEnterpriseQuotaRequestById(c *gin.Context, enterprise *model.Enterprise, access service.EnterpriseAccess, id int, status string, req enterpriseQuotaRequestDecisionRequest) (model.EnterpriseQuotaRequest, error) {
+	var quotaRequest model.EnterpriseQuotaRequest
+	if err := model.DB.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&quotaRequest).Error; err != nil {
+		return quotaRequest, err
+	}
 	if err := requireDepartmentUserInScope(enterprise.Id, access, quotaRequest.ApplicantUserId); err != nil {
-		common.ApiError(c, err)
-		return
+		return quotaRequest, err
 	}
 	if quotaRequest.Status != model.EnterpriseQuotaRequestStatusPending {
-		common.ApiError(c, errors.New("只能处理待审批申请"))
-		return
+		return quotaRequest, errors.New("只能处理待审批申请")
 	}
 	now := common.GetTimestamp()
 	if quotaRequest.ExpiresAt <= now {
@@ -3965,11 +4060,9 @@ func decideEnterpriseQuotaRequest(c *gin.Context, status string) {
 			}
 			return service.EnqueueEnterpriseQuotaRequestOutboxWithDB(tx, quotaRequest, audit, "quota_request.expire")
 		}); err != nil {
-			common.ApiError(c, err)
-			return
+			return quotaRequest, err
 		}
-		common.ApiError(c, errors.New("申请已过期"))
-		return
+		return quotaRequest, errors.New("申请已过期")
 	}
 	before := quotaRequest
 	quotaRequest.Status = status
@@ -3996,10 +4089,9 @@ func decideEnterpriseQuotaRequest(c *gin.Context, status string) {
 		}
 		return service.EnqueueEnterpriseQuotaRequestOutboxWithDB(tx, quotaRequest, audit, action)
 	}); err != nil {
-		common.ApiError(c, err)
-		return
+		return quotaRequest, err
 	}
-	common.ApiSuccess(c, gin.H{"id": quotaRequest.Id})
+	return quotaRequest, nil
 }
 
 func buildEnterpriseQuotaRequestItems(enterpriseId int, requests []model.EnterpriseQuotaRequest) ([]enterpriseQuotaRequestItem, error) {

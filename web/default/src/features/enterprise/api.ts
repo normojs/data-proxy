@@ -48,6 +48,8 @@ import type {
   EnterpriseQuotaPolicy,
   EnterpriseQuotaPolicyPayload,
   EnterpriseQuotaRequest,
+  EnterpriseQuotaRequestBatchDecisionPayload,
+  EnterpriseQuotaRequestBatchDecisionResult,
   EnterpriseQuotaRequestDecisionPayload,
   EnterpriseQuotaRequestPayload,
   EnterpriseQuotaRequestPolicy,
@@ -394,6 +396,24 @@ export async function rejectEnterpriseQuotaRequest(
     `${ENTERPRISE_API}/quota-requests/${id}/reject`,
     payload
   )
+  return res.data
+}
+
+export async function batchApproveEnterpriseQuotaRequests(
+  payload: EnterpriseQuotaRequestBatchDecisionPayload
+) {
+  const res = await api.post<
+    ApiResponse<EnterpriseQuotaRequestBatchDecisionResult>
+  >(`${ENTERPRISE_API}/quota-requests/batch/approve`, payload)
+  return res.data
+}
+
+export async function batchRejectEnterpriseQuotaRequests(
+  payload: EnterpriseQuotaRequestBatchDecisionPayload
+) {
+  const res = await api.post<
+    ApiResponse<EnterpriseQuotaRequestBatchDecisionResult>
+  >(`${ENTERPRISE_API}/quota-requests/batch/reject`, payload)
   return res.data
 }
 

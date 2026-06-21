@@ -488,6 +488,8 @@ func SetApiRouter(router *gin.Engine) {
 			quotaApprovalEnterpriseRoute := enterpriseRoute.Group("")
 			quotaApprovalEnterpriseRoute.Use(middleware.EnterpriseCapabilityAuth(service.EnterpriseCapabilityQuotaApprove))
 			{
+				quotaApprovalEnterpriseRoute.POST("/quota-requests/batch/approve", controller.BatchApproveEnterpriseQuotaRequests)
+				quotaApprovalEnterpriseRoute.POST("/quota-requests/batch/reject", controller.BatchRejectEnterpriseQuotaRequests)
 				quotaApprovalEnterpriseRoute.POST("/quota-requests/:id/approve", controller.ApproveEnterpriseQuotaRequest)
 				quotaApprovalEnterpriseRoute.POST("/quota-requests/:id/reject", controller.RejectEnterpriseQuotaRequest)
 			}

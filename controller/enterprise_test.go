@@ -911,6 +911,34 @@ func TestEnterpriseQuotaRequestSubmitApproveListAndAudit(t *testing.T) {
 	require.True(t, response.Success, response.Message)
 	assert.EqualValues(t, 0, response.Data["total"])
 
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/quota-requests/batch/reject", `{
+    "ids": [`+itoaForEnterpriseTest(projectRequestId)+`, `+itoaForEnterpriseTest(requestId)+`],
+    "decision_reason": "batch clean up"
+  }`)
+	ctx.Set("id", 9001)
+	ctx.Set("role", common.RoleAdminUser)
+	BatchRejectEnterpriseQuotaRequests(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.EqualValues(t, 1, response.Data["success_count"])
+	assert.EqualValues(t, 1, response.Data["failure_count"])
+	batchItems, ok := response.Data["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, batchItems, 2)
+	firstBatchItem, ok := batchItems[0].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, projectRequestId, firstBatchItem["id"])
+	assert.Equal(t, true, firstBatchItem["success"])
+	secondBatchItem, ok := batchItems[1].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, requestId, secondBatchItem["id"])
+	assert.Equal(t, false, secondBatchItem["success"])
+
+	require.NoError(t, model.DB.First(&projectQuotaRequest, projectRequestId).Error)
+	assert.Equal(t, model.EnterpriseQuotaRequestStatusRejected, projectQuotaRequest.Status)
+	assert.Equal(t, "batch clean up", projectQuotaRequest.DecisionReason)
+	require.NoError(t, model.DB.Where("target_type = ? AND target_id = ? AND action = ?", "quota_request", projectRequestId, "quota_request.reject").First(&model.EnterpriseAuditLog{}).Error)
+
 	var auditCount int64
 	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).
 		Where("target_type = ? AND target_id = ? AND action IN ?", "quota_request", requestId, []string{"quota_request.submit", "quota_request.approve"}).

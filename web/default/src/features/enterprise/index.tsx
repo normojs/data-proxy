@@ -108,6 +108,8 @@ import {
   createEnterpriseWebhook,
   addEnterprisePolicyGroupMembers,
   approveEnterpriseQuotaRequest,
+  batchApproveEnterpriseQuotaRequests,
+  batchRejectEnterpriseQuotaRequests,
   deleteEnterprisePolicyGroupMember,
   deleteEnterpriseProjectMember,
   disableEnterpriseWebhook,
@@ -172,6 +174,7 @@ import type {
   EnterpriseQuotaPolicy,
   EnterpriseQuotaPolicyPayload,
   EnterpriseQuotaRequest,
+  EnterpriseQuotaRequestBatchDecisionResult,
   EnterpriseQuotaRequestDecisionPayload,
   EnterpriseQuotaRequestPayload,
   EnterpriseQuotaRequestStatus,
@@ -2623,23 +2626,84 @@ function QuotaRequestsTab(props: {
   setTargetId: (value: string) => void
   applicantUserId: string
   setApplicantUserId: (value: string) => void
+  selectedRequestIds: number[]
+  setSelectedRequestIds: (ids: number[]) => void
   onCreate: () => void
   onApprove: (request: EnterpriseQuotaRequest) => void
   onReject: (request: EnterpriseQuotaRequest) => void
+  onBatchApprove: (ids: number[]) => void
+  onBatchReject: (ids: number[]) => void
   onWithdraw: (request: EnterpriseQuotaRequest) => void
   onViewDetails: (request: EnterpriseQuotaRequest) => void
 }) {
   const { t } = useTranslation()
+  const pendingRequests = props.requests.filter(
+    (request) => request.status === 'pending'
+  )
+  const pendingRequestIds = new Set(
+    pendingRequests.map((request) => request.id)
+  )
+  const selectedPendingIds = props.selectedRequestIds.filter((id) =>
+    pendingRequestIds.has(id)
+  )
+  const selectedPendingCount = selectedPendingIds.length
+  const allPendingSelected =
+    pendingRequests.length > 0 &&
+    pendingRequests.every((request) =>
+      props.selectedRequestIds.includes(request.id)
+    )
+  const toggleRequestSelection = (request: EnterpriseQuotaRequest) => {
+    if (request.status !== 'pending') return
+    props.setSelectedRequestIds(
+      props.selectedRequestIds.includes(request.id)
+        ? props.selectedRequestIds.filter((id) => id !== request.id)
+        : [...props.selectedRequestIds, request.id]
+    )
+  }
+  const toggleAllPending = (checked: boolean) => {
+    if (!checked) {
+      props.setSelectedRequestIds(
+        props.selectedRequestIds.filter((id) => !pendingRequestIds.has(id))
+      )
+      return
+    }
+    props.setSelectedRequestIds([
+      ...props.selectedRequestIds.filter((id) => !pendingRequestIds.has(id)),
+      ...pendingRequests.map((request) => request.id),
+    ])
+  }
 
   return (
     <Panel
       title='Quota Requests'
       description='Temporary quota approvals that extend matching hard limits until expiration.'
       actions={
-        <Button size='sm' onClick={props.onCreate}>
-          <Plus className='size-3.5' />
-          {t('Quota Request')}
-        </Button>
+        <div className='flex flex-wrap items-center gap-2'>
+          {props.isAdmin && selectedPendingCount > 0 && (
+            <>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => props.onBatchApprove(selectedPendingIds)}
+              >
+                <Check className='size-3.5' />
+                {t('Approve Selected')} ({selectedPendingCount})
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => props.onBatchReject(selectedPendingIds)}
+              >
+                <Ban className='size-3.5' />
+                {t('Reject Selected')} ({selectedPendingCount})
+              </Button>
+            </>
+          )}
+          <Button size='sm' onClick={props.onCreate}>
+            <Plus className='size-3.5' />
+            {t('Quota Request')}
+          </Button>
+        </div>
       }
     >
       <div className='space-y-3'>
@@ -2761,6 +2825,17 @@ function QuotaRequestsTab(props: {
           <Table>
             <TableHeader>
               <TableRow>
+                {props.isAdmin && (
+                  <TableHead className='w-10'>
+                    <Checkbox
+                      checked={allPendingSelected}
+                      disabled={pendingRequests.length === 0}
+                      onCheckedChange={(checked) =>
+                        toggleAllPending(checked === true)
+                      }
+                    />
+                  </TableHead>
+                )}
                 <TableHead>{t('Request')}</TableHead>
                 <TableHead>{t('Policy')}</TableHead>
                 <TableHead>{t('Target')}</TableHead>
@@ -2773,6 +2848,15 @@ function QuotaRequestsTab(props: {
             <TableBody>
               {props.requests.map((request) => (
                 <TableRow key={request.id}>
+                  {props.isAdmin && (
+                    <TableCell>
+                      <Checkbox
+                        checked={props.selectedRequestIds.includes(request.id)}
+                        disabled={request.status !== 'pending'}
+                        onCheckedChange={() => toggleRequestSelection(request)}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell>
                     <div className='min-w-56'>
                       <div className='truncate font-medium'>
@@ -6406,6 +6490,124 @@ function QuotaRequestDecisionDialog(props: {
   )
 }
 
+function QuotaRequestBatchDecisionDialog(props: {
+  ids: number[]
+  action: 'approve' | 'reject'
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [decisionReason, setDecisionReason] = useState('')
+  const [result, setResult] =
+    useState<EnterpriseQuotaRequestBatchDecisionResult | null>(null)
+  const open = props.ids.length > 0
+  const failedItems = result?.items.filter((item) => !item.success) ?? []
+
+  useEffect(() => {
+    setDecisionReason('')
+    setResult(null)
+  }, [props.action, props.ids])
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      props.action === 'approve'
+        ? batchApproveEnterpriseQuotaRequests({
+            ids: props.ids,
+            decision_reason: decisionReason.trim(),
+          })
+        : batchRejectEnterpriseQuotaRequests({
+            ids: props.ids,
+            decision_reason: decisionReason.trim(),
+          }),
+    onSuccess: (response) => {
+      if (!response.success || !response.data) return
+      const data = response.data
+      setResult(data)
+      queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+      queryClient.invalidateQueries({
+        queryKey: ['notifications', 'enterprise-quota-requests'],
+      })
+      if (data.failure_count === 0) {
+        toast.success(
+          t(props.action === 'approve' ? 'Approved' : 'Rejected') +
+            ` ${data.success_count}`
+        )
+        props.onOpenChange(false)
+        return
+      }
+      toast.error(t('Some requests failed') + ` (${data.failure_count})`)
+    },
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={props.onOpenChange}>
+      <DialogContent className='sm:max-w-lg'>
+        <DialogHeader>
+          <DialogTitle>
+            {t(
+              props.action === 'approve'
+                ? 'Approve Selected Requests'
+                : 'Reject Selected Requests'
+            )}
+          </DialogTitle>
+          <DialogDescription>
+            {t('Each selected request is processed independently.')}
+          </DialogDescription>
+        </DialogHeader>
+        <div className='space-y-3'>
+          <div className='rounded-lg border p-3 text-sm'>
+            <div className='font-medium'>
+              {t('Selected')} {props.ids.length}
+            </div>
+            <div className='text-muted-foreground mt-1 truncate text-xs'>
+              {props.ids.map((id) => `#${id}`).join(', ')}
+            </div>
+          </div>
+          <Field label='Decision Reason'>
+            <Textarea
+              value={decisionReason}
+              onChange={(event) => setDecisionReason(event.target.value)}
+            />
+          </Field>
+          {failedItems.length > 0 && (
+            <div className='rounded-lg border p-3 text-sm'>
+              <div className='font-medium'>{t('Failed Requests')}</div>
+              <div className='mt-2 space-y-1'>
+                {failedItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className='text-muted-foreground flex items-center justify-between gap-2 text-xs'
+                  >
+                    <span className='font-mono'>#{item.id}</span>
+                    <span className='truncate'>{item.message || '-'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => props.onOpenChange(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button
+              type='button'
+              variant={props.action === 'approve' ? 'default' : 'destructive'}
+              disabled={mutation.isPending || props.ids.length === 0}
+              onClick={() => mutation.mutate()}
+            >
+              {t(props.action === 'approve' ? 'Approve' : 'Reject')}
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function QuotaPolicyStatusChangeDialog(props: {
   open: boolean
   policy: EnterpriseQuotaPolicy | null
@@ -6613,11 +6815,16 @@ export function EnterpriseGovernance() {
     useState<QuotaRequestInitialValues | null>(null)
   const [decidingQuotaRequest, setDecidingQuotaRequest] =
     useState<EnterpriseQuotaRequest | null>(null)
+  const [batchDecidingQuotaRequestIds, setBatchDecidingQuotaRequestIds] =
+    useState<number[]>([])
   const [viewingQuotaRequest, setViewingQuotaRequest] =
     useState<EnterpriseQuotaRequest | null>(null)
   const [quotaRequestDecisionAction, setQuotaRequestDecisionAction] = useState<
     'approve' | 'reject'
   >('approve')
+  const [selectedQuotaRequestIds, setSelectedQuotaRequestIds] = useState<
+    number[]
+  >([])
 
   const [orgKeyword, setOrgKeyword] = useState('')
   const [orgStatus, setOrgStatus] = useState('')
@@ -7477,6 +7684,8 @@ export function EnterpriseGovernance() {
                   setTargetId={setQuotaRequestTargetId}
                   applicantUserId={quotaRequestApplicantUserId}
                   setApplicantUserId={setQuotaRequestApplicantUserId}
+                  selectedRequestIds={selectedQuotaRequestIds}
+                  setSelectedRequestIds={setSelectedQuotaRequestIds}
                   onCreate={() => {
                     setQuotaRequestInitialValues(null)
                     setQuotaRequestDialogOpen(true)
@@ -7488,6 +7697,14 @@ export function EnterpriseGovernance() {
                   onReject={(request) => {
                     setQuotaRequestDecisionAction('reject')
                     setDecidingQuotaRequest(request)
+                  }}
+                  onBatchApprove={(ids) => {
+                    setQuotaRequestDecisionAction('approve')
+                    setBatchDecidingQuotaRequestIds(ids)
+                  }}
+                  onBatchReject={(ids) => {
+                    setQuotaRequestDecisionAction('reject')
+                    setBatchDecidingQuotaRequestIds(ids)
                   }}
                   onWithdraw={(request) => {
                     withdrawQuotaRequestMutation.mutate(request.id)
@@ -7688,6 +7905,20 @@ export function EnterpriseGovernance() {
           action={quotaRequestDecisionAction}
           onOpenChange={(open) => {
             if (!open) setDecidingQuotaRequest(null)
+          }}
+        />
+      ) : null}
+      {batchDecidingQuotaRequestIds.length > 0 ? (
+        <QuotaRequestBatchDecisionDialog
+          key={`quota-request-batch-decision:${quotaRequestDecisionAction}:${batchDecidingQuotaRequestIds.join(',')}`}
+          ids={batchDecidingQuotaRequestIds}
+          action={quotaRequestDecisionAction}
+          onOpenChange={(open) => {
+            if (open) return
+            setSelectedQuotaRequestIds((ids) =>
+              ids.filter((id) => !batchDecidingQuotaRequestIds.includes(id))
+            )
+            setBatchDecidingQuotaRequestIds([])
           }}
         />
       ) : null}

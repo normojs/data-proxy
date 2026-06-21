@@ -496,6 +496,24 @@ export type EnterpriseQuotaRequestDecisionPayload = {
   expires_at?: number
 }
 
+export type EnterpriseQuotaRequestBatchDecisionPayload =
+  EnterpriseQuotaRequestDecisionPayload & {
+    ids: number[]
+  }
+
+export type EnterpriseQuotaRequestBatchDecisionItem = {
+  id: number
+  success: boolean
+  status: EnterpriseQuotaRequestStatus | string
+  message?: string
+}
+
+export type EnterpriseQuotaRequestBatchDecisionResult = {
+  items: EnterpriseQuotaRequestBatchDecisionItem[]
+  success_count: number
+  failure_count: number
+}
+
 export type EnterpriseListParams = {
   p?: number
   page_size?: number
