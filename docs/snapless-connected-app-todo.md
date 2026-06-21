@@ -52,6 +52,5 @@
 
 ## 立即下一步
 
-1. 推送 CI 门禁补丁后，确认 GitHub `CI / Snapless Connected App` job 在目标 commit 上通过，并把 run URL 补到发布证据或变更单。
-2. 在预发环境执行 `docs/snapless-connected-app-v1.3-release-evidence.md` 的检查表，补充真实 request ID、outbox ID、token ID、截图或变更单链接。
-3. 预发通过后按 `docs/data-proxy-release-runbook.md` 创建发布 tag，确认 CI、Docker image digest 和回滚镜像 digest。
+1. 在预发环境执行 `docs/snapless-connected-app-v1.3-release-evidence.md` 的检查表，补充真实 request ID、outbox ID、token ID、截图或变更单链接。
+2. 预发通过后按 `docs/data-proxy-release-runbook.md` 创建发布 tag，确认 CI、Docker image digest 和回滚镜像 digest。
