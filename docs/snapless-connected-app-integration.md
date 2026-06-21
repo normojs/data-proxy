@@ -227,6 +227,176 @@ Scope 到 endpoint 的当前映射：
 
 Webhook payload 使用 `version=v1`，并通过 `X-Connected-App-Webhook-Signature: sha256=...` 发送 HMAC-SHA256 签名。签名内容是完整 JSON body，secret 为空时不发送签名头。
 
+### Webhook 演练样例
+
+以下样例使用 cookie 认证，便于直接在浏览器登录后复制 cookie 做预发演练：
+
+- `$BASE_URL`：Data Proxy 地址，例如 `https://data-proxy.example.com`
+- `$ADMIN_COOKIE`：管理员会话 cookie
+- `$DEV_COOKIE`：已获批应用申请人的会话 cookie
+- `$USER_COOKIE`：执行设备授权的登录用户会话 cookie
+- `$APP_SLUG`：已获批 connected app slug
+- `$WEBHOOK_URL`：接收端地址，例如 `https://receiver.example.com/connected-app`
+- `$WEBHOOK_SECRET`：webhook HMAC secret
+
+本地验签 receiver：
+
+```bash
+cat >/tmp/connected-app-webhook-receiver.mjs <<'EOF'
+import crypto from 'node:crypto'
+import http from 'node:http'
+
+const secret = process.env.WEBHOOK_SECRET || 'dev-secret'
+
+http.createServer((req, res) => {
+  const chunks = []
+  req.on('data', (chunk) => chunks.push(chunk))
+  req.on('end', () => {
+    const body = Buffer.concat(chunks)
+    const signature = req.headers['x-connected-app-webhook-signature'] || ''
+    const expected = 'sha256=' + crypto
+      .createHmac('sha256', secret)
+      .update(body)
+      .digest('hex')
+
+    if (signature !== expected) {
+      res.writeHead(401)
+      res.end('invalid signature')
+      return
+    }
+
+    const event = JSON.parse(body.toString('utf8'))
+    console.log(event.event_type, event.event_id, event.payload_json)
+    res.writeHead(204)
+    res.end()
+  })
+}).listen(8787, () => {
+  console.log('connected app webhook receiver listening on :8787')
+})
+EOF
+
+WEBHOOK_SECRET="$WEBHOOK_SECRET" node /tmp/connected-app-webhook-receiver.mjs
+```
+
+开启全局 webhook 偏好并创建 webhook：
+
+```bash
+curl -sS -X PUT "$BASE_URL/api/connected-apps/notification-preferences" \
+  -H "Cookie: $ADMIN_COOKIE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": 0,
+    "channel": "webhook",
+    "event_type": "connected_app_request.approve",
+    "enabled": true,
+    "recipient_scope": {}
+  }'
+
+curl -sS -X POST "$BASE_URL/api/connected-apps/webhooks" \
+  -H "Cookie: $ADMIN_COOKIE" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"app_id\": 0,
+    \"name\": \"connected-app-preflight\",
+    \"url\": \"$WEBHOOK_URL\",
+    \"secret\": \"$WEBHOOK_SECRET\",
+    \"event_types\": [
+      \"connected_app_request.approve\",
+      \"connected_app_device.authorized\",
+      \"connected_app.health.warning\"
+    ],
+    \"status\": 1
+  }"
+```
+
+应用级配置可由获批开发者使用 `/api/connected-apps/:slug/developer/notification-preferences` 和 `/api/connected-apps/:slug/developer/webhooks` 完成；请求体字段与管理员接口一致，`app_id` 会以后端鉴权后的应用为准。
+
+审批结果事件演练：
+
+```bash
+REQUEST_ID=$(
+  curl -sS -X POST "$BASE_URL/api/connected-app-requests" \
+    -H "Cookie: $DEV_COOKIE" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "slug": "snapless-addon",
+      "name": "Snapless Addon",
+      "description": "Desktop integration",
+      "requested_scopes": ["openai.chat"],
+      "default_scopes": ["openai.chat"],
+      "authorization_flow": "device_code",
+      "reason": "preflight webhook test"
+    }' | jq -r '.data.request.id'
+)
+
+curl -sS -X POST "$BASE_URL/api/connected-apps/requests/$REQUEST_ID/review" \
+  -H "Cookie: $ADMIN_COOKIE" \
+  -H "Content-Type: application/json" \
+  -d '{"decision":"approved","review_note":"webhook preflight"}'
+```
+
+接收端应看到 `event_type=connected_app_request.approve`。如果要演练拒绝事件，把 preference/webhook event type 改为 `connected_app_request.reject`，并把审核请求改为 `{"decision":"rejected"}`。
+
+设备授权事件演练：
+
+```bash
+curl -sS -X PATCH "$BASE_URL/api/connected-apps/$APP_SLUG/developer/notification-preferences" \
+  -H "Cookie: $DEV_COOKIE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel": "webhook",
+    "event_type": "connected_app_device.authorized",
+    "enabled": true,
+    "recipient_scope": {}
+  }'
+
+DEVICE_START=$(
+  curl -sS -X POST "$BASE_URL/api/connected-apps/$APP_SLUG/device/start" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "device_name": "preflight-desktop",
+      "platform": "macos",
+      "app_version": "0.1.0",
+      "client": "curl"
+    }'
+)
+USER_CODE=$(echo "$DEVICE_START" | jq -r '.data.user_code')
+
+curl -sS -X POST "$BASE_URL/api/connected-apps/$APP_SLUG/device/authorize" \
+  -H "Cookie: $USER_COOKIE" \
+  -H "Content-Type: application/json" \
+  -d "{\"user_code\":\"$USER_CODE\",\"approve\":true}"
+```
+
+接收端应看到 `event_type=connected_app_device.authorized`。如果要演练拒绝事件，把 preference/webhook event type 改为 `connected_app_device.denied`，并把 `approve` 设为 `false`。
+
+Health warning 事件演练：
+
+```bash
+curl -sS -X PATCH "$BASE_URL/api/connected-apps/$APP_SLUG/developer/notification-preferences" \
+  -H "Cookie: $DEV_COOKIE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel": "webhook",
+    "event_type": "connected_app.health.warning",
+    "enabled": true,
+    "recipient_scope": {}
+  }'
+
+DEVICE_START=$(
+  curl -sS -X POST "$BASE_URL/api/connected-apps/$APP_SLUG/device/start" \
+    -H "Content-Type: application/json" \
+    -d '{"device_name":"health-preflight","platform":"macos","client":"curl"}'
+)
+USER_CODE=$(echo "$DEVICE_START" | jq -r '.data.user_code')
+
+# 使用余额不足、账号禁用或模型不可用的测试用户访问状态页。
+curl -sS "$BASE_URL/api/connected-apps/$APP_SLUG/device/status?user_code=$USER_CODE" \
+  -H "Cookie: $USER_COOKIE"
+```
+
+当 `readiness.ok=false` 时，接收端应看到 `event_type=connected_app.health.warning`，`payload_json` 中包含 `status` 和 `checks`。Health warning 通过 event key 做每日幂等，预发重复演练时需要更换测试用户、设备 session、异常状态，或等到下一个 UTC 日期。
+
 ## 可操作状态
 
 Snapless 响应里的 `actions` 采用统一结构：
@@ -281,6 +451,5 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. Connected App 通知管理前端：把 preference、webhook、outbox、retry 和 worker metrics 接入系统设置页/开发者页。
-2. 撤销类通知事件：设备撤销、grant 撤销和 token rotate/revoke 写入 notification outbox。
-3. Scope 强约束：如需把 scope 从“允许 endpoint 描述”升级为 relay 层硬限制，再增加 token/app scope 校验。
+1. 撤销类通知事件：设备撤销、grant 撤销和 token rotate/revoke 写入 notification outbox。
+2. Scope 强约束：如需把 scope 从“允许 endpoint 描述”升级为 relay 层硬限制，再增加 token/app scope 校验。
