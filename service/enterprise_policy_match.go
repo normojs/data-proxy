@@ -44,6 +44,8 @@ type PolicyDecision struct {
 
 type PolicyActionObservation struct {
 	PolicyId       int      `json:"policy_id"`
+	TargetType     string   `json:"target_type,omitempty"`
+	TargetId       int      `json:"target_id,omitempty"`
 	Action         string   `json:"action"`
 	Trigger        string   `json:"trigger"`
 	Reason         string   `json:"reason"`
@@ -337,10 +339,12 @@ func EvaluateEnterprisePolicyActions(req PolicyEvaluationRequest, policies []mod
 
 func policyActionObservation(policy model.EnterpriseQuotaPolicy, trigger string, err error) PolicyActionObservation {
 	observation := PolicyActionObservation{
-		PolicyId: policy.Id,
-		Action:   normalizedEnterprisePolicyAction(policy),
-		Trigger:  trigger,
-		Reason:   err.Error(),
+		PolicyId:   policy.Id,
+		TargetType: policy.TargetType,
+		TargetId:   policy.TargetId,
+		Action:     normalizedEnterprisePolicyAction(policy),
+		Trigger:    trigger,
+		Reason:     err.Error(),
 	}
 	var quotaErr EnterpriseQuotaExceededError
 	if errors.As(err, &quotaErr) {

@@ -61,6 +61,7 @@ type EnterpriseGovernanceAnomalyThrottleResult struct {
 	DetectedAt      int64                                    `json:"detected_at"`
 	ProtectedUntil  int64                                    `json:"protected_until"`
 	CooldownSeconds int64                                    `json:"cooldown_seconds"`
+	PolicyActions   []PolicyActionObservation                `json:"policy_actions"`
 	DryRun          bool                                     `json:"dry_run"`
 }
 
@@ -125,6 +126,7 @@ type enterpriseAnomalyProtection struct {
 	Baseline       EnterpriseGovernanceAnomalyUsageSnapshot
 	DetectedAt     int64
 	ProtectedUntil int64
+	PolicyActions  []PolicyActionObservation
 }
 
 type enterpriseAnomalyProtectionPayload struct {
@@ -136,6 +138,7 @@ type enterpriseAnomalyProtectionPayload struct {
 	Baseline       EnterpriseGovernanceAnomalyUsageSnapshot `json:"baseline"`
 	DetectedAt     int64                                    `json:"detected_at"`
 	ProtectedUntil int64                                    `json:"protected_until"`
+	PolicyActions  []PolicyActionObservation                `json:"policy_actions"`
 }
 
 func DefaultEnterpriseAnomalyThrottleConfig() EnterpriseAnomalyThrottleConfig {
@@ -297,6 +300,9 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 	protectionKey := enterpriseAnomalyProtectionKey(enterpriseCtx)
 	if protection, ok := loadEnterpriseAnomalyProtection(enterpriseCtx, protectionKey, now); ok {
 		result = enterpriseAnomalyResultFromProtection(protection, enterpriseCtx.DryRun)
+		if len(result.PolicyActions) == 0 {
+			result.PolicyActions = enterpriseAnomalyPolicyActionsForContext(c)
+		}
 		setEnterpriseAnomalyThrottleHeaders(c, result)
 		recordEnterpriseGovernanceAnomalyThrottleAudit(c, enterpriseCtx, relayInfo, result)
 		if enterpriseCtx.DryRun {
@@ -312,6 +318,7 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 	if !result.Applied {
 		return result, nil
 	}
+	result.PolicyActions = enterpriseAnomalyPolicyActionsForContext(c)
 	if enterpriseCtx.DryRun {
 		result.Status = enterpriseAnomalyStatusWouldThrottle
 		result.DryRun = true
@@ -331,6 +338,7 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 		Baseline:       result.Baseline,
 		DetectedAt:     result.DetectedAt,
 		ProtectedUntil: result.ProtectedUntil,
+		PolicyActions:  cloneEnterprisePolicyActionObservations(result.PolicyActions),
 	}
 	enterpriseAnomalyProtections.Store(protectionKey, protection)
 	persistEnterpriseAnomalyProtection(c, enterpriseCtx, protectionKey, protection)
@@ -574,6 +582,7 @@ func persistEnterpriseAnomalyProtection(c *gin.Context, enterpriseCtx *Enterpris
 		Baseline:       protection.Baseline,
 		DetectedAt:     protection.DetectedAt,
 		ProtectedUntil: protection.ProtectedUntil,
+		PolicyActions:  cloneEnterprisePolicyActionObservations(protection.PolicyActions),
 	}
 	payloadBytes, err := common.Marshal(payload)
 	if err != nil {
@@ -638,6 +647,7 @@ func loadEnterpriseAnomalyProtectionFromDB(enterpriseCtx *EnterpriseContext, key
 		Baseline:       payload.Baseline,
 		DetectedAt:     payload.DetectedAt,
 		ProtectedUntil: payload.ProtectedUntil,
+		PolicyActions:  cloneEnterprisePolicyActionObservations(payload.PolicyActions),
 	}
 	if protection.ProtectedUntil <= now.Unix() {
 		expireEnterpriseAnomalyProtection(enterpriseCtx, key, now)
@@ -678,8 +688,20 @@ func enterpriseAnomalyResultFromProtection(protection enterpriseAnomalyProtectio
 		DetectedAt:      protection.DetectedAt,
 		ProtectedUntil:  protection.ProtectedUntil,
 		CooldownSeconds: cooldownSeconds,
+		PolicyActions:   cloneEnterprisePolicyActionObservations(protection.PolicyActions),
 		DryRun:          dryRun,
 	}
+}
+
+func enterpriseAnomalyPolicyActionsForContext(c *gin.Context) []PolicyActionObservation {
+	if c == nil {
+		return []PolicyActionObservation{}
+	}
+	decision, ok := common.GetContextKeyType[PolicyDecision](c, constant.ContextKeyEnterpriseGovernanceDecision)
+	if !ok {
+		return []PolicyActionObservation{}
+	}
+	return cloneEnterprisePolicyActionObservations(decision.ActionObservations)
 }
 
 func enterpriseAnomalyProtectionScope(enterpriseCtx *EnterpriseContext) (string, int) {
@@ -767,6 +789,7 @@ func enterpriseGovernanceAnomalyThrottleAuditPayload(c *gin.Context, enterpriseC
 		"scope_id":         scopeId,
 		"protection_key":   enterpriseAnomalyProtectionKey(enterpriseCtx),
 		"policy_group_ids": cloneIntSlice(enterpriseCtx.PolicyGroupIds),
+		"policy_actions":   cloneEnterprisePolicyActionObservations(result.PolicyActions),
 		"anomaly_status":   result.Status,
 		"anomaly_reason":   result.Reason,
 		"anomaly_triggers": result.Triggers,

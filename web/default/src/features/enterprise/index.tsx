@@ -5400,7 +5400,7 @@ function AuditPolicyActionExplanation(props: {
         </div>
         <Badge variant='secondary'>{t('Allowed')}</Badge>
       </div>
-      <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
+      <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-5'>
         {actions.map((action, index) => (
           <div
             key={`${auditString(action, 'action')}:${index}`}
@@ -5409,6 +5409,17 @@ function AuditPolicyActionExplanation(props: {
             <AuditDetailField
               label='Policy'
               value={`#${auditNumber(action, 'policy_id') ?? '-'}`}
+              mono
+            />
+            <AuditDetailField
+              label='Target'
+              value={
+                auditString(action, 'target_type')
+                  ? `${auditString(action, 'target_type')} #${
+                      auditNumber(action, 'target_id') ?? '-'
+                    }`
+                  : '-'
+              }
               mono
             />
             <AuditDetailField

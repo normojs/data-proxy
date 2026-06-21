@@ -212,6 +212,18 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleScopesProjectProtection(t *test
 	}).Error)
 	projectA := createEnterpriseProjectForRelayTest(t, enterprise.Id, 31, "Project A", "project-a")
 	projectB := createEnterpriseProjectForRelayTest(t, enterprise.Id, 32, "Project B", "project-b")
+	actionPolicy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "Project A anomaly queue action",
+		TargetType:   model.PolicyTargetProject,
+		TargetId:     projectA.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   1,
+		ModelScope:   model.PolicyModelScopeAll,
+		Action:       model.PolicyActionQueue,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
 
 	now := time.Now()
 	seedEnterpriseAnomalyUsageAttributionsWithScope(t, enterprise.Id, relayInfoA.UserId, 31, projectA.Id, []time.Time{
@@ -224,11 +236,17 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleScopesProjectProtection(t *test
 
 	ctxA := newEnterpriseGovernanceRelayTestContext(t, relayInfoA.RequestId, 740)
 	ctxA.Request.Header.Set(enterpriseProjectIdHeader, strconv.Itoa(projectA.Id))
+	require.Nil(t, PreCheckEnterpriseGovernance(ctxA, relayInfoA, 20))
 	resultA, err := ApplyEnterpriseGovernanceAnomalyThrottle(ctxA, relayInfoA)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrEnterpriseGovernanceAnomalyThrottled))
 	require.True(t, resultA.Applied)
 	assert.Equal(t, enterpriseAnomalyReasonRequestSpike, resultA.Reason)
+	require.Len(t, resultA.PolicyActions, 1)
+	assert.Equal(t, actionPolicy.Id, resultA.PolicyActions[0].PolicyId)
+	assert.Equal(t, model.PolicyTargetProject, resultA.PolicyActions[0].TargetType)
+	assert.Equal(t, projectA.Id, resultA.PolicyActions[0].TargetId)
+	assert.Equal(t, model.PolicyActionQueue, resultA.PolicyActions[0].Action)
 
 	projectAKey := enterpriseAnomalyProtectionKey(&EnterpriseContext{
 		EnterpriseId:     enterprise.Id,
@@ -240,6 +258,10 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleScopesProjectProtection(t *test
 		First(&protection).Error)
 	assert.Equal(t, model.EnterpriseGovernanceAnomalyProtectionScopeProject, protection.ScopeType)
 	assert.Equal(t, projectA.Id, protection.ScopeId)
+	var protectionPayload enterpriseAnomalyProtectionPayload
+	require.NoError(t, common.UnmarshalJsonStr(protection.PayloadJson, &protectionPayload))
+	require.Len(t, protectionPayload.PolicyActions, 1)
+	assert.Equal(t, actionPolicy.Id, protectionPayload.PolicyActions[0].PolicyId)
 
 	var audit model.EnterpriseAuditLog
 	require.NoError(t, model.DB.Where("request_id = ? AND action = ?", relayInfoA.RequestId, enterpriseGovernanceAuditActionAnomalyThrottle).
@@ -250,6 +272,15 @@ func TestApplyEnterpriseGovernanceAnomalyThrottleScopesProjectProtection(t *test
 	assert.Equal(t, model.EnterpriseGovernanceAnomalyProtectionScopeProject, auditAfter["scope_type"])
 	assert.EqualValues(t, projectA.Id, auditAfter["scope_id"])
 	assert.Equal(t, projectAKey, auditAfter["protection_key"])
+	policyActions, ok := auditAfter["policy_actions"].([]any)
+	require.True(t, ok)
+	require.Len(t, policyActions, 1)
+	policyAction, ok := policyActions[0].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, actionPolicy.Id, policyAction["policy_id"])
+	assert.Equal(t, model.PolicyTargetProject, policyAction["target_type"])
+	assert.EqualValues(t, projectA.Id, policyAction["target_id"])
+	assert.Equal(t, model.PolicyActionQueue, policyAction["action"])
 
 	ctxB := newEnterpriseGovernanceRelayTestContext(t, relayInfoB.RequestId, 741)
 	ctxB.Request.Header.Set(enterpriseProjectIdHeader, strconv.Itoa(projectB.Id))
