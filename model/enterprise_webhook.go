@@ -11,7 +11,7 @@ type EnterpriseWebhook struct {
 	Name           string `json:"name" gorm:"type:varchar(128);not null"`
 	Url            string `json:"url" gorm:"type:text;not null"`
 	Secret         string `json:"-" gorm:"type:varchar(191)"`
-	EventTypesJson string `json:"event_types_json" gorm:"type:text;not null;default:'[]'"`
+	EventTypesJson string `json:"event_types_json" gorm:"type:text;not null"`
 	Status         int    `json:"status" gorm:"not null;default:1;index:idx_enterprise_webhooks_status,priority:2"`
 	CreatedAt      int64  `json:"created_at" gorm:"autoCreateTime;index"`
 	UpdatedAt      int64  `json:"updated_at" gorm:"autoUpdateTime"`

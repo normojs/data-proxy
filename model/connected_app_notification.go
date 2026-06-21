@@ -29,7 +29,7 @@ type ConnectedAppNotificationPreference struct {
 	Channel            string `json:"channel" gorm:"size:32;not null;uniqueIndex:idx_connected_app_notification_preferences_channel_event,priority:2"`
 	EventType          string `json:"event_type" gorm:"size:96;not null;uniqueIndex:idx_connected_app_notification_preferences_channel_event,priority:3"`
 	Enabled            bool   `json:"enabled" gorm:"not null;default:false;index"`
-	RecipientScopeJson string `json:"recipient_scope_json" gorm:"type:text;not null;default:'{}'"`
+	RecipientScopeJson string `json:"recipient_scope_json" gorm:"type:text;not null"`
 	CreatedAt          int64  `json:"created_at" gorm:"autoCreateTime;index"`
 	UpdatedAt          int64  `json:"updated_at" gorm:"autoUpdateTime"`
 }
@@ -44,7 +44,7 @@ type ConnectedAppWebhook struct {
 	Name           string `json:"name" gorm:"type:varchar(128);not null"`
 	Url            string `json:"url" gorm:"type:text;not null"`
 	Secret         string `json:"-" gorm:"type:varchar(191)"`
-	EventTypesJson string `json:"event_types_json" gorm:"type:text;not null;default:'[]'"`
+	EventTypesJson string `json:"event_types_json" gorm:"type:text;not null"`
 	Status         int    `json:"status" gorm:"not null;default:1;index:idx_connected_app_webhooks_app_status,priority:2"`
 	CreatedAt      int64  `json:"created_at" gorm:"autoCreateTime;index"`
 	UpdatedAt      int64  `json:"updated_at" gorm:"autoUpdateTime"`
