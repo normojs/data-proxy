@@ -34,6 +34,7 @@ import {
   Download,
   Eye,
   Gauge,
+  KeyRound,
   Mail,
   Layers3,
   Pencil,
@@ -45,6 +46,7 @@ import {
   ShieldCheck,
   TimerReset,
   Trash2,
+  UserMinus,
   UserPlus,
   Users,
   Webhook,
@@ -307,6 +309,10 @@ const ORG_SYNC_PAYLOAD_TEMPLATE = `{
       "provider_user_id": "hstation-user-id",
       "org_unit_external_id": "engineering",
       "role": "owner"
+    },
+    {
+      "provider_user_id": "departed-user-id",
+      "status": 2
     }
   ]
 }`
@@ -1408,6 +1414,9 @@ function SsoOrgSyncPanel() {
   const [provider, setProvider] = useState('hstation')
   const [payloadText, setPayloadText] = useState(ORG_SYNC_PAYLOAD_TEMPLATE)
   const [allowConflicts, setAllowConflicts] = useState(false)
+  const [disableMemberApiKeys, setDisableMemberApiKeys] = useState(false)
+  const [removeMemberPolicyGroups, setRemoveMemberPolicyGroups] =
+    useState(false)
   const [parseError, setParseError] = useState('')
   const [result, setResult] = useState<EnterpriseOrgSyncResult | null>(null)
 
@@ -1428,6 +1437,8 @@ function SsoOrgSyncPanel() {
         org_units: orgUnits,
         members,
         allow_conflicts: allowConflicts,
+        disable_member_api_keys: disableMemberApiKeys,
+        remove_member_policy_groups: removeMemberPolicyGroups,
       }
     } catch (error) {
       const message =
@@ -1540,6 +1551,26 @@ function SsoOrgSyncPanel() {
             />
             <span>{t('Apply non-conflicting rows')}</span>
           </label>
+          <div className='grid gap-2 sm:grid-cols-2'>
+            <label className='flex items-center gap-2 text-sm'>
+              <Checkbox
+                checked={disableMemberApiKeys}
+                onCheckedChange={(checked) =>
+                  setDisableMemberApiKeys(checked === true)
+                }
+              />
+              <span>{t('Disable API keys for disabled members')}</span>
+            </label>
+            <label className='flex items-center gap-2 text-sm'>
+              <Checkbox
+                checked={removeMemberPolicyGroups}
+                onCheckedChange={(checked) =>
+                  setRemoveMemberPolicyGroups(checked === true)
+                }
+              />
+              <span>{t('Remove disabled members from policy groups')}</span>
+            </label>
+          </div>
           {parseError && (
             <div className='text-destructive text-xs'>{parseError}</div>
           )}
@@ -1563,6 +1594,21 @@ function SsoOrgSyncPanel() {
                   icon={Users}
                   label='Assign Members'
                   value={formatNumber(summary.assign_members)}
+                />
+                <StatCell
+                  icon={UserMinus}
+                  label='Disable Members'
+                  value={formatNumber(summary.disable_members)}
+                />
+                <StatCell
+                  icon={KeyRound}
+                  label='Disable API Keys'
+                  value={formatNumber(summary.disable_member_tokens)}
+                />
+                <StatCell
+                  icon={Users}
+                  label='Remove Group Members'
+                  value={formatNumber(summary.remove_policy_group_members)}
                 />
                 <StatCell
                   icon={Ban}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"gorm.io/gorm"
 )
@@ -17,14 +18,22 @@ const (
 	EnterpriseOrgSyncOperationOrgUnitCreate = "create"
 	EnterpriseOrgSyncOperationOrgUnitUpdate = "update"
 	EnterpriseOrgSyncOperationMemberAssign  = "assign"
+	EnterpriseOrgSyncOperationMemberDisable = "disable"
+	EnterpriseOrgSyncOperationTokenDisable  = "disable"
+	EnterpriseOrgSyncOperationPolicyRemove  = "remove"
+
+	EnterpriseOrgSyncMemberStatusEnabled  = common.UserStatusEnabled
+	EnterpriseOrgSyncMemberStatusDisabled = common.UserStatusDisabled
 )
 
 type EnterpriseOrgSyncInput struct {
-	Provider       string                          `json:"provider"`
-	SnapshotAt     int64                           `json:"snapshot_at"`
-	OrgUnits       []EnterpriseOrgSyncOrgUnitInput `json:"org_units"`
-	Members        []EnterpriseOrgSyncMemberInput  `json:"members"`
-	AllowConflicts bool                            `json:"allow_conflicts"`
+	Provider                 string                          `json:"provider"`
+	SnapshotAt               int64                           `json:"snapshot_at"`
+	OrgUnits                 []EnterpriseOrgSyncOrgUnitInput `json:"org_units"`
+	Members                  []EnterpriseOrgSyncMemberInput  `json:"members"`
+	AllowConflicts           bool                            `json:"allow_conflicts"`
+	DisableMemberApiKeys     bool                            `json:"disable_member_api_keys"`
+	RemoveMemberPolicyGroups bool                            `json:"remove_member_policy_groups"`
 }
 
 type EnterpriseOrgSyncOrgUnitInput struct {
@@ -45,6 +54,7 @@ type EnterpriseOrgSyncMemberInput struct {
 	OrgUnitExternalId string `json:"org_unit_external_id"`
 	OrgUnitSlug       string `json:"org_unit_slug"`
 	Role              string `json:"role"`
+	Status            int    `json:"status"`
 }
 
 type EnterpriseOrgSyncResult struct {
@@ -58,14 +68,17 @@ type EnterpriseOrgSyncResult struct {
 }
 
 type EnterpriseOrgSyncSummary struct {
-	OrgUnitsTotal     int `json:"org_units_total"`
-	MembersTotal      int `json:"members_total"`
-	CreateOrgUnits    int `json:"create_org_units"`
-	UpdateOrgUnits    int `json:"update_org_units"`
-	UnchangedOrgUnits int `json:"unchanged_org_units"`
-	AssignMembers     int `json:"assign_members"`
-	UnchangedMembers  int `json:"unchanged_members"`
-	Conflicts         int `json:"conflicts"`
+	OrgUnitsTotal            int `json:"org_units_total"`
+	MembersTotal             int `json:"members_total"`
+	CreateOrgUnits           int `json:"create_org_units"`
+	UpdateOrgUnits           int `json:"update_org_units"`
+	UnchangedOrgUnits        int `json:"unchanged_org_units"`
+	AssignMembers            int `json:"assign_members"`
+	DisableMembers           int `json:"disable_members"`
+	DisableMemberTokens      int `json:"disable_member_tokens"`
+	RemovePolicyGroupMembers int `json:"remove_policy_group_members"`
+	UnchangedMembers         int `json:"unchanged_members"`
+	Conflicts                int `json:"conflicts"`
 }
 
 type EnterpriseOrgSyncConflict struct {
@@ -91,10 +104,12 @@ type EnterpriseOrgSyncOperation struct {
 }
 
 type enterpriseOrgSyncSnapshot struct {
-	Provider   string
-	SnapshotAt int64
-	OrgUnits   []enterpriseOrgSyncOrgUnit
-	Members    []enterpriseOrgSyncMember
+	Provider                 string
+	SnapshotAt               int64
+	DisableMemberApiKeys     bool
+	RemoveMemberPolicyGroups bool
+	OrgUnits                 []enterpriseOrgSyncOrgUnit
+	Members                  []enterpriseOrgSyncMember
 }
 
 type enterpriseOrgSyncOrgUnit struct {
@@ -115,6 +130,7 @@ type enterpriseOrgSyncMember struct {
 	OrgUnitExternalId string
 	OrgUnitSlug       string
 	Role              string
+	Status            int
 }
 
 type enterpriseOrgSyncImporter interface {
@@ -124,18 +140,19 @@ type enterpriseOrgSyncImporter interface {
 type enterpriseOrgSyncPayloadImporter struct{}
 
 type enterpriseOrgSyncPlanner struct {
-	db               *gorm.DB
-	enterpriseId     int
-	snapshot         enterpriseOrgSyncSnapshot
-	result           EnterpriseOrgSyncResult
-	existingBySlug   map[string]model.EnterpriseOrgUnit
-	existingById     map[int]model.EnterpriseOrgUnit
-	syncByExternalId map[string]enterpriseOrgSyncOrgUnit
-	slugByExternalId map[string]string
-	unitIdBySlug     map[string]int
-	unitNameBySlug   map[string]string
-	skipOrgExternal  map[string]struct{}
-	skipMemberIndex  map[int]struct{}
+	db                   *gorm.DB
+	enterpriseId         int
+	snapshot             enterpriseOrgSyncSnapshot
+	result               EnterpriseOrgSyncResult
+	existingBySlug       map[string]model.EnterpriseOrgUnit
+	existingById         map[int]model.EnterpriseOrgUnit
+	syncByExternalId     map[string]enterpriseOrgSyncOrgUnit
+	slugByExternalId     map[string]string
+	unitIdBySlug         map[string]int
+	unitNameBySlug       map[string]string
+	skipOrgExternal      map[string]struct{}
+	skipMemberIndex      map[int]struct{}
+	plannedDisabledUsers map[int]struct{}
 }
 
 func PreviewEnterpriseOrgSync(enterpriseId int, input EnterpriseOrgSyncInput) (EnterpriseOrgSyncResult, error) {
@@ -155,17 +172,18 @@ func runEnterpriseOrgSync(db *gorm.DB, enterpriseId int, input EnterpriseOrgSync
 		return EnterpriseOrgSyncResult{}, errors.New("组织同步快照不能为空")
 	}
 	planner := &enterpriseOrgSyncPlanner{
-		db:               db,
-		enterpriseId:     enterpriseId,
-		snapshot:         snapshot,
-		existingBySlug:   map[string]model.EnterpriseOrgUnit{},
-		existingById:     map[int]model.EnterpriseOrgUnit{},
-		syncByExternalId: map[string]enterpriseOrgSyncOrgUnit{},
-		slugByExternalId: map[string]string{},
-		unitIdBySlug:     map[string]int{},
-		unitNameBySlug:   map[string]string{},
-		skipOrgExternal:  map[string]struct{}{},
-		skipMemberIndex:  map[int]struct{}{},
+		db:                   db,
+		enterpriseId:         enterpriseId,
+		snapshot:             snapshot,
+		existingBySlug:       map[string]model.EnterpriseOrgUnit{},
+		existingById:         map[int]model.EnterpriseOrgUnit{},
+		syncByExternalId:     map[string]enterpriseOrgSyncOrgUnit{},
+		slugByExternalId:     map[string]string{},
+		unitIdBySlug:         map[string]int{},
+		unitNameBySlug:       map[string]string{},
+		skipOrgExternal:      map[string]struct{}{},
+		skipMemberIndex:      map[int]struct{}{},
+		plannedDisabledUsers: map[int]struct{}{},
 		result: EnterpriseOrgSyncResult{
 			Provider:   snapshot.Provider,
 			SnapshotAt: snapshot.SnapshotAt,
@@ -233,6 +251,13 @@ func (enterpriseOrgSyncPayloadImporter) BuildSnapshot(input EnterpriseOrgSyncInp
 	}
 	members := make([]enterpriseOrgSyncMember, 0, len(input.Members))
 	for _, member := range input.Members {
+		status := member.Status
+		if status == 0 {
+			status = EnterpriseOrgSyncMemberStatusEnabled
+		}
+		if status != EnterpriseOrgSyncMemberStatusEnabled && status != EnterpriseOrgSyncMemberStatusDisabled {
+			return enterpriseOrgSyncSnapshot{}, errors.New("成员状态无效")
+		}
 		members = append(members, enterpriseOrgSyncMember{
 			UserId:            member.UserId,
 			Username:          strings.TrimSpace(member.Username),
@@ -241,13 +266,16 @@ func (enterpriseOrgSyncPayloadImporter) BuildSnapshot(input EnterpriseOrgSyncInp
 			OrgUnitExternalId: strings.TrimSpace(member.OrgUnitExternalId),
 			OrgUnitSlug:       strings.TrimSpace(member.OrgUnitSlug),
 			Role:              strings.TrimSpace(member.Role),
+			Status:            status,
 		})
 	}
 	return enterpriseOrgSyncSnapshot{
-		Provider:   provider,
-		SnapshotAt: snapshotAt,
-		OrgUnits:   orgUnits,
-		Members:    members,
+		Provider:                 provider,
+		SnapshotAt:               snapshotAt,
+		DisableMemberApiKeys:     input.DisableMemberApiKeys,
+		RemoveMemberPolicyGroups: input.RemoveMemberPolicyGroups,
+		OrgUnits:                 orgUnits,
+		Members:                  members,
 	}, nil
 }
 
@@ -395,6 +423,16 @@ func (p *enterpriseOrgSyncPlanner) planMembers() error {
 			p.addMemberConflict(index, member, "user", "同步成员未匹配到用户")
 			continue
 		}
+		if member.Status == EnterpriseOrgSyncMemberStatusDisabled {
+			changed, err := p.planDisabledMember(user, existingMemberships[user.Id])
+			if err != nil {
+				return err
+			}
+			if !changed {
+				p.result.Summary.UnchangedMembers++
+			}
+			continue
+		}
 		targetSlug := member.OrgUnitSlug
 		if targetSlug == "" {
 			targetSlug = p.slugByExternalId[member.OrgUnitExternalId]
@@ -449,6 +487,92 @@ func (p *enterpriseOrgSyncPlanner) planMembers() error {
 		p.result.Summary.UnchangedMembers++
 	}
 	return nil
+}
+
+func (p *enterpriseOrgSyncPlanner) planDisabledMember(user model.User, existing model.EnterpriseOrgMembership) (bool, error) {
+	changed := false
+	if existing.Id > 0 {
+		before := membershipAuditValue(existing, p.existingById)
+		after := map[string]any{
+			"user_id":            user.Id,
+			"status":             EnterpriseOrgSyncMemberStatusDisabled,
+			"membership_removed": true,
+		}
+		p.result.Summary.DisableMembers++
+		p.result.Operations = append(p.result.Operations, EnterpriseOrgSyncOperation{
+			Type:       "member",
+			Action:     EnterpriseOrgSyncOperationMemberDisable,
+			Slug:       fmt.Sprint(before["org_unit_slug"]),
+			UserId:     user.Id,
+			TargetId:   existing.OrgUnitId,
+			TargetName: fmt.Sprint(before["org_unit_name"]),
+			Before:     before,
+			After:      after,
+		})
+		changed = true
+	}
+	if _, seen := p.plannedDisabledUsers[user.Id]; seen {
+		return changed, nil
+	}
+	p.plannedDisabledUsers[user.Id] = struct{}{}
+	if p.snapshot.DisableMemberApiKeys {
+		tokens, err := p.enabledTokensByUserId(user.Id)
+		if err != nil {
+			return false, err
+		}
+		if len(tokens) > 0 {
+			tokenIds := tokenIdsForOrgSync(tokens)
+			p.result.Summary.DisableMemberTokens += len(tokens)
+			p.result.Operations = append(p.result.Operations, EnterpriseOrgSyncOperation{
+				Type:       "token",
+				Action:     EnterpriseOrgSyncOperationTokenDisable,
+				UserId:     user.Id,
+				TargetName: syncMemberTargetName(user),
+				Before: map[string]any{
+					"user_id":     user.Id,
+					"token_ids":   tokenIds,
+					"token_count": len(tokens),
+					"status":      common.TokenStatusEnabled,
+				},
+				After: map[string]any{
+					"user_id":     user.Id,
+					"token_ids":   tokenIds,
+					"token_count": len(tokens),
+					"status":      common.TokenStatusDisabled,
+				},
+			})
+			changed = true
+		}
+	}
+	if p.snapshot.RemoveMemberPolicyGroups {
+		memberships, err := p.policyGroupMembershipsByUserId(user.Id)
+		if err != nil {
+			return false, err
+		}
+		if len(memberships) > 0 {
+			groupIds, groupNames := policyGroupValuesForOrgSync(memberships)
+			p.result.Summary.RemovePolicyGroupMembers += len(memberships)
+			p.result.Operations = append(p.result.Operations, EnterpriseOrgSyncOperation{
+				Type:       "policy_group_member",
+				Action:     EnterpriseOrgSyncOperationPolicyRemove,
+				UserId:     user.Id,
+				TargetName: syncMemberTargetName(user),
+				Before: map[string]any{
+					"user_id":            user.Id,
+					"policy_group_ids":   groupIds,
+					"policy_group_names": groupNames,
+					"member_count":       len(memberships),
+				},
+				After: map[string]any{
+					"user_id":         user.Id,
+					"member_count":    len(memberships),
+					"members_removed": true,
+				},
+			})
+			changed = true
+		}
+	}
+	return changed, nil
 }
 
 func (p *enterpriseOrgSyncPlanner) apply() error {
@@ -529,6 +653,7 @@ func (p *enterpriseOrgSyncPlanner) applyOrgUnits() error {
 }
 
 func (p *enterpriseOrgSyncPlanner) applyMembers() error {
+	appliedDisabledUsers := map[int]struct{}{}
 	for index, member := range p.snapshot.Members {
 		if _, skip := p.skipMemberIndex[index]; skip {
 			continue
@@ -538,6 +663,16 @@ func (p *enterpriseOrgSyncPlanner) applyMembers() error {
 			return err
 		}
 		if !ok {
+			continue
+		}
+		if member.Status == EnterpriseOrgSyncMemberStatusDisabled {
+			if _, seen := appliedDisabledUsers[user.Id]; seen {
+				continue
+			}
+			appliedDisabledUsers[user.Id] = struct{}{}
+			if err := p.applyDisabledMember(user.Id); err != nil {
+				return err
+			}
 			continue
 		}
 		targetSlug := member.OrgUnitSlug
@@ -575,6 +710,33 @@ func (p *enterpriseOrgSyncPlanner) applyMembers() error {
 			}
 		}
 		p.fillMemberOperationTarget(user.Id, targetId, targetSlug)
+	}
+	return nil
+}
+
+func (p *enterpriseOrgSyncPlanner) applyDisabledMember(userId int) error {
+	var membership model.EnterpriseOrgMembership
+	err := p.db.Where("enterprise_id = ? AND user_id = ?", p.enterpriseId, userId).First(&membership).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if err == nil {
+		if err := p.db.Delete(&membership).Error; err != nil {
+			return err
+		}
+	}
+	if p.snapshot.DisableMemberApiKeys {
+		if err := p.db.Model(&model.Token{}).
+			Where("user_id = ? AND status = ?", userId, common.TokenStatusEnabled).
+			Update("status", common.TokenStatusDisabled).Error; err != nil {
+			return err
+		}
+	}
+	if p.snapshot.RemoveMemberPolicyGroups {
+		if err := p.db.Where("enterprise_id = ? AND user_id = ?", p.enterpriseId, userId).
+			Delete(&model.EnterprisePolicyGroupMember{}).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -647,6 +809,32 @@ func (p *enterpriseOrgSyncPlanner) existingMembershipsByUserId() (map[int]model.
 		result[membership.UserId] = membership
 	}
 	return result, nil
+}
+
+type enterpriseOrgSyncPolicyGroupMembership struct {
+	PolicyGroupId   int
+	PolicyGroupName string
+}
+
+func (p *enterpriseOrgSyncPlanner) enabledTokensByUserId(userId int) ([]model.Token, error) {
+	var tokens []model.Token
+	err := p.db.
+		Select("id, user_id, name, status").
+		Where("user_id = ? AND status = ?", userId, common.TokenStatusEnabled).
+		Order("id asc").
+		Find(&tokens).Error
+	return tokens, err
+}
+
+func (p *enterpriseOrgSyncPlanner) policyGroupMembershipsByUserId(userId int) ([]enterpriseOrgSyncPolicyGroupMembership, error) {
+	var memberships []enterpriseOrgSyncPolicyGroupMembership
+	err := p.db.Table("enterprise_policy_group_members AS pgm").
+		Select("pgm.policy_group_id, pg.name AS policy_group_name").
+		Joins("LEFT JOIN enterprise_policy_groups AS pg ON pg.id = pgm.policy_group_id").
+		Where("pgm.enterprise_id = ? AND pgm.user_id = ?", p.enterpriseId, userId).
+		Order("pgm.policy_group_id asc").
+		Find(&memberships).Error
+	return memberships, err
 }
 
 func (p *enterpriseOrgSyncPlanner) resolveSyncMemberUser(member enterpriseOrgSyncMember) (model.User, bool, error) {
@@ -794,6 +982,30 @@ func membershipNeedsUpdate(before map[string]any, after map[string]any) bool {
 		}
 	}
 	return false
+}
+
+func syncMemberTargetName(user model.User) string {
+	return firstNonEmptyString(user.DisplayName, user.Username, fmt.Sprintf("#%d", user.Id))
+}
+
+func tokenIdsForOrgSync(tokens []model.Token) []int {
+	ids := make([]int, 0, len(tokens))
+	for _, token := range tokens {
+		ids = append(ids, token.Id)
+	}
+	return ids
+}
+
+func policyGroupValuesForOrgSync(memberships []enterpriseOrgSyncPolicyGroupMembership) ([]int, []string) {
+	ids := make([]int, 0, len(memberships))
+	names := make([]string, 0, len(memberships))
+	for _, membership := range memberships {
+		ids = append(ids, membership.PolicyGroupId)
+		if membership.PolicyGroupName != "" {
+			names = append(names, membership.PolicyGroupName)
+		}
+	}
+	return ids, names
 }
 
 func (p *enterpriseOrgSyncPlanner) rememberOrgUnit(unit model.EnterpriseOrgUnit) {

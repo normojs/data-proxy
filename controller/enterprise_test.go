@@ -437,6 +437,60 @@ func TestEnterpriseOrgSyncPreviewAndApply(t *testing.T) {
 	require.NoError(t, model.DB.Where("enterprise_id = ? AND action = ?", enterprise.Id, "org_sync.apply").First(&audit).Error)
 	assert.Contains(t, audit.AfterJson, `"provider":"hstation"`)
 	assert.Contains(t, audit.AfterJson, `"create_org_units":2`)
+
+	require.NoError(t, model.DB.Create(&model.Token{Id: 3101, UserId: 1101, Key: "alice-org-sync-key", Name: "Alice Org Sync Key", Status: common.TokenStatusEnabled}).Error)
+	policyGroup := model.EnterprisePolicyGroup{EnterpriseId: enterprise.Id, Name: "Departing Group", Slug: "departing-group", Status: model.PolicyGroupStatusEnabled}
+	require.NoError(t, model.DB.Create(&policyGroup).Error)
+	require.NoError(t, model.DB.Create(&model.EnterprisePolicyGroupMember{
+		EnterpriseId:  enterprise.Id,
+		PolicyGroupId: policyGroup.Id,
+		UserId:        1101,
+		Role:          model.PolicyGroupMemberRoleViewer,
+	}).Error)
+
+	disablePayload := `{
+		"provider": "hstation",
+		"disable_member_api_keys": true,
+		"remove_member_policy_groups": true,
+		"members": [
+			{"provider_user_id": "hs-alice", "status": 2}
+		]
+	}`
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-sync/preview", disablePayload)
+	PreviewEnterpriseOrgSync(ctx)
+	disablePreview := decodeEnterpriseOrgSyncResponse(t, recorder)
+	require.True(t, disablePreview.Success, disablePreview.Message)
+	assert.True(t, disablePreview.Data.DryRun)
+	assert.EqualValues(t, 1, disablePreview.Data.Summary.DisableMembers)
+	assert.EqualValues(t, 1, disablePreview.Data.Summary.DisableMemberTokens)
+	assert.EqualValues(t, 1, disablePreview.Data.Summary.RemovePolicyGroupMembers)
+	require.Len(t, disablePreview.Data.Operations, 3)
+	assert.Equal(t, service.EnterpriseOrgSyncOperationMemberDisable, disablePreview.Data.Operations[0].Action)
+	assert.Equal(t, "token", disablePreview.Data.Operations[1].Type)
+	assert.Equal(t, "policy_group_member", disablePreview.Data.Operations[2].Type)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/org-sync/apply", disablePayload)
+	ApplyEnterpriseOrgSync(ctx)
+	disableApplied := decodeEnterpriseOrgSyncResponse(t, recorder)
+	require.True(t, disableApplied.Success, disableApplied.Message)
+	assert.EqualValues(t, 1, disableApplied.Data.Summary.DisableMembers)
+	assert.EqualValues(t, 1, disableApplied.Data.Summary.DisableMemberTokens)
+	assert.EqualValues(t, 1, disableApplied.Data.Summary.RemovePolicyGroupMembers)
+	err = model.DB.Where("enterprise_id = ? AND user_id = ?", enterprise.Id, 1101).First(&aliceMembership).Error
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	var token model.Token
+	require.NoError(t, model.DB.First(&token, 3101).Error)
+	assert.Equal(t, common.TokenStatusDisabled, token.Status)
+	var policyGroupMember model.EnterprisePolicyGroupMember
+	err = model.DB.Where("enterprise_id = ? AND policy_group_id = ? AND user_id = ?", enterprise.Id, policyGroup.Id, 1101).First(&policyGroupMember).Error
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+	var disableAudit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND action = ?", enterprise.Id, "org_sync.apply").Order("id desc").First(&disableAudit).Error)
+	assert.Contains(t, disableAudit.AfterJson, `"disable_members":1`)
+	assert.Contains(t, disableAudit.AfterJson, `"disable_member_tokens":1`)
+	assert.Contains(t, disableAudit.AfterJson, `"remove_policy_group_members":1`)
+	assert.NotContains(t, disableAudit.AfterJson, "alice-org-sync-key")
 }
 
 func TestEnterpriseOrgSyncPreviewReportsConflicts(t *testing.T) {

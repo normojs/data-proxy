@@ -102,6 +102,7 @@ export type EnterpriseOrgSyncMemberPayload = {
   org_unit_external_id?: string
   org_unit_slug?: string
   role?: string
+  status?: number
 }
 
 export type EnterpriseOrgSyncPayload = {
@@ -110,6 +111,8 @@ export type EnterpriseOrgSyncPayload = {
   org_units: EnterpriseOrgSyncOrgUnitPayload[]
   members: EnterpriseOrgSyncMemberPayload[]
   allow_conflicts?: boolean
+  disable_member_api_keys?: boolean
+  remove_member_policy_groups?: boolean
 }
 
 export type EnterpriseOrgSyncSummary = {
@@ -119,6 +122,9 @@ export type EnterpriseOrgSyncSummary = {
   update_org_units: number
   unchanged_org_units: number
   assign_members: number
+  disable_members: number
+  disable_member_tokens: number
+  remove_policy_group_members: number
   unchanged_members: number
   conflicts: number
 }

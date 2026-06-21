@@ -154,6 +154,19 @@
 | NV-0404 | P1 | 冲突处理 UI | 邮箱/用户名/外部 ID 冲突可人工确认 |
 | NV-0405 | P1 | 同步审计和回滚 | 每次同步有批次号，可查看变更并回滚安全子集 |
 
+当前进度：
+
+- NV-0401/NV-0402 已有基础交付：企业治理页提供 SSO Sync 手工快照入口，后端通过统一
+  importer/planner 预览和应用部门、成员快照，支持 provider、snapshot_at、dry-run、冲突、
+  create/update/assign 操作和应用审计。
+- NV-0403 已完成离职禁用基础交付：同步成员支持 `status: 2`，预览阶段会生成
+  `member.disable` 操作和 `disable_members` 统计，应用阶段会解除该用户的企业部门 membership；
+  管理员可在同步时显式开启 `disable_member_api_keys` 和 `remove_member_policy_groups`，
+  dry-run 会展示将停用的 API Key 数量和将移除的策略组成员数量，apply 会在同一事务里把离职用户
+  的启用 API Key 置为 disabled，并删除企业策略组成员关系；离职用户因此不再进入部门 scope、
+  部门策略匹配、策略组策略匹配，也不能继续用已停用 key 调用。批次记录、回滚和冲突处理 UI
+  仍保留为后续增强。
+
 ## V1.5: 高并发和精细额度
 
 目标：提高计数性能，并从 request/quota 扩展到 token 和更多指标。
