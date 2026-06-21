@@ -6,6 +6,11 @@ const (
 
 	PolicyGroupMemberRoleEditor = "editor"
 	PolicyGroupMemberRoleViewer = "viewer"
+
+	PolicyGroupShareRequestStatusPending   = "pending"
+	PolicyGroupShareRequestStatusApproved  = "approved"
+	PolicyGroupShareRequestStatusRejected  = "rejected"
+	PolicyGroupShareRequestStatusWithdrawn = "withdrawn"
 )
 
 type EnterprisePolicyGroup struct {
@@ -50,4 +55,25 @@ type EnterprisePolicyGroupShare struct {
 
 func (EnterprisePolicyGroupShare) TableName() string {
 	return "enterprise_policy_group_shares"
+}
+
+type EnterprisePolicyGroupShareRequest struct {
+	Id                 int    `json:"id" gorm:"primaryKey"`
+	EnterpriseId       int    `json:"enterprise_id" gorm:"not null;index:idx_enterprise_policy_group_share_requests_status,priority:1;index"`
+	PolicyGroupId      int    `json:"policy_group_id" gorm:"not null;index"`
+	RequesterUserId    int    `json:"requester_user_id" gorm:"not null;index"`
+	RequesterOrgUnitId int    `json:"requester_org_unit_id" gorm:"not null;index"`
+	TargetOrgUnitId    int    `json:"target_org_unit_id" gorm:"not null;index"`
+	SharedExpiresAt    int64  `json:"shared_expires_at" gorm:"not null;default:0;index"`
+	Reason             string `json:"reason" gorm:"type:text"`
+	Status             string `json:"status" gorm:"type:varchar(32);not null;default:'pending';index:idx_enterprise_policy_group_share_requests_status,priority:2"`
+	ApproverUserId     int    `json:"approver_user_id" gorm:"index"`
+	DecisionReason     string `json:"decision_reason" gorm:"type:text"`
+	DecidedAt          int64  `json:"decided_at" gorm:"index"`
+	CreatedAt          int64  `json:"created_at" gorm:"autoCreateTime;index"`
+	UpdatedAt          int64  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (EnterprisePolicyGroupShareRequest) TableName() string {
+	return "enterprise_policy_group_share_requests"
 }

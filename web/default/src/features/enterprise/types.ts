@@ -173,6 +173,35 @@ export type EnterprisePolicyGroup = {
   policy_count: number
 }
 
+export type EnterprisePolicyGroupShareRequestStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'withdrawn'
+
+export type EnterprisePolicyGroupShareRequest = {
+  id: number
+  enterprise_id: number
+  policy_group_id: number
+  requester_user_id: number
+  requester_org_unit_id: number
+  target_org_unit_id: number
+  shared_expires_at: number
+  reason: string
+  status: EnterprisePolicyGroupShareRequestStatus
+  approver_user_id: number
+  decision_reason: string
+  decided_at: number
+  created_at: number
+  updated_at: number
+  policy_group_name: string
+  requester_org_unit_name: string
+  target_org_unit_name: string
+  requester_name: string
+  approver_name: string
+  can_decide: boolean
+}
+
 export type EnterpriseProject = {
   id: number
   enterprise_id: number
@@ -468,6 +497,16 @@ export type EnterprisePolicyGroupMembersPayload = {
   role?: string
 }
 
+export type EnterprisePolicyGroupShareRequestPayload = {
+  org_unit_id: number
+  shared_expires_at?: number
+  reason?: string
+}
+
+export type EnterprisePolicyGroupShareRequestDecisionPayload = {
+  decision_reason?: string
+}
+
 export type EnterpriseProjectPayload = {
   name: string
   slug: string
@@ -554,6 +593,12 @@ export type EnterprisePolicyGroupMembersParams = {
   p?: number
   page_size?: number
   keyword?: string
+}
+
+export type EnterprisePolicyGroupShareRequestsParams = EnterpriseListParams & {
+  policy_group_id?: number
+  org_unit_id?: number
+  status?: EnterprisePolicyGroupShareRequestStatus | string
 }
 
 export type EnterpriseQuotaPoliciesParams = EnterpriseListParams & {

@@ -53,6 +53,15 @@ type enterprisePolicyGroupItemForTest struct {
 	CanManage        bool  `json:"can_manage"`
 }
 
+type enterprisePolicyGroupShareRequestItemForTest struct {
+	Id                 int    `json:"id"`
+	PolicyGroupId      int    `json:"policy_group_id"`
+	RequesterOrgUnitId int    `json:"requester_org_unit_id"`
+	TargetOrgUnitId    int    `json:"target_org_unit_id"`
+	Status             string `json:"status"`
+	CanDecide          bool   `json:"can_decide"`
+}
+
 type enterpriseProjectItemForTest struct {
 	Id          int    `json:"id"`
 	OwnerUserId int    `json:"owner_user_id"`
@@ -220,10 +229,12 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	engineerId := 7302
 	platformUserId := 7303
 	salesUserId := 7304
+	salesDepartmentAdminId := 7305
 	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, departmentAdminId, service.EnterpriseRoleDepartmentAdmin, engineeringId)
 	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, engineerId, "", engineeringId)
 	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, platformUserId, "", platformId)
 	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, salesUserId, "", salesId)
+	seedEnterpriseMembershipRoleForTest(t, enterprise.Id, salesDepartmentAdminId, service.EnterpriseRoleDepartmentAdmin, salesId)
 	engineeringPolicy := seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Engineering Policy", model.PolicyTargetOrgUnit, engineeringId)
 	salesPolicy := seedEnterpriseQuotaPolicyForTest(t, enterprise.Id, "Sales Policy", model.PolicyTargetOrgUnit, salesId)
 	globalGroup := model.EnterprisePolicyGroup{
@@ -303,6 +314,7 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	router := newEnterpriseRouterForTest(t)
 	enterpriseAdminCookies := loginEnterpriseRouterUserForTest(t, router, 1, common.RoleAdminUser)
 	departmentCookies := loginEnterpriseRouterUserForTest(t, router, departmentAdminId, common.RoleCommonUser)
+	salesDepartmentCookies := loginEnterpriseRouterUserForTest(t, router, salesDepartmentAdminId, common.RoleCommonUser)
 
 	members := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/members?page_size=20", "", departmentCookies, departmentAdminId)
 	require.True(t, decodeEnterpriseAuthResponse(t, members).Success)
@@ -321,6 +333,85 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.ElementsMatch(t, []int{engineeringGroup.Id}, enterprisePolicyGroupIdsForTest(policyGroupPage.Data.Items))
 	require.Equal(t, engineeringId, policyGroupPage.Data.Items[0].OrgUnitId)
 	require.True(t, policyGroupPage.Data.Items[0].CanManage)
+
+	shareRequestExpiresAt := common.GetTimestamp() + 7200
+	createShareRequest := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups/"+strconv.Itoa(engineeringGroup.Id)+"/share-requests", `{
+    "org_unit_id": `+strconv.Itoa(salesId)+`,
+    "shared_expires_at": `+strconv.FormatInt(shareRequestExpiresAt, 10)+`,
+    "reason": "sales collaboration"
+  }`, departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, createShareRequest).Success)
+	var shareRequest model.EnterprisePolicyGroupShareRequest
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND policy_group_id = ? AND target_org_unit_id = ?", enterprise.Id, engineeringGroup.Id, salesId).First(&shareRequest).Error)
+	require.Equal(t, model.PolicyGroupShareRequestStatusPending, shareRequest.Status)
+	require.Equal(t, engineeringId, shareRequest.RequesterOrgUnitId)
+	require.Equal(t, salesId, shareRequest.TargetOrgUnitId)
+
+	salesPolicyGroupsBeforeApproval := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-groups?page_size=20", "", salesDepartmentCookies, salesDepartmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, salesPolicyGroupsBeforeApproval).Success)
+	salesPolicyGroupPageBeforeApproval := decodeEnterprisePageResponseForTest[enterprisePolicyGroupItemForTest](t, salesPolicyGroupsBeforeApproval)
+	require.NotContains(t, enterprisePolicyGroupIdsForTest(salesPolicyGroupPageBeforeApproval.Data.Items), engineeringGroup.Id)
+
+	outgoingShareRequests := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-group-share-requests?page_size=20", "", departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, outgoingShareRequests).Success)
+	outgoingShareRequestPage := decodeEnterprisePageResponseForTest[enterprisePolicyGroupShareRequestItemForTest](t, outgoingShareRequests)
+	require.Len(t, outgoingShareRequestPage.Data.Items, 1)
+	require.Equal(t, shareRequest.Id, outgoingShareRequestPage.Data.Items[0].Id)
+	require.False(t, outgoingShareRequestPage.Data.Items[0].CanDecide)
+
+	incomingShareRequests := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-group-share-requests?page_size=20", "", salesDepartmentCookies, salesDepartmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, incomingShareRequests).Success)
+	incomingShareRequestPage := decodeEnterprisePageResponseForTest[enterprisePolicyGroupShareRequestItemForTest](t, incomingShareRequests)
+	require.Len(t, incomingShareRequestPage.Data.Items, 1)
+	require.Equal(t, shareRequest.Id, incomingShareRequestPage.Data.Items[0].Id)
+	require.True(t, incomingShareRequestPage.Data.Items[0].CanDecide)
+
+	approveAsRequester := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-group-share-requests/"+strconv.Itoa(shareRequest.Id)+"/approve", `{}`, departmentCookies, departmentAdminId)
+	approveAsRequesterResponse := decodeEnterpriseAuthResponse(t, approveAsRequester)
+	require.False(t, approveAsRequesterResponse.Success)
+	require.Contains(t, approveAsRequesterResponse.Message, "权限范围外")
+
+	approveShareRequest := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-group-share-requests/"+strconv.Itoa(shareRequest.Id)+"/approve", `{
+    "decision_reason": "approved for campaign"
+  }`, salesDepartmentCookies, salesDepartmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, approveShareRequest).Success)
+	require.NoError(t, model.DB.First(&shareRequest, shareRequest.Id).Error)
+	require.Equal(t, model.PolicyGroupShareRequestStatusApproved, shareRequest.Status)
+	require.Equal(t, salesDepartmentAdminId, shareRequest.ApproverUserId)
+	var approvedShare model.EnterprisePolicyGroupShare
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND policy_group_id = ? AND org_unit_id = ?", enterprise.Id, engineeringGroup.Id, salesId).First(&approvedShare).Error)
+	require.Equal(t, shareRequestExpiresAt, approvedShare.ExpiresAt)
+
+	salesPolicyGroupsAfterApproval := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-groups?page_size=20", "", salesDepartmentCookies, salesDepartmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, salesPolicyGroupsAfterApproval).Success)
+	salesPolicyGroupPageAfterApproval := decodeEnterprisePageResponseForTest[enterprisePolicyGroupItemForTest](t, salesPolicyGroupsAfterApproval)
+	require.Contains(t, enterprisePolicyGroupIdsForTest(salesPolicyGroupPageAfterApproval.Data.Items), engineeringGroup.Id)
+	salesGroupsById := enterprisePolicyGroupsByIdForTest(salesPolicyGroupPageAfterApproval.Data.Items)
+	require.False(t, salesGroupsById[engineeringGroup.Id].CanManage)
+	require.ElementsMatch(t, []int{salesId}, salesGroupsById[engineeringGroup.Id].SharedOrgUnitIds)
+
+	createSharedPolicyGroupPolicy := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-policies", `{
+    "name": "Engineering Shared For Sales",
+    "target_type": "policy_group",
+    "target_id": `+strconv.Itoa(engineeringGroup.Id)+`,
+    "metric": "request_count",
+    "period": "day",
+    "limit_value": 5,
+    "timezone": "Asia/Shanghai",
+    "model_scope": "all",
+    "action": "reject",
+    "status": 1
+  }`, salesDepartmentCookies, salesDepartmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, createSharedPolicyGroupPolicy).Success)
+
+	engineeringShareRequestAudits := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs?target_type=policy_group_share_request&page_size=20", "", departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, engineeringShareRequestAudits).Success)
+	engineeringShareRequestAuditPage := decodeEnterprisePageResponseForTest[enterpriseAuditLogItemForTest](t, engineeringShareRequestAudits)
+	require.Len(t, engineeringShareRequestAuditPage.Data.Items, 2)
+	salesShareRequestAudits := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs?target_type=policy_group_share_request&page_size=20", "", salesDepartmentCookies, salesDepartmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, salesShareRequestAudits).Success)
+	salesShareRequestAuditPage := decodeEnterprisePageResponseForTest[enterpriseAuditLogItemForTest](t, salesShareRequestAudits)
+	require.Len(t, salesShareRequestAuditPage.Data.Items, 2)
 
 	shareExpiresAt := common.GetTimestamp() + 3600
 	shareSalesGroup := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id), `{
@@ -1115,6 +1206,7 @@ func setupEnterpriseRouterTestDB(t *testing.T) {
 		&model.EnterprisePolicyGroup{},
 		&model.EnterprisePolicyGroupMember{},
 		&model.EnterprisePolicyGroupShare{},
+		&model.EnterprisePolicyGroupShareRequest{},
 		&model.EnterpriseProject{},
 		&model.EnterpriseProjectOrgUnit{},
 		&model.EnterpriseProjectMember{},

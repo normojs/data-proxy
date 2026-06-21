@@ -54,6 +54,16 @@ type enterprisePolicyGroupMembersRequest struct {
 	Role    string `json:"role"`
 }
 
+type enterprisePolicyGroupShareRequestCreateRequest struct {
+	OrgUnitId       int    `json:"org_unit_id"`
+	SharedExpiresAt int64  `json:"shared_expires_at"`
+	Reason          string `json:"reason"`
+}
+
+type enterprisePolicyGroupShareRequestDecisionRequest struct {
+	DecisionReason string `json:"decision_reason"`
+}
+
 type enterpriseProjectRequest struct {
 	Name        string `json:"name"`
 	Slug        string `json:"slug"`
@@ -182,6 +192,16 @@ type enterprisePolicyGroupItem struct {
 	CanManage          bool     `json:"can_manage"`
 	MemberCount        int64    `json:"member_count"`
 	PolicyCount        int64    `json:"policy_count"`
+}
+
+type enterprisePolicyGroupShareRequestItem struct {
+	model.EnterprisePolicyGroupShareRequest
+	PolicyGroupName      string `json:"policy_group_name"`
+	RequesterOrgUnitName string `json:"requester_org_unit_name"`
+	TargetOrgUnitName    string `json:"target_org_unit_name"`
+	RequesterName        string `json:"requester_name"`
+	ApproverName         string `json:"approver_name"`
+	CanDecide            bool   `json:"can_decide"`
 }
 
 type enterpriseProjectItem struct {
@@ -1108,6 +1128,194 @@ func DeleteEnterprisePolicyGroupMember(c *gin.Context) {
 	}
 	recordEnterpriseAudit(c, enterprise.Id, "policy_group.members.delete", "policy_group", groupId, gin.H{"user_id": userId}, nil)
 	common.ApiSuccess(c, gin.H{"id": groupId, "user_id": userId})
+}
+
+func ListEnterprisePolicyGroupShareRequests(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	query := model.DB.Model(&model.EnterprisePolicyGroupShareRequest{}).Where("enterprise_id = ?", enterprise.Id)
+	query = applyDepartmentPolicyGroupShareRequestScope(query, access)
+	if status := strings.TrimSpace(c.Query("status")); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if policyGroupId, err := parseOptionalIntQuery(c, "policy_group_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if policyGroupId > 0 {
+		query = query.Where("policy_group_id = ?", policyGroupId)
+	}
+	if orgUnitId, err := parseOptionalIntQuery(c, "org_unit_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if orgUnitId > 0 {
+		query = query.Where("requester_org_unit_id = ? OR target_org_unit_id = ?", orgUnitId, orgUnitId)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var requests []model.EnterprisePolicyGroupShareRequest
+	if err := query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&requests).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	items, err := buildEnterprisePolicyGroupShareRequestItems(enterprise.Id, requests, access)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(items)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func CreateEnterprisePolicyGroupShareRequest(c *gin.Context) {
+	groupId, err := parsePathInt(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterprisePolicyGroupShareRequestCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	group, err := findEnterprisePolicyGroup(enterprise.Id, groupId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentPolicyGroupManageInScope(access, group); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	shareRequest, err := enterprisePolicyGroupShareRequestFromCreateRequest(enterprise.Id, c.GetInt("id"), group, req)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var shareRequestId int
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&shareRequest).Error; err != nil {
+			return err
+		}
+		if _, err := recordEnterpriseAuditWithDB(tx, c, enterprise.Id, "policy_group_share_request.create", "policy_group_share_request", shareRequest.Id, nil, shareRequest); err != nil {
+			return err
+		}
+		shareRequestId = shareRequest.Id
+		return nil
+	}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"id": shareRequestId})
+}
+
+func ApproveEnterprisePolicyGroupShareRequest(c *gin.Context) {
+	decideEnterprisePolicyGroupShareRequest(c, model.PolicyGroupShareRequestStatusApproved)
+}
+
+func RejectEnterprisePolicyGroupShareRequest(c *gin.Context) {
+	decideEnterprisePolicyGroupShareRequest(c, model.PolicyGroupShareRequestStatusRejected)
+}
+
+func decideEnterprisePolicyGroupShareRequest(c *gin.Context, status string) {
+	id, err := parsePathInt(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterprisePolicyGroupShareRequestDecisionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var shareRequest model.EnterprisePolicyGroupShareRequest
+	if err := model.DB.Where("enterprise_id = ? AND id = ?", enterprise.Id, id).First(&shareRequest).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentPolicyGroupShareRequestDecisionScope(access, shareRequest); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if shareRequest.Status != model.PolicyGroupShareRequestStatusPending {
+		common.ApiError(c, errors.New("只能处理待审批共享申请"))
+		return
+	}
+	if status == model.PolicyGroupShareRequestStatusApproved {
+		if _, err := findEnterprisePolicyGroup(enterprise.Id, shareRequest.PolicyGroupId); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if err := ensureOrgUnitExists(enterprise.Id, shareRequest.TargetOrgUnitId); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	before := shareRequest
+	shareRequest.Status = status
+	shareRequest.ApproverUserId = c.GetInt("id")
+	shareRequest.DecisionReason = strings.TrimSpace(req.DecisionReason)
+	shareRequest.DecidedAt = common.GetTimestamp()
+	action := "policy_group_share_request.reject"
+	if status == model.PolicyGroupShareRequestStatusApproved {
+		action = "policy_group_share_request.approve"
+	}
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&shareRequest).Error; err != nil {
+			return err
+		}
+		if status == model.PolicyGroupShareRequestStatusApproved {
+			share := model.EnterprisePolicyGroupShare{
+				EnterpriseId:  enterprise.Id,
+				PolicyGroupId: shareRequest.PolicyGroupId,
+				OrgUnitId:     shareRequest.TargetOrgUnitId,
+				ExpiresAt:     shareRequest.SharedExpiresAt,
+			}
+			if err := tx.Where("enterprise_id = ? AND policy_group_id = ? AND org_unit_id = ?", enterprise.Id, shareRequest.PolicyGroupId, shareRequest.TargetOrgUnitId).
+				Assign(model.EnterprisePolicyGroupShare{ExpiresAt: shareRequest.SharedExpiresAt}).
+				FirstOrCreate(&share).Error; err != nil {
+				return err
+			}
+		}
+		_, err := recordEnterpriseAuditWithDB(tx, c, enterprise.Id, action, "policy_group_share_request", shareRequest.Id, before, shareRequest)
+		return err
+	}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"id": shareRequest.Id, "status": shareRequest.Status})
 }
 
 func ListEnterpriseProjects(c *gin.Context) {
@@ -2437,6 +2645,13 @@ func applyDepartmentPolicyGroupScope(query *gorm.DB, access service.EnterpriseAc
 	return query.Where("id IN (?)", departmentScopedPolicyGroupIds(access.EnterpriseId, access))
 }
 
+func applyDepartmentPolicyGroupShareRequestScope(query *gorm.DB, access service.EnterpriseAccess) *gorm.DB {
+	if !access.HasDepartmentScope() {
+		return query
+	}
+	return query.Where("requester_org_unit_id IN ? OR target_org_unit_id IN ?", access.ScopedOrgUnitIds, access.ScopedOrgUnitIds)
+}
+
 func requireDepartmentOrgUnitInScope(access service.EnterpriseAccess, orgUnitId int) error {
 	if !access.HasDepartmentScope() {
 		return nil
@@ -2488,6 +2703,16 @@ func requireDepartmentPolicyGroupManageInScope(access service.EnterpriseAccess, 
 		return nil
 	}
 	if !access.OrgUnitInScope(group.OrgUnitId) {
+		return scopedEnterpriseError()
+	}
+	return nil
+}
+
+func requireDepartmentPolicyGroupShareRequestDecisionScope(access service.EnterpriseAccess, shareRequest model.EnterprisePolicyGroupShareRequest) error {
+	if !access.HasDepartmentScope() {
+		return nil
+	}
+	if !access.OrgUnitInScope(shareRequest.TargetOrgUnitId) {
 		return scopedEnterpriseError()
 	}
 	return nil
@@ -2690,6 +2915,15 @@ func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.
 		Select("user_id").
 		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
 	scopedPolicyGroupIds := departmentScopedPolicyGroupIds(enterpriseId, access)
+	scopedPolicyGroupShareRequestIds := model.DB.Model(&model.EnterprisePolicyGroupShareRequest{}).
+		Select("id").
+		Where(
+			"enterprise_id = ? AND (requester_org_unit_id IN ? OR target_org_unit_id IN ? OR policy_group_id IN (?))",
+			enterpriseId,
+			access.ScopedOrgUnitIds,
+			access.ScopedOrgUnitIds,
+			scopedPolicyGroupIds,
+		)
 	scopedQuotaPolicyIds := model.DB.Model(&model.EnterpriseQuotaPolicy{}).
 		Select("id").
 		Where(
@@ -2728,6 +2962,7 @@ func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.
 		 (target_type = ? AND target_id IN (?)) OR
 		 (target_type = ? AND target_id IN (?)) OR
 		 (target_type = ? AND target_id IN (?)) OR
+		 (target_type = ? AND target_id IN (?)) OR
 		 (target_type = ? AND target_id IN (?))`,
 		access.ScopedOrgUnitIds,
 		scopedUserIds,
@@ -2740,6 +2975,8 @@ func applyDepartmentAuditScope(query *gorm.DB, enterpriseId int, access service.
 		scopedProjectIds,
 		"policy_group",
 		scopedPolicyGroupIds,
+		"policy_group_share_request",
+		scopedPolicyGroupShareRequestIds,
 		"quota_policy",
 		scopedQuotaPolicyIds,
 		"quota_request",
@@ -3377,6 +3614,57 @@ func validatePolicyGroupRequest(req enterprisePolicyGroupRequest) error {
 	return nil
 }
 
+func enterprisePolicyGroupShareRequestFromCreateRequest(enterpriseId int, actorUserId int, group model.EnterprisePolicyGroup, req enterprisePolicyGroupShareRequestCreateRequest) (model.EnterprisePolicyGroupShareRequest, error) {
+	if group.OrgUnitId <= 0 {
+		return model.EnterprisePolicyGroupShareRequest{}, errors.New("策略分组缺少归属部门，无法发起共享申请")
+	}
+	if req.OrgUnitId <= 0 {
+		return model.EnterprisePolicyGroupShareRequest{}, errors.New("目标部门不能为空")
+	}
+	if req.OrgUnitId == group.OrgUnitId {
+		return model.EnterprisePolicyGroupShareRequest{}, errors.New("不能共享给策略分组归属部门")
+	}
+	if err := ensureOrgUnitExists(enterpriseId, req.OrgUnitId); err != nil {
+		return model.EnterprisePolicyGroupShareRequest{}, err
+	}
+	sharedExpiresAt, err := normalizeEnterprisePolicyGroupShareExpiresAt(req.SharedExpiresAt)
+	if err != nil {
+		return model.EnterprisePolicyGroupShareRequest{}, err
+	}
+	if sharedExpiresAt > 0 && sharedExpiresAt <= common.GetTimestamp() {
+		return model.EnterprisePolicyGroupShareRequest{}, errors.New("共享有效期必须晚于当前时间")
+	}
+	var activeShareCount int64
+	if err := model.DB.Model(&model.EnterprisePolicyGroupShare{}).
+		Where("enterprise_id = ? AND policy_group_id = ? AND org_unit_id = ?", enterpriseId, group.Id, req.OrgUnitId).
+		Where("(expires_at = 0 OR expires_at > ?)", common.GetTimestamp()).
+		Count(&activeShareCount).Error; err != nil {
+		return model.EnterprisePolicyGroupShareRequest{}, err
+	}
+	if activeShareCount > 0 {
+		return model.EnterprisePolicyGroupShareRequest{}, errors.New("策略分组已共享给目标部门")
+	}
+	var pendingCount int64
+	if err := model.DB.Model(&model.EnterprisePolicyGroupShareRequest{}).
+		Where("enterprise_id = ? AND policy_group_id = ? AND target_org_unit_id = ? AND status = ?", enterpriseId, group.Id, req.OrgUnitId, model.PolicyGroupShareRequestStatusPending).
+		Count(&pendingCount).Error; err != nil {
+		return model.EnterprisePolicyGroupShareRequest{}, err
+	}
+	if pendingCount > 0 {
+		return model.EnterprisePolicyGroupShareRequest{}, errors.New("已有待审批共享申请")
+	}
+	return model.EnterprisePolicyGroupShareRequest{
+		EnterpriseId:       enterpriseId,
+		PolicyGroupId:      group.Id,
+		RequesterUserId:    actorUserId,
+		RequesterOrgUnitId: group.OrgUnitId,
+		TargetOrgUnitId:    req.OrgUnitId,
+		SharedExpiresAt:    sharedExpiresAt,
+		Reason:             strings.TrimSpace(req.Reason),
+		Status:             model.PolicyGroupShareRequestStatusPending,
+	}, nil
+}
+
 func normalizeEnterprisePolicyGroupShareOrgUnitIds(enterpriseId int, access service.EnterpriseAccess, orgUnitIds []int) ([]int, error) {
 	if len(orgUnitIds) == 0 {
 		return []int{}, nil
@@ -3623,6 +3911,34 @@ func buildEnterprisePolicyGroupItems(enterpriseId int, groups []model.Enterprise
 	return items, nil
 }
 
+func buildEnterprisePolicyGroupShareRequestItems(enterpriseId int, requests []model.EnterprisePolicyGroupShareRequest, access service.EnterpriseAccess) ([]enterprisePolicyGroupShareRequestItem, error) {
+	orgUnitNames, err := enterpriseOrgUnitNames(enterpriseId)
+	if err != nil {
+		return nil, err
+	}
+	policyGroupNames, err := enterprisePolicyGroupNames(enterpriseId)
+	if err != nil {
+		return nil, err
+	}
+	userNames, err := enterprisePolicyGroupShareRequestUserNames(requests)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]enterprisePolicyGroupShareRequestItem, 0, len(requests))
+	for _, req := range requests {
+		items = append(items, enterprisePolicyGroupShareRequestItem{
+			EnterprisePolicyGroupShareRequest: req,
+			PolicyGroupName:                   policyGroupNames[req.PolicyGroupId],
+			RequesterOrgUnitName:              orgUnitNames[req.RequesterOrgUnitId],
+			TargetOrgUnitName:                 orgUnitNames[req.TargetOrgUnitId],
+			RequesterName:                     userNames[req.RequesterUserId],
+			ApproverName:                      userNames[req.ApproverUserId],
+			CanDecide:                         enterprisePolicyGroupShareRequestCanDecide(access, req),
+		})
+	}
+	return items, nil
+}
+
 func enterprisePolicyGroupCanManage(access service.EnterpriseAccess, group model.EnterprisePolicyGroup) bool {
 	if access.SystemAdmin || access.Permissions.Manage {
 		return true
@@ -3631,6 +3947,16 @@ func enterprisePolicyGroupCanManage(access service.EnterpriseAccess, group model
 		return false
 	}
 	return access.OrgUnitInScope(group.OrgUnitId)
+}
+
+func enterprisePolicyGroupShareRequestCanDecide(access service.EnterpriseAccess, shareRequest model.EnterprisePolicyGroupShareRequest) bool {
+	if shareRequest.Status != model.PolicyGroupShareRequestStatusPending {
+		return false
+	}
+	if access.SystemAdmin || access.Permissions.Manage {
+		return true
+	}
+	return access.HasDepartmentScope() && access.OrgUnitInScope(shareRequest.TargetOrgUnitId)
 }
 
 func enterpriseProjectMemberRoles(enterpriseId int, projects []model.EnterpriseProject, userId int) (map[int]string, error) {
@@ -4374,6 +4700,39 @@ func enterpriseQuotaRequestUserNames(requests []model.EnterpriseQuotaRequest) (m
 	seen := map[int]struct{}{}
 	for _, req := range requests {
 		for _, id := range []int{req.ApplicantUserId, req.ApproverUserId} {
+			if id <= 0 {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return map[int]string{}, nil
+	}
+	var users []model.User
+	if err := model.DB.Select("id, username, display_name").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	names := map[int]string{}
+	for _, user := range users {
+		name := user.DisplayName
+		if name == "" {
+			name = user.Username
+		}
+		names[user.Id] = name
+	}
+	return names, nil
+}
+
+func enterprisePolicyGroupShareRequestUserNames(requests []model.EnterprisePolicyGroupShareRequest) (map[int]string, error) {
+	ids := make([]int, 0, len(requests)*2)
+	seen := map[int]struct{}{}
+	for _, req := range requests {
+		for _, id := range []int{req.RequesterUserId, req.ApproverUserId} {
 			if id <= 0 {
 				continue
 			}

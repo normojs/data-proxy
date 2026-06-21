@@ -103,10 +103,12 @@ import { SectionPageLayout } from '@/components/layout'
 import {
   createEnterpriseOrgUnit,
   createEnterprisePolicyGroup,
+  createEnterprisePolicyGroupShareRequest,
   createEnterpriseProject,
   createEnterpriseQuotaPolicy,
   createEnterpriseWebhook,
   addEnterprisePolicyGroupMembers,
+  approveEnterprisePolicyGroupShareRequest,
   approveEnterpriseQuotaRequest,
   batchApproveEnterpriseQuotaRequests,
   batchRejectEnterpriseQuotaRequests,
@@ -126,6 +128,7 @@ import {
   getEnterpriseOrgUnits,
   getEnterprisePolicyGroupMembers,
   getEnterprisePolicyGroups,
+  getEnterprisePolicyGroupShareRequests,
   getEnterpriseProjectMembers,
   getEnterpriseProjects,
   getEnterpriseQuotaPolicies,
@@ -147,6 +150,7 @@ import {
   updateEnterpriseProject,
   updateEnterpriseQuotaPolicy,
   rejectEnterpriseQuotaRequest,
+  rejectEnterprisePolicyGroupShareRequest,
   submitEnterpriseQuotaRequest,
   withdrawEnterpriseQuotaRequest,
   applyEnterpriseOrgSync,
@@ -170,6 +174,10 @@ import type {
   EnterpriseOrgSyncResult,
   EnterprisePolicyGroup,
   EnterprisePolicyGroupPayload,
+  EnterprisePolicyGroupShareRequest,
+  EnterprisePolicyGroupShareRequestDecisionPayload,
+  EnterprisePolicyGroupShareRequestPayload,
+  EnterprisePolicyGroupShareRequestStatus,
   EnterpriseProject,
   EnterpriseProjectPayload,
   EnterpriseQuotaPolicy,
@@ -697,6 +705,38 @@ function formatQuotaRequestStatus(status: EnterpriseQuotaRequestStatus) {
       return 'Withdrawn'
     case 'expired':
       return 'Expired'
+    default:
+      return 'Pending'
+  }
+}
+
+function PolicyGroupShareRequestStatusBadge(props: {
+  status: EnterprisePolicyGroupShareRequestStatus
+}) {
+  const { t } = useTranslation()
+  const className = {
+    pending: 'border-amber-500/40 text-amber-700',
+    approved: 'border-emerald-500/40 text-emerald-700',
+    rejected: 'border-destructive/40 text-destructive',
+    withdrawn: 'text-muted-foreground',
+  }[props.status]
+  return (
+    <Badge variant='outline' className={className}>
+      {t(formatPolicyGroupShareRequestStatus(props.status))}
+    </Badge>
+  )
+}
+
+function formatPolicyGroupShareRequestStatus(
+  status: EnterprisePolicyGroupShareRequestStatus
+) {
+  switch (status) {
+    case 'approved':
+      return 'Approved'
+    case 'rejected':
+      return 'Rejected'
+    case 'withdrawn':
+      return 'Withdrawn'
     default:
       return 'Pending'
   }
@@ -1711,9 +1751,16 @@ function MemberRow(props: {
 function PolicyGroupsTab(props: {
   groups: EnterprisePolicyGroup[]
   query: QueryResult<PageInfo<EnterprisePolicyGroup>>
+  shareRequests: EnterprisePolicyGroupShareRequest[]
+  shareRequestsQuery: QueryResult<PageInfo<EnterprisePolicyGroupShareRequest>>
   page: number
   total: number
   setPage: (page: number) => void
+  shareRequestPage: number
+  shareRequestTotal: number
+  setShareRequestPage: (page: number) => void
+  shareRequestStatus: string
+  setShareRequestStatus: (value: string) => void
   keyword: string
   setKeyword: (value: string) => void
   status: string
@@ -1722,6 +1769,11 @@ function PolicyGroupsTab(props: {
   onEdit: (group: EnterprisePolicyGroup) => void
   onDisable: (group: EnterprisePolicyGroup) => void
   onManageMembers: (group: EnterprisePolicyGroup) => void
+  onCreateShareRequest: (group: EnterprisePolicyGroup) => void
+  onDecideShareRequest: (
+    request: EnterprisePolicyGroupShareRequest,
+    action: 'approve' | 'reject'
+  ) => void
 }) {
   const { t } = useTranslation()
 
@@ -1814,6 +1866,16 @@ function PolicyGroupsTab(props: {
                           <Button
                             variant='ghost'
                             size='icon-sm'
+                            onClick={() => props.onCreateShareRequest(group)}
+                          >
+                            <Send className='size-3.5' />
+                            <span className='sr-only'>
+                              {t('Share Request')}
+                            </span>
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
                             onClick={() => props.onEdit(group)}
                           >
                             <Pencil className='size-3.5' />
@@ -1843,6 +1905,140 @@ function PolicyGroupsTab(props: {
             onPageChange={props.setPage}
           />
         </QueryState>
+        <div className='space-y-3 border-t pt-3'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <div>
+              <h4 className='text-sm font-semibold'>{t('Share Requests')}</h4>
+              <p className='text-muted-foreground mt-1 text-xs'>
+                {t('Review cross-department policy group sharing.')}
+              </p>
+            </div>
+            <div className='flex items-center gap-2'>
+              <Select
+                value={props.shareRequestStatus || ALL_VALUE}
+                onValueChange={(value) => {
+                  props.setShareRequestStatus(
+                    normalizeOptionalSelectValue(value)
+                  )
+                  props.setShareRequestPage(1)
+                }}
+              >
+                <SelectTrigger className='w-36'>
+                  <SelectValue placeholder={t('Status')} />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    <SelectItem value={ALL_VALUE}>
+                      {t('All Statuses')}
+                    </SelectItem>
+                    <SelectItem value='pending'>{t('Pending')}</SelectItem>
+                    <SelectItem value='approved'>{t('Approved')}</SelectItem>
+                    <SelectItem value='rejected'>{t('Rejected')}</SelectItem>
+                    <SelectItem value='withdrawn'>{t('Withdrawn')}</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Button
+                variant='outline'
+                size='icon-sm'
+                onClick={() => props.shareRequestsQuery.refetch()}
+              >
+                <RefreshCcw className='size-3.5' />
+                <span className='sr-only'>{t('Refresh')}</span>
+              </Button>
+            </div>
+          </div>
+          <QueryState
+            query={props.shareRequestsQuery}
+            empty={props.shareRequests.length === 0}
+            emptyTitle='No share requests'
+            emptyDescription='Create a request from a policy group row to share it with another department.'
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('Policy Group')}</TableHead>
+                  <TableHead>{t('From')}</TableHead>
+                  <TableHead>{t('To')}</TableHead>
+                  <TableHead>{t('Status')}</TableHead>
+                  <TableHead>{t('Expires')}</TableHead>
+                  <TableHead>{t('Updated')}</TableHead>
+                  <TableHead className='text-right'>{t('Actions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {props.shareRequests.map((request) => (
+                  <TableRow key={request.id}>
+                    <TableCell>
+                      <div className='min-w-0'>
+                        <div className='truncate font-medium'>
+                          {request.policy_group_name ||
+                            `#${request.policy_group_id}`}
+                        </div>
+                        <div className='text-muted-foreground truncate text-xs'>
+                          {request.reason || request.requester_name || '-'}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {request.requester_org_unit_name || '-'}
+                    </TableCell>
+                    <TableCell>{request.target_org_unit_name || '-'}</TableCell>
+                    <TableCell>
+                      <PolicyGroupShareRequestStatusBadge
+                        status={request.status}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {request.shared_expires_at > 0
+                        ? formatDateTime(request.shared_expires_at)
+                        : t('Never')}
+                    </TableCell>
+                    <TableCell>{formatDateTime(request.updated_at)}</TableCell>
+                    <TableCell>
+                      <div className='flex justify-end gap-1'>
+                        {request.can_decide && request.status === 'pending' ? (
+                          <>
+                            <Button
+                              variant='ghost'
+                              size='icon-sm'
+                              onClick={() =>
+                                props.onDecideShareRequest(request, 'approve')
+                              }
+                            >
+                              <Check className='size-3.5' />
+                              <span className='sr-only'>{t('Approve')}</span>
+                            </Button>
+                            <Button
+                              variant='ghost'
+                              size='icon-sm'
+                              onClick={() =>
+                                props.onDecideShareRequest(request, 'reject')
+                              }
+                            >
+                              <Ban className='size-3.5' />
+                              <span className='sr-only'>{t('Reject')}</span>
+                            </Button>
+                          </>
+                        ) : (
+                          <span className='text-muted-foreground text-xs'>
+                            -
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <Pager
+              page={props.shareRequestPage}
+              pageSize={PAGE_SIZE}
+              total={props.shareRequestTotal}
+              onPageChange={props.setShareRequestPage}
+            />
+          </QueryState>
+        </div>
       </div>
     </Panel>
   )
@@ -5666,6 +5862,222 @@ function PolicyGroupDialog(props: {
   )
 }
 
+type PolicyGroupShareRequestFormState = {
+  org_unit_id: string
+  shared_expires_at: string
+  reason: string
+}
+
+function PolicyGroupShareRequestDialog(props: {
+  open: boolean
+  group?: EnterprisePolicyGroup | null
+  orgUnits: EnterpriseOrgUnit[]
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const orgOptions = buildOrgOptions(props.orgUnits).filter(
+    (option) => Number(option.value) !== props.group?.org_unit_id
+  )
+  const [form, setForm] = useState<PolicyGroupShareRequestFormState>(() => ({
+    org_unit_id: '',
+    shared_expires_at: '',
+    reason: '',
+  }))
+
+  const payload = (): EnterprisePolicyGroupShareRequestPayload => ({
+    org_unit_id: Number(form.org_unit_id),
+    shared_expires_at: form.shared_expires_at
+      ? endOfDayUnix(form.shared_expires_at)
+      : 0,
+    reason: form.reason.trim(),
+  })
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      if (!props.group) throw new Error('missing policy group')
+      return createEnterprisePolicyGroupShareRequest(props.group.id, payload())
+    },
+    onSuccess: (response) => {
+      if (!response.success) return
+      toast.success(t('Submitted'))
+      props.onOpenChange(false)
+      queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+    },
+  })
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className='sm:max-w-lg'>
+        <DialogHeader>
+          <DialogTitle>{t('Create Share Request')}</DialogTitle>
+          <DialogDescription>
+            {t(
+              'Ask another department to approve access to this policy group.'
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        {props.group && (
+          <form
+            className='space-y-3'
+            onSubmit={(event) => {
+              event.preventDefault()
+              mutation.mutate()
+            }}
+          >
+            <div className='rounded-lg border p-3 text-sm'>
+              <div className='font-medium'>{props.group.name}</div>
+              <div className='text-muted-foreground mt-1 text-xs'>
+                {props.group.slug}
+              </div>
+            </div>
+            <Field label='Target Org Unit'>
+              <Select
+                value={form.org_unit_id || ALL_VALUE}
+                onValueChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    org_unit_id: normalizeOptionalSelectValue(value),
+                  }))
+                }
+              >
+                <SelectTrigger className='w-full'>
+                  <SelectValue placeholder={t('Select org unit')} />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    <SelectItem value={ALL_VALUE}>
+                      {t('Select org unit')}
+                    </SelectItem>
+                    {orgOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label='Shared Until'>
+              <Input
+                type='date'
+                value={form.shared_expires_at}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    shared_expires_at: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Reason'>
+              <Textarea
+                value={form.reason}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    reason: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <DialogFooter>
+              <Button
+                type='submit'
+                disabled={mutation.isPending || !form.org_unit_id}
+              >
+                {t('Submit')}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PolicyGroupShareRequestDecisionDialog(props: {
+  request: EnterprisePolicyGroupShareRequest | null
+  action: 'approve' | 'reject'
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [decisionReason, setDecisionReason] = useState('')
+  const request = props.request
+
+  const payload = (): EnterprisePolicyGroupShareRequestDecisionPayload => ({
+    decision_reason: decisionReason.trim(),
+  })
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      if (!request) throw new Error('missing share request')
+      return props.action === 'approve'
+        ? approveEnterprisePolicyGroupShareRequest(request.id, payload())
+        : rejectEnterprisePolicyGroupShareRequest(request.id, payload())
+    },
+    onSuccess: (response) => {
+      if (!response.success) return
+      toast.success(t(props.action === 'approve' ? 'Approved' : 'Rejected'))
+      props.onOpenChange(false)
+      queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+    },
+  })
+
+  return (
+    <Dialog open={Boolean(request)} onOpenChange={props.onOpenChange}>
+      <DialogContent className='sm:max-w-lg'>
+        <DialogHeader>
+          <DialogTitle>
+            {t(
+              props.action === 'approve'
+                ? 'Approve Share Request'
+                : 'Reject Share Request'
+            )}
+          </DialogTitle>
+          <DialogDescription>
+            {t(
+              props.action === 'approve'
+                ? 'Approved sharing becomes visible to the target department immediately.'
+                : 'Rejected requests remain visible in sharing history.'
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        {request && (
+          <div className='space-y-3'>
+            <div className='rounded-lg border p-3 text-sm'>
+              <div className='font-medium'>
+                {request.policy_group_name || `#${request.policy_group_id}`}
+              </div>
+              <div className='text-muted-foreground mt-1 text-xs'>
+                {request.requester_org_unit_name || '-'} {'->'}{' '}
+                {request.target_org_unit_name || '-'}
+              </div>
+            </div>
+            <Field label='Decision Reason'>
+              <Textarea
+                value={decisionReason}
+                onChange={(event) => setDecisionReason(event.target.value)}
+              />
+            </Field>
+            <DialogFooter>
+              <Button
+                type='button'
+                variant={props.action === 'approve' ? 'default' : 'destructive'}
+                disabled={mutation.isPending}
+                onClick={() => mutation.mutate()}
+              >
+                {t(props.action === 'approve' ? 'Approve' : 'Reject')}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function PolicyGroupMembersDialog(props: {
   open: boolean
   group?: EnterprisePolicyGroup | null
@@ -7192,6 +7604,18 @@ export function EnterpriseGovernance() {
     useState(false)
   const [memberPolicyGroup, setMemberPolicyGroup] =
     useState<EnterprisePolicyGroup | null>(null)
+  const [
+    policyGroupShareRequestDialogOpen,
+    setPolicyGroupShareRequestDialogOpen,
+  ] = useState(false)
+  const [sharingPolicyGroup, setSharingPolicyGroup] =
+    useState<EnterprisePolicyGroup | null>(null)
+  const [decidingPolicyGroupShareRequest, setDecidingPolicyGroupShareRequest] =
+    useState<EnterprisePolicyGroupShareRequest | null>(null)
+  const [
+    policyGroupShareRequestDecisionAction,
+    setPolicyGroupShareRequestDecisionAction,
+  ] = useState<'approve' | 'reject'>('approve')
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   const [editingProject, setEditingProject] =
     useState<EnterpriseProject | null>(null)
@@ -7228,6 +7652,34 @@ export function EnterpriseGovernance() {
   const [policyGroupKeyword, setPolicyGroupKeyword] = useState('')
   const [policyGroupStatus, setPolicyGroupStatus] = useState('')
   const [policyGroupPage, setPolicyGroupPage] = useState(1)
+  const policyGroupShareRequestStatus =
+    search.policy_group_share_request_status ?? ''
+  const setPolicyGroupShareRequestStatus = (value: string) => {
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        policy_group_share_request_status: value || undefined,
+      }),
+    })
+  }
+  const [
+    policyGroupShareRequestPagination,
+    setPolicyGroupShareRequestPagination,
+  ] = useState({
+    filterKey: policyGroupShareRequestStatus,
+    page: 1,
+  })
+  const policyGroupShareRequestPage =
+    policyGroupShareRequestPagination.filterKey ===
+    policyGroupShareRequestStatus
+      ? policyGroupShareRequestPagination.page
+      : 1
+  const setPolicyGroupShareRequestPage = (page: number) => {
+    setPolicyGroupShareRequestPagination({
+      filterKey: policyGroupShareRequestStatus,
+      page,
+    })
+  }
 
   const [projectKeyword, setProjectKeyword] = useState('')
   const [projectStatus, setProjectStatus] = useState('')
@@ -7495,6 +7947,21 @@ export function EnterpriseGovernance() {
       }),
     enabled: canManageDepartment,
   })
+  const policyGroupShareRequestsQuery = useQuery({
+    queryKey: [
+      'enterprise',
+      'policy-group-share-requests',
+      policyGroupShareRequestPage,
+      policyGroupShareRequestStatus,
+    ],
+    queryFn: () =>
+      getEnterprisePolicyGroupShareRequests({
+        p: policyGroupShareRequestPage,
+        page_size: PAGE_SIZE,
+        status: policyGroupShareRequestStatus,
+      }),
+    enabled: canManageDepartment,
+  })
   const allProjectsQuery = useQuery({
     queryKey: ['enterprise', 'projects', 'all'],
     queryFn: () =>
@@ -7750,6 +8217,9 @@ export function EnterpriseGovernance() {
   const orgOptions = useMemo(() => buildOrgOptions(orgUnits), [orgUnits])
   const members = getPageItems(membersQuery.data)
   const policyGroups = getPageItems(policyGroupsQuery.data)
+  const policyGroupShareRequests = getPageItems(
+    policyGroupShareRequestsQuery.data
+  )
   const allPolicyGroups = getPageItems(allPolicyGroupsQuery.data)
   const projects = getPageItems(projectsQuery.data)
   const allProjects = getPageItems(allProjectsQuery.data)
@@ -7978,9 +8448,24 @@ export function EnterpriseGovernance() {
                     error: policyGroupsQuery.error,
                     refetch: policyGroupsQuery.refetch,
                   }}
+                  shareRequests={policyGroupShareRequests}
+                  shareRequestsQuery={{
+                    data: policyGroupShareRequestsQuery.data,
+                    isLoading: policyGroupShareRequestsQuery.isLoading,
+                    isError: policyGroupShareRequestsQuery.isError,
+                    error: policyGroupShareRequestsQuery.error,
+                    refetch: policyGroupShareRequestsQuery.refetch,
+                  }}
                   page={policyGroupPage}
                   total={getPageTotal(policyGroupsQuery.data)}
                   setPage={setPolicyGroupPage}
+                  shareRequestPage={policyGroupShareRequestPage}
+                  shareRequestTotal={getPageTotal(
+                    policyGroupShareRequestsQuery.data
+                  )}
+                  setShareRequestPage={setPolicyGroupShareRequestPage}
+                  shareRequestStatus={policyGroupShareRequestStatus}
+                  setShareRequestStatus={setPolicyGroupShareRequestStatus}
                   keyword={policyGroupKeyword}
                   setKeyword={setPolicyGroupKeyword}
                   status={policyGroupStatus}
@@ -8001,6 +8486,14 @@ export function EnterpriseGovernance() {
                   onManageMembers={(group) => {
                     setMemberPolicyGroup(group)
                     setPolicyGroupMembersDialogOpen(true)
+                  }}
+                  onCreateShareRequest={(group) => {
+                    setSharingPolicyGroup(group)
+                    setPolicyGroupShareRequestDialogOpen(true)
+                  }}
+                  onDecideShareRequest={(request, action) => {
+                    setPolicyGroupShareRequestDecisionAction(action)
+                    setDecidingPolicyGroupShareRequest(request)
                   }}
                 />
               </TabsContent>
@@ -8250,6 +8743,28 @@ export function EnterpriseGovernance() {
           open={policyGroupMembersDialogOpen}
           group={memberPolicyGroup}
           onOpenChange={setPolicyGroupMembersDialogOpen}
+        />
+      ) : null}
+      {policyGroupShareRequestDialogOpen ? (
+        <PolicyGroupShareRequestDialog
+          key={`policy-group-share-request:${sharingPolicyGroup?.id ?? 'none'}`}
+          open={policyGroupShareRequestDialogOpen}
+          group={sharingPolicyGroup}
+          orgUnits={orgUnits}
+          onOpenChange={(open) => {
+            setPolicyGroupShareRequestDialogOpen(open)
+            if (!open) setSharingPolicyGroup(null)
+          }}
+        />
+      ) : null}
+      {decidingPolicyGroupShareRequest ? (
+        <PolicyGroupShareRequestDecisionDialog
+          key={`policy-group-share-request-decision:${decidingPolicyGroupShareRequest.id}:${policyGroupShareRequestDecisionAction}`}
+          request={decidingPolicyGroupShareRequest}
+          action={policyGroupShareRequestDecisionAction}
+          onOpenChange={(open) => {
+            if (!open) setDecidingPolicyGroupShareRequest(null)
+          }}
         />
       ) : null}
       {projectDialogOpen ? (

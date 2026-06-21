@@ -39,6 +39,10 @@ import type {
   EnterprisePolicyGroupMembersParams,
   EnterprisePolicyGroupMembersPayload,
   EnterprisePolicyGroupPayload,
+  EnterprisePolicyGroupShareRequest,
+  EnterprisePolicyGroupShareRequestDecisionPayload,
+  EnterprisePolicyGroupShareRequestPayload,
+  EnterprisePolicyGroupShareRequestsParams,
   EnterpriseProject,
   EnterpriseProjectMemberPayload,
   EnterpriseProjectPayload,
@@ -243,6 +247,48 @@ export async function deleteEnterprisePolicyGroupMember(
 ) {
   const res = await api.delete<ApiResponse<{ id: number; user_id: number }>>(
     `${ENTERPRISE_API}/policy-groups/${id}/members/${userId}`
+  )
+  return res.data
+}
+
+export async function getEnterprisePolicyGroupShareRequests(
+  params: EnterprisePolicyGroupShareRequestsParams = {}
+) {
+  const res = await api.get<
+    ApiResponse<PageInfo<EnterprisePolicyGroupShareRequest>>
+  >(withQuery(`${ENTERPRISE_API}/policy-group-share-requests`, params))
+  return res.data
+}
+
+export async function createEnterprisePolicyGroupShareRequest(
+  id: number,
+  payload: EnterprisePolicyGroupShareRequestPayload
+) {
+  const res = await api.post<ApiResponse<{ id: number }>>(
+    `${ENTERPRISE_API}/policy-groups/${id}/share-requests`,
+    payload
+  )
+  return res.data
+}
+
+export async function approveEnterprisePolicyGroupShareRequest(
+  id: number,
+  payload: EnterprisePolicyGroupShareRequestDecisionPayload = {}
+) {
+  const res = await api.post<ApiResponse<{ id: number; status: string }>>(
+    `${ENTERPRISE_API}/policy-group-share-requests/${id}/approve`,
+    payload
+  )
+  return res.data
+}
+
+export async function rejectEnterprisePolicyGroupShareRequest(
+  id: number,
+  payload: EnterprisePolicyGroupShareRequestDecisionPayload = {}
+) {
+  const res = await api.post<ApiResponse<{ id: number; status: string }>>(
+    `${ENTERPRISE_API}/policy-group-share-requests/${id}/reject`,
+    payload
   )
   return res.data
 }

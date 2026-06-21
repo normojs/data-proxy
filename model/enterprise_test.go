@@ -17,6 +17,7 @@ func clearEnterpriseTables(t *testing.T) {
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_quota_requests").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_policy_group_members").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_policy_group_shares").Error)
+	require.NoError(t, DB.Exec("DELETE FROM enterprise_policy_group_share_requests").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_policy_groups").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_project_org_units").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_projects").Error)
@@ -50,6 +51,7 @@ func TestEnterpriseGovernanceTablesMigrated(t *testing.T) {
 		&EnterprisePolicyGroup{},
 		&EnterprisePolicyGroupMember{},
 		&EnterprisePolicyGroupShare{},
+		&EnterprisePolicyGroupShareRequest{},
 		&EnterpriseQuotaPolicy{},
 		&EnterpriseQuotaCounter{},
 		&EnterpriseQuotaRequest{},

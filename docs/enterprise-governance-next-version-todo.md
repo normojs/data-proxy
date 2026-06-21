@@ -190,8 +190,9 @@
 | NV-0704 | P1 | Done (MVP+) | 审计员视图 | 已支持 `auditor` 只读访问审计日志、通知 outbox 和 worker metrics，不能修改配置；部门管理员和项目 read/admin scope 可查看 scope 内审计日志，notification outbox 仍保持全局审计员可见 |
 | NV-0705 | P1 | Done (MVP+) | 权限回归测试 | 已覆盖财务/审计只读边界、企业管理员管理能力、普通用户隔离、部门管理员跨部门越权、部门策略组边界、策略组成员角色、跨部门共享策略组、部门用量过滤、scoped 审批边界、项目管理员跨项目越权、项目 member 只读边界、空项目 scope 防泄漏、CSV 导出和 scoped 审计可见性 |
 | NV-0706 | P1 | Done (MVP+) | 策略组共享有效期 | 策略组共享支持 `shared_expires_at`；`0` 表示永久有效，过期共享不再进入共享部门可见范围，也不能作为共享部门额度策略目标 |
+| NV-0707 | P1 | Done (MVP) | 跨部门策略组共享审批流 | 策略组归属部门可发起共享申请，目标部门或企业管理员可批准/拒绝；批准后复用既有共享表生效，申请和审批写入企业审计，发起部门和目标部门均可 scoped 可见 |
 
-当前 V1.7 已交付最小可用 RBAC 闭环：后端企业治理 API 改为 capability 分组鉴权，前端入口和页签按 `/api/user/self` 的 `permissions.enterprise_governance` 控制；审批、财务和审计入口可分别授权；部门管理员按本部门及子部门 scope 管理成员、部门 scoped 策略组、共享策略组、额度策略、审批、用量和审计日志；策略组成员支持 `viewer/editor` 角色；跨部门共享策略组支持有效期控制；项目管理员按 owner 或项目 admin 成员 scope 管理项目，项目 member 成员仅能查看 scope 内项目、成员、用量和审计；财务视图支持按筛选导出 CSV。下一步可进入跨部门协作审批流、按角色细分的跨部门编辑权限和 V1.6 高级策略动作的持久化增强。
+当前 V1.7 已交付最小可用 RBAC 闭环：后端企业治理 API 改为 capability 分组鉴权，前端入口和页签按 `/api/user/self` 的 `permissions.enterprise_governance` 控制；审批、财务和审计入口可分别授权；部门管理员按本部门及子部门 scope 管理成员、部门 scoped 策略组、共享策略组、额度策略、审批、用量和审计日志；策略组成员支持 `viewer/editor` 角色；跨部门共享策略组支持有效期控制和共享申请审批；项目管理员按 owner 或项目 admin 成员 scope 管理项目，项目 member 成员仅能查看 scope 内项目、成员、用量和审计；财务视图支持按筛选导出 CSV。下一步可进入按角色细分的跨部门编辑权限和 V1.6 高级策略动作的持久化增强。
 
 ## 推荐排期
 

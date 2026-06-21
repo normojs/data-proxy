@@ -45,6 +45,7 @@ const enterpriseSearchSchema = z.object({
   quota_request_target_type: z.string().optional().catch(''),
   quota_request_target_id: z.number().optional().catch(undefined),
   quota_request_applicant_user_id: z.number().optional().catch(undefined),
+  policy_group_share_request_status: z.string().optional().catch(''),
   audit_target_type: z.string().optional().catch(''),
   audit_target_id: z.number().optional().catch(undefined),
   audit_action: z.string().optional().catch(''),

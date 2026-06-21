@@ -93,6 +93,8 @@ func fillEnterpriseAuditScope(db *gorm.DB, log *EnterpriseAuditLog) error {
 		log.ScopeProjectId = log.TargetId
 	case "policy_group":
 		return fillEnterpriseAuditPolicyGroupScope(db, log, log.TargetId)
+	case "policy_group_share_request":
+		return fillEnterpriseAuditPolicyGroupShareRequestScope(db, log)
 	case "quota_policy":
 		return fillEnterpriseAuditQuotaPolicyScope(db, log)
 	case "quota_counter":
@@ -231,6 +233,27 @@ func fillEnterpriseAuditPolicyGroupScope(db *gorm.DB, log *EnterpriseAuditLog, g
 		return err
 	}
 	log.ScopeOrgUnitId = group.OrgUnitId
+	return nil
+}
+
+func fillEnterpriseAuditPolicyGroupShareRequestScope(db *gorm.DB, log *EnterpriseAuditLog) error {
+	if log.TargetId <= 0 || log.ScopeOrgUnitId > 0 {
+		return nil
+	}
+	var request EnterprisePolicyGroupShareRequest
+	if err := db.Select("requester_org_unit_id, target_org_unit_id").
+		Where("enterprise_id = ? AND id = ?", log.EnterpriseId, log.TargetId).
+		First(&request).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
+	}
+	if request.RequesterOrgUnitId > 0 {
+		log.ScopeOrgUnitId = request.RequesterOrgUnitId
+		return nil
+	}
+	log.ScopeOrgUnitId = request.TargetOrgUnitId
 	return nil
 }
 

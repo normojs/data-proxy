@@ -59,6 +59,7 @@ func TestMain(m *testing.M) {
 		&EnterprisePolicyGroup{},
 		&EnterprisePolicyGroupMember{},
 		&EnterprisePolicyGroupShare{},
+		&EnterprisePolicyGroupShareRequest{},
 		&EnterpriseQuotaPolicy{},
 		&EnterpriseQuotaCounter{},
 		&EnterpriseQuotaRequest{},
