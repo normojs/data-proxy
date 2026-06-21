@@ -44,6 +44,7 @@ import {
   type ConnectedAppRequest,
   listSelfConnectedAppRequests,
 } from '@/features/system-settings/operations/connected-apps-api'
+import { ConnectedAppDeveloperSelfServicePanel } from './developer-self-service-panel'
 
 const CONNECTED_APP_DEVELOPER_REQUESTS_QUERY_KEY = [
   'connected-app-developer',
@@ -74,7 +75,7 @@ export function ConnectedAppDeveloperAppsCard() {
   return (
     <TitledCard
       title={t('Connected App Developer')}
-      description={t('Manage app-level notification delivery')}
+      description={t('Manage app SDK, keys, usage, and notifications')}
       icon={<Code2 className='h-4 w-4' />}
       action={
         <Button
@@ -161,6 +162,7 @@ export function ConnectedAppDeveloperAppsCard() {
           </div>
 
           <ConnectedAppDeveloperAppSummary app={selectedApp} />
+          <ConnectedAppDeveloperSelfServicePanel app={selectedApp} />
           <ConnectedAppNotificationsSection appSlug={selectedApp.slug} />
         </div>
       ) : null}

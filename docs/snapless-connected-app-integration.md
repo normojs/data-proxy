@@ -214,6 +214,12 @@ Scope 到 endpoint 的当前映射：
 - `GET /developer/usage` 只按该 app 的 token attribution 聚合日志；不包含普通 token 或其他 connected app token。
 - 新 token 创建和轮换会写入不可变 `connected_app_token_attributions` 归属记录，轮换前 token 在 by_token 中显示为 `historical`；旧库中尚未写入 attribution 的当前 binding 会作为 fallback 纳入统计。
 
+Profile 前端的 Connected App Developer 卡片已接入 `/developer/sdk-config`、`/developer/openapi`、`/developer/keys` 和 `/developer/usage`：
+
+- 开发者可下载当前 app 裁剪后的 OpenAPI JSON，并复制 OpenAI-compatible base URL、API key 环境变量和 scoped endpoint。
+- 具备 `token.manage` 的 app 可创建、复用或轮换当前登录开发者自己的 app-bound key；只有首次创建或轮换响应展示一次性明文 key。
+- 具备 `quota.read` 的 app 可查看 usage total、by_model 和 by_token，历史归属 token 在表格中显示为 `historical`，便于解释轮换前后的消耗。
+
 ## 邮件/Webhook 通知扩展
 
 `SNAPLESS-008` 在站内通知和审计主链路之外，新增 connected app 专用外部通知 outbox。外部通知默认关闭，只有显式开启 notification preference 后才会写入 email/webhook outbox；入队和投递失败不会回滚应用审批或设备授权。
@@ -493,5 +499,6 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 前端自助入口：在 Profile 开发者卡片中展示 SDK/OpenAPI、自助 key 创建/轮换和 usage summary。
-2. 自助 usage 展示增强：按 total/by_model/by_token 展示当前与历史 token 消耗，历史 token 状态显示为 `historical`。
+1. 开发者自助筛选增强：Profile usage 面板支持时间范围、模型和 token 筛选。
+2. 开发者授权排障视图：Profile 开发者卡片展示授权用户、设备和最近 device session 状态。
+3. OpenAPI/SDK 交付增强：补充 SDK 示例代码、环境变量复制入口和最小接入说明。

@@ -1,0 +1,707 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  BarChart3,
+  Download,
+  KeyRound,
+  RefreshCw,
+  RotateCw,
+} from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { formatCompactNumber, formatQuota } from '@/lib/format'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { CopyButton } from '@/components/copy-button'
+import { StatusBadge, type StatusVariant } from '@/components/status-badge'
+import {
+  createConnectedAppDeveloperKey,
+  getConnectedAppDeveloperOpenAPI,
+  getConnectedAppDeveloperSDKConfig,
+  getConnectedAppDeveloperUsage,
+  type ConnectedAppDeveloperKeyResponse,
+  type ConnectedAppDeveloperSDKConfig,
+  type ConnectedAppDeveloperUsageByModel,
+  type ConnectedAppDeveloperUsageByToken,
+  type ConnectedAppRequest,
+} from '@/features/system-settings/operations/connected-apps-api'
+
+const developerSDKQueryKey = (appSlug: string) => [
+  'connected-app-developer',
+  'sdk-config',
+  appSlug,
+]
+
+const developerUsageQueryKey = (appSlug: string) => [
+  'connected-app-developer',
+  'usage',
+  appSlug,
+]
+
+export function ConnectedAppDeveloperSelfServicePanel({
+  app,
+}: {
+  app: ConnectedAppRequest
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [deviceName, setDeviceName] = useState('Developer self-service')
+  const [lastKeyResponse, setLastKeyResponse] =
+    useState<ConnectedAppDeveloperKeyResponse | null>(null)
+
+  const sdkConfigQuery = useQuery({
+    queryKey: developerSDKQueryKey(app.slug),
+    queryFn: () => getConnectedAppDeveloperSDKConfig(app.slug),
+    enabled: Boolean(app.slug),
+    retry: false,
+  })
+
+  const openAPIMutation = useMutation({
+    mutationFn: () => getConnectedAppDeveloperOpenAPI(app.slug),
+    onSuccess: (spec) => {
+      downloadJSON(spec, `${app.slug || 'connected-app'}-openapi.json`)
+      toast.success(t('OpenAPI spec downloaded'))
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : t('Download failed'))
+    },
+  })
+
+  const keyMutation = useMutation({
+    mutationFn: (rotate: boolean) =>
+      createConnectedAppDeveloperKey(app.slug, {
+        device_name: deviceName.trim() || undefined,
+        platform: 'web',
+        client: 'profile-developer',
+        rotate,
+      }),
+    onSuccess: (response) => {
+      setLastKeyResponse(response)
+      queryClient.invalidateQueries({
+        queryKey: developerUsageQueryKey(app.slug),
+      })
+      if (response.api_key) {
+        toast.success(
+          response.rotated
+            ? t('Developer key rotated')
+            : t('Developer key created')
+        )
+        return
+      }
+      toast.success(t('Developer key reused'))
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Developer key request failed')
+      )
+    },
+  })
+
+  const sdkConfig = sdkConfigQuery.data
+  const canCreateKey = sdkConfig?.permissions.can_create_key === true
+  const canReadUsage = sdkConfig?.permissions.can_read_usage === true
+
+  return (
+    <div className='space-y-3'>
+      <div className='grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.42fr)]'>
+        <DeveloperSDKPanel
+          appSlug={app.slug}
+          config={sdkConfig}
+          loading={sdkConfigQuery.isLoading}
+          error={sdkConfigQuery.error}
+          downloading={openAPIMutation.isPending}
+          onDownloadOpenAPI={() => openAPIMutation.mutate()}
+        />
+
+        <DeveloperKeyPanel
+          canCreateKey={canCreateKey}
+          loadingPermissions={sdkConfigQuery.isLoading}
+          deviceName={deviceName}
+          onDeviceNameChange={setDeviceName}
+          pending={keyMutation.isPending}
+          lastKeyResponse={lastKeyResponse}
+          onCreate={() => keyMutation.mutate(false)}
+          onRotate={() => keyMutation.mutate(true)}
+        />
+      </div>
+
+      <DeveloperUsagePanel
+        appSlug={app.slug}
+        canReadUsage={canReadUsage}
+        loadingPermissions={sdkConfigQuery.isLoading}
+      />
+    </div>
+  )
+}
+
+function DeveloperSDKPanel({
+  appSlug,
+  config,
+  loading,
+  error,
+  downloading,
+  onDownloadOpenAPI,
+}: {
+  appSlug: string
+  config?: ConnectedAppDeveloperSDKConfig
+  loading: boolean
+  error: unknown
+  downloading: boolean
+  onDownloadOpenAPI: () => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <section className='rounded-xl border p-3'>
+      <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+        <div className='min-w-0'>
+          <h4 className='text-sm font-medium'>{t('SDK & OpenAPI')}</h4>
+          <p className='text-muted-foreground text-xs'>
+            {t('OpenAI-compatible config for this connected app.')}
+          </p>
+        </div>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={onDownloadOpenAPI}
+          disabled={downloading || loading || !appSlug}
+        >
+          {downloading ? (
+            <RefreshCw className='h-3.5 w-3.5 animate-spin' />
+          ) : (
+            <Download className='h-3.5 w-3.5' />
+          )}
+          {t('OpenAPI')}
+        </Button>
+      </div>
+
+      {loading ? (
+        <DeveloperSDKSkeleton />
+      ) : error ? (
+        <Alert className='mt-3'>
+          <AlertTitle>{t('Unable to load SDK config')}</AlertTitle>
+          <AlertDescription>
+            {error instanceof Error ? error.message : t('Request failed')}
+          </AlertDescription>
+        </Alert>
+      ) : config ? (
+        <div className='mt-3 space-y-3'>
+          <div className='grid gap-2 sm:grid-cols-2'>
+            <DeveloperConfigValue
+              label={t('Base URL')}
+              value={config.base_url}
+              monospace
+            />
+            <DeveloperConfigValue
+              label={t('API key env')}
+              value={config.sdk.api_key_env}
+              monospace
+            />
+            <DeveloperConfigValue
+              label={t('Authorization')}
+              value={config.sdk.authorization}
+              monospace
+            />
+            <DeveloperConfigValue
+              label={t('Compatible')}
+              value={config.sdk.openai_compatible ? t('OpenAI') : '-'}
+            />
+          </div>
+
+          <div className='space-y-1.5'>
+            <div className='text-muted-foreground text-xs'>
+              {t('Scoped API endpoints')}
+            </div>
+            <div className='rounded-lg border'>
+              {Object.entries(config.api_endpoints).length > 0 ? (
+                Object.entries(config.api_endpoints).map(([name, endpoint]) => (
+                  <div
+                    key={name}
+                    className='flex min-w-0 items-center gap-2 border-b px-2.5 py-2 last:border-b-0'
+                  >
+                    <StatusBadge
+                      copyable={false}
+                      label={name}
+                      variant='neutral'
+                    />
+                    <span
+                      className='min-w-0 flex-1 truncate font-mono text-xs'
+                      title={endpoint}
+                    >
+                      {endpoint}
+                    </span>
+                    <CopyButton
+                      value={endpoint}
+                      className='size-6'
+                      tooltip={t('Copy endpoint')}
+                    />
+                  </div>
+                ))
+              ) : (
+                <div className='text-muted-foreground px-2.5 py-2 text-xs'>
+                  {t('No scoped endpoints')}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function DeveloperKeyPanel({
+  canCreateKey,
+  loadingPermissions,
+  deviceName,
+  onDeviceNameChange,
+  pending,
+  lastKeyResponse,
+  onCreate,
+  onRotate,
+}: {
+  canCreateKey: boolean
+  loadingPermissions: boolean
+  deviceName: string
+  onDeviceNameChange: (value: string) => void
+  pending: boolean
+  lastKeyResponse: ConnectedAppDeveloperKeyResponse | null
+  onCreate: () => void
+  onRotate: () => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <section className='rounded-xl border p-3'>
+      <div className='min-w-0'>
+        <h4 className='text-sm font-medium'>{t('Developer key')}</h4>
+        <p className='text-muted-foreground text-xs'>
+          {t('Create, reuse, or rotate your own app-bound key.')}
+        </p>
+      </div>
+
+      <div className='mt-3 space-y-2.5'>
+        <label className='block space-y-1'>
+          <span className='text-muted-foreground text-xs'>
+            {t('Device name')}
+          </span>
+          <Input
+            value={deviceName}
+            onChange={(event) => onDeviceNameChange(event.target.value)}
+            placeholder={t('Developer self-service')}
+            disabled={!canCreateKey || pending}
+          />
+        </label>
+
+        <div className='flex flex-col gap-2 sm:flex-row'>
+          <Button
+            type='button'
+            size='sm'
+            className='w-full sm:w-auto'
+            disabled={!canCreateKey || pending || loadingPermissions}
+            onClick={onCreate}
+          >
+            {pending ? (
+              <RefreshCw className='h-3.5 w-3.5 animate-spin' />
+            ) : (
+              <KeyRound className='h-3.5 w-3.5' />
+            )}
+            {t('Create key')}
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='w-full sm:w-auto'
+            disabled={!canCreateKey || pending || loadingPermissions}
+            onClick={onRotate}
+          >
+            <RotateCw className='h-3.5 w-3.5' />
+            {t('Rotate key')}
+          </Button>
+        </div>
+
+        {!loadingPermissions && !canCreateKey && (
+          <Alert>
+            <AlertTitle>{t('token.manage scope required')}</AlertTitle>
+            <AlertDescription>
+              {t('This app cannot create developer keys.')}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {lastKeyResponse?.api_key ? (
+          <Alert className='bg-muted/40'>
+            <AlertTitle>{t('New API key shown once')}</AlertTitle>
+            <AlertDescription>
+              <div className='bg-background mt-2 flex min-w-0 items-center gap-2 rounded-lg border px-2 py-1.5'>
+                <code className='min-w-0 flex-1 truncate text-xs'>
+                  {lastKeyResponse.api_key}
+                </code>
+                <CopyButton
+                  value={lastKeyResponse.api_key}
+                  className='size-6'
+                  tooltip={t('Copy API key')}
+                />
+              </div>
+            </AlertDescription>
+          </Alert>
+        ) : lastKeyResponse ? (
+          <p className='text-muted-foreground text-xs'>
+            {t('Existing developer token reused. Rotate to reveal a new key.')}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
+function DeveloperUsagePanel({
+  appSlug,
+  canReadUsage,
+  loadingPermissions,
+}: {
+  appSlug: string
+  canReadUsage: boolean
+  loadingPermissions: boolean
+}) {
+  const { t } = useTranslation()
+  const usageQuery = useQuery({
+    queryKey: developerUsageQueryKey(appSlug),
+    queryFn: () => getConnectedAppDeveloperUsage(appSlug),
+    enabled: Boolean(appSlug) && canReadUsage,
+    retry: false,
+  })
+
+  return (
+    <section className='rounded-xl border p-3'>
+      <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+        <div className='min-w-0'>
+          <h4 className='flex items-center gap-2 text-sm font-medium'>
+            <BarChart3 className='h-4 w-4' />
+            {t('Usage summary')}
+          </h4>
+          <p className='text-muted-foreground text-xs'>
+            {t('Current and historical app-bound token usage.')}
+          </p>
+        </div>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={() => usageQuery.refetch()}
+          disabled={!canReadUsage || usageQuery.isFetching}
+        >
+          <RefreshCw
+            className={
+              usageQuery.isFetching ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'
+            }
+          />
+          {t('Refresh')}
+        </Button>
+      </div>
+
+      {loadingPermissions ? (
+        <DeveloperUsageSkeleton />
+      ) : !canReadUsage ? (
+        <Alert className='mt-3'>
+          <AlertTitle>{t('quota.read scope required')}</AlertTitle>
+          <AlertDescription>
+            {t('This app cannot read developer usage.')}
+          </AlertDescription>
+        </Alert>
+      ) : usageQuery.isLoading ? (
+        <DeveloperUsageSkeleton />
+      ) : usageQuery.isError ? (
+        <Alert className='mt-3'>
+          <AlertTitle>{t('Unable to load developer usage')}</AlertTitle>
+          <AlertDescription>
+            {usageQuery.error instanceof Error
+              ? usageQuery.error.message
+              : t('Request failed')}
+          </AlertDescription>
+        </Alert>
+      ) : usageQuery.data ? (
+        <div className='mt-3 space-y-3'>
+          <div className='grid gap-2 sm:grid-cols-2 xl:grid-cols-4'>
+            <DeveloperMetric
+              label={t('Requests')}
+              value={formatCompactNumber(usageQuery.data.total.request_count)}
+            />
+            <DeveloperMetric
+              label={t('Quota')}
+              value={formatQuota(usageQuery.data.total.quota)}
+            />
+            <DeveloperMetric
+              label={t('Tokens')}
+              value={formatCompactNumber(
+                usageQuery.data.total.prompt_tokens +
+                  usageQuery.data.total.completion_tokens
+              )}
+            />
+            <DeveloperMetric
+              label={t('Tracked keys')}
+              value={formatCompactNumber(usageQuery.data.token_count)}
+            />
+          </div>
+
+          <div className='grid gap-3 xl:grid-cols-2'>
+            <UsageByModelTable items={usageQuery.data.by_model} />
+            <UsageByTokenTable items={usageQuery.data.by_token} />
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function DeveloperConfigValue({
+  label,
+  value,
+  monospace,
+}: {
+  label: string
+  value: string
+  monospace?: boolean
+}) {
+  return (
+    <div className='bg-muted/20 min-w-0 rounded-lg border px-2.5 py-2'>
+      <div className='flex min-w-0 items-center justify-between gap-2'>
+        <span className='text-muted-foreground text-xs'>{label}</span>
+        {value ? (
+          <CopyButton value={value} className='size-6' tooltip='Copy value' />
+        ) : null}
+      </div>
+      <div
+        className={
+          monospace
+            ? 'mt-1 truncate font-mono text-xs'
+            : 'mt-1 truncate text-sm font-medium'
+        }
+        title={value}
+      >
+        {value || '-'}
+      </div>
+    </div>
+  )
+}
+
+function DeveloperMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className='bg-muted/20 min-w-0 rounded-lg border px-2.5 py-2'>
+      <div className='text-muted-foreground text-xs'>{label}</div>
+      <div className='mt-1 truncate text-sm font-semibold tabular-nums'>
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function UsageByModelTable({
+  items,
+}: {
+  items: ConnectedAppDeveloperUsageByModel[]
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <div className='rounded-lg border'>
+      <div className='border-b px-2.5 py-2 text-sm font-medium'>
+        {t('By model')}
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('Model')}</TableHead>
+            <TableHead className='text-right'>{t('Requests')}</TableHead>
+            <TableHead className='text-right'>{t('Quota')}</TableHead>
+            <TableHead className='text-right'>{t('Tokens')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.length > 0 ? (
+            items.slice(0, 8).map((item) => (
+              <TableRow key={item.model_name}>
+                <TableCell className='max-w-[12rem] truncate font-medium'>
+                  {item.model_name || '-'}
+                </TableCell>
+                <TableCell className='text-right'>
+                  {formatCompactNumber(item.request_count)}
+                </TableCell>
+                <TableCell className='text-right'>
+                  {formatQuota(item.quota)}
+                </TableCell>
+                <TableCell className='text-right'>
+                  {formatCompactNumber(
+                    item.prompt_tokens + item.completion_tokens
+                  )}
+                </TableCell>
+              </TableRow>
+            ))
+          ) : (
+            <TableRow>
+              <TableCell
+                className='text-muted-foreground text-center'
+                colSpan={4}
+              >
+                {t('No usage yet')}
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
+function UsageByTokenTable({
+  items,
+}: {
+  items: ConnectedAppDeveloperUsageByToken[]
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <div className='rounded-lg border'>
+      <div className='border-b px-2.5 py-2 text-sm font-medium'>
+        {t('By token')}
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('Token')}</TableHead>
+            <TableHead>{t('Status')}</TableHead>
+            <TableHead className='text-right'>{t('Requests')}</TableHead>
+            <TableHead className='text-right'>{t('Quota')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.length > 0 ? (
+            items.slice(0, 8).map((item) => (
+              <TableRow key={item.token_id}>
+                <TableCell className='max-w-[12rem]'>
+                  <div className='truncate font-medium'>
+                    {item.token_name || `#${item.token_id}`}
+                  </div>
+                  <div className='text-muted-foreground truncate text-xs'>
+                    {item.device.device_name || `#${item.token_id}`}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <StatusBadge
+                    copyable={false}
+                    label={t(item.status || 'unknown')}
+                    variant={tokenStatusVariant(item.status)}
+                  />
+                </TableCell>
+                <TableCell className='text-right'>
+                  {formatCompactNumber(item.request_count)}
+                </TableCell>
+                <TableCell className='text-right'>
+                  {formatQuota(item.quota)}
+                </TableCell>
+              </TableRow>
+            ))
+          ) : (
+            <TableRow>
+              <TableCell
+                className='text-muted-foreground text-center'
+                colSpan={4}
+              >
+                {t('No token usage yet')}
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
+function DeveloperSDKSkeleton() {
+  return (
+    <div className='mt-3 space-y-3'>
+      <div className='grid gap-2 sm:grid-cols-2'>
+        {Array.from({ length: 4 }).map((_, index) => (
+          <Skeleton key={index} className='h-14 w-full' />
+        ))}
+      </div>
+      <Skeleton className='h-28 w-full' />
+    </div>
+  )
+}
+
+function DeveloperUsageSkeleton() {
+  return (
+    <div className='mt-3 space-y-3'>
+      <div className='grid gap-2 sm:grid-cols-2 xl:grid-cols-4'>
+        {Array.from({ length: 4 }).map((_, index) => (
+          <Skeleton key={index} className='h-14 w-full' />
+        ))}
+      </div>
+      <div className='grid gap-3 xl:grid-cols-2'>
+        <Skeleton className='h-48 w-full' />
+        <Skeleton className='h-48 w-full' />
+      </div>
+    </div>
+  )
+}
+
+function tokenStatusVariant(status: string): StatusVariant {
+  switch (status) {
+    case 'active':
+      return 'success'
+    case 'revoked':
+      return 'danger'
+    case 'historical':
+      return 'neutral'
+    default:
+      return 'info'
+  }
+}
+
+function downloadJSON(data: unknown, filename: string) {
+  if (typeof document === 'undefined') return
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: 'application/json',
+  })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
+}

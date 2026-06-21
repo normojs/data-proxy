@@ -264,6 +264,130 @@ export type ConnectedAppNotificationOutboxWorkerMetrics = {
   total_permanent_failed: number
 }
 
+export type ConnectedAppDeveloperApp = {
+  id: number
+  slug: string
+  name: string
+  trusted: boolean
+  status: number
+  allowed_scopes?: string[]
+  default_scopes: string[]
+}
+
+export type ConnectedAppDeveloperGrant = {
+  id?: number
+  status: string
+  scopes: string[]
+  authorized_at?: number
+  last_used_at?: number
+  revoked_at?: number
+}
+
+export type ConnectedAppDeveloperDevice = {
+  fingerprint: string
+  device_name: string
+  platform: string
+  app_version: string
+  client?: string
+}
+
+export type ConnectedAppDeveloperToken = {
+  id?: number
+  name?: string
+  status?: number
+  masked_key?: string
+  expired_time?: number
+  unlimited_quota?: boolean
+  quota_hard_limit_enabled?: boolean
+  model_limits_enabled?: boolean
+  model_limits?: string
+  binding_status?: string
+  last_used_at?: number
+}
+
+export type ConnectedAppDeveloperSDKConfig = {
+  app: ConnectedAppDeveloperApp
+  owner: boolean
+  base_url: string
+  api_endpoints: Record<string, string>
+  device_flow: Record<string, string>
+  developer_endpoints: Record<string, string>
+  scopes: string[]
+  permissions: {
+    can_create_key: boolean
+    can_read_usage: boolean
+  }
+  openapi_url: string
+  sdk: {
+    openai_compatible: boolean
+    base_url: string
+    api_key_env: string
+    api_key_prefix: string
+    authorization: string
+  }
+}
+
+export type ConnectedAppDeveloperKeyPayload = {
+  device_id?: string
+  device_name?: string
+  platform?: string
+  app_version?: string
+  client?: string
+  rotate?: boolean
+}
+
+export type ConnectedAppDeveloperKeyResponse = {
+  app: ConnectedAppDeveloperApp
+  grant: ConnectedAppDeveloperGrant
+  device: ConnectedAppDeveloperDevice
+  token: ConnectedAppDeveloperToken
+  endpoints: Record<string, string>
+  base_url: string
+  api_key?: string
+  created: boolean
+  rotated: boolean
+  api_key_once: boolean
+}
+
+export type ConnectedAppDeveloperUsageTotals = {
+  request_count: number
+  quota: number
+  prompt_tokens: number
+  completion_tokens: number
+}
+
+export type ConnectedAppDeveloperUsageByModel =
+  ConnectedAppDeveloperUsageTotals & {
+    model_name: string
+  }
+
+export type ConnectedAppDeveloperUsageByToken =
+  ConnectedAppDeveloperUsageTotals & {
+    token_id: number
+    token_name: string
+    user_id: number
+    status: string
+    device: ConnectedAppDeveloperDevice
+  }
+
+export type ConnectedAppDeveloperUsageParams = {
+  start_time?: number
+  end_time?: number
+  token_id?: number
+  user_id?: number
+  model_name?: string
+}
+
+export type ConnectedAppDeveloperUsage = {
+  app: ConnectedAppDeveloperApp
+  start_time: number
+  end_time: number
+  token_count: number
+  total: ConnectedAppDeveloperUsageTotals
+  by_model: ConnectedAppDeveloperUsageByModel[]
+  by_token: ConnectedAppDeveloperUsageByToken[]
+}
+
 function unwrap<T>(response: ApiEnvelope<T>): T {
   if (!response.success || response.data == null) {
     throw new Error(response.message || 'Request failed')
@@ -554,6 +678,49 @@ export async function listConnectedAppDeveloperNotificationOutbox(
     {
       skipBusinessError: true,
     }
+  )
+  return unwrap(res.data)
+}
+
+export async function getConnectedAppDeveloperSDKConfig(
+  appSlug: string
+): Promise<ConnectedAppDeveloperSDKConfig> {
+  const res = await api.get<ApiEnvelope<ConnectedAppDeveloperSDKConfig>>(
+    connectedAppDeveloperPath(appSlug, '/sdk-config'),
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function getConnectedAppDeveloperOpenAPI(
+  appSlug: string
+): Promise<Record<string, unknown>> {
+  const res = await api.get<ApiEnvelope<Record<string, unknown>>>(
+    connectedAppDeveloperPath(appSlug, '/openapi'),
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function createConnectedAppDeveloperKey(
+  appSlug: string,
+  payload: ConnectedAppDeveloperKeyPayload
+): Promise<ConnectedAppDeveloperKeyResponse> {
+  const res = await api.post<ApiEnvelope<ConnectedAppDeveloperKeyResponse>>(
+    connectedAppDeveloperPath(appSlug, '/keys'),
+    payload,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function getConnectedAppDeveloperUsage(
+  appSlug: string,
+  params: ConnectedAppDeveloperUsageParams = {}
+): Promise<ConnectedAppDeveloperUsage> {
+  const res = await api.get<ApiEnvelope<ConnectedAppDeveloperUsage>>(
+    withQuery(connectedAppDeveloperPath(appSlug, '/usage'), params),
+    { skipBusinessError: true }
   )
   return unwrap(res.data)
 }
