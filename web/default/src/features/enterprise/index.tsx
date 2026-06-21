@@ -329,6 +329,11 @@ function endOfDayUnix(value: string) {
   return Math.floor(date.getTime() / 1000)
 }
 
+function dateInputValueFromUnix(value: number | undefined) {
+  if (!value) return ''
+  return new Date(value * 1000).toISOString().slice(0, 10)
+}
+
 function formatNumber(value: number | undefined) {
   return new Intl.NumberFormat().format(value ?? 0)
 }
@@ -1743,7 +1748,14 @@ function PolicyGroupsTab(props: {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <ProjectOrgUnitList names={group.shared_org_unit_names} />
+                    <div className='space-y-1'>
+                      <ProjectOrgUnitList names={group.shared_org_unit_names} />
+                      {group.shared_expires_at > 0 ? (
+                        <div className='text-muted-foreground text-xs'>
+                          {t('Until')} {formatDateTime(group.shared_expires_at)}
+                        </div>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>{formatNumber(group.member_count)}</TableCell>
                   <TableCell>{formatNumber(group.policy_count)}</TableCell>
@@ -5165,6 +5177,7 @@ type PolicyGroupFormState = {
   slug: string
   description: string
   shared_org_unit_ids: string[]
+  shared_expires_at: string
   status: string
 }
 
@@ -5182,6 +5195,7 @@ function PolicyGroupDialog(props: {
     slug: props.group?.slug ?? '',
     description: props.group?.description ?? '',
     shared_org_unit_ids: (props.group?.shared_org_unit_ids ?? []).map(String),
+    shared_expires_at: dateInputValueFromUnix(props.group?.shared_expires_at),
     status: String(props.group?.status ?? ENABLED_STATUS),
   }))
   const editing = Boolean(props.group)
@@ -5191,6 +5205,10 @@ function PolicyGroupDialog(props: {
     slug: (form.slug.trim() || slugify(form.name)).trim(),
     description: form.description,
     shared_org_unit_ids: form.shared_org_unit_ids.map(Number),
+    shared_expires_at:
+      form.shared_org_unit_ids.length > 0 && form.shared_expires_at
+        ? endOfDayUnix(form.shared_expires_at)
+        : 0,
     status: Number(form.status),
   })
 
@@ -5314,6 +5332,18 @@ function PolicyGroupDialog(props: {
                 ))
               )}
             </div>
+          </Field>
+          <Field label='Shared Until'>
+            <Input
+              type='date'
+              value={form.shared_expires_at}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  shared_expires_at: event.target.value,
+                }))
+              }
+            />
           </Field>
           <DialogFooter>
             <Button type='submit' disabled={mutation.isPending}>

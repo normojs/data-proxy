@@ -43,6 +43,7 @@ type EnterprisePolicyGroupShare struct {
 	EnterpriseId  int   `json:"enterprise_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_shares,priority:1;index"`
 	PolicyGroupId int   `json:"policy_group_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_shares,priority:2;index"`
 	OrgUnitId     int   `json:"org_unit_id" gorm:"not null;uniqueIndex:idx_enterprise_policy_group_shares,priority:3;index"`
+	ExpiresAt     int64 `json:"expires_at" gorm:"not null;default:0;index"`
 	CreatedAt     int64 `json:"created_at" gorm:"autoCreateTime;index"`
 	UpdatedAt     int64 `json:"updated_at" gorm:"autoUpdateTime"`
 }

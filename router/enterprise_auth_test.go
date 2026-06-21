@@ -49,6 +49,7 @@ type enterprisePolicyGroupItemForTest struct {
 	Id               int   `json:"id"`
 	OrgUnitId        int   `json:"org_unit_id"`
 	SharedOrgUnitIds []int `json:"shared_org_unit_ids"`
+	SharedExpiresAt  int64 `json:"shared_expires_at"`
 	CanManage        bool  `json:"can_manage"`
 }
 
@@ -321,11 +322,13 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.Equal(t, engineeringId, policyGroupPage.Data.Items[0].OrgUnitId)
 	require.True(t, policyGroupPage.Data.Items[0].CanManage)
 
+	shareExpiresAt := common.GetTimestamp() + 3600
 	shareSalesGroup := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id), `{
     "name": "Sales Pilot",
     "slug": "sales-pilot",
     "description": "shared with engineering",
     "shared_org_unit_ids": [`+strconv.Itoa(engineeringId)+`],
+    "shared_expires_at": `+strconv.FormatInt(shareExpiresAt, 10)+`,
     "status": 1
   }`, enterpriseAdminCookies, 1)
 	require.True(t, decodeEnterpriseAuthResponse(t, shareSalesGroup).Success)
@@ -338,6 +341,7 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	require.True(t, sharedGroupsById[engineeringGroup.Id].CanManage)
 	require.False(t, sharedGroupsById[salesGroup.Id].CanManage)
 	require.ElementsMatch(t, []int{engineeringId}, sharedGroupsById[salesGroup.Id].SharedOrgUnitIds)
+	require.Equal(t, shareExpiresAt, sharedGroupsById[salesGroup.Id].SharedExpiresAt)
 
 	createPolicyGroup := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/policy-groups", `{
     "name": "Department Created",
@@ -463,6 +467,37 @@ func TestEnterpriseRBACDepartmentAdminScope(t *testing.T) {
 	  }`, departmentCookies, departmentAdminId)
 	createCrossPolicyGroupPolicyResponse := decodeEnterpriseAuthResponse(t, createCrossPolicyGroupPolicy)
 	require.True(t, createCrossPolicyGroupPolicyResponse.Success, createCrossPolicyGroupPolicyResponse.Message)
+
+	expireSalesGroupShare := requestEnterpriseForTest(t, router, http.MethodPut, "/api/enterprise/policy-groups/"+strconv.Itoa(salesGroup.Id), `{
+    "name": "Sales Pilot",
+    "slug": "sales-pilot",
+    "description": "expired share with engineering",
+    "shared_org_unit_ids": [`+strconv.Itoa(engineeringId)+`],
+    "shared_expires_at": `+strconv.FormatInt(common.GetTimestamp()-60, 10)+`,
+    "status": 1
+  }`, enterpriseAdminCookies, 1)
+	require.True(t, decodeEnterpriseAuthResponse(t, expireSalesGroupShare).Success)
+
+	expiredSharedPolicyGroups := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/policy-groups?page_size=20", "", departmentCookies, departmentAdminId)
+	require.True(t, decodeEnterpriseAuthResponse(t, expiredSharedPolicyGroups).Success)
+	expiredSharedPolicyGroupPage := decodeEnterprisePageResponseForTest[enterprisePolicyGroupItemForTest](t, expiredSharedPolicyGroups)
+	require.NotContains(t, enterprisePolicyGroupIdsForTest(expiredSharedPolicyGroupPage.Data.Items), salesGroup.Id)
+
+	createExpiredSharedPolicyGroupPolicy := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-policies", `{
+    "name": "Sales Group Expired Share",
+    "target_type": "policy_group",
+    "target_id": `+strconv.Itoa(salesGroup.Id)+`,
+    "metric": "request_count",
+    "period": "day",
+    "limit_value": 5,
+    "timezone": "Asia/Shanghai",
+    "model_scope": "all",
+    "action": "reject",
+    "status": 1
+	  }`, departmentCookies, departmentAdminId)
+	createExpiredSharedPolicyGroupPolicyResponse := decodeEnterpriseAuthResponse(t, createExpiredSharedPolicyGroupPolicy)
+	require.False(t, createExpiredSharedPolicyGroupPolicyResponse.Success)
+	require.Contains(t, createExpiredSharedPolicyGroupPolicyResponse.Message, "权限范围外")
 
 	createGlobalPolicyGroupPolicy := requestEnterpriseForTest(t, router, http.MethodPost, "/api/enterprise/quota-policies", `{
     "name": "Global Group Cross",
