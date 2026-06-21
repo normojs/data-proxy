@@ -29,7 +29,7 @@
 - 临时额度已接入 hard limit 计算，已批准且未过期的申请会叠加有效上限。
 - 站内通知入口已支持审批通知 tab、未读红点、已读标记和审批/审计 deep link。
 - 通知读取状态已通过 `enterprise_notification_reads` 持久化。
-- 审批通知派生逻辑已开始从 controller 抽到 service 层，后续通知类型应继续在 service 层扩展。
+- 审批通知派生逻辑已从 controller 抽到 service 层，站内通知分页、未读筛选、i18n key 和 deep link smoke 均已完成。
 
 后续收口已完成：
 
@@ -38,9 +38,12 @@
 - 邮件和 webhook worker：均已复用 notification outbox 异步投递和重试框架。
 - 投递日志和重试 UI：管理员可查看 outbox、失败摘要、worker 指标并手动重试失败记录。
 
-后续增强：
+后续增强已完成：
 
-- 普通用户邮件接收偏好/退订入口，站内通知保持不可关闭。
+- 普通用户邮件接收偏好/退订入口已落到 Profile 通知设置；站内通知保持不可关闭。
+- `expiring_soon` 外部通知已由维护任务按 24 小时窗口幂等写入 email/webhook outbox。
+
+当前剩余不属于本地代码开发，主要是预发和生产环境的 R0-R3 演练证据回填。
 
 ## 开发原则
 
@@ -118,10 +121,10 @@
 ### Phase B 当前进度
 
 - V13-OUTBOX-001 已完成基础交付：新增 `enterprise_notification_outbox` 模型和迁移，支持 event_key、event_type、enterprise_id、recipient、channel、payload、status、retry_count、next_retry_at、last_error。
-- V13-OUTBOX-002 已完成基础交付：审批 submit、approve、reject、withdraw、expire 会在状态变更/审计同一事务内写入幂等 in_app outbox 事件；主动过期扫描也会写入 `quota_request.expire` outbox。
-- V13-OUTBOX-002 剩余增强：`expiring_soon` outbox 需要在提醒调度中加入稳定窗口 key，避免周期任务重复写入。
+- V13-OUTBOX-002 已完成基础交付：审批 submit、approve、reject、withdraw、expire 会在状态变更/审计同一事务内写入幂等 in_app outbox 事件；主动过期扫描也会写入 `quota_request.expire` outbox；维护任务会按 24 小时窗口幂等写入 `quota_request.expiring_soon` email/webhook outbox。
 - V13-OUTBOX-003 已完成基础交付：新增 outbox claim、sent、failed、permanent_failed 状态流转和主节点定时 worker；`in_app` 事件可自动标记 sent，email/webhook 在渠道未配置时进入重试/永久失败框架。
 - V13-OUTBOX-004 已完成基础交付：worker 已支持 email channel，SMTP 配置和收件人存在时调用 `common.SendEmail` 异步发送；审批结果类事件可为有邮箱的申请人写入 email outbox，管理员新申请邮件可通过 `Notifications` 页签配置管理员或显式邮箱收件范围后开启。
+- V13-OUTBOX-005 已完成基础交付：企业治理页新增 Deliveries tab，支持 outbox 筛选、失败摘要、下一次重试、手动重试和 worker 指标摘要。
 
 ## Phase C: Webhook 和通知偏好
 
@@ -159,7 +162,10 @@
 
 ### Phase D 当前进度
 
+- V13-UX-001 已完成基础交付：审批列表和用户申请列表支持打开详情侧栏，展示策略、目标、申请原因、决策原因、生命周期时间和审计定位。
+- V13-UX-002 已完成基础交付：申请列表支持 project_id、target_type、target_id、applicant_user_id 筛选，并兼容旧项目目标申请。
 - V13-UX-003 已完成基础交付：审批申请列表返回策略 limit、当前用量、批准后叠加 limit、近 7 天策略命中和 dry-run 命中次数；单条批准/拒绝弹窗展示风险摘要和剩余有效期。
+- V13-UX-004 已完成基础交付：管理员可勾选当前页 pending 申请并批量批准/拒绝，后端逐条处理并返回成功/失败明细。
 - V13-UX-005 已完成基础交付：hard limit 错误返回可申请 metadata hint；前端错误 toast 提供 `Request quota` 动作，跳转 `/quota-requests` 并预填可申请 policy、项目、建议 extra limit 和原因；不可申请 policy 不会提交。
 
 ## Phase E: 发布收口
@@ -173,6 +179,13 @@
 | V13-REL-003 | P0 | 预发 R0-R3 演练 | V13-REL-001 | 记录开关、请求 ID、审计、counter、attribution、回滚证据。 |
 | V13-REL-004 | P0 | 生产小流量灰度 | V13-REL-003 | R3 第二次请求证明不进入上游；保留策略快照和回滚人。 |
 | V13-REL-005 | P1 | Docker 镜像链路固化 | V13-REL-001 | 固定 tag 规则、构建命令、镜像摘要、迁移步骤和回滚 tag。 |
+
+### Phase E 当前进度
+
+- V13-REL-001 已完成：`scripts/enterprise-governance-preflight.sh` 通过记录已写入 `docs/enterprise-governance-v1.3-release-evidence.md`。
+- V13-REL-002 已完成：preflight 和 Snapless preflight 均包含 release artifact check，避免本地 DB、日志、缓存和构建产物混入提交。
+- V13-REL-005 已完成：`docs/data-proxy-release-runbook.md` 已记录 GitHub CI、tag、GHCR 镜像、digest、迁移说明和回滚路径。
+- V13-REL-003/V13-REL-004 属于真实环境运营动作，等待预发和生产执行后回填证据。
 
 ## 推荐迭代安排
 
@@ -208,6 +221,6 @@
 
 ## 最近下一步
 
-1. 进入 V13-WEBHOOK-004：补通知偏好/收件范围配置，并决定邮件/webhook 默认开关。
-2. 进入 V13-WEBHOOK-005：补 webhook 测试发送入口和最近投递结果查看。
-3. 补 V13-OUTBOX-002 expiring soon 调度写入，使用提醒窗口 event_key 避免重复。
+1. 在预发环境执行 `docs/enterprise-governance-v1.3-release-evidence.md` 的 R0-R3 检查表，补充真实 request ID、outbox ID、截图或变更单链接。
+2. 预发通过后执行生产小流量灰度，先只开站内通知，再按单企业开启 email/webhook，并保留关闭开关和回滚负责人。
+3. 若继续开发新功能，优先从 `docs/data-proxy-post-v1.3-todo.md` 进入后续企业治理版本，而不是重复做 V1.3 通知闭环。

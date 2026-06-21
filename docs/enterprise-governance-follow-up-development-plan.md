@@ -11,13 +11,18 @@
 - V1.3 审批和临时额度基础能力：申请模型、提交/批准/拒绝/撤回 API、临时额度叠加 hard limit、管理员审批 UI、普通用户申请入口、审批审计。
 - V1.3 通知 MVP：审批状态站内通知、已读状态、通知红点、通知弹层 Approvals tab、审批/审计 deep link。
 
-仍未完成的关键能力：
+本地代码已完成的关键能力：
 
-- 即将过期提醒。
-- 邮件和 webhook 外部通知。
-- 持久 notification outbox / 投递状态。
-- 项目专属申请的详情和历史筛选增强。
-- 发布前完整灰度演练和发布链路固化。
+- 即将过期提醒、主动过期扫描和过期审计。
+- 邮件和 webhook 外部通知，均通过持久 notification outbox 异步投递。
+- 通知偏好、投递日志、失败重试、worker 指标和 webhook 测试发送。
+- 项目专属申请详情、历史筛选、批量审批、审批风险摘要和普通用户申请引导。
+- 发布前本地 preflight、管理员文档、Docker 镜像链路和发布证据模板。
+
+仍需真实环境完成的运营动作：
+
+- 预发 R0-R3 演练，补充真实 request ID、outbox ID、截图或变更单链接。
+- 生产小流量灰度，保留策略快照、回滚负责人和外部通知关闭路径。
 
 ## P0: V1.3 通知闭环补强
 
@@ -25,21 +30,19 @@
 
 | ID | 任务 | 说明 | 验收 |
 | --- | --- | --- | --- |
-| EG-FU-001 | 即将过期提醒事件 | 为已批准且即将过期的临时额度生成提醒。优先支持站内通知，提醒窗口建议从配置项或固定 24 小时开始。 | 管理员和申请人能看到即将过期通知；同一申请在同一提醒窗口内不重复刷屏；通知可标记已读。 |
-| EG-FU-002 | 过期状态扫描任务 | 增加后台扫描或定时任务入口，把已过期的 pending/approved 申请更新为 expired，并写入审计。 | 到期后无需用户访问审批接口，也能落库 expired；审计中可看到过期动作和 request ID。 |
-| EG-FU-003 | 通知来源统一封装 | 将当前从申请表/审计表派生通知的逻辑封装为可复用 service，避免 controller 继续膨胀。 | controller 只负责鉴权和响应；通知列表、key 生成、read 状态合并有单元测试。 |
-| EG-FU-004 | 通知列表筛选和分页 | 当前站内审批通知固定取最近 20 条。补充 limit/cursor 或 page/page_size，支持只看未读。 | 通知弹层保持轻量；后端接口可分页拉取历史通知；未读数准确。 |
-| EG-FU-005 | 通知文案 i18n | 当前审批通知 title/content 是后端英文短句。改为稳定 message key + params，前端按语言渲染。 | 中英文/繁中可以本地化；后端 payload 不依赖展示语言。 |
-| EG-FU-006 | 通知 deep link 回归测试 | 为管理员 pending、用户 decision、管理员 audit link 补前端或集成层回归。 | 通知点击能打开正确页面、筛选正确 request/status/audit target，并自动关闭 popover。 |
+| EG-FU-001 | ✅ 即将过期提醒事件 | 已批准且 24 小时内过期的临时额度会生成 `expiring_soon` 站内通知。 | 管理员和申请人能看到即将过期通知；同一申请在同一提醒窗口内不重复刷屏；通知可标记已读。 |
+| EG-FU-002 | ✅ 过期状态扫描任务 | 主节点维护任务会把到期 pending/approved 申请更新为 expired，并写入审计和 outbox。 | 到期后无需用户访问审批接口，也能落库 expired；审计中可看到过期动作和 request ID。 |
+| EG-FU-003 | ✅ 通知来源统一封装 | 审批通知派生逻辑已封装到 service，controller 只保留鉴权和响应组装。 | controller 只负责鉴权和响应；通知列表、key 生成、read 状态合并有单元测试。 |
+| EG-FU-004 | ✅ 通知列表筛选和分页 | 通知接口支持 page/page_size/limit、has_more 和 unread_only。 | 通知弹层保持轻量；后端接口可分页拉取历史通知；未读数准确。 |
+| EG-FU-005 | ✅ 通知文案 i18n | 后端返回稳定 title/content key 和 params，前端按语言渲染并保留 fallback。 | 中英文/繁中可以本地化；后端 payload 不依赖展示语言。 |
+| EG-FU-006 | ✅ 通知 deep link 回归测试 | `smoke:approval-notification-links` 覆盖 pending、decision、expiring soon 和 expired audit link。 | 通知点击能打开正确页面、筛选正确 request/status/audit target，并自动关闭 popover。 |
 
 建议实现顺序：EG-FU-003 → EG-FU-001 → EG-FU-002 → EG-FU-004 → EG-FU-005 → EG-FU-006。
 
 当前进度：
 
-- EG-FU-003 已完成基础拆分：审批通知派生逻辑已从 `controller/notification_read.go` 抽到
-  `service/enterprise_quota_request_notification.go`，controller 只保留 HTTP feature flag、鉴权上下文和响应组装。
-- EG-FU-003 已补服务层测试：覆盖管理员 pending 通知、申请人 decision 通知、通知 key/read 状态合并。
-- 后续 EG-FU-001/EG-FU-002 可直接在 service 层扩展即将过期和已过期事件，避免继续膨胀 controller。
+- EG-FU-001 到 EG-FU-006 已完成本地交付，并通过 service/controller/router 定向测试、前端 typecheck 和 deep link smoke。
+- 即将过期与已过期事件继续以审计和业务状态为事实源，站内通知可派生展示，外部通知走 outbox。
 
 ## P1: 邮件和 Webhook 外部通知
 
@@ -47,12 +50,12 @@
 
 | ID | 任务 | 说明 | 验收 |
 | --- | --- | --- | --- |
-| EG-FU-101 | Notification Outbox 模型 | 新增企业通知事件表，记录事件类型、收件人、目标、payload、状态、重试次数、下一次重试时间。 | 审批提交/批准/拒绝/撤回/过期/即将过期都能写入 outbox；重复事件有幂等 key。 |
-| EG-FU-102 | Outbox Worker | 后台 worker 负责投递邮件/webhook，支持批量、重试、失败记录和最大重试次数。 | 审批 API 不等待外部投递；失败可重试；永久失败可在审计或运维日志中查询。 |
-| EG-FU-103 | 邮件通知渠道 | 接入现有 `common.SendEmail` 能力，发送审批状态邮件。 | 申请人收到批准/拒绝/撤回/过期邮件；管理员收到新申请邮件；可通过配置关闭。 |
-| EG-FU-104 | Webhook 通知渠道 | 支持企业级 webhook URL、secret、事件类型订阅；payload 签名建议使用 HMAC-SHA256。 | 外部系统收到签名 webhook；失败重试；后台能看到最近投递结果。 |
-| EG-FU-105 | 通知偏好配置 | 管理员可配置站内/邮件/webhook 开关和收件范围；普通用户可选择是否接收邮件。 | 配置变更可审计；默认不破坏现有站内通知。 |
-| EG-FU-106 | 投递安全和脱敏 | webhook payload 不暴露敏感字段；日志脱敏 URL、邮箱和签名。 | 日志中不出现 webhook secret；payload 字段清单可审阅。 |
+| EG-FU-101 | ✅ Notification Outbox 模型 | 新增企业通知事件表，记录事件类型、收件人、目标、payload、状态、重试次数、下一次重试时间。 | 审批提交/批准/拒绝/撤回/过期/即将过期都能写入 outbox；重复事件有幂等 key。 |
+| EG-FU-102 | ✅ Outbox Worker | 后台 worker 负责投递邮件/webhook，支持批量、重试、失败记录和最大重试次数。 | 审批 API 不等待外部投递；失败可重试；永久失败可在审计或运维日志中查询。 |
+| EG-FU-103 | ✅ 邮件通知渠道 | 接入现有 `common.SendEmail` 能力，发送审批状态邮件。 | 申请人收到批准/拒绝/撤回/过期邮件；管理员收到新申请邮件；可通过配置关闭。 |
+| EG-FU-104 | ✅ Webhook 通知渠道 | 支持企业级 webhook URL、secret、事件类型订阅，payload 使用 HMAC-SHA256 签名。 | 外部系统收到签名 webhook；失败重试；后台能看到最近投递结果。 |
+| EG-FU-105 | ✅ 通知偏好配置 | 管理员可配置 email/webhook 开关和收件范围；普通用户可关闭审批结果邮件。 | 配置变更可审计；默认不破坏现有站内通知。 |
+| EG-FU-106 | ✅ 投递安全和脱敏 | webhook secret、URL query、邮箱和失败摘要已在 API/UI/日志路径脱敏。 | 日志中不出现 webhook secret；payload 字段清单可审阅。 |
 
 建议实现顺序：EG-FU-101 → EG-FU-102 → EG-FU-103 → EG-FU-104 → EG-FU-105 → EG-FU-106。
 
@@ -74,11 +77,11 @@
 
 | ID | 任务 | 说明 | 验收 |
 | --- | --- | --- | --- |
-| EG-REL-001 | 最终 preflight | 在最终工作树上执行企业治理发布前核验脚本。 | `scripts/enterprise-governance-preflight.sh` 通过，并记录命令输出摘要。 |
-| EG-REL-002 | 工作区整理 | 清理本地 DB、日志、Playwright 输出、构建产物和无关样例。 | release commit 只包含源码、文档、脚本和必要样例。 |
-| EG-REL-003 | 预发 R0-R3 演练 | 按 rollout runbook 记录开关、请求 ID、审计、counter、attribution、回滚证据。 | 预发证据链接或变更单编号回填到发布记录。 |
-| EG-REL-004 | 生产 R0-R3 演练 | 小范围执行 hard-limit 灰度，确认 R3 第二次请求不进入上游。 | 保留策略快照、回滚人、日志脱敏和结果记录。 |
-| EG-REL-005 | Docker 镜像链路固化 | 固定 tag 规则、构建命令、镜像摘要、迁移步骤和回滚 tag。 | 后续发布能通过镜像路径复现，不依赖临时源码部署。 |
+| EG-REL-001 | ✅ 最终 preflight | 已在发布证据中记录 `scripts/enterprise-governance-preflight.sh` 通过。 | `scripts/enterprise-governance-preflight.sh` 通过，并记录命令输出摘要。 |
+| EG-REL-002 | ✅ 工作区整理 | 发布脚本包含 artifact check，避免本地 DB、日志、Playwright 输出、构建产物混入 release commit。 | release commit 只包含源码、文档、脚本和必要样例。 |
+| EG-REL-003 | 预发 R0-R3 演练 | 真实环境动作，按 rollout runbook 记录开关、请求 ID、审计、counter、attribution、回滚证据。 | 预发证据链接或变更单编号回填到发布记录。 |
+| EG-REL-004 | 生产 R0-R3 演练 | 真实环境动作，小范围执行 hard-limit 灰度，确认 R3 第二次请求不进入上游。 | 保留策略快照、回滚人、日志脱敏和结果记录。 |
+| EG-REL-005 | ✅ Docker 镜像链路固化 | `docs/data-proxy-release-runbook.md` 已记录 tag 规则、GHCR 镜像、digest、迁移说明和回滚路径。 | 后续发布能通过镜像路径复现，不依赖临时源码部署。 |
 
 ## P2: 后续版本路线
 
@@ -143,6 +146,6 @@
 
 ## 下一步建议
 
-1. 先做 EG-FU-003，把当前通知派生逻辑从 controller 抽到 service。
-2. 再做 EG-FU-001 和 EG-FU-002，让即将过期/已过期成为可见事件。
-3. 完成站内通知补强后，再进入 EG-FU-101 outbox，避免邮件/webhook 直接耦合审批 API。
+1. 在预发环境执行 V1.3 R0-R3 演练，回填 `docs/enterprise-governance-v1.3-release-evidence.md` 的真实 request ID、outbox ID、截图或变更单链接。
+2. 预发通过后执行生产小流量灰度，先只开启站内通知，再按单企业开启邮件/webhook，并保留关闭开关和回滚负责人。
+3. 后续版本继续沿 `docs/data-proxy-post-v1.3-todo.md` 推进 V1.4+ 企业治理增强。
