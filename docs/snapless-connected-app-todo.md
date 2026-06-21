@@ -25,6 +25,7 @@
 - 已完成 OpenAPI/SDK 交付增强：SDK config 返回可复制环境变量和按 scope 裁剪的最小 JS/curl 示例；Profile 开发者卡片展示 env、OpenAPI URL 和 SDK 示例，创建/轮换 key 后可直接复制带一次性 key 的 env block。
 - 已完成本地预发联调验收脚本和证据：`scripts/snapless-connected-app-preflight.sh` 覆盖申请/审批、device flow、开发者 key、SDK 示例、usage 筛选、授权排障、通知 outbox、MCP 计费回归和发布协议检查；结果记录在 `docs/snapless-connected-app-v1.3-release-evidence.md`。
 - 已完成 GitHub CI 门禁接入：`CI` workflow 新增 `Snapless Connected App` job，独立执行 `scripts/snapless-connected-app-preflight.sh`。
+- 已完成发布证据快照脚本：`make snapless-connected-app-release-evidence` 可输出当前 commit 的 CI/job URL、tag、Docker workflow 和 digest 线索。
 - MCP 计费语义不改，仍按工具调用次数和 `price_per_call` 扣费。
 
 ## 开发顺序
@@ -53,4 +54,4 @@
 ## 立即下一步
 
 1. 在预发环境执行 `docs/snapless-connected-app-v1.3-release-evidence.md` 的检查表，补充真实 request ID、outbox ID、token ID、截图或变更单链接。
-2. 预发通过后按 `docs/data-proxy-release-runbook.md` 创建发布 tag，确认 CI、Docker image digest 和回滚镜像 digest。
+2. 预发通过后按 `docs/data-proxy-release-runbook.md` 创建发布 tag，运行 `make snapless-connected-app-release-evidence`，确认 CI、Docker image digest 和回滚镜像 digest。

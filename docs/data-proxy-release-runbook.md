@@ -11,9 +11,10 @@
    - `cd web/default && bun run smoke:approval-notification-links`
    - `scripts/snapless-connected-app-preflight.sh`
    - `git diff --check`
-3. 确认 `LICENSE`、`NOTICE`、`THIRD-PARTY-LICENSES.md` 仍随仓库和 Docker 镜像分发。
-4. 确认前端可见位置仍保留原项目链接和文案：`Frontend design and development by New API contributors.`
-5. 确认工作区没有本地 DB、日志、Playwright 输出、缓存、构建产物或密钥文件混入提交。
+3. 需要整理 Snapless Connected App 发布证据时，运行 `make snapless-connected-app-release-evidence` 生成当前 commit 的 CI、job URL、tag 和 Docker digest 快照。
+4. 确认 `LICENSE`、`NOTICE`、`THIRD-PARTY-LICENSES.md` 仍随仓库和 Docker 镜像分发。
+5. 确认前端可见位置仍保留原项目链接和文案：`Frontend design and development by New API contributors.`
+6. 确认工作区没有本地 DB、日志、Playwright 输出、缓存、构建产物或密钥文件混入提交。
 
 ## 版本和镜像
 
@@ -49,6 +50,12 @@ ghcr.io/normojs/data-proxy:latest
 - 回滚负责人和回滚窗口
 
 V1.3 通知闭环的业务证据继续补到 `docs/enterprise-governance-v1.3-release-evidence.md`；Snapless Connected App 证据补到 `docs/snapless-connected-app-v1.3-release-evidence.md` 或对应变更单。
+
+可用以下命令生成 Snapless Connected App 的发布证据快照：
+
+```bash
+make snapless-connected-app-release-evidence
+```
 
 ### V1.3.0 发布证据
 

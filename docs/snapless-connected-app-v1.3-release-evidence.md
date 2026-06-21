@@ -82,3 +82,5 @@
 - 数据库迁移说明和回滚负责人。
 - 关闭 email/webhook preference 的操作路径。
 - 最近一次 `scripts/snapless-connected-app-preflight.sh` 通过记录。
+
+可运行 `make snapless-connected-app-release-evidence` 生成当前 commit 的 CI、job URL、tag、Docker workflow 和 digest 快照，再补充到本文件或变更单。

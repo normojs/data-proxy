@@ -37,7 +37,7 @@ ENTERPRISE_QUOTA_COUNTER_STRESS_WORKERS ?= 32
 ENTERPRISE_QUOTA_COUNTER_STRESS_OPERATIONS ?= 200
 ENTERPRISE_QUOTA_COUNTER_STRESS_TIMEOUT ?= 180s
 
-.PHONY: all build-frontend build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web reset-setup deployment-preflight snapless-connected-app-preflight enterprise-quota-counter-stress mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-migration-postgres-docker mcp-migration-mysql-docker mcp-migration-docker mcp-migration-docker-clean mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
+.PHONY: all build-frontend build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web reset-setup deployment-preflight snapless-connected-app-preflight snapless-connected-app-release-evidence enterprise-quota-counter-stress mcp-openapi-check mcp-proxy-check mcp-dashboard-check mcp-migration-sqlite mcp-migration-mysql mcp-migration-postgres mcp-migration-postgres-docker mcp-migration-mysql-docker mcp-migration-docker mcp-migration-docker-clean mcp-bridge-check mcp-bridge-smoke mcp-bridge-stress mcp-regression
 
 all: build-all-frontends start-backend
 
@@ -111,6 +111,9 @@ deployment-preflight:
 
 snapless-connected-app-preflight:
 	@scripts/snapless-connected-app-preflight.sh
+
+snapless-connected-app-release-evidence:
+	@scripts/snapless-connected-app-release-evidence.sh
 
 enterprise-quota-counter-stress:
 	@ENTERPRISE_QUOTA_COUNTER_STRESS_MODE="$(ENTERPRISE_QUOTA_COUNTER_STRESS_MODE)" \
