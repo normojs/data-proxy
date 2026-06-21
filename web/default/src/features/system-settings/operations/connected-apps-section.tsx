@@ -23,6 +23,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Route } from '@/routes/_authenticated/system-settings/operations/$section'
 import {
+  BellRing,
   Check,
   ClipboardList,
   Edit3,
@@ -83,6 +84,7 @@ import {
   SettingsPageTitleStatusPortal,
 } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
+import { ConnectedAppNotificationsSection } from './connected-app-notifications-section'
 import {
   CONNECTED_APP_STATUS_DISABLED,
   CONNECTED_APP_STATUS_ENABLED,
@@ -105,7 +107,7 @@ const connectedAppsQueryKey = ['connected-apps']
 const connectedAppRequestsQueryKey = ['connected-app-requests']
 const connectedAppAuditLogsQueryKey = ['connected-app-audit-logs']
 const scopePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
-const connectedAppTabs = ['apps', 'requests', 'audit'] as const
+const connectedAppTabs = ['apps', 'requests', 'notifications', 'audit'] as const
 
 type ConnectedAppsTab = (typeof connectedAppTabs)[number]
 
@@ -481,6 +483,10 @@ export function ConnectedAppsSection() {
               </Badge>
             ) : null}
           </TabsTrigger>
+          <TabsTrigger value='notifications'>
+            <BellRing data-icon='inline-start' />
+            {t('Notifications')}
+          </TabsTrigger>
           <TabsTrigger value='audit'>
             <FileClock data-icon='inline-start' />
             {t('Audit')}
@@ -497,6 +503,9 @@ export function ConnectedAppsSection() {
             query={requestsQuery}
             onReview={openReview}
           />
+        </TabsContent>
+        <TabsContent value='notifications'>
+          <ConnectedAppNotificationsSection />
         </TabsContent>
         <TabsContent value='audit'>
           <ConnectedAppAuditTable

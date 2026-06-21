@@ -13,6 +13,7 @@
 - 已完成应用申请和权限审批 MVP：第三方应用可提交接入申请，管理员可审批并生成 trusted app，审批状态进入站内通知和 connected app 审计。
 - 已完成应用开发者 API MVP：获批申请人可查看自身 app 配置、允许 endpoint、授权用户/设备和 device session 状态；trusted app 可使用通用 device code flow 创建设备授权。
 - 已完成 Connected App 外部通知 MVP：审批结果、设备授权批准/拒绝、异常 health 状态可按 preference 写入 email/webhook outbox；投递失败可重试且不阻断审批或授权。
+- 已完成 Connected App 通知管理前端的管理员全局视图：系统设置页可管理全局 preference、webhook、outbox、worker metrics 和 retry。
 - MCP 计费语义不改，仍按工具调用次数和 `price_per_call` 扣费。
 
 ## 开发顺序
@@ -27,9 +28,10 @@
 | 6 | SNAPLESS-006 | P2 | Done | 应用申请和权限审批 | 第三方应用可提交接入申请；管理员审核 scopes、回调/设备流能力和展示信息；审批结果写入审计和站内通知。 |
 | 7 | SNAPLESS-007 | P2 | Done | 应用开发者 API | 获批应用可创建自己的 device sessions、查看授权状态和查询允许的 API endpoints；只暴露与自身 app 相关的 grant/binding/session。 |
 | 8 | SNAPLESS-008 | P2 | Done | 邮件/Webhook 通知扩展 | 审批结果、设备授权批准/拒绝和异常 health 状态可写入 connected app notification outbox；email/webhook 由 preference 控制，投递 worker 支持重试和 metrics，失败不阻断主流程。 |
+| 9 | SNAPLESS-009 | P2 | In Progress | 通知管理前端 | 管理员系统设置页已串通全局 preference、webhook、outbox、worker metrics 和 retry；开发者应用级通知管理页待接入。 |
 
 ## 立即下一步
 
-1. 进入 `SNAPLESS-009`：补 Connected App 通知管理前端，把 preference、webhook、outbox、worker metrics 和 retry 串到系统设置页/开发者页。
+1. 继续 `SNAPLESS-009`：补开发者应用级通知管理页，复用 `/api/connected-apps/:slug/developer/*` preference、webhook、outbox 能力。
 2. 补外部通知演练文档：审批结果、设备授权、health warning 三类事件各提供一条 curl/webhook 验签样例。
 3. 补撤销类事件：设备撤销、grant 撤销和 token rotate/revoke 写入 notification outbox。

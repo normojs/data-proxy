@@ -25,7 +25,10 @@ import {
 } from '@/features/system-settings/operations/section-registry.tsx'
 
 const operationsSearchSchema = z.object({
-  tab: z.enum(['apps', 'requests', 'audit']).optional().catch(undefined),
+  tab: z
+    .enum(['apps', 'requests', 'notifications', 'audit'])
+    .optional()
+    .catch(undefined),
   connected_app_request_id: z.number().optional().catch(undefined),
 })
 

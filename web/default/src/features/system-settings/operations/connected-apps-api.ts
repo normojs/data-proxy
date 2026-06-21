@@ -31,6 +31,22 @@ type ApiPage<T> = {
   page_size: number
 }
 
+function buildQuery(params: Record<string, unknown> = {}) {
+  const query = new URLSearchParams()
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return
+    query.set(key, String(value))
+  })
+
+  return query.toString()
+}
+
+function withQuery(path: string, params?: Record<string, unknown>) {
+  const query = buildQuery(params)
+  return query ? `${path}?${query}` : path
+}
+
 export const CONNECTED_APP_STATUS_ENABLED = 1
 export const CONNECTED_APP_STATUS_DISABLED = 2
 
@@ -140,6 +156,114 @@ export type ConnectedAppAuditLogListParams = {
   page_size?: number
 }
 
+export type ConnectedAppNotificationRecipientScope = {
+  applicant: boolean
+  authorizing_user: boolean
+  app_developers: boolean
+  explicit_emails: string[]
+}
+
+export type ConnectedAppNotificationPreference = {
+  id: number
+  app_id: number
+  channel: string
+  event_type: string
+  enabled: boolean
+  recipient_scope: ConnectedAppNotificationRecipientScope
+  recipient_scope_json: string
+  created_at: number
+  updated_at: number
+}
+
+export type ConnectedAppNotificationPreferencePayload = {
+  app_id: number
+  channel: string
+  event_type: string
+  enabled: boolean
+  recipient_scope: ConnectedAppNotificationRecipientScope
+}
+
+export type ConnectedAppWebhook = {
+  id: number
+  app_id: number
+  name: string
+  url: string
+  has_secret: boolean
+  event_types: string[]
+  event_types_json: string
+  status: number
+  created_at: number
+  updated_at: number
+}
+
+export type ConnectedAppWebhookPayload = {
+  app_id: number
+  name: string
+  url: string
+  secret?: string
+  event_types: string[]
+  status: number
+}
+
+export type ConnectedAppWebhookTestResult = {
+  success: boolean
+  status_code: number
+  duration_ms: number
+  error: string
+  signature_header: string
+}
+
+export type ConnectedAppNotificationOutbox = {
+  id: number
+  event_key: string
+  event_type: string
+  app_id: number
+  recipient_user_id: number
+  recipient_email: string
+  channel: string
+  target_type: string
+  target_id: number
+  status: string
+  retry_count: number
+  next_retry_at: number
+  last_error: string
+  created_at: number
+  updated_at: number
+}
+
+export type ConnectedAppNotificationOutboxParams = {
+  app_id?: number
+  p?: number
+  page_size?: number
+  channel?: string
+  event_type?: string
+  status?: string
+  target_type?: string
+  target_id?: number
+  webhook_id?: number
+  start_time?: number
+  end_time?: number
+}
+
+export type ConnectedAppNotificationOutboxBatchStats = {
+  claimed: number
+  sent: number
+  failed: number
+  permanent_failed: number
+  duration_ms: number
+  started_at: number
+  finished_at: number
+}
+
+export type ConnectedAppNotificationOutboxWorkerMetrics = {
+  last_run: ConnectedAppNotificationOutboxBatchStats
+  total_runs: number
+  total_claimed: number
+  total_sent: number
+  total_failed: number
+  total_permanent_failed: number
+}
+
 function unwrap<T>(response: ApiEnvelope<T>): T {
   if (!response.success || response.data == null) {
     throw new Error(response.message || 'Request failed')
@@ -207,5 +331,115 @@ export async function listConnectedAppAuditLogs(
     '/api/connected-apps/audit-logs',
     { params, skipBusinessError: true }
   )
+  return unwrap(res.data)
+}
+
+export async function listConnectedAppNotificationPreferences(
+  appId = 0
+): Promise<ConnectedAppNotificationPreference[]> {
+  const res = await api.get<ApiEnvelope<ConnectedAppNotificationPreference[]>>(
+    withQuery('/api/connected-apps/notification-preferences', {
+      app_id: appId,
+    }),
+    {
+      skipBusinessError: true,
+    }
+  )
+  return unwrap(res.data)
+}
+
+export async function updateConnectedAppNotificationPreference(
+  payload: ConnectedAppNotificationPreferencePayload
+): Promise<ConnectedAppNotificationPreference> {
+  const res = await api.put<ApiEnvelope<ConnectedAppNotificationPreference>>(
+    '/api/connected-apps/notification-preferences',
+    payload,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function listConnectedAppWebhooks(
+  appId = 0
+): Promise<ConnectedAppWebhook[]> {
+  const res = await api.get<ApiEnvelope<ConnectedAppWebhook[]>>(
+    withQuery('/api/connected-apps/webhooks', { app_id: appId }),
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function createConnectedAppWebhook(
+  payload: ConnectedAppWebhookPayload
+): Promise<ConnectedAppWebhook> {
+  const res = await api.post<ApiEnvelope<ConnectedAppWebhook>>(
+    '/api/connected-apps/webhooks',
+    payload,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function updateConnectedAppWebhook(
+  id: number,
+  payload: ConnectedAppWebhookPayload
+): Promise<ConnectedAppWebhook> {
+  const res = await api.put<ApiEnvelope<ConnectedAppWebhook>>(
+    `/api/connected-apps/webhooks/${id}`,
+    payload,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function disableConnectedAppWebhook(
+  id: number
+): Promise<ConnectedAppWebhook> {
+  const res = await api.delete<ApiEnvelope<ConnectedAppWebhook>>(
+    `/api/connected-apps/webhooks/${id}`,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function testConnectedAppWebhook(
+  id: number
+): Promise<ConnectedAppWebhookTestResult> {
+  const res = await api.post<ApiEnvelope<ConnectedAppWebhookTestResult>>(
+    `/api/connected-apps/webhooks/${id}/test`,
+    undefined,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function listConnectedAppNotificationOutbox(
+  params: ConnectedAppNotificationOutboxParams = {}
+): Promise<ApiPage<ConnectedAppNotificationOutbox>> {
+  const res = await api.get<
+    ApiEnvelope<ApiPage<ConnectedAppNotificationOutbox>>
+  >(withQuery('/api/connected-apps/notification-outbox', params), {
+    skipBusinessError: true,
+  })
+  return unwrap(res.data)
+}
+
+export async function retryConnectedAppNotificationOutbox(
+  id: number
+): Promise<ConnectedAppNotificationOutbox> {
+  const res = await api.post<ApiEnvelope<ConnectedAppNotificationOutbox>>(
+    `/api/connected-apps/notification-outbox/${id}/retry`,
+    undefined,
+    { skipBusinessError: true }
+  )
+  return unwrap(res.data)
+}
+
+export async function getConnectedAppNotificationOutboxWorkerMetrics(): Promise<ConnectedAppNotificationOutboxWorkerMetrics> {
+  const res = await api.get<
+    ApiEnvelope<ConnectedAppNotificationOutboxWorkerMetrics>
+  >('/api/connected-apps/notification-outbox/worker-metrics', {
+    skipBusinessError: true,
+  })
   return unwrap(res.data)
 }
