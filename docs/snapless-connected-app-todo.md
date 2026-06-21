@@ -21,6 +21,7 @@
 - 已完成 Connected App token 历史归属：`connected_app_token_attributions` 不可变记录 token/app/binding/device 归属，developer usage 可统计当前 token 和轮换前 token 的消费历史；旧库当前 binding 仍有 fallback。
 - 已完成 Profile 开发者自助入口：获批 app 开发者可在 Connected App Developer 卡片下载 SDK/OpenAPI 配置，创建/轮换一次性 developer key，并查看 total、by_model、by_token usage，历史 token 标记为 `historical`。
 - 已完成开发者 usage 筛选增强：Profile usage 面板可按开始日期、结束日期、模型名和 token ID 过滤 `/developer/usage` 聚合结果。
+- 已完成开发者授权排障视图：Profile 开发者卡片可查看最近授权用户、grant scopes、设备/token 状态和 device session 消费状态。
 - MCP 计费语义不改，仍按工具调用次数和 `price_per_call` 扣费。
 
 ## 开发顺序
@@ -43,8 +44,8 @@
 | 14 | SNAPLESS-014 | P2 | Done | Connected App token 历史归属 | `connected_app_token_attributions` 记录 token/app/binding/device 不可变归属；developer usage 能跨 token 轮换统计完整历史，并保留当前 binding fallback。 |
 | 15 | SNAPLESS-015 | P2 | Done | 自助能力前端入口 | Profile 开发者卡片展示 SDK/OpenAPI 下载、自助 key 创建/轮换、usage summary 与按模型/token 聚合。 |
 | 16 | SNAPLESS-016 | P2 | Done | 自助 usage 筛选增强 | Profile usage 面板支持开始日期、结束日期、模型名和 token ID 筛选，参数直连 `/developer/usage`。 |
+| 17 | SNAPLESS-017 | P2 | Done | 开发者授权排障视图 | Profile 开发者卡片展示授权用户、grant scopes、设备/token 状态和最近 device session，可按 session status 查看授权/消费状态。 |
 
 ## 立即下一步
 
-1. 开发者授权排障视图：在 Profile 开发者卡片中补充授权用户、设备和最近 device session 状态，方便 app 开发者排查授权失败或设备未消费。
-2. OpenAPI/SDK 交付增强：补充最小 SDK 示例代码和复制环境变量入口，保持 key 明文只在创建/轮换响应中展示一次。
+1. OpenAPI/SDK 交付增强：补充最小 SDK 示例代码和复制环境变量入口，保持 key 明文只在创建/轮换响应中展示一次。

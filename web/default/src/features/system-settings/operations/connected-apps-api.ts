@@ -305,6 +305,50 @@ export type ConnectedAppDeveloperToken = {
   last_used_at?: number
 }
 
+export type ConnectedAppDeveloperAuthorizationDevice = {
+  device: ConnectedAppDeveloperDevice
+  token: ConnectedAppDeveloperToken
+  status: string
+  last_used_at?: number
+  revoked_at?: number
+  created_at?: number
+  updated_at?: number
+}
+
+export type ConnectedAppDeveloperAuthorization = {
+  user_id: number
+  user_name: string
+  grant: ConnectedAppDeveloperGrant
+  devices: ConnectedAppDeveloperAuthorizationDevice[]
+}
+
+export type ConnectedAppDeveloperAuthorizationParams = {
+  p?: number
+  page_size?: number
+}
+
+export type ConnectedAppDeveloperDeviceSession = {
+  id: number
+  status: string
+  user_id: number
+  user_name: string
+  token_id: number
+  token_created: boolean
+  device: ConnectedAppDeveloperDevice
+  expires_at: number
+  last_polled_at: number
+  authorized_at: number
+  consumed_at: number
+  created_at: number
+  updated_at: number
+}
+
+export type ConnectedAppDeveloperDeviceSessionParams = {
+  p?: number
+  page_size?: number
+  status?: string
+}
+
 export type ConnectedAppDeveloperSDKConfig = {
   app: ConnectedAppDeveloperApp
   owner: boolean
@@ -689,6 +733,30 @@ export async function getConnectedAppDeveloperSDKConfig(
     connectedAppDeveloperPath(appSlug, '/sdk-config'),
     { skipBusinessError: true }
   )
+  return unwrap(res.data)
+}
+
+export async function listConnectedAppDeveloperAuthorizations(
+  appSlug: string,
+  params: ConnectedAppDeveloperAuthorizationParams = {}
+): Promise<ApiPage<ConnectedAppDeveloperAuthorization>> {
+  const res = await api.get<
+    ApiEnvelope<ApiPage<ConnectedAppDeveloperAuthorization>>
+  >(withQuery(connectedAppDeveloperPath(appSlug, '/authorizations'), params), {
+    skipBusinessError: true,
+  })
+  return unwrap(res.data)
+}
+
+export async function listConnectedAppDeveloperDeviceSessions(
+  appSlug: string,
+  params: ConnectedAppDeveloperDeviceSessionParams = {}
+): Promise<ApiPage<ConnectedAppDeveloperDeviceSession>> {
+  const res = await api.get<
+    ApiEnvelope<ApiPage<ConnectedAppDeveloperDeviceSession>>
+  >(withQuery(connectedAppDeveloperPath(appSlug, '/device-sessions'), params), {
+    skipBusinessError: true,
+  })
   return unwrap(res.data)
 }
 

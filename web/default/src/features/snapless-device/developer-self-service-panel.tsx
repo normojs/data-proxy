@@ -25,14 +25,27 @@ import {
   KeyRound,
   RefreshCw,
   RotateCw,
+  ShieldCheck,
   X,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { formatCompactNumber, formatQuota } from '@/lib/format'
+import {
+  formatCompactNumber,
+  formatQuota,
+  formatTimestampToDate,
+} from '@/lib/format'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -49,6 +62,11 @@ import {
   getConnectedAppDeveloperOpenAPI,
   getConnectedAppDeveloperSDKConfig,
   getConnectedAppDeveloperUsage,
+  listConnectedAppDeveloperAuthorizations,
+  listConnectedAppDeveloperDeviceSessions,
+  type ConnectedAppDeveloperAuthorization,
+  type ConnectedAppDeveloperAuthorizationDevice,
+  type ConnectedAppDeveloperDeviceSession,
   type ConnectedAppDeveloperKeyResponse,
   type ConnectedAppDeveloperSDKConfig,
   type ConnectedAppDeveloperUsageParams,
@@ -67,6 +85,27 @@ const developerUsageQueryKey = (appSlug: string) => [
   'connected-app-developer',
   'usage',
   appSlug,
+]
+
+const developerAuthorizationsQueryKey = (appSlug: string) => [
+  'connected-app-developer',
+  'authorizations',
+  appSlug,
+]
+
+const developerDeviceSessionsQueryKey = (appSlug: string) => [
+  'connected-app-developer',
+  'device-sessions',
+  appSlug,
+]
+
+const DEVICE_SESSION_STATUS_OPTIONS = [
+  'all',
+  'pending',
+  'authorized',
+  'consumed',
+  'denied',
+  'expired',
 ]
 
 type DeveloperUsageFiltersState = {
@@ -177,6 +216,8 @@ export function ConnectedAppDeveloperSelfServicePanel({
         canReadUsage={canReadUsage}
         loadingPermissions={sdkConfigQuery.isLoading}
       />
+
+      <DeveloperAuthorizationDiagnosticsPanel appSlug={app.slug} />
     </div>
   )
 }
@@ -667,6 +708,328 @@ function DeveloperConfigValue({
   )
 }
 
+function DeveloperAuthorizationDiagnosticsPanel({
+  appSlug,
+}: {
+  appSlug: string
+}) {
+  const { t } = useTranslation()
+  const [sessionStatus, setSessionStatus] = useState('all')
+  const sessionStatusParam = sessionStatus === 'all' ? undefined : sessionStatus
+  const authorizationsQuery = useQuery({
+    queryKey: [...developerAuthorizationsQueryKey(appSlug), 5],
+    queryFn: () =>
+      listConnectedAppDeveloperAuthorizations(appSlug, { page_size: 5 }),
+    enabled: Boolean(appSlug),
+    retry: false,
+  })
+  const sessionsQuery = useQuery({
+    queryKey: [
+      ...developerDeviceSessionsQueryKey(appSlug),
+      sessionStatusParam ?? '',
+      8,
+    ],
+    queryFn: () =>
+      listConnectedAppDeveloperDeviceSessions(appSlug, {
+        page_size: 8,
+        status: sessionStatusParam,
+      }),
+    enabled: Boolean(appSlug),
+    retry: false,
+  })
+  const refreshing = authorizationsQuery.isFetching || sessionsQuery.isFetching
+
+  return (
+    <section className='rounded-xl border p-3'>
+      <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+        <div className='min-w-0'>
+          <h4 className='flex items-center gap-2 text-sm font-medium'>
+            <ShieldCheck className='h-4 w-4' />
+            {t('Authorization diagnostics')}
+          </h4>
+          <p className='text-muted-foreground text-xs'>
+            {t('Recent grants, devices, and device sessions.')}
+          </p>
+        </div>
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+          <Select
+            value={sessionStatus}
+            onValueChange={(value) => setSessionStatus(value ?? 'all')}
+          >
+            <SelectTrigger className='w-full sm:w-40' size='sm'>
+              <SelectValue placeholder={t('Session status')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {DEVICE_SESSION_STATUS_OPTIONS.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status === 'all' ? t('All sessions') : t(status)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={() => {
+              void authorizationsQuery.refetch()
+              void sessionsQuery.refetch()
+            }}
+            disabled={refreshing}
+          >
+            <RefreshCw
+              className={
+                refreshing ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'
+              }
+            />
+            {t('Refresh')}
+          </Button>
+        </div>
+      </div>
+
+      <div className='mt-3 grid gap-3 xl:grid-cols-2'>
+        <DeveloperAuthorizationsTable
+          items={authorizationsQuery.data?.items ?? []}
+          loading={authorizationsQuery.isLoading}
+          error={authorizationsQuery.error}
+        />
+        <DeveloperDeviceSessionsTable
+          items={sessionsQuery.data?.items ?? []}
+          loading={sessionsQuery.isLoading}
+          error={sessionsQuery.error}
+        />
+      </div>
+    </section>
+  )
+}
+
+function DeveloperAuthorizationsTable({
+  items,
+  loading,
+  error,
+}: {
+  items: ConnectedAppDeveloperAuthorization[]
+  loading: boolean
+  error: unknown
+}) {
+  const { t } = useTranslation()
+
+  if (loading) {
+    return <Skeleton className='h-56 w-full' />
+  }
+
+  if (error) {
+    return (
+      <Alert>
+        <AlertTitle>{t('Unable to load authorizations')}</AlertTitle>
+        <AlertDescription>
+          {error instanceof Error ? error.message : t('Request failed')}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  return (
+    <div className='rounded-lg border'>
+      <div className='border-b px-2.5 py-2 text-sm font-medium'>
+        {t('Authorizations')}
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('User')}</TableHead>
+            <TableHead>{t('Grant')}</TableHead>
+            <TableHead>{t('Devices')}</TableHead>
+            <TableHead>{t('Last used')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.length > 0 ? (
+            items.map((item) => (
+              <TableRow key={item.user_id}>
+                <TableCell className='max-w-[9rem]'>
+                  <div className='truncate font-medium'>
+                    {item.user_name || `#${item.user_id}`}
+                  </div>
+                  <div className='text-muted-foreground truncate text-xs'>
+                    #{item.user_id}
+                  </div>
+                </TableCell>
+                <TableCell className='max-w-[10rem]'>
+                  <StatusBadge
+                    copyable={false}
+                    label={t(item.grant.status || 'unknown')}
+                    variant={connectedAppStatusVariant(item.grant.status)}
+                  />
+                  <div className='text-muted-foreground mt-1 truncate text-xs'>
+                    {item.grant.scopes.join(', ') || '-'}
+                  </div>
+                </TableCell>
+                <TableCell className='max-w-[12rem]'>
+                  <DeveloperAuthorizationDeviceSummary devices={item.devices} />
+                </TableCell>
+                <TableCell className='text-muted-foreground text-xs whitespace-nowrap'>
+                  {formatTimestampToDate(
+                    item.grant.last_used_at || item.grant.authorized_at
+                  )}
+                </TableCell>
+              </TableRow>
+            ))
+          ) : (
+            <TableRow>
+              <TableCell
+                className='text-muted-foreground text-center'
+                colSpan={4}
+              >
+                {t('No authorizations yet')}
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
+function DeveloperAuthorizationDeviceSummary({
+  devices,
+}: {
+  devices: ConnectedAppDeveloperAuthorizationDevice[]
+}) {
+  const { t } = useTranslation()
+
+  if (devices.length === 0) {
+    return <span className='text-muted-foreground text-xs'>-</span>
+  }
+
+  return (
+    <div className='space-y-1'>
+      {devices.slice(0, 2).map((device) => (
+        <div
+          key={`${device.device.fingerprint}-${device.token.id ?? 0}`}
+          className='min-w-0'
+        >
+          <div className='flex min-w-0 items-center gap-1.5'>
+            <StatusBadge
+              copyable={false}
+              label={t(device.status || 'unknown')}
+              variant={connectedAppStatusVariant(device.status)}
+            />
+            <span className='truncate text-xs font-medium'>
+              {device.device.device_name || device.device.fingerprint || '-'}
+            </span>
+          </div>
+          <div className='text-muted-foreground truncate text-xs'>
+            {device.token.id ? `#${device.token.id}` : '-'}
+          </div>
+        </div>
+      ))}
+      {devices.length > 2 ? (
+        <div className='text-muted-foreground text-xs'>
+          {t('{{count}} more devices', { count: devices.length - 2 })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function DeveloperDeviceSessionsTable({
+  items,
+  loading,
+  error,
+}: {
+  items: ConnectedAppDeveloperDeviceSession[]
+  loading: boolean
+  error: unknown
+}) {
+  const { t } = useTranslation()
+
+  if (loading) {
+    return <Skeleton className='h-56 w-full' />
+  }
+
+  if (error) {
+    return (
+      <Alert>
+        <AlertTitle>{t('Unable to load device sessions')}</AlertTitle>
+        <AlertDescription>
+          {error instanceof Error ? error.message : t('Request failed')}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  return (
+    <div className='rounded-lg border'>
+      <div className='border-b px-2.5 py-2 text-sm font-medium'>
+        {t('Device sessions')}
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('Session')}</TableHead>
+            <TableHead>{t('Device')}</TableHead>
+            <TableHead>{t('Token')}</TableHead>
+            <TableHead>{t('Latest event')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.length > 0 ? (
+            items.map((item) => {
+              const latestEvent = latestDeviceSessionEvent(item)
+              return (
+                <TableRow key={item.id}>
+                  <TableCell className='max-w-[9rem]'>
+                    <StatusBadge
+                      copyable={false}
+                      label={t(item.status || 'unknown')}
+                      variant={connectedAppStatusVariant(item.status)}
+                    />
+                    <div className='text-muted-foreground mt-1 truncate text-xs'>
+                      #{item.id}
+                    </div>
+                  </TableCell>
+                  <TableCell className='max-w-[11rem]'>
+                    <div className='truncate font-medium'>
+                      {item.device.device_name || '-'}
+                    </div>
+                    <div className='text-muted-foreground truncate text-xs'>
+                      {item.user_name || `#${item.user_id || 0}`}
+                    </div>
+                  </TableCell>
+                  <TableCell className='text-xs whitespace-nowrap'>
+                    {item.token_id > 0 ? `#${item.token_id}` : '-'}
+                    {item.token_created ? (
+                      <div className='text-muted-foreground'>
+                        {t('created')}
+                      </div>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className='text-muted-foreground text-xs whitespace-nowrap'>
+                    <div>{t(latestEvent.label)}</div>
+                    <div>{formatTimestampToDate(latestEvent.timestamp)}</div>
+                  </TableCell>
+                </TableRow>
+              )
+            })
+          ) : (
+            <TableRow>
+              <TableCell
+                className='text-muted-foreground text-center'
+                colSpan={4}
+              >
+                {t('No device sessions yet')}
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
 function DeveloperMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className='bg-muted/20 min-w-0 rounded-lg border px-2.5 py-2'>
@@ -839,6 +1202,42 @@ function tokenStatusVariant(status: string): StatusVariant {
     default:
       return 'info'
   }
+}
+
+function connectedAppStatusVariant(status: string): StatusVariant {
+  switch (status) {
+    case 'active':
+    case 'authorized':
+    case 'consumed':
+      return 'success'
+    case 'pending':
+      return 'warning'
+    case 'denied':
+    case 'rejected':
+    case 'revoked':
+      return 'danger'
+    case 'expired':
+    case 'historical':
+      return 'neutral'
+    default:
+      return 'info'
+  }
+}
+
+function latestDeviceSessionEvent(session: ConnectedAppDeveloperDeviceSession) {
+  if (session.consumed_at > 0) {
+    return { label: 'Consumed', timestamp: session.consumed_at }
+  }
+  if (session.authorized_at > 0) {
+    return { label: 'Authorized', timestamp: session.authorized_at }
+  }
+  if (session.last_polled_at > 0) {
+    return { label: 'Polled', timestamp: session.last_polled_at }
+  }
+  if (session.expires_at > 0 && session.status === 'expired') {
+    return { label: 'Expired', timestamp: session.expires_at }
+  }
+  return { label: 'Created', timestamp: session.created_at }
 }
 
 function hasDeveloperUsageFilters(filters: DeveloperUsageFiltersState) {

@@ -220,6 +220,7 @@ Profile 前端的 Connected App Developer 卡片已接入 `/developer/sdk-config
 - 具备 `token.manage` 的 app 可创建、复用或轮换当前登录开发者自己的 app-bound key；只有首次创建或轮换响应展示一次性明文 key。
 - 具备 `quota.read` 的 app 可查看 usage total、by_model 和 by_token，历史归属 token 在表格中显示为 `historical`，便于解释轮换前后的消耗。
 - usage 面板支持开始日期、结束日期、模型名和 token ID 筛选，筛选参数直接传给 `/developer/usage`，不在前端二次改写聚合口径。
+- 授权排障区块展示最近授权用户、grant scopes、设备/token 状态和 device session 状态；device session 可按 `pending/authorized/consumed/denied/expired` 过滤，便于判断浏览器批准和桌面端 poll 消费是否完成。
 
 ## 邮件/Webhook 通知扩展
 
@@ -500,5 +501,4 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 开发者授权排障视图：Profile 开发者卡片展示授权用户、设备和最近 device session 状态。
-2. OpenAPI/SDK 交付增强：补充 SDK 示例代码、环境变量复制入口和最小接入说明。
+1. OpenAPI/SDK 交付增强：补充 SDK 示例代码、环境变量复制入口和最小接入说明。
