@@ -756,6 +756,7 @@ function QueueAdmissionStatusBadge(props: { status: string }) {
     timeout: 'border-destructive/40 text-destructive',
     canceled: 'border-destructive/40 text-destructive',
     retry_pending: 'border-purple-500/40 text-purple-700',
+    replay_processing: 'border-blue-500/40 text-blue-700',
   }[props.status]
 
   return (
@@ -779,6 +780,8 @@ function formatQueueAdmissionStatus(status: string) {
       return 'Canceled'
     case 'retry_pending':
       return 'Retry Pending'
+    case 'replay_processing':
+      return 'Replay Processing'
     default:
       return status || '-'
   }
@@ -4420,6 +4423,9 @@ function QueueAdmissionsPanel(props: {
                 <SelectItem value='canceled'>{t('Canceled')}</SelectItem>
                 <SelectItem value='retry_pending'>
                   {t('Retry Pending')}
+                </SelectItem>
+                <SelectItem value='replay_processing'>
+                  {t('Replay Processing')}
                 </SelectItem>
               </SelectGroup>
             </SelectContent>

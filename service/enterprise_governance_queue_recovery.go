@@ -75,15 +75,18 @@ func RecoverStaleEnterpriseGovernanceQueueAdmissions(now int64, batchSize int) (
 	batchSize = normalizeEnterpriseGovernanceQueueRecoveryBatchSize(batchSize)
 	queuedBefore := now - durationSecondsCeil(enterprisePolicyQueueTimeout)
 	admittedBefore := now - durationSecondsCeil(enterprisePolicyQueueAdmittedStale)
+	replayProcessingBefore := now - durationSecondsCeil(enterpriseGovernanceQueueReplayRequestTimeout)
 
 	var rows []model.EnterpriseGovernanceQueueAdmission
 	if err := model.DB.
 		Where(
-			"(status = ? AND created_at <= ?) OR (status = ? AND admitted_at > 0 AND admitted_at <= ? AND released_at = 0 AND canceled_at = 0)",
+			"(status = ? AND created_at <= ?) OR (status = ? AND admitted_at > 0 AND admitted_at <= ? AND released_at = 0 AND canceled_at = 0) OR (status = ? AND updated_at <= ?)",
 			enterpriseQueueStatusQueued,
 			queuedBefore,
 			enterpriseQueueStatusAdmitted,
 			admittedBefore,
+			enterpriseQueueStatusReplayProcessing,
+			replayProcessingBefore,
 		).
 		Order("created_at asc, id asc").
 		Limit(batchSize).
@@ -157,6 +160,13 @@ func enterpriseGovernanceQueueRecoveryUpdates(row model.EnterpriseGovernanceQueu
 			"run_ms":           runMs,
 			"last_error":       "enterprise governance admitted queue admission recovered as canceled",
 			"user_message_key": enterpriseQueueUserMessageKey(enterpriseQueueStatusCanceled),
+			"updated_at":       now,
+		}
+	case enterpriseQueueStatusReplayProcessing:
+		return enterpriseQueueStatusTimeout, map[string]any{
+			"status":           enterpriseQueueStatusTimeout,
+			"last_error":       "enterprise governance queue replay recovered as timeout",
+			"user_message_key": enterpriseQueueUserMessageKey(enterpriseQueueStatusTimeout),
 			"updated_at":       now,
 		}
 	default:

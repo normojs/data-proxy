@@ -29,6 +29,7 @@ const (
 	enterpriseQueueStatusTimeout                  = model.EnterpriseGovernanceQueueAdmissionStatusTimeout
 	enterpriseQueueStatusCanceled                 = model.EnterpriseGovernanceQueueAdmissionStatusCanceled
 	enterpriseQueueStatusRetryPending             = model.EnterpriseGovernanceQueueAdmissionStatusRetryPending
+	enterpriseQueueStatusReplayProcessing         = model.EnterpriseGovernanceQueueAdmissionStatusReplayProcessing
 	enterpriseQueueStatusHeader                   = "X-Data-Proxy-Enterprise-Queue-Status"
 	enterpriseQueueWaitMsHeader                   = "X-Data-Proxy-Enterprise-Queue-Wait-Ms"
 	enterpriseQueueTimeoutMsHeader                = "X-Data-Proxy-Enterprise-Queue-Timeout-Ms"
@@ -59,7 +60,7 @@ type enterprisePolicyQueue struct {
 	slots chan struct{}
 }
 
-type enterpriseQueueRequestPayload struct {
+type EnterpriseGovernanceQueueRequestPayload struct {
 	Method                string `json:"method"`
 	Path                  string `json:"path"`
 	RawQuery              string `json:"raw_query,omitempty"`
@@ -73,6 +74,8 @@ type enterpriseQueueRequestPayload struct {
 	RelayMode             int    `json:"relay_mode"`
 	ChannelId             int    `json:"channel_id"`
 }
+
+type enterpriseQueueRequestPayload = EnterpriseGovernanceQueueRequestPayload
 
 type enterpriseQueueRequestBodyRestore struct {
 	reader io.Reader
@@ -428,6 +431,9 @@ func updateEnterpriseGovernanceQueueAdmission(c *gin.Context, admission *model.E
 func enterpriseQueueUserMessageKey(status string) string {
 	if status == enterpriseQueueStatusRetryPending {
 		return "enterprise_governance.queue_retry_pending"
+	}
+	if status == enterpriseQueueStatusReplayProcessing {
+		return "enterprise_governance.queue_replay_processing"
 	}
 	if status == enterpriseQueueStatusTimeout {
 		return "enterprise_governance.queue_timeout"

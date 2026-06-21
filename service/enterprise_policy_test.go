@@ -27,6 +27,7 @@ func setupEnterprisePolicyServiceTestDB(t *testing.T) {
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{},
+		&model.Token{},
 		&model.Enterprise{},
 		&model.EnterpriseOrgUnit{},
 		&model.EnterpriseOrgMembership{},

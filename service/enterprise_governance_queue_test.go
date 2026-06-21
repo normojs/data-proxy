@@ -336,12 +336,23 @@ func TestRecoverStaleEnterpriseGovernanceQueueAdmissionsMarksStaleRows(t *testin
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		},
+		{
+			RequestId:      "req-enterprise-queue-stale-replay",
+			EnterpriseId:   enterprise.Id,
+			UserId:         1037,
+			TokenId:        127,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusReplayProcessing,
+			UserMessageKey: "enterprise_governance.queue_replay_processing",
+			CreatedAt:      now - 20*60,
+			UpdatedAt:      now - 11*60,
+		},
 	}).Error)
 
 	stats, err := RecoverStaleEnterpriseGovernanceQueueAdmissions(now, 10)
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, stats.Scanned)
-	assert.EqualValues(t, 1, stats.TimedOut)
+	assert.EqualValues(t, 3, stats.Scanned)
+	assert.EqualValues(t, 2, stats.TimedOut)
 	assert.EqualValues(t, 1, stats.Canceled)
 	assert.Zero(t, stats.Errors)
 
@@ -364,11 +375,17 @@ func TestRecoverStaleEnterpriseGovernanceQueueAdmissionsMarksStaleRows(t *testin
 	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-fresh").First(&fresh).Error)
 	assert.Equal(t, enterpriseQueueStatusQueued, fresh.Status)
 
+	var replay model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-stale-replay").First(&replay).Error)
+	assert.Equal(t, enterpriseQueueStatusTimeout, replay.Status)
+	assert.Equal(t, "enterprise_governance.queue_timeout", replay.UserMessageKey)
+	assert.Equal(t, "enterprise governance queue replay recovered as timeout", replay.LastError)
+
 	var auditCount int64
 	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).
 		Where("action = ?", enterpriseGovernanceAuditActionQueueRecovery).
 		Count(&auditCount).Error)
-	assert.EqualValues(t, 2, auditCount)
+	assert.EqualValues(t, 3, auditCount)
 }
 
 func TestRetryEnterpriseGovernanceQueueAdmissionMarksRetryPending(t *testing.T) {
@@ -446,6 +463,203 @@ func TestEnterpriseGovernanceQueuePayloadSnapshotTruncatesAndRestoresBody(t *tes
 	restoredBody, err := io.ReadAll(ctx.Request.Body)
 	require.NoError(t, err)
 	assert.Equal(t, requestBody, string(restoredBody))
+}
+
+func TestProcessEnterpriseGovernanceQueueReplayBatchReplaysDueAdmission(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000200)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1040,
+		Username: "queue-replay-user",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.Token{
+		Id:           140,
+		UserId:       1040,
+		Key:          "queue-replay-token",
+		Status:       common.TokenStatusEnabled,
+		RemainQuota:  1000,
+		ExpiredTime:  -1,
+		Name:         "Queue Replay Token",
+		CreatedTime:  now - 100,
+		AccessedTime: now - 100,
+	}).Error)
+	payload := EnterpriseGovernanceQueueRequestPayload{
+		Method:                http.MethodPost,
+		Path:                  "/v1/chat/completions",
+		RawQuery:              "stream=false",
+		ContentType:           "application/json",
+		Body:                  `{"model":"gpt-4o","messages":[{"role":"user","content":"again"}]}`,
+		BodyCapturedBytes:     66,
+		BodyCaptureLimitBytes: enterpriseQueueRequestPayloadMaxBytes,
+		Model:                 "gpt-4o",
+		RelayMode:             relayconstant.RelayModeChatCompletions,
+	}
+	payloadJson, err := common.Marshal(payload)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.EnterpriseGovernanceQueueAdmission{
+		RequestId:          "req-enterprise-queue-replay-success",
+		EnterpriseId:       enterprise.Id,
+		UserId:             1040,
+		TokenId:            140,
+		QueueKey:           "enterprise:1",
+		Status:             model.EnterpriseGovernanceQueueAdmissionStatusRetryPending,
+		RetryCount:         1,
+		NextRetryAt:        now,
+		RequestPayloadJson: string(payloadJson),
+		UserMessageKey:     "enterprise_governance.queue_retry_pending",
+		CreatedAt:          now - 60,
+		UpdatedAt:          now - 60,
+	}).Error)
+
+	var gotRequest EnterpriseGovernanceQueueReplayRequest
+	stats, err := processEnterpriseGovernanceQueueReplayBatchWithStats(context.Background(), now, 10, func(ctx context.Context, request EnterpriseGovernanceQueueReplayRequest) EnterpriseGovernanceQueueReplayResult {
+		gotRequest = request
+		return EnterpriseGovernanceQueueReplayResult{StatusCode: http.StatusOK, DurationMs: 12}
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, stats.Scanned)
+	assert.EqualValues(t, 1, stats.Claimed)
+	assert.EqualValues(t, 1, stats.Replayed)
+	assert.Zero(t, stats.Failed)
+	assert.Equal(t, "/v1/chat/completions", gotRequest.Path)
+	assert.Equal(t, "stream=false", gotRequest.RawQuery)
+	assert.Equal(t, "queue-replay-token", gotRequest.TokenKey)
+	assert.Contains(t, string(gotRequest.Body), "again")
+
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-replay-success").First(&admission).Error)
+	assert.Equal(t, enterpriseQueueStatusReleased, admission.Status)
+	assert.EqualValues(t, now, admission.AdmittedAt)
+	assert.EqualValues(t, now, admission.ReleasedAt)
+	assert.EqualValues(t, 12, admission.RunMs)
+	assert.Empty(t, admission.LastError)
+	assert.Equal(t, "enterprise_governance.policy_action_observed", admission.UserMessageKey)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("request_id = ? AND action = ?", "req-enterprise-queue-replay-success", enterpriseGovernanceAuditActionQueueReplay).First(&audit).Error)
+	auditAfter := enterpriseAuditAfterForTest(t, audit)
+	replay, ok := auditAfter["replay"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, replay["success"])
+	assert.EqualValues(t, http.StatusOK, replay["status_code"])
+	assert.Equal(t, "/v1/chat/completions", replay["path"])
+	assert.NotContains(t, audit.AfterJson, "queue-replay-token")
+}
+
+func TestProcessEnterpriseGovernanceQueueReplayBatchFailsTruncatedPayload(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000300)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1041,
+		Username: "queue-replay-truncated-user",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.Token{
+		Id:          141,
+		UserId:      1041,
+		Key:         "queue-replay-truncated-token",
+		Status:      common.TokenStatusEnabled,
+		RemainQuota: 1000,
+		ExpiredTime: -1,
+		Name:        "Queue Replay Truncated Token",
+	}).Error)
+	payload := EnterpriseGovernanceQueueRequestPayload{
+		Method:        http.MethodPost,
+		Path:          "/v1/chat/completions",
+		ContentType:   "application/json",
+		Body:          strings.Repeat("a", enterpriseQueueRequestPayloadMaxBytes),
+		BodyTruncated: true,
+	}
+	payloadJson, err := common.Marshal(payload)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.EnterpriseGovernanceQueueAdmission{
+		RequestId:          "req-enterprise-queue-replay-truncated",
+		EnterpriseId:       enterprise.Id,
+		UserId:             1041,
+		TokenId:            141,
+		QueueKey:           "enterprise:1",
+		Status:             model.EnterpriseGovernanceQueueAdmissionStatusRetryPending,
+		RetryCount:         1,
+		NextRetryAt:        now,
+		RequestPayloadJson: string(payloadJson),
+		UserMessageKey:     "enterprise_governance.queue_retry_pending",
+		CreatedAt:          now - 60,
+		UpdatedAt:          now - 60,
+	}).Error)
+
+	called := false
+	stats, err := processEnterpriseGovernanceQueueReplayBatchWithStats(context.Background(), now, 10, func(ctx context.Context, request EnterpriseGovernanceQueueReplayRequest) EnterpriseGovernanceQueueReplayResult {
+		called = true
+		return EnterpriseGovernanceQueueReplayResult{StatusCode: http.StatusOK}
+	})
+	require.NoError(t, err)
+	assert.False(t, called)
+	assert.EqualValues(t, 1, stats.Claimed)
+	assert.EqualValues(t, 1, stats.Failed)
+	assert.Zero(t, stats.Replayed)
+
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-replay-truncated").First(&admission).Error)
+	assert.Equal(t, enterpriseQueueStatusTimeout, admission.Status)
+	assert.Contains(t, admission.LastError, ErrEnterpriseGovernanceQueueReplayPayloadTruncated.Error())
+	assert.Equal(t, "enterprise_governance.queue_timeout", admission.UserMessageKey)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("request_id = ? AND action = ?", "req-enterprise-queue-replay-truncated", enterpriseGovernanceAuditActionQueueReplay).First(&audit).Error)
+	assert.Contains(t, audit.AfterJson, ErrEnterpriseGovernanceQueueReplayPayloadTruncated.Error())
+	assert.NotContains(t, audit.AfterJson, "queue-replay-truncated-token")
+}
+
+func TestProcessEnterpriseGovernanceQueueReplayBatchSkipsFutureAdmission(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000400)
+	require.NoError(t, model.DB.Create(&model.EnterpriseGovernanceQueueAdmission{
+		RequestId:      "req-enterprise-queue-replay-future",
+		EnterpriseId:   enterprise.Id,
+		UserId:         1042,
+		TokenId:        142,
+		QueueKey:       "enterprise:1",
+		Status:         model.EnterpriseGovernanceQueueAdmissionStatusRetryPending,
+		RetryCount:     1,
+		NextRetryAt:    now + 60,
+		UserMessageKey: "enterprise_governance.queue_retry_pending",
+		CreatedAt:      now - 60,
+		UpdatedAt:      now - 60,
+	}).Error)
+
+	called := false
+	stats, err := processEnterpriseGovernanceQueueReplayBatchWithStats(context.Background(), now, 10, func(ctx context.Context, request EnterpriseGovernanceQueueReplayRequest) EnterpriseGovernanceQueueReplayResult {
+		called = true
+		return EnterpriseGovernanceQueueReplayResult{StatusCode: http.StatusOK}
+	})
+	require.NoError(t, err)
+	assert.False(t, called)
+	assert.Zero(t, stats.Scanned)
+	assert.Zero(t, stats.Claimed)
+
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-replay-future").First(&admission).Error)
+	assert.Equal(t, enterpriseQueueStatusRetryPending, admission.Status)
+}
+
+func TestProcessEnterpriseGovernanceQueueReplayBatchRequiresExecutor(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	_, err := processEnterpriseGovernanceQueueReplayBatchWithStats(context.Background(), 1700000500, 10, nil)
+	require.ErrorIs(t, err, ErrEnterpriseGovernanceQueueReplayExecutorNotConfigured)
 }
 
 func prepareEnterpriseGovernanceQueueRequest(t *testing.T, requestId string, userId int, tokenId int) (*relaycommon.RelayInfo, model.EnterpriseQuotaPolicy) {

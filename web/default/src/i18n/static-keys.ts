@@ -1136,6 +1136,7 @@ export const STATIC_I18N_KEYS = [
   'enterprise_governance.queue_timeout',
   'enterprise_governance.queue_canceled',
   'enterprise_governance.queue_retry_pending',
+  'enterprise_governance.queue_replay_processing',
   'enterprise_governance.shared_pool_reserved',
   'enterprise_governance.anomaly_throttled',
   'enterprise_governance.anomaly_orchestrated',

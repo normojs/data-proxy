@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -215,6 +217,7 @@ func main() {
 		DefaultBuildFS:   buildFS,
 		DefaultIndexPage: indexPage,
 	})
+	service.StartEnterpriseGovernanceQueueReplayTask(newEnterpriseGovernanceQueueReplayExecutor(server))
 	var port = os.Getenv("PORT")
 	if port == "" {
 		port = strconv.Itoa(*common.Port)
@@ -227,6 +230,88 @@ func main() {
 	if err != nil {
 		common.FatalLog("failed to start HTTP server: " + err.Error())
 	}
+}
+
+func newEnterpriseGovernanceQueueReplayExecutor(server *gin.Engine) service.EnterpriseGovernanceQueueReplayExecutor {
+	return func(ctx context.Context, request service.EnterpriseGovernanceQueueReplayRequest) service.EnterpriseGovernanceQueueReplayResult {
+		if server == nil {
+			return service.EnterpriseGovernanceQueueReplayResult{Error: fmt.Errorf("gin engine is nil")}
+		}
+		target := request.Path
+		if request.RawQuery != "" {
+			target += "?" + request.RawQuery
+		}
+		httpRequest := httptest.NewRequest(request.Method, target, bytes.NewReader(request.Body)).WithContext(ctx)
+		httpRequest.RemoteAddr = remoteAddrForQueueReplay("127.0.0.1")
+		httpRequest.Header.Set("Authorization", "Bearer "+request.TokenKey)
+		httpRequest.Header.Set("X-Data-Proxy-Enterprise-Queue-Replay", strconv.FormatInt(request.Admission.Id, 10))
+		if request.ContentType != "" {
+			httpRequest.Header.Set("Content-Type", request.ContentType)
+		}
+		writer := newQueueReplayResponseWriter()
+		startedAt := time.Now()
+		server.ServeHTTP(writer, httpRequest)
+		return service.EnterpriseGovernanceQueueReplayResult{
+			StatusCode: writer.StatusCode(),
+			DurationMs: durationMillisForQueueReplay(time.Since(startedAt)),
+		}
+	}
+}
+
+type queueReplayResponseWriter struct {
+	header      http.Header
+	statusCode  int
+	wroteHeader bool
+}
+
+func newQueueReplayResponseWriter() *queueReplayResponseWriter {
+	return &queueReplayResponseWriter{
+		header:     http.Header{},
+		statusCode: http.StatusOK,
+	}
+}
+
+func (writer *queueReplayResponseWriter) Header() http.Header {
+	return writer.header
+}
+
+func (writer *queueReplayResponseWriter) Write(data []byte) (int, error) {
+	if !writer.wroteHeader {
+		writer.WriteHeader(http.StatusOK)
+	}
+	return len(data), nil
+}
+
+func (writer *queueReplayResponseWriter) WriteHeader(statusCode int) {
+	if writer.wroteHeader {
+		return
+	}
+	writer.statusCode = statusCode
+	writer.wroteHeader = true
+}
+
+func (writer *queueReplayResponseWriter) Flush() {}
+
+func (writer *queueReplayResponseWriter) StatusCode() int {
+	if writer.statusCode <= 0 {
+		return http.StatusOK
+	}
+	return writer.statusCode
+}
+
+func remoteAddrForQueueReplay(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, "0")
+}
+
+func durationMillisForQueueReplay(duration time.Duration) int64 {
+	if duration <= 0 {
+		return 0
+	}
+	return int64(duration / time.Millisecond)
 }
 
 func InjectUmamiAnalytics() {

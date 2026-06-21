@@ -1,12 +1,13 @@
 package model
 
 const (
-	EnterpriseGovernanceQueueAdmissionStatusQueued       = "queued"
-	EnterpriseGovernanceQueueAdmissionStatusAdmitted     = "admitted"
-	EnterpriseGovernanceQueueAdmissionStatusReleased     = "released"
-	EnterpriseGovernanceQueueAdmissionStatusTimeout      = "timeout"
-	EnterpriseGovernanceQueueAdmissionStatusCanceled     = "canceled"
-	EnterpriseGovernanceQueueAdmissionStatusRetryPending = "retry_pending"
+	EnterpriseGovernanceQueueAdmissionStatusQueued           = "queued"
+	EnterpriseGovernanceQueueAdmissionStatusAdmitted         = "admitted"
+	EnterpriseGovernanceQueueAdmissionStatusReleased         = "released"
+	EnterpriseGovernanceQueueAdmissionStatusTimeout          = "timeout"
+	EnterpriseGovernanceQueueAdmissionStatusCanceled         = "canceled"
+	EnterpriseGovernanceQueueAdmissionStatusRetryPending     = "retry_pending"
+	EnterpriseGovernanceQueueAdmissionStatusReplayProcessing = "replay_processing"
 )
 
 type EnterpriseGovernanceQueueAdmission struct {

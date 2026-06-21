@@ -400,6 +400,7 @@ export type EnterpriseQueueAdmission = {
     | 'timeout'
     | 'canceled'
     | 'retry_pending'
+    | 'replay_processing'
     | string
   wait_ms: number
   timeout_ms: number
