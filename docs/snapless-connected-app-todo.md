@@ -15,6 +15,7 @@
 - 已完成 Connected App 外部通知 MVP：审批结果、设备授权批准/拒绝、异常 health 状态可按 preference 写入 email/webhook outbox；投递失败可重试且不阻断审批或授权。
 - 已完成 Connected App 通知管理前端：系统设置页可管理全局 preference、webhook、outbox、worker metrics 和 retry；Profile 开发者卡片可按获批应用管理 app 级 preference、webhook 和 outbox。
 - 已完成外部通知演练文档：审批结果、设备授权、health warning 均提供 curl 触发和 HMAC webhook 验签样例。
+- 已完成撤销/轮换通知事件：Snapless 授权、token rotate/revoke、设备撤销和最后设备触发的 grant 撤销均可写入 connected app notification outbox。
 - MCP 计费语义不改，仍按工具调用次数和 `price_per_call` 扣费。
 
 ## 开发顺序
@@ -31,7 +32,8 @@
 | 8 | SNAPLESS-008 | P2 | Done | 邮件/Webhook 通知扩展 | 审批结果、设备授权批准/拒绝和异常 health 状态可写入 connected app notification outbox；email/webhook 由 preference 控制，投递 worker 支持重试和 metrics，失败不阻断主流程。 |
 | 9 | SNAPLESS-009 | P2 | Done | 通知管理前端 | 管理员系统设置页可管理全局 preference、webhook、outbox、worker metrics 和 retry；获批应用开发者可在 Profile 开发者卡片中管理 app 级 preference、webhook 和 outbox。 |
 | 10 | SNAPLESS-010 | P2 | Done | 外部通知演练文档 | 审批结果、设备授权、health warning 三类事件均有 curl 触发流程和 webhook HMAC 验签 receiver 样例。 |
+| 11 | SNAPLESS-011 | P2 | Done | 撤销/轮换通知事件 | Snapless 授权批准/拒绝、token rotate/revoke、设备撤销和最后设备触发的 grant 撤销均写入 connected app notification outbox；通知失败不阻断主流程。 |
 
 ## 立即下一步
 
-1. 补撤销类事件：设备撤销、grant 撤销和 token rotate/revoke 写入 notification outbox。
+1. Scope 强约束：把 connected app scopes 从“允许 endpoint 描述”升级为 relay 层硬限制，增加 token/app scope 校验。

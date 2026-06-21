@@ -254,6 +254,39 @@ func seedSnaplessRouterUserAndAbilities(t *testing.T) {
 	}
 }
 
+func enableSnaplessRouterWebhookNotifications(t *testing.T, events ...string) {
+	t.Helper()
+
+	app, err := model.GetConnectedAppBySlug(model.ConnectedAppSlugSnapless)
+	require.NoError(t, err)
+	for _, eventType := range events {
+		require.NoError(t, model.DB.Create(&model.ConnectedAppNotificationPreference{
+			AppId:              app.Id,
+			Channel:            model.ConnectedAppNotificationOutboxChannelWebhook,
+			EventType:          eventType,
+			Enabled:            true,
+			RecipientScopeJson: `{}`,
+		}).Error)
+	}
+	eventTypesJson, err := common.Marshal(events)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.ConnectedAppWebhook{
+		AppId:          app.Id,
+		Name:           "snapless lifecycle webhook",
+		Url:            "https://example.com/snapless-lifecycle",
+		EventTypesJson: string(eventTypesJson),
+		Status:         model.ConnectedAppWebhookStatusEnabled,
+	}).Error)
+}
+
+func countSnaplessNotificationOutboxRows(t *testing.T, eventType string) int64 {
+	t.Helper()
+
+	var count int64
+	require.NoError(t, model.DB.Model(&model.ConnectedAppNotificationOutbox{}).Where("event_type = ?", eventType).Count(&count).Error)
+	return count
+}
+
 func newSnaplessRouterForTest(t *testing.T) *gin.Engine {
 	t.Helper()
 	engine := gin.New()
@@ -365,6 +398,7 @@ func TestSnaplessBuiltinAppPreservesStatus(t *testing.T) {
 func TestSnaplessDeviceFlowAuthorizesAndReturnsKeyOnce(t *testing.T) {
 	setupSnaplessRouterTestDB(t)
 	router := newSnaplessRouterForTest(t)
+	enableSnaplessRouterWebhookNotifications(t, model.ConnectedAppNotificationEventDeviceAuthorized)
 	body := `{"device_id":"mac-device","device_name":"Alice Mac","platform":"macos","app_version":"1.1.0"}`
 
 	started := decodeSnaplessData[snaplessDeviceStartData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/start", body, nil, ""))
@@ -390,6 +424,12 @@ func TestSnaplessDeviceFlowAuthorizesAndReturnsKeyOnce(t *testing.T) {
 	require.Equal(t, model.ConnectedAppDeviceSessionStatusAuthorized, authorized.Status)
 	require.NotZero(t, authorized.Token.ID)
 
+	var authorizationRows []model.ConnectedAppNotificationOutbox
+	require.NoError(t, model.DB.Where("event_type = ?", model.ConnectedAppNotificationEventDeviceAuthorized).Find(&authorizationRows).Error)
+	require.Len(t, authorizationRows, 1)
+	require.Equal(t, model.ConnectedAppNotificationOutboxChannelWebhook, authorizationRows[0].Channel)
+	require.Equal(t, "webhook:1", authorizationRows[0].RecipientEmail)
+
 	firstPoll := decodeSnaplessData[snaplessTokenData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/poll", fmt.Sprintf(`{"device_code":%q}`, started.DeviceCode), nil, ""))
 	require.True(t, firstPoll.Created)
 	require.True(t, firstPoll.APIKeyOnce)
@@ -410,6 +450,7 @@ func TestSnaplessDeviceFlowAuthorizesAndReturnsKeyOnce(t *testing.T) {
 func TestSnaplessRotateAndHealth(t *testing.T) {
 	setupSnaplessRouterTestDB(t)
 	router := newSnaplessRouterForTest(t)
+	enableSnaplessRouterWebhookNotifications(t, model.ConnectedAppNotificationEventTokenRotated)
 	cookies := loginSnaplessRouterUser(t, router)
 	body := `{"device_id":"macbook-rotate","device_name":"Alice Mac","platform":"macos","app_version":"1.0.0"}`
 
@@ -419,6 +460,13 @@ func TestSnaplessRotateAndHealth(t *testing.T) {
 	require.True(t, rotated.Rotated)
 	require.NotEqual(t, first.Token.ID, rotated.Token.ID)
 	require.NotEqual(t, first.APIKey, rotated.APIKey)
+
+	var rotationRows []model.ConnectedAppNotificationOutbox
+	require.NoError(t, model.DB.Where("event_type = ?", model.ConnectedAppNotificationEventTokenRotated).Find(&rotationRows).Error)
+	require.Len(t, rotationRows, 1)
+	require.Equal(t, model.ConnectedAppNotificationOutboxChannelWebhook, rotationRows[0].Channel)
+	require.Contains(t, rotationRows[0].PayloadJson, fmt.Sprintf(`"previous_token_id":%d`, first.Token.ID))
+	require.Contains(t, rotationRows[0].PayloadJson, fmt.Sprintf(`"new_token_id":%d`, rotated.Token.ID))
 
 	var oldToken model.Token
 	require.NoError(t, model.DB.Where("id = ?", first.Token.ID).First(&oldToken).Error)
@@ -525,6 +573,11 @@ func TestSnaplessReadinessActionsSurfaceModelIssues(t *testing.T) {
 func TestSnaplessRevokeCurrentTokenRevokesGrantWhenLastDevice(t *testing.T) {
 	setupSnaplessRouterTestDB(t)
 	router := newSnaplessRouterForTest(t)
+	enableSnaplessRouterWebhookNotifications(t,
+		model.ConnectedAppNotificationEventDeviceRevoked,
+		model.ConnectedAppNotificationEventTokenRevoked,
+		model.ConnectedAppNotificationEventGrantRevoked,
+	)
 	cookies := loginSnaplessRouterUser(t, router)
 	body := `{"device_id":"macbook-revoke","device_name":"Alice Mac","platform":"macos","app_version":"1.0.0"}`
 
@@ -533,6 +586,21 @@ func TestSnaplessRevokeCurrentTokenRevokesGrantWhenLastDevice(t *testing.T) {
 	require.True(t, revoked.Revoked)
 	require.True(t, revoked.GrantRevoked)
 	require.Equal(t, created.Token.ID, revoked.TokenID)
+
+	var lifecycleRows []model.ConnectedAppNotificationOutbox
+	require.NoError(t, model.DB.Order("event_type asc").Find(&lifecycleRows).Error)
+	require.Len(t, lifecycleRows, 3)
+	lifecycleEvents := make([]string, 0, len(lifecycleRows))
+	for _, row := range lifecycleRows {
+		lifecycleEvents = append(lifecycleEvents, row.EventType)
+		require.Equal(t, model.ConnectedAppNotificationOutboxChannelWebhook, row.Channel)
+		require.Contains(t, row.PayloadJson, fmt.Sprintf(`"token_id":%d`, created.Token.ID))
+	}
+	require.ElementsMatch(t, []string{
+		model.ConnectedAppNotificationEventDeviceRevoked,
+		model.ConnectedAppNotificationEventGrantRevoked,
+		model.ConnectedAppNotificationEventTokenRevoked,
+	}, lifecycleEvents)
 
 	var token model.Token
 	require.NoError(t, model.DB.Where("id = ?", created.Token.ID).First(&token).Error)
@@ -554,6 +622,12 @@ func TestSnaplessRevokeCurrentTokenRevokesGrantWhenLastDevice(t *testing.T) {
 func TestSnaplessDeviceConsoleListsRotatesAndRevokesOneDevice(t *testing.T) {
 	setupSnaplessRouterTestDB(t)
 	router := newSnaplessRouterForTest(t)
+	enableSnaplessRouterWebhookNotifications(t,
+		model.ConnectedAppNotificationEventTokenRotated,
+		model.ConnectedAppNotificationEventDeviceRevoked,
+		model.ConnectedAppNotificationEventTokenRevoked,
+		model.ConnectedAppNotificationEventGrantRevoked,
+	)
 	cookies := loginSnaplessRouterUser(t, router)
 	macBody := `{"device_id":"macbook-console","device_name":"Alice Mac","platform":"macos","app_version":"1.0.0"}`
 	winBody := `{"device_id":"windows-console","device_name":"Alice PC","platform":"windows","app_version":"1.0.0"}`
@@ -593,6 +667,7 @@ func TestSnaplessDeviceConsoleListsRotatesAndRevokesOneDevice(t *testing.T) {
 	require.True(t, rotated.APIKeyOnce)
 	require.NotEqual(t, mac.Token.ID, rotated.Token.ID)
 	require.Equal(t, mac.Device.Fingerprint, rotated.Device.Fingerprint)
+	require.Equal(t, int64(1), countSnaplessNotificationOutboxRows(t, model.ConnectedAppNotificationEventTokenRotated))
 
 	var oldMacToken model.Token
 	require.NoError(t, model.DB.Where("id = ?", mac.Token.ID).First(&oldMacToken).Error)
@@ -605,6 +680,9 @@ func TestSnaplessDeviceConsoleListsRotatesAndRevokesOneDevice(t *testing.T) {
 	require.True(t, revokedMac.Revoked)
 	require.False(t, revokedMac.GrantRevoked)
 	require.Equal(t, rotated.Token.ID, revokedMac.TokenID)
+	require.Equal(t, int64(1), countSnaplessNotificationOutboxRows(t, model.ConnectedAppNotificationEventDeviceRevoked))
+	require.Equal(t, int64(1), countSnaplessNotificationOutboxRows(t, model.ConnectedAppNotificationEventTokenRevoked))
+	require.Equal(t, int64(0), countSnaplessNotificationOutboxRows(t, model.ConnectedAppNotificationEventGrantRevoked))
 
 	afterFirstRevoke := decodeSnaplessData[snaplessDevicesData](t, requestSnaplessRouter(t, router, http.MethodGet, "/api/snapless/devices", "", cookies, ""))
 	require.Equal(t, model.ConnectedAppGrantStatusAuthorized, afterFirstRevoke.Grant.Status)
@@ -627,6 +705,9 @@ func TestSnaplessDeviceConsoleListsRotatesAndRevokesOneDevice(t *testing.T) {
 	require.True(t, revokedWin.Revoked)
 	require.True(t, revokedWin.GrantRevoked)
 	require.Equal(t, win.Token.ID, revokedWin.TokenID)
+	require.Equal(t, int64(2), countSnaplessNotificationOutboxRows(t, model.ConnectedAppNotificationEventDeviceRevoked))
+	require.Equal(t, int64(2), countSnaplessNotificationOutboxRows(t, model.ConnectedAppNotificationEventTokenRevoked))
+	require.Equal(t, int64(1), countSnaplessNotificationOutboxRows(t, model.ConnectedAppNotificationEventGrantRevoked))
 
 	var grant model.ConnectedAppGrant
 	require.NoError(t, model.DB.Where("user_id = ?", snaplessRouterTestUserId).First(&grant).Error)

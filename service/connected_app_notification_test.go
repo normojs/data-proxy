@@ -169,6 +169,96 @@ func TestSendConnectedAppWebhookWithSignatureAndPayloadVersion(t *testing.T) {
 	assert.Equal(t, row.PayloadJson, receivedPayload.PayloadJson)
 }
 
+func TestEnqueueConnectedAppTokenLifecycleOutboxRespectsPreferencesAndIsIdempotent(t *testing.T) {
+	setupConnectedAppNotificationServiceTestDB(t)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       9601,
+		Username: "token-lifecycle-dev",
+		Email:    "token-lifecycle-dev@example.com",
+		Status:   common.UserStatusEnabled,
+		AffCode:  "token-lifecycle-dev",
+	}).Error)
+	app := model.ConnectedApp{
+		Id:                9610,
+		Slug:              "token-lifecycle-app",
+		Name:              "Token Lifecycle App",
+		AllowedScopes:     "openai.chat",
+		DefaultScopes:     "openai.chat",
+		AuthorizationFlow: model.ConnectedAppAuthorizationFlowDeviceCode,
+		Trusted:           true,
+		Status:            model.ConnectedAppStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&app).Error)
+	require.NoError(t, model.DB.Create(&model.ConnectedAppRequest{
+		Id:              9620,
+		ApplicantUserId: 9601,
+		AppId:           app.Id,
+		Slug:            app.Slug,
+		Name:            app.Name,
+		Status:          model.ConnectedAppRequestStatusApproved,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.ConnectedAppNotificationPreference{
+		AppId:              app.Id,
+		Channel:            model.ConnectedAppNotificationOutboxChannelEmail,
+		EventType:          model.ConnectedAppNotificationEventTokenRotated,
+		Enabled:            true,
+		RecipientScopeJson: `{"app_developers":true}`,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.ConnectedAppNotificationPreference{
+		AppId:              app.Id,
+		Channel:            model.ConnectedAppNotificationOutboxChannelWebhook,
+		EventType:          model.ConnectedAppNotificationEventTokenRotated,
+		Enabled:            true,
+		RecipientScopeJson: `{}`,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.ConnectedAppWebhook{
+		AppId:          app.Id,
+		Name:           "token lifecycle webhook",
+		Url:            "https://example.com/token-lifecycle",
+		EventTypesJson: `["connected_app_token.rotated"]`,
+		Status:         model.ConnectedAppWebhookStatusEnabled,
+	}).Error)
+
+	input := ConnectedAppTokenLifecycleNotificationInput{
+		EventType:         model.ConnectedAppNotificationEventTokenRotated,
+		App:               app,
+		UserId:            9701,
+		GrantId:           9630,
+		BindingId:         9640,
+		TokenId:           9660,
+		PreviousTokenId:   9650,
+		NewTokenId:        9660,
+		DeviceFingerprint: "device-fingerprint",
+		DeviceName:        "Developer Mac",
+		Platform:          "macos",
+		AppVersion:        "1.0.0",
+		OccurredAt:        1781902000,
+	}
+	require.NoError(t, EnqueueConnectedAppTokenLifecycleOutboxWithDB(model.DB, input))
+	require.NoError(t, EnqueueConnectedAppTokenLifecycleOutboxWithDB(model.DB, input))
+
+	var rows []model.ConnectedAppNotificationOutbox
+	require.NoError(t, model.DB.Order("channel asc").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	channels := []string{rows[0].Channel, rows[1].Channel}
+	assert.ElementsMatch(t, []string{model.ConnectedAppNotificationOutboxChannelEmail, model.ConnectedAppNotificationOutboxChannelWebhook}, channels)
+	for _, row := range rows {
+		assert.Equal(t, app.Id, row.AppId)
+		assert.Equal(t, model.ConnectedAppNotificationEventTokenRotated, row.EventType)
+		assert.Equal(t, "connected_app_token_binding", row.TargetType)
+		assert.Equal(t, 9640, row.TargetId)
+		assert.Equal(t, model.ConnectedAppNotificationOutboxStatusPending, row.Status)
+		assert.Contains(t, row.PayloadJson, `"previous_token_id":9650`)
+		assert.Contains(t, row.PayloadJson, `"new_token_id":9660`)
+		if row.Channel == model.ConnectedAppNotificationOutboxChannelEmail {
+			assert.Equal(t, "token-lifecycle-dev@example.com", row.RecipientEmail)
+		}
+		if row.Channel == model.ConnectedAppNotificationOutboxChannelWebhook {
+			assert.Equal(t, "webhook:1", row.RecipientEmail)
+		}
+	}
+}
+
 func TestConnectedAppNotificationRejectsInvalidAppIdAndWebhookEvent(t *testing.T) {
 	setupConnectedAppNotificationServiceTestDB(t)
 
@@ -201,6 +291,14 @@ func TestConnectedAppNotificationRejectsInvalidAppIdAndWebhookEvent(t *testing.T
 		Name:       "wildcard",
 		Url:        "https://example.com/webhook",
 		EventTypes: []string{"*"},
+	})
+	require.NoError(t, err)
+
+	_, err = CreateConnectedAppWebhook(ConnectedAppWebhookUpsertInput{
+		AppId:      0,
+		Name:       "token lifecycle",
+		Url:        "https://example.com/token-lifecycle",
+		EventTypes: []string{model.ConnectedAppNotificationEventTokenRotated},
 	})
 	require.NoError(t, err)
 }

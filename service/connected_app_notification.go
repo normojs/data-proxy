@@ -36,6 +36,10 @@ var ConnectedAppNotificationPreferenceEventTypes = []string{
 	model.ConnectedAppAuditActionReject,
 	model.ConnectedAppNotificationEventDeviceAuthorized,
 	model.ConnectedAppNotificationEventDeviceDenied,
+	model.ConnectedAppNotificationEventDeviceRevoked,
+	model.ConnectedAppNotificationEventTokenRotated,
+	model.ConnectedAppNotificationEventTokenRevoked,
+	model.ConnectedAppNotificationEventGrantRevoked,
 	model.ConnectedAppNotificationEventHealthWarning,
 }
 
@@ -238,6 +242,42 @@ type ConnectedAppHealthWarningNotificationPayload struct {
 	Platform          string          `json:"platform"`
 	AppVersion        string          `json:"app_version"`
 	Client            string          `json:"client"`
+}
+
+type ConnectedAppTokenLifecycleNotificationInput struct {
+	EventType         string
+	App               model.ConnectedApp
+	UserId            int
+	GrantId           int64
+	BindingId         int64
+	TokenId           int
+	PreviousTokenId   int
+	NewTokenId        int
+	Status            string
+	DeviceFingerprint string
+	DeviceName        string
+	Platform          string
+	AppVersion        string
+	OccurredAt        int64
+}
+
+type ConnectedAppTokenLifecycleNotificationPayload struct {
+	Version           string `json:"version"`
+	AppId             int    `json:"app_id"`
+	AppSlug           string `json:"app_slug"`
+	AppName           string `json:"app_name"`
+	UserId            int    `json:"user_id"`
+	GrantId           int64  `json:"grant_id"`
+	BindingId         int64  `json:"binding_id"`
+	TokenId           int    `json:"token_id"`
+	PreviousTokenId   int    `json:"previous_token_id"`
+	NewTokenId        int    `json:"new_token_id"`
+	Status            string `json:"status"`
+	DeviceFingerprint string `json:"device_fingerprint"`
+	DeviceName        string `json:"device_name"`
+	Platform          string `json:"platform"`
+	AppVersion        string `json:"app_version"`
+	OccurredAt        int64  `json:"occurred_at"`
 }
 
 func ListConnectedAppNotificationPreferences(appId int) ([]ConnectedAppNotificationPreferenceItem, error) {
@@ -1124,8 +1164,16 @@ func connectedAppNotificationOutboxEmailMessage(row model.ConnectedAppNotificati
 		subject = "Connected app device authorized"
 	case model.ConnectedAppNotificationEventDeviceDenied:
 		subject = "Connected app device denied"
+	case model.ConnectedAppNotificationEventDeviceRevoked:
+		subject = "Connected app device revoked"
+	case model.ConnectedAppNotificationEventGrantRevoked:
+		subject = "Connected app grant revoked"
 	case model.ConnectedAppNotificationEventHealthWarning:
 		subject = "Connected app health warning"
+	case model.ConnectedAppNotificationEventTokenRevoked:
+		subject = "Connected app token revoked"
+	case model.ConnectedAppNotificationEventTokenRotated:
+		subject = "Connected app token rotated"
 	}
 	content := fmt.Sprintf(
 		`<p>%s</p><p>Event: %s</p><p>Target: %s #%d</p>`,
@@ -1388,6 +1436,151 @@ func EnqueueConnectedAppHealthWarningOutboxWithDB(db *gorm.DB, input ConnectedAp
 		}
 	}
 	return enqueueConnectedAppWebhookRows(db, input.App.Id, model.ConnectedAppNotificationEventHealthWarning+"."+input.Status, targetType, targetId, dailyAuditKey, payload)
+}
+
+func EnqueueConnectedAppTokenLifecycleOutboxWithDB(db *gorm.DB, input ConnectedAppTokenLifecycleNotificationInput) error {
+	eventType := strings.TrimSpace(input.EventType)
+	if !isConnectedAppTokenLifecycleNotificationEventType(eventType) {
+		return fmt.Errorf("invalid connected app token lifecycle event type: %s", eventType)
+	}
+	if input.App.Id <= 0 || input.UserId <= 0 {
+		return nil
+	}
+	if db == nil {
+		db = model.DB
+	}
+	now := input.OccurredAt
+	if now <= 0 {
+		now = common.GetTimestamp()
+	}
+	tokenId := input.TokenId
+	if tokenId == 0 {
+		tokenId = input.NewTokenId
+	}
+	if tokenId == 0 {
+		tokenId = input.PreviousTokenId
+	}
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		switch eventType {
+		case model.ConnectedAppNotificationEventTokenRotated:
+			status = "rotated"
+		case model.ConnectedAppNotificationEventTokenRevoked, model.ConnectedAppNotificationEventDeviceRevoked, model.ConnectedAppNotificationEventGrantRevoked:
+			status = "revoked"
+		default:
+			status = eventType
+		}
+	}
+	payload := ConnectedAppTokenLifecycleNotificationPayload{
+		Version:           ConnectedAppWebhookPayloadVersion,
+		AppId:             input.App.Id,
+		AppSlug:           input.App.Slug,
+		AppName:           input.App.Name,
+		UserId:            input.UserId,
+		GrantId:           input.GrantId,
+		BindingId:         input.BindingId,
+		TokenId:           tokenId,
+		PreviousTokenId:   input.PreviousTokenId,
+		NewTokenId:        input.NewTokenId,
+		Status:            status,
+		DeviceFingerprint: input.DeviceFingerprint,
+		DeviceName:        input.DeviceName,
+		Platform:          input.Platform,
+		AppVersion:        input.AppVersion,
+		OccurredAt:        now,
+	}
+	targetType, targetId := connectedAppTokenLifecycleNotificationTarget(input)
+	if targetId <= 0 {
+		return nil
+	}
+	auditId := connectedAppTokenLifecycleNotificationAuditId(input, tokenId, now)
+	emailScope, emailEnabled, err := ConnectedAppNotificationEmailScopeWithDB(db, input.App.Id, eventType)
+	if err != nil {
+		return err
+	}
+	if emailEnabled {
+		recipients, err := connectedAppDeviceNotificationRecipientUserIds(db, input.App.Id, input.UserId, emailScope)
+		if err != nil {
+			return err
+		}
+		emailByUserId, err := connectedAppNotificationRecipientEmails(db, recipients)
+		if err != nil {
+			return err
+		}
+		for _, recipientUserId := range recipients {
+			if email := strings.TrimSpace(emailByUserId[recipientUserId]); email != "" {
+				if _, err := EnqueueConnectedAppNotificationOutboxWithDB(db, ConnectedAppNotificationOutboxInput{
+					EventKey:        connectedAppNotificationOutboxEventKey(eventType, targetType, targetId, auditId, model.ConnectedAppNotificationOutboxChannelEmail, "user:"+strconv.Itoa(recipientUserId)),
+					EventType:       eventType,
+					AppId:           input.App.Id,
+					RecipientUserId: recipientUserId,
+					RecipientEmail:  email,
+					Channel:         model.ConnectedAppNotificationOutboxChannelEmail,
+					TargetType:      targetType,
+					TargetId:        targetId,
+					Payload:         payload,
+				}); err != nil {
+					return err
+				}
+			}
+		}
+		if err := enqueueConnectedAppExplicitEmailRows(db, input.App.Id, eventType, targetType, targetId, auditId, payload, emailScope.ExplicitEmails); err != nil {
+			return err
+		}
+	}
+	return enqueueConnectedAppWebhookRows(db, input.App.Id, eventType, targetType, targetId, auditId, payload)
+}
+
+func isConnectedAppTokenLifecycleNotificationEventType(eventType string) bool {
+	switch eventType {
+	case model.ConnectedAppNotificationEventDeviceRevoked,
+		model.ConnectedAppNotificationEventGrantRevoked,
+		model.ConnectedAppNotificationEventTokenRevoked,
+		model.ConnectedAppNotificationEventTokenRotated:
+		return true
+	default:
+		return false
+	}
+}
+
+func connectedAppTokenLifecycleNotificationTarget(input ConnectedAppTokenLifecycleNotificationInput) (string, int) {
+	if input.EventType == model.ConnectedAppNotificationEventGrantRevoked {
+		return "connected_app_grant", int(input.GrantId)
+	}
+	if input.BindingId > 0 {
+		return "connected_app_token_binding", int(input.BindingId)
+	}
+	if input.TokenId > 0 {
+		return "connected_app_token", input.TokenId
+	}
+	if input.NewTokenId > 0 {
+		return "connected_app_token", input.NewTokenId
+	}
+	if input.PreviousTokenId > 0 {
+		return "connected_app_token", input.PreviousTokenId
+	}
+	return "connected_app_user", input.UserId
+}
+
+func connectedAppTokenLifecycleNotificationAuditId(input ConnectedAppTokenLifecycleNotificationInput, tokenId int, now int64) int64 {
+	switch input.EventType {
+	case model.ConnectedAppNotificationEventTokenRotated:
+		if input.PreviousTokenId > 0 {
+			return int64(input.PreviousTokenId)
+		}
+		if input.NewTokenId > 0 {
+			return int64(input.NewTokenId)
+		}
+	case model.ConnectedAppNotificationEventGrantRevoked:
+		if tokenId > 0 {
+			return int64(tokenId)
+		}
+		return now
+	}
+	if tokenId > 0 {
+		return int64(tokenId)
+	}
+	return now
 }
 
 func connectedAppDeviceNotificationRecipientUserIds(db *gorm.DB, appId int, authorizingUserId int, scope ConnectedAppNotificationRecipientScope) ([]int, error) {

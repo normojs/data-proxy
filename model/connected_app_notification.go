@@ -13,7 +13,11 @@ const (
 
 	ConnectedAppNotificationEventDeviceAuthorized = "connected_app_device.authorized"
 	ConnectedAppNotificationEventDeviceDenied     = "connected_app_device.denied"
+	ConnectedAppNotificationEventDeviceRevoked    = "connected_app_device.revoked"
+	ConnectedAppNotificationEventGrantRevoked     = "connected_app_grant.revoked"
 	ConnectedAppNotificationEventHealthWarning    = "connected_app.health.warning"
+	ConnectedAppNotificationEventTokenRevoked     = "connected_app_token.revoked"
+	ConnectedAppNotificationEventTokenRotated     = "connected_app_token.rotated"
 
 	ConnectedAppWebhookStatusEnabled  = 1
 	ConnectedAppWebhookStatusDisabled = 2

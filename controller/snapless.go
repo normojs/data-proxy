@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -429,6 +430,7 @@ func AuthorizeSnaplessDevice(c *gin.Context) {
 	}
 
 	var response snaplessDeviceStatusResponse
+	var notifiedSession model.ConnectedAppDeviceSession
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		var session model.ConnectedAppDeviceSession
 		if err := tx.Clauses(clauseLockingUpdate()).Where("user_code = ?", req.UserCode).First(&session).Error; err != nil {
@@ -460,6 +462,10 @@ func AuthorizeSnaplessDevice(c *gin.Context) {
 			if result.RowsAffected == 0 {
 				return errors.New("设备授权状态已更新，请刷新后重试")
 			}
+			session.UserId = userId
+			session.Status = model.ConnectedAppDeviceSessionStatusDenied
+			session.UpdatedAt = now
+			notifiedSession = session
 			response = snaplessDeviceStatusResponse{
 				Status:    model.ConnectedAppDeviceSessionStatusDenied,
 				ExpiresAt: session.ExpiresAt,
@@ -490,6 +496,13 @@ func AuthorizeSnaplessDevice(c *gin.Context) {
 		if result.RowsAffected == 0 {
 			return errors.New("设备授权状态已更新，请刷新后重试")
 		}
+		session.UserId = userId
+		session.TokenId = tokenId
+		session.TokenCreated = tokenResponse.Created
+		session.Status = model.ConnectedAppDeviceSessionStatusAuthorized
+		session.AuthorizedAt = now
+		session.UpdatedAt = now
+		notifiedSession = session
 		response = snaplessDeviceStatusResponse{
 			Status:    model.ConnectedAppDeviceSessionStatusAuthorized,
 			ExpiresAt: session.ExpiresAt,
@@ -507,6 +520,11 @@ func AuthorizeSnaplessDevice(c *gin.Context) {
 		}
 		common.ApiError(c, err)
 		return
+	}
+	if notifiedSession.Id > 0 {
+		if err := service.EnqueueConnectedAppDeviceAuthorizationOutboxWithDB(model.DB, *app, notifiedSession); err != nil {
+			common.SysLog("failed to enqueue snapless device authorization notification outbox: " + err.Error())
+		}
 	}
 	common.ApiSuccess(c, response)
 }
@@ -649,13 +667,31 @@ func RotateSnaplessToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	app, err := ensureSnaplessApp()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userId := c.GetInt("id")
+	device := snaplessDeviceFromRequest(c, req)
+	var previousBinding *model.ConnectedAppTokenBinding
+	if binding, err := model.FindActiveConnectedAppTokenBinding(app.Id, userId, device.Fingerprint); err == nil {
+		bindingCopy := *binding
+		previousBinding = &bindingCopy
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiError(c, err)
+		return
+	}
 	response, tokenId, err := ensureSnaplessTokenForDevice(c, req, true)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	if tokenId > 0 {
-		_ = model.TouchConnectedAppUsage(response.App.ID, c.GetInt("id"), tokenId, common.GetTimestamp())
+		_ = model.TouchConnectedAppUsage(response.App.ID, userId, tokenId, common.GetTimestamp())
+	}
+	if response.Rotated && previousBinding != nil {
+		enqueueSnaplessTokenLifecycleNotification(app, model.ConnectedAppNotificationEventTokenRotated, userId, *previousBinding, previousBinding.TokenId, tokenId, common.GetTimestamp())
 	}
 	common.ApiSuccess(c, response)
 }
@@ -677,6 +713,7 @@ func RevokeCurrentSnaplessToken(c *gin.Context) {
 
 	var revokedTokenId int
 	var grantRevoked bool
+	var revokedBinding *model.ConnectedAppTokenBinding
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		binding, err := findSnaplessBindingTx(tx, app.Id, userId, device.Fingerprint)
 		if err != nil {
@@ -685,6 +722,8 @@ func RevokeCurrentSnaplessToken(c *gin.Context) {
 			}
 			return err
 		}
+		bindingCopy := *binding
+		revokedBinding = &bindingCopy
 		revokedTokenId = binding.TokenId
 		if err := model.DisableTokenWithTx(tx, binding.TokenId, userId); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -705,6 +744,13 @@ func RevokeCurrentSnaplessToken(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if revokedBinding != nil && revokedTokenId > 0 {
+		enqueueSnaplessTokenLifecycleNotification(app, model.ConnectedAppNotificationEventDeviceRevoked, userId, *revokedBinding, revokedTokenId, 0, now)
+		enqueueSnaplessTokenLifecycleNotification(app, model.ConnectedAppNotificationEventTokenRevoked, userId, *revokedBinding, revokedTokenId, 0, now)
+		if grantRevoked {
+			enqueueSnaplessTokenLifecycleNotification(app, model.ConnectedAppNotificationEventGrantRevoked, userId, *revokedBinding, revokedTokenId, 0, now)
+		}
 	}
 
 	common.ApiSuccess(c, gin.H{
@@ -805,6 +851,7 @@ func RotateSnaplessDevice(c *gin.Context) {
 
 	var response snaplessTokenResponse
 	var tokenId int
+	var previousBinding *model.ConnectedAppTokenBinding
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		binding, err := findSnaplessBindingTx(tx, app.Id, userId, fingerprint)
 		if err != nil {
@@ -813,6 +860,8 @@ func RotateSnaplessDevice(c *gin.Context) {
 			}
 			return err
 		}
+		bindingCopy := *binding
+		previousBinding = &bindingCopy
 		device := snaplessDeviceInfoFromBinding(binding)
 		response, tokenId, err = ensureSnaplessTokenForDeviceTx(c, tx, app, userId, device, true)
 		return err
@@ -823,6 +872,9 @@ func RotateSnaplessDevice(c *gin.Context) {
 	}
 	if tokenId > 0 {
 		_ = model.TouchConnectedAppUsage(response.App.ID, userId, tokenId, common.GetTimestamp())
+	}
+	if response.Rotated && previousBinding != nil {
+		enqueueSnaplessTokenLifecycleNotification(app, model.ConnectedAppNotificationEventTokenRotated, userId, *previousBinding, previousBinding.TokenId, tokenId, common.GetTimestamp())
 	}
 	common.ApiSuccess(c, response)
 }
@@ -844,6 +896,7 @@ func RevokeSnaplessDevice(c *gin.Context) {
 	var revokedTokenId int
 	var grantRevoked bool
 	var device snaplessDeviceInfo
+	var revokedBinding *model.ConnectedAppTokenBinding
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		binding, err := findSnaplessBindingTx(tx, app.Id, userId, fingerprint)
 		if err != nil {
@@ -853,6 +906,8 @@ func RevokeSnaplessDevice(c *gin.Context) {
 			return err
 		}
 		device = snaplessDeviceInfoFromBinding(binding)
+		bindingCopy := *binding
+		revokedBinding = &bindingCopy
 		revokedTokenId = binding.TokenId
 		if err := model.DisableTokenWithTx(tx, binding.TokenId, userId); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -873,6 +928,13 @@ func RevokeSnaplessDevice(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if revokedBinding != nil && revokedTokenId > 0 {
+		enqueueSnaplessTokenLifecycleNotification(app, model.ConnectedAppNotificationEventDeviceRevoked, userId, *revokedBinding, revokedTokenId, 0, now)
+		enqueueSnaplessTokenLifecycleNotification(app, model.ConnectedAppNotificationEventTokenRevoked, userId, *revokedBinding, revokedTokenId, 0, now)
+		if grantRevoked {
+			enqueueSnaplessTokenLifecycleNotification(app, model.ConnectedAppNotificationEventGrantRevoked, userId, *revokedBinding, revokedTokenId, 0, now)
+		}
 	}
 
 	common.ApiSuccess(c, gin.H{
@@ -1225,6 +1287,34 @@ func findSnaplessBindingTx(tx *gorm.DB, appId int, userId int, deviceFingerprint
 		return nil, err
 	}
 	return &binding, nil
+}
+
+func enqueueSnaplessTokenLifecycleNotification(app *model.ConnectedApp, eventType string, userId int, binding model.ConnectedAppTokenBinding, previousTokenId int, newTokenId int, occurredAt int64) {
+	if app == nil || binding.Id <= 0 || userId <= 0 {
+		return
+	}
+	tokenId := newTokenId
+	if tokenId == 0 {
+		tokenId = previousTokenId
+	}
+	input := service.ConnectedAppTokenLifecycleNotificationInput{
+		EventType:         eventType,
+		App:               *app,
+		UserId:            userId,
+		GrantId:           binding.GrantId,
+		BindingId:         binding.Id,
+		TokenId:           tokenId,
+		PreviousTokenId:   previousTokenId,
+		NewTokenId:        newTokenId,
+		DeviceFingerprint: binding.DeviceFingerprint,
+		DeviceName:        binding.DeviceName,
+		Platform:          binding.Platform,
+		AppVersion:        binding.AppVersion,
+		OccurredAt:        occurredAt,
+	}
+	if err := service.EnqueueConnectedAppTokenLifecycleOutboxWithDB(model.DB, input); err != nil {
+		common.SysLog("failed to enqueue snapless token lifecycle notification outbox: " + err.Error())
+	}
 }
 
 func snaplessFingerprintParam(c *gin.Context) string {

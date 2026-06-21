@@ -114,6 +114,10 @@ const CONNECTED_APP_NOTIFICATION_EVENTS = [
   'connected_app_request.reject',
   'connected_app_device.authorized',
   'connected_app_device.denied',
+  'connected_app_device.revoked',
+  'connected_app_token.rotated',
+  'connected_app_token.revoked',
+  'connected_app_grant.revoked',
   'connected_app.health.warning',
 ] as const
 
@@ -1470,6 +1474,14 @@ function notificationEventLabel(eventType: string) {
       return 'Device authorized'
     case 'connected_app_device.denied':
       return 'Device denied'
+    case 'connected_app_device.revoked':
+      return 'Device revoked'
+    case 'connected_app_token.rotated':
+      return 'Token rotated'
+    case 'connected_app_token.revoked':
+      return 'Token revoked'
+    case 'connected_app_grant.revoked':
+      return 'Grant revoked'
     case 'connected_app.health.warning':
       return 'Health warning'
     default:

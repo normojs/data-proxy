@@ -199,6 +199,10 @@ Scope 到 endpoint 的当前映射：
 - `connected_app_request.reject`
 - `connected_app_device.authorized`
 - `connected_app_device.denied`
+- `connected_app_device.revoked`
+- `connected_app_token.rotated`
+- `connected_app_token.revoked`
+- `connected_app_grant.revoked`
 - `connected_app.health.warning`
 
 管理员接口：
@@ -397,6 +401,13 @@ curl -sS "$BASE_URL/api/connected-apps/$APP_SLUG/device/status?user_code=$USER_C
 
 当 `readiness.ok=false` 时，接收端应看到 `event_type=connected_app.health.warning`，`payload_json` 中包含 `status` 和 `checks`。Health warning 通过 event key 做每日幂等，预发重复演练时需要更换测试用户、设备 session、异常状态，或等到下一个 UTC 日期。
 
+撤销/轮换事件说明：
+
+- `connected_app_token.rotated`：Snapless 当前设备或指定设备完成 token 轮换后写入，payload 中包含 `previous_token_id` 和 `new_token_id`。
+- `connected_app_token.revoked`：设备撤销时对应 token 被禁用后写入。
+- `connected_app_device.revoked`：设备绑定撤销后写入，target 为 `connected_app_token_binding`。
+- `connected_app_grant.revoked`：撤销最后一台设备并导致该 app grant 进入 revoked 状态后写入，target 为 `connected_app_grant`。
+
 ## 可操作状态
 
 Snapless 响应里的 `actions` 采用统一结构：
@@ -451,5 +462,4 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 撤销类通知事件：设备撤销、grant 撤销和 token rotate/revoke 写入 notification outbox。
-2. Scope 强约束：如需把 scope 从“允许 endpoint 描述”升级为 relay 层硬限制，再增加 token/app scope 校验。
+1. Scope 强约束：如需把 scope 从“允许 endpoint 描述”升级为 relay 层硬限制，再增加 token/app scope 校验。
