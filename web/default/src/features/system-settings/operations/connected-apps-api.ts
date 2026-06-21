@@ -349,6 +349,13 @@ export type ConnectedAppDeveloperDeviceSessionParams = {
   status?: string
 }
 
+export type ConnectedAppDeveloperSDKExample = {
+  id: string
+  label: string
+  language: string
+  code: string
+}
+
 export type ConnectedAppDeveloperSDKConfig = {
   app: ConnectedAppDeveloperApp
   owner: boolean
@@ -356,6 +363,8 @@ export type ConnectedAppDeveloperSDKConfig = {
   api_endpoints: Record<string, string>
   device_flow: Record<string, string>
   developer_endpoints: Record<string, string>
+  environment: Record<string, string>
+  examples: ConnectedAppDeveloperSDKExample[]
   scopes: string[]
   permissions: {
     can_create_key: boolean
@@ -365,6 +374,7 @@ export type ConnectedAppDeveloperSDKConfig = {
   sdk: {
     openai_compatible: boolean
     base_url: string
+    base_url_env: string
     api_key_env: string
     api_key_prefix: string
     authorization: string

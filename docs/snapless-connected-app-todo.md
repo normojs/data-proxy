@@ -22,6 +22,7 @@
 - 已完成 Profile 开发者自助入口：获批 app 开发者可在 Connected App Developer 卡片下载 SDK/OpenAPI 配置，创建/轮换一次性 developer key，并查看 total、by_model、by_token usage，历史 token 标记为 `historical`。
 - 已完成开发者 usage 筛选增强：Profile usage 面板可按开始日期、结束日期、模型名和 token ID 过滤 `/developer/usage` 聚合结果。
 - 已完成开发者授权排障视图：Profile 开发者卡片可查看最近授权用户、grant scopes、设备/token 状态和 device session 消费状态。
+- 已完成 OpenAPI/SDK 交付增强：SDK config 返回可复制环境变量和按 scope 裁剪的最小 JS/curl 示例；Profile 开发者卡片展示 env、OpenAPI URL 和 SDK 示例，创建/轮换 key 后可直接复制带一次性 key 的 env block。
 - MCP 计费语义不改，仍按工具调用次数和 `price_per_call` 扣费。
 
 ## 开发顺序
@@ -45,7 +46,9 @@
 | 15 | SNAPLESS-015 | P2 | Done | 自助能力前端入口 | Profile 开发者卡片展示 SDK/OpenAPI 下载、自助 key 创建/轮换、usage summary 与按模型/token 聚合。 |
 | 16 | SNAPLESS-016 | P2 | Done | 自助 usage 筛选增强 | Profile usage 面板支持开始日期、结束日期、模型名和 token ID 筛选，参数直连 `/developer/usage`。 |
 | 17 | SNAPLESS-017 | P2 | Done | 开发者授权排障视图 | Profile 开发者卡片展示授权用户、grant scopes、设备/token 状态和最近 device session，可按 session status 查看授权/消费状态。 |
+| 18 | SNAPLESS-018 | P2 | Done | OpenAPI/SDK 交付增强 | `/developer/sdk-config` 返回 env 与最小示例；Profile SDK 区块可复制环境变量、OpenAPI URL、scoped endpoint 和 JS/curl 示例，key 明文仍只来自创建/轮换响应。 |
 
 ## 立即下一步
 
-1. OpenAPI/SDK 交付增强：补充最小 SDK 示例代码和复制环境变量入口，保持 key 明文只在创建/轮换响应中展示一次。
+1. 预发联调验收：覆盖应用申请/审批、device flow、开发者 key 创建/轮换、SDK 示例调用、usage 筛选、授权排障和通知 outbox。
+2. 版本发布检查：确认 AGPLv3、NOTICE、new-api attribution、README 和部署文档在发布包中完整保留。

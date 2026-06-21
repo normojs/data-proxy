@@ -111,13 +111,21 @@ type connectedAppDeveloperSDKConfigData struct {
 	Scopes             []string          `json:"scopes"`
 	APIEndpoints       map[string]string `json:"api_endpoints"`
 	DeveloperEndpoints map[string]string `json:"developer_endpoints"`
-	Permissions        struct {
+	Environment        map[string]string `json:"environment"`
+	Examples           []struct {
+		ID       string `json:"id"`
+		Label    string `json:"label"`
+		Language string `json:"language"`
+		Code     string `json:"code"`
+	} `json:"examples"`
+	Permissions struct {
 		CanCreateKey bool `json:"can_create_key"`
 		CanReadUsage bool `json:"can_read_usage"`
 	} `json:"permissions"`
 	SDK struct {
 		OpenAICompatible bool   `json:"openai_compatible"`
 		BaseURL          string `json:"base_url"`
+		BaseURLEnv       string `json:"base_url_env"`
 		APIKeyEnv        string `json:"api_key_env"`
 		Authorization    string `json:"authorization"`
 	} `json:"sdk"`
@@ -298,6 +306,24 @@ func decodeConnectedAppFailure(t *testing.T, recorder *httptest.ResponseRecorder
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.False(t, response.Success, "unexpected response: %s", recorder.Body.String())
 	return response.Message
+}
+
+func requireConnectedAppDeveloperExample(t *testing.T, examples []struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Language string `json:"language"`
+	Code     string `json:"code"`
+}, id string, codeContains string) {
+	t.Helper()
+	for _, example := range examples {
+		if example.ID == id {
+			require.NotEmpty(t, example.Label)
+			require.NotEmpty(t, example.Language)
+			require.Contains(t, example.Code, codeContains)
+			return
+		}
+	}
+	require.Failf(t, "developer sdk example missing", "id=%s examples=%v", id, examples)
 }
 
 func TestConnectedAppAdminCRUD(t *testing.T) {
@@ -816,11 +842,16 @@ func TestConnectedAppDeveloperSelfService(t *testing.T) {
 	require.True(t, sdkConfig.Permissions.CanReadUsage)
 	require.True(t, sdkConfig.SDK.OpenAICompatible)
 	require.Equal(t, "https://data-proxy.test/v1", sdkConfig.SDK.BaseURL)
+	require.Equal(t, "OPENAI_BASE_URL", sdkConfig.SDK.BaseURLEnv)
 	require.Equal(t, "OPENAI_API_KEY", sdkConfig.SDK.APIKeyEnv)
 	require.Equal(t, "Bearer sk-<api_key>", sdkConfig.SDK.Authorization)
+	require.Equal(t, "https://data-proxy.test/v1", sdkConfig.Environment["OPENAI_BASE_URL"])
+	require.Equal(t, "sk-<api_key>", sdkConfig.Environment["OPENAI_API_KEY"])
 	require.Equal(t, "https://data-proxy.test/v1/models", sdkConfig.APIEndpoints["models"])
 	require.Contains(t, sdkConfig.DeveloperEndpoints["keys"], "/api/connected-apps/sdk-addon/developer/keys")
 	require.Contains(t, sdkConfig.OpenAPIURL, "/api/connected-apps/sdk-addon/developer/openapi")
+	requireConnectedAppDeveloperExample(t, sdkConfig.Examples, "openai-js-chat", "OPENAI_BASE_URL")
+	requireConnectedAppDeveloperExample(t, sdkConfig.Examples, "curl-token-usage", "/api/usage/token")
 
 	openAPI := decodeConnectedAppData[map[string]any](t, requestConnectedAppDeveloper(
 		t,

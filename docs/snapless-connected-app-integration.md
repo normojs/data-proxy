@@ -221,6 +221,7 @@ Profile 前端的 Connected App Developer 卡片已接入 `/developer/sdk-config
 - 具备 `quota.read` 的 app 可查看 usage total、by_model 和 by_token，历史归属 token 在表格中显示为 `historical`，便于解释轮换前后的消耗。
 - usage 面板支持开始日期、结束日期、模型名和 token ID 筛选，筛选参数直接传给 `/developer/usage`，不在前端二次改写聚合口径。
 - 授权排障区块展示最近授权用户、grant scopes、设备/token 状态和 device session 状态；device session 可按 `pending/authorized/consumed/denied/expired` 过滤，便于判断浏览器批准和桌面端 poll 消费是否完成。
+- SDK config 返回 `environment` 与按 scope 裁剪的最小 JS/curl 示例；Profile SDK 区块展示可复制 env、OpenAPI URL、scoped endpoint 和示例代码。创建或轮换 key 后，env block 会临时带入一次性明文 key，配置接口本身仍只返回 `sk-<api_key>` 占位。
 
 ## 邮件/Webhook 通知扩展
 
@@ -501,4 +502,5 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. OpenAPI/SDK 交付增强：补充 SDK 示例代码、环境变量复制入口和最小接入说明。
+1. 预发联调验收：覆盖应用申请/审批、device flow、开发者 key 创建/轮换、SDK 示例调用、usage 筛选、授权排障和通知 outbox。
+2. 版本发布检查：确认 AGPLv3、NOTICE、new-api attribution、README 和部署文档在发布包中完整保留。

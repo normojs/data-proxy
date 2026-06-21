@@ -38,6 +38,8 @@ type connectedAppDeveloperSDKConfigResponse struct {
 	APIEndpoints       map[string]string                   `json:"api_endpoints"`
 	DeviceFlow         map[string]string                   `json:"device_flow"`
 	DeveloperEndpoints map[string]string                   `json:"developer_endpoints"`
+	Environment        map[string]string                   `json:"environment"`
+	Examples           []connectedAppDeveloperSDKExample   `json:"examples"`
 	Scopes             []string                            `json:"scopes"`
 	Permissions        connectedAppDeveloperPermissions    `json:"permissions"`
 	OpenAPIURL         string                              `json:"openapi_url"`
@@ -52,9 +54,17 @@ type connectedAppDeveloperPermissions struct {
 type connectedAppDeveloperSDKInstruction struct {
 	OpenAICompatible bool   `json:"openai_compatible"`
 	BaseURL          string `json:"base_url"`
+	BaseURLEnv       string `json:"base_url_env"`
 	APIKeyEnv        string `json:"api_key_env"`
 	APIKeyPrefix     string `json:"api_key_prefix"`
 	Authorization    string `json:"authorization"`
+}
+
+type connectedAppDeveloperSDKExample struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Language string `json:"language"`
+	Code     string `json:"code"`
 }
 
 type connectedAppDeveloperAuthorizationResponse struct {
@@ -187,12 +197,15 @@ func GetConnectedAppDeveloperSDKConfig(c *gin.Context) {
 		APIEndpoints:       connectedAppAPIEndpoints(c, app),
 		DeviceFlow:         connectedAppDeviceFlowEndpoints(c, app),
 		DeveloperEndpoints: developerEndpoints,
+		Environment:        connectedAppDeveloperSDKEnvironment(c),
+		Examples:           connectedAppDeveloperSDKExamples(c, app),
 		Scopes:             app.ScopeList(),
 		Permissions:        connectedAppDeveloperScopePermissions(app),
 		OpenAPIURL:         developerEndpoints["openapi"],
 		SDK: connectedAppDeveloperSDKInstruction{
 			OpenAICompatible: true,
 			BaseURL:          snaplessAPIBaseURL(c),
+			BaseURLEnv:       "OPENAI_BASE_URL",
 			APIKeyEnv:        "OPENAI_API_KEY",
 			APIKeyPrefix:     "sk-",
 			Authorization:    "Bearer sk-<api_key>",
@@ -819,6 +832,90 @@ func connectedAppDeveloperEndpoints(c *gin.Context, app *model.ConnectedApp) map
 		"openapi":    base + "/openapi",
 		"sdk_config": base + "/sdk-config",
 		"usage":      base + "/usage",
+	}
+}
+
+func connectedAppDeveloperSDKEnvironment(c *gin.Context) map[string]string {
+	return map[string]string{
+		"OPENAI_API_KEY":  "sk-<api_key>",
+		"OPENAI_BASE_URL": snaplessAPIBaseURL(c),
+	}
+}
+
+func connectedAppDeveloperSDKExamples(c *gin.Context, app *model.ConnectedApp) []connectedAppDeveloperSDKExample {
+	if app == nil {
+		return []connectedAppDeveloperSDKExample{}
+	}
+	examples := make([]connectedAppDeveloperSDKExample, 0, 3)
+	if connectedAppHasAllowedScope(app, connectedAppScopeOpenAIChat) {
+		examples = append(examples,
+			connectedAppDeveloperSDKExampleFromCode("openai-js-chat", "OpenAI JS chat", "ts", `
+import OpenAI from 'openai'
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_BASE_URL,
+})
+
+const completion = await client.chat.completions.create({
+  model: '<model>',
+  messages: [{ role: 'user', content: 'Hello from Data Proxy' }],
+})
+
+console.log(completion.choices[0]?.message?.content)
+`),
+			connectedAppDeveloperSDKExampleFromCode("curl-chat", "cURL chat", "bash", `
+curl "$OPENAI_BASE_URL/chat/completions" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "<model>",
+    "messages": [{"role": "user", "content": "Hello from Data Proxy"}]
+  }'
+`),
+		)
+	} else if connectedAppHasAllowedScope(app, connectedAppScopeOpenAIModels) {
+		examples = append(examples,
+			connectedAppDeveloperSDKExampleFromCode("openai-js-models", "OpenAI JS models", "ts", `
+import OpenAI from 'openai'
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_BASE_URL,
+})
+
+const models = await client.models.list()
+console.log(models.data.map((model) => model.id))
+`),
+			connectedAppDeveloperSDKExampleFromCode("curl-models", "cURL models", "bash", `
+curl "$OPENAI_BASE_URL/models" \
+  -H "Authorization: Bearer $OPENAI_API_KEY"
+`),
+		)
+	}
+	if connectedAppHasAllowedScope(app, connectedAppScopeOpenAIAudioTranscriptions) {
+		examples = append(examples, connectedAppDeveloperSDKExampleFromCode("curl-audio-transcriptions", "cURL audio transcription", "bash", `
+curl "$OPENAI_BASE_URL/audio/transcriptions" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -F model="<model>" \
+  -F file="@/path/to/audio.wav"
+`))
+	}
+	if connectedAppHasAllowedScope(app, connectedAppScopeQuotaRead) {
+		examples = append(examples, connectedAppDeveloperSDKExampleFromCode("curl-token-usage", "cURL token usage", "bash", `
+curl "`+snaplessServerBaseURL(c)+`/api/usage/token" \
+  -H "Authorization: Bearer $OPENAI_API_KEY"
+`))
+	}
+	return examples
+}
+
+func connectedAppDeveloperSDKExampleFromCode(id string, label string, language string, code string) connectedAppDeveloperSDKExample {
+	return connectedAppDeveloperSDKExample{
+		ID:       id,
+		Label:    label,
+		Language: language,
+		Code:     strings.TrimSpace(code),
 	}
 }
 

@@ -69,6 +69,7 @@ import {
   type ConnectedAppDeveloperDeviceSession,
   type ConnectedAppDeveloperKeyResponse,
   type ConnectedAppDeveloperSDKConfig,
+  type ConnectedAppDeveloperSDKExample,
   type ConnectedAppDeveloperUsageParams,
   type ConnectedAppDeveloperUsageByModel,
   type ConnectedAppDeveloperUsageByToken,
@@ -193,6 +194,7 @@ export function ConnectedAppDeveloperSelfServicePanel({
         <DeveloperSDKPanel
           appSlug={app.slug}
           config={sdkConfig}
+          apiKey={lastKeyResponse?.api_key}
           loading={sdkConfigQuery.isLoading}
           error={sdkConfigQuery.error}
           downloading={openAPIMutation.isPending}
@@ -225,6 +227,7 @@ export function ConnectedAppDeveloperSelfServicePanel({
 function DeveloperSDKPanel({
   appSlug,
   config,
+  apiKey,
   loading,
   error,
   downloading,
@@ -232,12 +235,17 @@ function DeveloperSDKPanel({
 }: {
   appSlug: string
   config?: ConnectedAppDeveloperSDKConfig
+  apiKey?: string
   loading: boolean
   error: unknown
   downloading: boolean
   onDownloadOpenAPI: () => void
 }) {
   const { t } = useTranslation()
+  const environmentSnippet = config
+    ? developerSDKEnvironmentSnippet(config, apiKey)
+    : ''
+  const sdkExamples = config ? developerSDKExamples(config) : []
 
   return (
     <section className='rounded-xl border p-3'>
@@ -287,6 +295,16 @@ function DeveloperSDKPanel({
               monospace
             />
             <DeveloperConfigValue
+              label={t('Base URL env')}
+              value={config.sdk.base_url_env}
+              monospace
+            />
+            <DeveloperConfigValue
+              label={t('OpenAPI URL')}
+              value={config.openapi_url}
+              monospace
+            />
+            <DeveloperConfigValue
               label={t('Authorization')}
               value={config.sdk.authorization}
               monospace
@@ -332,6 +350,22 @@ function DeveloperSDKPanel({
                 </div>
               )}
             </div>
+          </div>
+
+          <div className='grid gap-2 xl:grid-cols-2'>
+            <DeveloperCodeSnippet
+              label={t('Environment')}
+              language='bash'
+              code={environmentSnippet}
+            />
+            {sdkExamples.map((example) => (
+              <DeveloperCodeSnippet
+                key={example.id}
+                label={t(example.label)}
+                language={example.language}
+                code={example.code}
+              />
+            ))}
           </div>
         </div>
       ) : null}
@@ -704,6 +738,39 @@ function DeveloperConfigValue({
       >
         {value || '-'}
       </div>
+    </div>
+  )
+}
+
+function DeveloperCodeSnippet({
+  label,
+  language,
+  code,
+}: {
+  label: string
+  language: string
+  code: string
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <div className='bg-muted/20 min-w-0 rounded-lg border'>
+      <div className='flex min-w-0 items-center justify-between gap-2 border-b px-2.5 py-2'>
+        <div className='min-w-0'>
+          <div className='truncate text-xs font-medium'>{label}</div>
+          <div className='text-muted-foreground truncate font-mono text-[11px] uppercase'>
+            {language || 'text'}
+          </div>
+        </div>
+        <CopyButton
+          value={code}
+          className='size-6'
+          tooltip={t('Copy snippet')}
+        />
+      </div>
+      <pre className='max-h-64 min-w-0 overflow-auto p-2.5 text-xs leading-relaxed'>
+        <code>{code}</code>
+      </pre>
     </div>
   )
 }
@@ -1189,6 +1256,97 @@ function DeveloperUsageSkeleton() {
       </div>
     </div>
   )
+}
+
+function developerSDKEnvironmentSnippet(
+  config: ConnectedAppDeveloperSDKConfig,
+  apiKey?: string
+) {
+  const apiKeyEnv = config.sdk.api_key_env || 'OPENAI_API_KEY'
+  const baseURLEnv = config.sdk.base_url_env || 'OPENAI_BASE_URL'
+  const environment = config.environment ?? {}
+  const entries = new Map<string, string>(Object.entries(environment))
+
+  entries.set(
+    apiKeyEnv,
+    apiKey ||
+      environment[apiKeyEnv] ||
+      `${config.sdk.api_key_prefix || 'sk-'}<api_key>`
+  )
+  entries.set(baseURLEnv, environment[baseURLEnv] || config.sdk.base_url)
+
+  const orderedKeys = [
+    apiKeyEnv,
+    baseURLEnv,
+    ...Array.from(entries.keys())
+      .filter((key) => key !== apiKeyEnv && key !== baseURLEnv)
+      .sort(),
+  ]
+
+  return orderedKeys
+    .map((key) => `export ${key}="${escapeShellValue(entries.get(key) || '')}"`)
+    .join('\n')
+}
+
+function developerSDKExamples(
+  config: ConnectedAppDeveloperSDKConfig
+): ConnectedAppDeveloperSDKExample[] {
+  if (Array.isArray(config.examples) && config.examples.length > 0) {
+    return config.examples
+  }
+
+  const examples: ConnectedAppDeveloperSDKExample[] = []
+  if (config.api_endpoints.chat_completions) {
+    examples.push({
+      id: 'openai-js-chat',
+      label: 'OpenAI JS chat',
+      language: 'ts',
+      code: `import OpenAI from 'openai'
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_BASE_URL,
+})
+
+const completion = await client.chat.completions.create({
+  model: '<model>',
+  messages: [{ role: 'user', content: 'Hello from Data Proxy' }],
+})
+
+console.log(completion.choices[0]?.message?.content)`,
+    })
+  } else if (config.api_endpoints.models) {
+    examples.push({
+      id: 'openai-js-models',
+      label: 'OpenAI JS models',
+      language: 'ts',
+      code: `import OpenAI from 'openai'
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_BASE_URL,
+})
+
+const models = await client.models.list()
+console.log(models.data.map((model) => model.id))`,
+    })
+  }
+
+  if (config.api_endpoints.token_usage) {
+    examples.push({
+      id: 'curl-token-usage',
+      label: 'cURL token usage',
+      language: 'bash',
+      code: `curl "${config.api_endpoints.token_usage}" \\
+  -H "Authorization: Bearer $OPENAI_API_KEY"`,
+    })
+  }
+
+  return examples
+}
+
+function escapeShellValue(value: string) {
+  return value.replace(/(["\\$`])/g, '\\$1')
 }
 
 function tokenStatusVariant(status: string): StatusVariant {
