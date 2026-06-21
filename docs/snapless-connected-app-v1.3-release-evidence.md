@@ -43,6 +43,17 @@
 
 ## 预发执行记录
 
+可用预发 smoke 脚本生成本节需要的大部分 ID。`ADMIN_HEADER`、`DEVELOPER_HEADER` 和 `AUTHORIZING_USER_HEADER` 使用完整 HTTP header，例如 `Cookie: session=...` 或 `Authorization: Bearer ...`；脚本会创建测试 connected app、开发者 key 和 device session，但不会打印 API key 明文。
+
+```bash
+DATA_PROXY_BASE_URL=https://preprod.example.com \
+ADMIN_HEADER='Cookie: session=...' \
+DEVELOPER_HEADER='Cookie: session=...' \
+AUTHORIZING_USER_HEADER='Cookie: session=...' \
+SNAPLESS_PREPROD_CONFIRM=1 \
+make snapless-connected-app-preprod-smoke
+```
+
 | 字段 | 记录 |
 | --- | --- |
 | 环境 | preprod |

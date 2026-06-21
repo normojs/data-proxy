@@ -26,6 +26,7 @@
 - 已完成本地预发联调验收脚本和证据：`scripts/snapless-connected-app-preflight.sh` 覆盖申请/审批、device flow、开发者 key、SDK 示例、usage 筛选、授权排障、通知 outbox、MCP 计费回归和发布协议检查；结果记录在 `docs/snapless-connected-app-v1.3-release-evidence.md`。
 - 已完成 GitHub CI 门禁接入：`CI` workflow 新增 `Snapless Connected App` job，独立执行 `scripts/snapless-connected-app-preflight.sh`。
 - 已完成发布证据快照脚本：`make snapless-connected-app-release-evidence` 可输出当前 commit 的 CI/job URL、tag、Docker workflow 和 digest 线索。
+- 已完成预发 smoke 脚本：`make snapless-connected-app-preprod-smoke` 可在提供预发 base URL 与 admin/developer/user header 后生成 request、app、token、device session 和 outbox 可见性记录。
 - MCP 计费语义不改，仍按工具调用次数和 `price_per_call` 扣费。
 
 ## 开发顺序
@@ -53,5 +54,5 @@
 
 ## 立即下一步
 
-1. 在预发环境执行 `docs/snapless-connected-app-v1.3-release-evidence.md` 的检查表，补充真实 request ID、outbox ID、token ID、截图或变更单链接。
+1. 在预发环境运行 `make snapless-connected-app-preprod-smoke`，或手动执行 `docs/snapless-connected-app-v1.3-release-evidence.md` 的检查表，补充真实 request ID、outbox ID、token ID、截图或变更单链接。
 2. 预发通过后按 `docs/data-proxy-release-runbook.md` 创建发布 tag，运行 `make snapless-connected-app-release-evidence`，确认 CI、Docker image digest 和回滚镜像 digest。
