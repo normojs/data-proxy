@@ -263,6 +263,83 @@ func TestCancelEnterpriseGovernanceQueuedAdmissionCancelsWaitingRequest(t *testi
 	assert.Equal(t, "enterprise_governance.queue_canceled", auditAfter["user_message_key"])
 }
 
+func TestRecoverStaleEnterpriseGovernanceQueueAdmissionsMarksStaleRows(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000000)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceQueueAdmission{
+		{
+			RequestId:      "req-enterprise-queue-stale-queued",
+			EnterpriseId:   enterprise.Id,
+			UserId:         1034,
+			TokenId:        124,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusQueued,
+			TimeoutMs:      30000,
+			UserMessageKey: "enterprise_governance.policy_action_observed",
+			CreatedAt:      now - 120,
+			UpdatedAt:      now - 120,
+		},
+		{
+			RequestId:      "req-enterprise-queue-stale-admitted",
+			EnterpriseId:   enterprise.Id,
+			UserId:         1035,
+			TokenId:        125,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusAdmitted,
+			TimeoutMs:      30000,
+			AdmittedAt:     now - 2*60*60,
+			UserMessageKey: "enterprise_governance.policy_action_observed",
+			CreatedAt:      now - 2*60*60,
+			UpdatedAt:      now - 2*60*60,
+		},
+		{
+			RequestId:      "req-enterprise-queue-fresh",
+			EnterpriseId:   enterprise.Id,
+			UserId:         1036,
+			TokenId:        126,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusQueued,
+			TimeoutMs:      30000,
+			UserMessageKey: "enterprise_governance.policy_action_observed",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}).Error)
+
+	stats, err := RecoverStaleEnterpriseGovernanceQueueAdmissions(now, 10)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, stats.Scanned)
+	assert.EqualValues(t, 1, stats.TimedOut)
+	assert.EqualValues(t, 1, stats.Canceled)
+	assert.Zero(t, stats.Errors)
+
+	var queued model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-stale-queued").First(&queued).Error)
+	assert.Equal(t, enterpriseQueueStatusTimeout, queued.Status)
+	assert.EqualValues(t, 120000, queued.WaitMs)
+	assert.Equal(t, "enterprise_governance.queue_timeout", queued.UserMessageKey)
+
+	var admitted model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-stale-admitted").First(&admitted).Error)
+	assert.Equal(t, enterpriseQueueStatusCanceled, admitted.Status)
+	assert.EqualValues(t, now, admitted.CanceledAt)
+	assert.EqualValues(t, 2*60*60*1000, admitted.RunMs)
+	assert.Equal(t, "enterprise_governance.queue_canceled", admitted.UserMessageKey)
+
+	var fresh model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-fresh").First(&fresh).Error)
+	assert.Equal(t, enterpriseQueueStatusQueued, fresh.Status)
+
+	var auditCount int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseAuditLog{}).
+		Where("action = ?", enterpriseGovernanceAuditActionQueueRecovery).
+		Count(&auditCount).Error)
+	assert.EqualValues(t, 2, auditCount)
+}
+
 func prepareEnterpriseGovernanceQueueRequest(t *testing.T, requestId string, userId int, tokenId int) (*relaycommon.RelayInfo, model.EnterpriseQuotaPolicy) {
 	t.Helper()
 	enterprise, err := model.GetDefaultEnterprise()
@@ -299,13 +376,16 @@ func resetEnterpriseGovernanceQueueForTest(t *testing.T, maxConcurrent int, time
 	t.Helper()
 	originalMaxConcurrent := enterprisePolicyQueueMaxConcurrent
 	originalTimeout := enterprisePolicyQueueTimeout
+	originalAdmittedStale := enterprisePolicyQueueAdmittedStale
 	enterprisePolicyQueueMaxConcurrent = maxConcurrent
 	enterprisePolicyQueueTimeout = timeout
+	enterprisePolicyQueueAdmittedStale = time.Hour
 	enterprisePolicyQueues = syncMapForEnterpriseGovernanceQueueTest()
 	enterprisePolicyQueueCancelers = syncMapForEnterpriseGovernanceQueueTest()
 	t.Cleanup(func() {
 		enterprisePolicyQueueMaxConcurrent = originalMaxConcurrent
 		enterprisePolicyQueueTimeout = originalTimeout
+		enterprisePolicyQueueAdmittedStale = originalAdmittedStale
 		enterprisePolicyQueues = syncMapForEnterpriseGovernanceQueueTest()
 		enterprisePolicyQueueCancelers = syncMapForEnterpriseGovernanceQueueTest()
 	})

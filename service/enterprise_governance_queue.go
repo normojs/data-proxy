@@ -19,6 +19,7 @@ import (
 
 const (
 	enterpriseGovernanceAuditActionQueueAdmission = "enterprise_governance.queue_admission"
+	enterpriseGovernanceAuditActionQueueRecovery  = "enterprise_governance.queue_admission.recover"
 	enterpriseQueueStatusQueued                   = model.EnterpriseGovernanceQueueAdmissionStatusQueued
 	enterpriseQueueStatusAdmitted                 = model.EnterpriseGovernanceQueueAdmissionStatusAdmitted
 	enterpriseQueueStatusReleased                 = model.EnterpriseGovernanceQueueAdmissionStatusReleased
@@ -32,6 +33,7 @@ const (
 var (
 	enterprisePolicyQueueMaxConcurrent = 1
 	enterprisePolicyQueueTimeout       = 30 * time.Second
+	enterprisePolicyQueueAdmittedStale = time.Hour
 	enterprisePolicyQueues             sync.Map
 	enterprisePolicyQueueCancelers     sync.Map
 )

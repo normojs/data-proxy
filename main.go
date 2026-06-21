@@ -119,6 +119,9 @@ func main() {
 	// Enterprise notification outbox delivery task
 	service.StartEnterpriseNotificationOutboxTask()
 
+	// Enterprise governance queue stale admission recovery task
+	service.StartEnterpriseGovernanceQueueRecoveryTask()
+
 	// Connected app notification outbox delivery task
 	service.StartConnectedAppNotificationOutboxTask()
 
