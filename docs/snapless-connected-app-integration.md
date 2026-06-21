@@ -219,6 +219,7 @@ Profile 前端的 Connected App Developer 卡片已接入 `/developer/sdk-config
 - 开发者可下载当前 app 裁剪后的 OpenAPI JSON，并复制 OpenAI-compatible base URL、API key 环境变量和 scoped endpoint。
 - 具备 `token.manage` 的 app 可创建、复用或轮换当前登录开发者自己的 app-bound key；只有首次创建或轮换响应展示一次性明文 key。
 - 具备 `quota.read` 的 app 可查看 usage total、by_model 和 by_token，历史归属 token 在表格中显示为 `historical`，便于解释轮换前后的消耗。
+- usage 面板支持开始日期、结束日期、模型名和 token ID 筛选，筛选参数直接传给 `/developer/usage`，不在前端二次改写聚合口径。
 
 ## 邮件/Webhook 通知扩展
 
@@ -499,6 +500,5 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 开发者自助筛选增强：Profile usage 面板支持时间范围、模型和 token 筛选。
-2. 开发者授权排障视图：Profile 开发者卡片展示授权用户、设备和最近 device session 状态。
-3. OpenAPI/SDK 交付增强：补充 SDK 示例代码、环境变量复制入口和最小接入说明。
+1. 开发者授权排障视图：Profile 开发者卡片展示授权用户、设备和最近 device session 状态。
+2. OpenAPI/SDK 交付增强：补充 SDK 示例代码、环境变量复制入口和最小接入说明。

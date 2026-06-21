@@ -21,9 +21,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3,
   Download,
+  Filter,
   KeyRound,
   RefreshCw,
   RotateCw,
+  X,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -49,6 +51,7 @@ import {
   getConnectedAppDeveloperUsage,
   type ConnectedAppDeveloperKeyResponse,
   type ConnectedAppDeveloperSDKConfig,
+  type ConnectedAppDeveloperUsageParams,
   type ConnectedAppDeveloperUsageByModel,
   type ConnectedAppDeveloperUsageByToken,
   type ConnectedAppRequest,
@@ -65,6 +68,20 @@ const developerUsageQueryKey = (appSlug: string) => [
   'usage',
   appSlug,
 ]
+
+type DeveloperUsageFiltersState = {
+  startDate: string
+  endDate: string
+  modelName: string
+  tokenId: string
+}
+
+const EMPTY_DEVELOPER_USAGE_FILTERS: DeveloperUsageFiltersState = {
+  startDate: '',
+  endDate: '',
+  modelName: '',
+  tokenId: '',
+}
 
 export function ConnectedAppDeveloperSelfServicePanel({
   app,
@@ -397,12 +414,34 @@ function DeveloperUsagePanel({
   loadingPermissions: boolean
 }) {
   const { t } = useTranslation()
+  const [draftFilters, setDraftFilters] = useState<DeveloperUsageFiltersState>(
+    () => ({ ...EMPTY_DEVELOPER_USAGE_FILTERS })
+  )
+  const [appliedFilters, setAppliedFilters] =
+    useState<DeveloperUsageFiltersState>(() => ({
+      ...EMPTY_DEVELOPER_USAGE_FILTERS,
+    }))
+  const usageParams = developerUsageParams(appliedFilters)
+  const invalidRange =
+    Boolean(draftFilters.startDate && draftFilters.endDate) &&
+    draftFilters.startDate > draftFilters.endDate
   const usageQuery = useQuery({
-    queryKey: developerUsageQueryKey(appSlug),
-    queryFn: () => getConnectedAppDeveloperUsage(appSlug),
+    queryKey: [...developerUsageQueryKey(appSlug), usageParams],
+    queryFn: () => getConnectedAppDeveloperUsage(appSlug, usageParams),
     enabled: Boolean(appSlug) && canReadUsage,
     retry: false,
   })
+  const setDraftFilter = (
+    key: keyof DeveloperUsageFiltersState,
+    value: string
+  ) => {
+    setDraftFilters((current) => ({ ...current, [key]: value }))
+  }
+  const clearFilters = () => {
+    const emptyFilters = { ...EMPTY_DEVELOPER_USAGE_FILTERS }
+    setDraftFilters(emptyFilters)
+    setAppliedFilters(emptyFilters)
+  }
 
   return (
     <section className='rounded-xl border p-3'>
@@ -431,6 +470,21 @@ function DeveloperUsagePanel({
           {t('Refresh')}
         </Button>
       </div>
+
+      {!loadingPermissions && canReadUsage ? (
+        <DeveloperUsageFilters
+          filters={draftFilters}
+          invalidRange={invalidRange}
+          applying={usageQuery.isFetching}
+          canClear={
+            hasDeveloperUsageFilters(draftFilters) ||
+            hasDeveloperUsageFilters(appliedFilters)
+          }
+          onChange={setDraftFilter}
+          onApply={() => setAppliedFilters({ ...draftFilters })}
+          onClear={clearFilters}
+        />
+      ) : null}
 
       {loadingPermissions ? (
         <DeveloperUsageSkeleton />
@@ -483,6 +537,102 @@ function DeveloperUsagePanel({
         </div>
       ) : null}
     </section>
+  )
+}
+
+function DeveloperUsageFilters({
+  filters,
+  invalidRange,
+  applying,
+  canClear,
+  onChange,
+  onApply,
+  onClear,
+}: {
+  filters: DeveloperUsageFiltersState
+  invalidRange: boolean
+  applying: boolean
+  canClear: boolean
+  onChange: (key: keyof DeveloperUsageFiltersState, value: string) => void
+  onApply: () => void
+  onClear: () => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <div className='mt-3 space-y-2'>
+      <div className='grid gap-2 sm:grid-cols-2 xl:grid-cols-[9rem_9rem_minmax(12rem,1fr)_9rem_auto]'>
+        <label className='block min-w-0 space-y-1'>
+          <span className='text-muted-foreground text-xs'>
+            {t('Start date')}
+          </span>
+          <Input
+            type='date'
+            value={filters.startDate}
+            onChange={(event) => onChange('startDate', event.target.value)}
+            className='h-8'
+          />
+        </label>
+        <label className='block min-w-0 space-y-1'>
+          <span className='text-muted-foreground text-xs'>{t('End date')}</span>
+          <Input
+            type='date'
+            value={filters.endDate}
+            onChange={(event) => onChange('endDate', event.target.value)}
+            className='h-8'
+          />
+        </label>
+        <label className='block min-w-0 space-y-1'>
+          <span className='text-muted-foreground text-xs'>
+            {t('Model name')}
+          </span>
+          <Input
+            value={filters.modelName}
+            onChange={(event) => onChange('modelName', event.target.value)}
+            placeholder={t('All models')}
+            className='h-8'
+          />
+        </label>
+        <label className='block min-w-0 space-y-1'>
+          <span className='text-muted-foreground text-xs'>{t('Token ID')}</span>
+          <Input
+            type='number'
+            min={1}
+            step={1}
+            value={filters.tokenId}
+            onChange={(event) => onChange('tokenId', event.target.value)}
+            placeholder={t('All')}
+            className='h-8'
+          />
+        </label>
+        <div className='flex items-end gap-2'>
+          <Button
+            type='button'
+            size='sm'
+            onClick={onApply}
+            disabled={invalidRange || applying}
+          >
+            <Filter className='h-3.5 w-3.5' />
+            {t('Apply')}
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={onClear}
+            disabled={!canClear || applying}
+          >
+            <X className='h-3.5 w-3.5' />
+            {t('Clear')}
+          </Button>
+        </div>
+      </div>
+      {invalidRange ? (
+        <p className='text-destructive text-xs'>
+          {t('End date must be after start date.')}
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -689,6 +839,41 @@ function tokenStatusVariant(status: string): StatusVariant {
     default:
       return 'info'
   }
+}
+
+function hasDeveloperUsageFilters(filters: DeveloperUsageFiltersState) {
+  return Object.values(filters).some((value) => value.trim() !== '')
+}
+
+function developerUsageParams(
+  filters: DeveloperUsageFiltersState
+): ConnectedAppDeveloperUsageParams {
+  return {
+    start_time: startOfDayUnix(filters.startDate),
+    end_time: endOfDayUnix(filters.endDate),
+    model_name: filters.modelName.trim() || undefined,
+    token_id: parsePositiveIntInput(filters.tokenId),
+  }
+}
+
+function startOfDayUnix(value: string) {
+  if (!value) return undefined
+  const date = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return undefined
+  return Math.floor(date.getTime() / 1000)
+}
+
+function endOfDayUnix(value: string) {
+  if (!value) return undefined
+  const date = new Date(`${value}T23:59:59`)
+  if (Number.isNaN(date.getTime())) return undefined
+  return Math.floor(date.getTime() / 1000)
+}
+
+function parsePositiveIntInput(value: string) {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) return undefined
+  return parsed
 }
 
 function downloadJSON(data: unknown, filename: string) {
