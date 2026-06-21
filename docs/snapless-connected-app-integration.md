@@ -502,5 +502,5 @@ Snapless token 仍然是 new-api 原生 `tokens`：
 
 ## 后续顺序
 
-1. 预发联调验收：覆盖应用申请/审批、device flow、开发者 key 创建/轮换、SDK 示例调用、usage 筛选、授权排障和通知 outbox。
-2. 版本发布检查：确认 AGPLv3、NOTICE、new-api attribution、README 和部署文档在发布包中完整保留。
+1. 在预发环境执行 `docs/snapless-connected-app-v1.3-release-evidence.md` 的检查表，补充真实 request ID、outbox ID、token ID、截图或变更单链接。
+2. 预发通过后按 `docs/data-proxy-release-runbook.md` 创建发布 tag，确认 CI、Docker image digest 和回滚镜像 digest。

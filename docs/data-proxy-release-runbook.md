@@ -9,6 +9,7 @@
    - `go test ./model ./controller ./service ./router ./oauth`
    - `cd web/default && bun run typecheck`
    - `cd web/default && bun run smoke:approval-notification-links`
+   - `scripts/snapless-connected-app-preflight.sh`
    - `git diff --check`
 3. 确认 `LICENSE`、`NOTICE`、`THIRD-PARTY-LICENSES.md` 仍随仓库和 Docker 镜像分发。
 4. 确认前端可见位置仍保留原项目链接和文案：`Frontend design and development by New API contributors.`
@@ -47,7 +48,7 @@ ghcr.io/normojs/data-proxy:latest
 - 站内通知、邮件、webhook、失败重试和关闭开关的验证结果
 - 回滚负责人和回滚窗口
 
-V1.3 通知闭环的业务证据继续补到 `docs/enterprise-governance-v1.3-release-evidence.md` 或对应变更单。
+V1.3 通知闭环的业务证据继续补到 `docs/enterprise-governance-v1.3-release-evidence.md`；Snapless Connected App 证据补到 `docs/snapless-connected-app-v1.3-release-evidence.md` 或对应变更单。
 
 ### V1.3.0 发布证据
 
