@@ -1,0 +1,161 @@
+name: Package Data Proxy image
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: data-proxy-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Build linux/amd64 deployment package
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve package metadata
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+            IMAGE_TAG="${GITHUB_REF_NAME}"
+            SAFE_REF="${GITHUB_REF_NAME//\//-}"
+          else
+            VERSION="sha-${SHORT_SHA}"
+            IMAGE_TAG="${SHORT_SHA}"
+            SAFE_REF="${SHORT_SHA}"
+          fi
+
+          echo "${VERSION}" > VERSION
+          {
+            echo "short_sha=${SHORT_SHA}"
+            echo "version=${VERSION}"
+            echo "image_tag=${IMAGE_TAG}"
+            echo "image=data-proxy:${IMAGE_TAG}"
+            echo "artifact=data-proxy-${SAFE_REF}-linux-amd64"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.meta.outputs.image }}
+          labels: |
+            org.opencontainers.image.title=Data Proxy
+            org.opencontainers.image.description=Data Proxy based on new-api
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Smoke test MySQL migration
+        run: |
+          set -euo pipefail
+
+          DB="data_proxy_ci_${{ steps.meta.outputs.short_sha }}"
+          PORT=19082
+          NAME="data-proxy-package-smoke"
+
+          docker run --rm --network host mysql:8.0 \
+            mysql -h127.0.0.1 -P3306 -uroot -proot \
+              -e "DROP DATABASE IF EXISTS \`${DB}\`; CREATE DATABASE \`${DB}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+          cleanup() {
+            docker rm -f "${NAME}" >/dev/null 2>&1 || true
+            docker run --rm --network host mysql:8.0 \
+              mysql -h127.0.0.1 -P3306 -uroot -proot \
+                -e "DROP DATABASE IF EXISTS \`${DB}\`;" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run -d \
+            --name "${NAME}" \
+            --network host \
+            -e SQL_DSN="root:root@tcp(127.0.0.1:3306)/${DB}?charset=utf8mb4&parseTime=true&loc=Local" \
+            -e PORT="${PORT}" \
+            -e SESSION_SECRET="ci-package-smoke-session-secret" \
+            -e NODE_TYPE="master" \
+            -e ERROR_LOG_ENABLED="true" \
+            -e BATCH_UPDATE_ENABLED="true" \
+            ${{ steps.meta.outputs.image }} --log-dir /tmp/data-proxy-logs
+
+          for _ in $(seq 1 120); do
+            if curl -fsS "http://127.0.0.1:${PORT}/api/status" >/tmp/data-proxy-status.json; then
+              cat /tmp/data-proxy-status.json
+              exit 0
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx "${NAME}"; then
+              docker logs --tail=240 "${NAME}"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker logs --tail=240 "${NAME}"
+          echo "::error::Data Proxy image did not become healthy in time"
+          exit 1
+
+      - name: Export image package
+        run: |
+          set -euo pipefail
+          docker image inspect "${{ steps.meta.outputs.image }}"
+          docker save "${{ steps.meta.outputs.image }}" | gzip -c > "${{ steps.meta.outputs.artifact }}.tar.gz"
+          sha256sum "${{ steps.meta.outputs.artifact }}.tar.gz" > "${{ steps.meta.outputs.artifact }}.sha256"
+          ls -lh "${{ steps.meta.outputs.artifact }}.tar.gz"
+          cat "${{ steps.meta.outputs.artifact }}.sha256"
+
+      - name: Upload image package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact }}
+          path: |
+            ${{ steps.meta.outputs.artifact }}.tar.gz
+            ${{ steps.meta.outputs.artifact }}.sha256
+          retention-days: 14
+
+      - name: Package summary
+        run: |
+          {
+            echo "### Data Proxy deployment package"
+            echo ""
+            echo "- Image: \`${{ steps.meta.outputs.image }}\`"
+            echo "- Version: \`${{ steps.meta.outputs.version }}\`"
+            echo "- Artifact: \`${{ steps.meta.outputs.artifact }}\`"
+            echo ""
+            echo "Load on server:"
+            echo '```bash'
+            echo "gunzip -c ${{ steps.meta.outputs.artifact }}.tar.gz | docker load"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
