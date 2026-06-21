@@ -1566,9 +1566,7 @@ function OrganizationTab(props: {
                   <TableHead>{t('Status')}</TableHead>
                   <TableHead>{t('Sort')}</TableHead>
                   {props.canManageEnterprise && (
-                    <TableHead className='text-right'>
-                      {t('Actions')}
-                    </TableHead>
+                    <TableHead className='text-right'>{t('Actions')}</TableHead>
                   )}
                 </TableRow>
               </TableHeader>
@@ -3870,7 +3868,9 @@ function QueueAdmissionsPanel(props: {
         <div className='min-w-0'>
           <h4 className='text-sm font-semibold'>{t('Queue Admissions')}</h4>
           <p className='text-muted-foreground mt-1 text-xs'>
-            {t('Recent enterprise queue admissions, timeouts, and cancellations.')}
+            {t(
+              'Recent enterprise queue lifecycle records, including queued, released, timeout, and canceled requests.'
+            )}
           </p>
         </div>
         <Button
@@ -3901,6 +3901,7 @@ function QueueAdmissionsPanel(props: {
                 <TableHead>{t('Policy')}</TableHead>
                 <TableHead>{t('Scope')}</TableHead>
                 <TableHead className='text-right'>{t('Wait')}</TableHead>
+                <TableHead className='text-right'>{t('Run')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -3910,9 +3911,12 @@ function QueueAdmissionsPanel(props: {
                   <TableCell>
                     <Badge
                       variant={
-                        admission.status === 'timeout'
+                        admission.status === 'timeout' ||
+                        admission.status === 'canceled'
                           ? 'destructive'
-                          : 'outline'
+                          : admission.status === 'released'
+                            ? 'secondary'
+                            : 'outline'
                       }
                     >
                       {admission.status || '-'}
@@ -3933,14 +3937,28 @@ function QueueAdmissionsPanel(props: {
                   </TableCell>
                   <TableCell>
                     <div className='text-muted-foreground flex flex-wrap gap-2 text-xs'>
-                      <span>{t('User')} #{admission.user_id || '-'}</span>
-                      <span>{t('Org')} #{admission.org_unit_id || '-'}</span>
-                      <span>{t('Project')} #{admission.project_id || '-'}</span>
+                      <span>
+                        {t('User')} #{admission.user_id || '-'}
+                      </span>
+                      <span>
+                        {t('Org')} #{admission.org_unit_id || '-'}
+                      </span>
+                      <span>
+                        {t('Project')} #{admission.project_id || '-'}
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell className='text-right'>
                     <span className='font-mono text-xs'>
-                      {admission.wait_ms} / {admission.timeout_ms} ms
+                      {formatDurationMs(admission.wait_ms)} /{' '}
+                      {formatDurationMs(admission.timeout_ms)}
+                    </span>
+                  </TableCell>
+                  <TableCell className='text-right'>
+                    <span className='font-mono text-xs'>
+                      {admission.run_ms
+                        ? formatDurationMs(admission.run_ms)
+                        : '-'}
                     </span>
                   </TableCell>
                 </TableRow>
@@ -5212,7 +5230,9 @@ type EnterpriseFormState = {
   anomaly_failure_rate: string
 }
 
-function buildEnterpriseFormState(enterprise?: Enterprise): EnterpriseFormState {
+function buildEnterpriseFormState(
+  enterprise?: Enterprise
+): EnterpriseFormState {
   const anomalyConfig = enterpriseAnomalyConfig(
     enterprise?.anomaly_throttle_config
   )
@@ -5879,7 +5899,7 @@ function PolicyGroupDialog(props: {
                   description: event.target.value,
                 }))
               }
-              />
+            />
           </Field>
           <Field label='Shared Org Units'>
             <div className='max-h-44 space-y-2 overflow-y-auto rounded-md border p-2'>

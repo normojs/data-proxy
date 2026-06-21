@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -18,9 +19,11 @@ import (
 
 const (
 	enterpriseGovernanceAuditActionQueueAdmission = "enterprise_governance.queue_admission"
-	enterpriseQueueStatusAdmitted                 = "admitted"
-	enterpriseQueueStatusTimeout                  = "timeout"
-	enterpriseQueueStatusCanceled                 = "canceled"
+	enterpriseQueueStatusQueued                   = model.EnterpriseGovernanceQueueAdmissionStatusQueued
+	enterpriseQueueStatusAdmitted                 = model.EnterpriseGovernanceQueueAdmissionStatusAdmitted
+	enterpriseQueueStatusReleased                 = model.EnterpriseGovernanceQueueAdmissionStatusReleased
+	enterpriseQueueStatusTimeout                  = model.EnterpriseGovernanceQueueAdmissionStatusTimeout
+	enterpriseQueueStatusCanceled                 = model.EnterpriseGovernanceQueueAdmissionStatusCanceled
 	enterpriseQueueStatusHeader                   = "X-Data-Proxy-Enterprise-Queue-Status"
 	enterpriseQueueWaitMsHeader                   = "X-Data-Proxy-Enterprise-Queue-Wait-Ms"
 	enterpriseQueueTimeoutMsHeader                = "X-Data-Proxy-Enterprise-Queue-Timeout-Ms"
@@ -68,8 +71,11 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 
 	result.Applied = true
 	result.TimeoutMs = durationMillis(enterprisePolicyQueueTimeout)
-	queue := getEnterprisePolicyQueue(enterprisePolicyQueueKey(enterpriseCtx, relayInfo))
+	result.Status = enterpriseQueueStatusQueued
+	queueKey := enterprisePolicyQueueKey(enterpriseCtx, relayInfo)
+	queue := getEnterprisePolicyQueue(queueKey)
 	start := time.Now()
+	admission := createEnterpriseGovernanceQueueAdmission(c, enterpriseCtx, relayInfo, decision, result, queueKey)
 	timer := time.NewTimer(enterprisePolicyQueueTimeout)
 	defer timer.Stop()
 	var requestDone <-chan struct{}
@@ -78,33 +84,56 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 	}
 	select {
 	case queue.slots <- struct{}{}:
+		admittedAt := time.Now()
 		result.Status = enterpriseQueueStatusAdmitted
-		result.WaitMs = durationMillis(time.Since(start))
+		result.WaitMs = durationMillis(admittedAt.Sub(start))
 		setEnterpriseQueueHeaders(c, result)
+		updateEnterpriseGovernanceQueueAdmission(c, admission, result, map[string]any{
+			"admitted_at": admittedAt.Unix(),
+		})
 		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
-		recordEnterpriseGovernanceQueueAdmission(c, enterpriseCtx, relayInfo, decision, result)
 		var once sync.Once
 		release := func() {
 			once.Do(func() {
 				<-queue.slots
+				releasedAt := time.Now()
+				finalResult := result
+				finalResult.Status = enterpriseQueueStatusReleased
+				updates := map[string]any{
+					"released_at": releasedAt.Unix(),
+					"run_ms":      durationMillis(releasedAt.Sub(admittedAt)),
+				}
+				if c.Request != nil && c.Request.Context().Err() != nil {
+					finalResult.Status = enterpriseQueueStatusCanceled
+					updates["canceled_at"] = releasedAt.Unix()
+				}
+				updateEnterpriseGovernanceQueueAdmission(c, admission, finalResult, updates)
 			})
 		}
 		return result, release, nil
 	case <-timer.C:
+		now := time.Now()
 		result.Status = enterpriseQueueStatusTimeout
-		result.WaitMs = durationMillis(time.Since(start))
+		result.WaitMs = durationMillis(now.Sub(start))
 		setEnterpriseQueueHeaders(c, result)
+		updateEnterpriseGovernanceQueueAdmission(c, admission, result, nil)
 		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
-		recordEnterpriseGovernanceQueueAdmission(c, enterpriseCtx, relayInfo, decision, result)
 		logger.LogWarn(c, fmt.Sprintf("enterprise governance queue timeout after %dms", result.WaitMs))
 		return result, nil, ErrEnterpriseGovernanceQueueTimeout
 	case <-requestDone:
+		now := time.Now()
 		result.Status = enterpriseQueueStatusCanceled
-		result.WaitMs = durationMillis(time.Since(start))
+		result.WaitMs = durationMillis(now.Sub(start))
 		setEnterpriseQueueHeaders(c, result)
+		updateEnterpriseGovernanceQueueAdmission(c, admission, result, map[string]any{
+			"canceled_at": now.Unix(),
+		})
 		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
-		recordEnterpriseGovernanceQueueAdmission(c, enterpriseCtx, relayInfo, decision, result)
-		return result, nil, c.Request.Context().Err()
+		err := context.Canceled
+		if c.Request != nil && c.Request.Context().Err() != nil {
+			err = c.Request.Context().Err()
+		}
+		return result, nil, err
 	}
 }
 
@@ -186,29 +215,25 @@ func recordEnterpriseGovernanceQueueAudit(c *gin.Context, enterpriseCtx *Enterpr
 	}
 }
 
-func recordEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *EnterpriseContext, relayInfo *relaycommon.RelayInfo, decision PolicyDecision, result EnterpriseGovernanceQueueResult) {
+func createEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *EnterpriseContext, relayInfo *relaycommon.RelayInfo, decision PolicyDecision, result EnterpriseGovernanceQueueResult, queueKey string) *model.EnterpriseGovernanceQueueAdmission {
 	if enterpriseCtx == nil || !result.Applied {
-		return
+		return nil
 	}
 	requestId := enterpriseRequestIdFromRelay(c, relayInfo)
 	policyIdsJson, err := common.Marshal(cloneIntSlice(decision.MatchedPolicyIds))
 	if err != nil {
 		logger.LogError(c, "error marshaling enterprise governance queue policy ids: "+err.Error())
-		return
+		return nil
 	}
 	policyGroupIdsJson, err := common.Marshal(cloneIntSlice(enterpriseCtx.PolicyGroupIds))
 	if err != nil {
 		logger.LogError(c, "error marshaling enterprise governance queue policy group ids: "+err.Error())
-		return
+		return nil
 	}
 	policyActionsJson, err := common.Marshal(cloneEnterprisePolicyActionObservations(decision.ActionObservations))
 	if err != nil {
 		logger.LogError(c, "error marshaling enterprise governance queue policy actions: "+err.Error())
-		return
-	}
-	userMessageKey := "enterprise_governance.policy_action_observed"
-	if result.Status == enterpriseQueueStatusTimeout {
-		userMessageKey = "enterprise_governance.queue_timeout"
+		return nil
 	}
 	modelName := ""
 	relayMode := 0
@@ -229,17 +254,48 @@ func recordEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *Ent
 		ModelName:          modelName,
 		ChannelId:          enterpriseChannelIdFromRelay(c, relayInfo),
 		RelayMode:          relayMode,
-		QueueKey:           enterprisePolicyQueueKey(enterpriseCtx, relayInfo),
+		QueueKey:           queueKey,
 		Status:             result.Status,
 		WaitMs:             result.WaitMs,
 		TimeoutMs:          result.TimeoutMs,
 		DryRun:             decision.DryRun,
 		PolicyActionsJson:  string(policyActionsJson),
-		UserMessageKey:     userMessageKey,
+		UserMessageKey:     enterpriseQueueUserMessageKey(result.Status),
 	}
 	if err := model.DB.Create(&row).Error; err != nil {
 		logger.LogError(c, "error recording enterprise governance queue admission: "+err.Error())
+		return nil
 	}
+	return &row
+}
+
+func updateEnterpriseGovernanceQueueAdmission(c *gin.Context, admission *model.EnterpriseGovernanceQueueAdmission, result EnterpriseGovernanceQueueResult, updates map[string]any) {
+	if admission == nil || admission.Id <= 0 || !result.Applied {
+		return
+	}
+	now := time.Now().Unix()
+	values := map[string]any{
+		"status":           result.Status,
+		"wait_ms":          result.WaitMs,
+		"timeout_ms":       result.TimeoutMs,
+		"user_message_key": enterpriseQueueUserMessageKey(result.Status),
+		"updated_at":       now,
+	}
+	for key, value := range updates {
+		values[key] = value
+	}
+	if err := model.DB.Model(&model.EnterpriseGovernanceQueueAdmission{}).
+		Where("id = ?", admission.Id).
+		Updates(values).Error; err != nil {
+		logger.LogError(c, "error updating enterprise governance queue admission: "+err.Error())
+	}
+}
+
+func enterpriseQueueUserMessageKey(status string) string {
+	if status == enterpriseQueueStatusTimeout {
+		return "enterprise_governance.queue_timeout"
+	}
+	return "enterprise_governance.policy_action_observed"
 }
 
 func enterpriseGovernanceQueueAuditPayload(c *gin.Context, enterpriseCtx *EnterpriseContext, relayInfo *relaycommon.RelayInfo, decision PolicyDecision, result EnterpriseGovernanceQueueResult, requestId string) map[string]any {
@@ -248,10 +304,6 @@ func enterpriseGovernanceQueueAuditPayload(c *gin.Context, enterpriseCtx *Enterp
 	if relayInfo != nil {
 		modelName = relayInfo.OriginModelName
 		channelId = enterpriseChannelIdFromRelay(c, relayInfo)
-	}
-	userMessageKey := "enterprise_governance.policy_action_observed"
-	if result.Status == enterpriseQueueStatusTimeout {
-		userMessageKey = "enterprise_governance.queue_timeout"
 	}
 	return map[string]any{
 		"request_id":         requestId,
@@ -267,7 +319,7 @@ func enterpriseGovernanceQueueAuditPayload(c *gin.Context, enterpriseCtx *Enterp
 		"queue_status":       result.Status,
 		"wait_ms":            result.WaitMs,
 		"timeout_ms":         result.TimeoutMs,
-		"user_message_key":   userMessageKey,
+		"user_message_key":   enterpriseQueueUserMessageKey(result.Status),
 		"dry_run":            decision.DryRun,
 	}
 }

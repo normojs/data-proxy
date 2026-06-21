@@ -1,7 +1,9 @@
 package model
 
 const (
+	EnterpriseGovernanceQueueAdmissionStatusQueued   = "queued"
 	EnterpriseGovernanceQueueAdmissionStatusAdmitted = "admitted"
+	EnterpriseGovernanceQueueAdmissionStatusReleased = "released"
 	EnterpriseGovernanceQueueAdmissionStatusTimeout  = "timeout"
 	EnterpriseGovernanceQueueAdmissionStatusCanceled = "canceled"
 )
@@ -24,10 +26,15 @@ type EnterpriseGovernanceQueueAdmission struct {
 	Status             string `json:"status" gorm:"type:varchar(32);not null;index"`
 	WaitMs             int64  `json:"wait_ms" gorm:"not null;default:0"`
 	TimeoutMs          int64  `json:"timeout_ms" gorm:"not null;default:0"`
+	AdmittedAt         int64  `json:"admitted_at" gorm:"not null;default:0;index"`
+	ReleasedAt         int64  `json:"released_at" gorm:"not null;default:0;index"`
+	CanceledAt         int64  `json:"canceled_at" gorm:"not null;default:0;index"`
+	RunMs              int64  `json:"run_ms" gorm:"not null;default:0"`
 	DryRun             bool   `json:"dry_run" gorm:"not null;default:false"`
 	PolicyActionsJson  string `json:"policy_actions_json" gorm:"type:text"`
 	UserMessageKey     string `json:"user_message_key" gorm:"type:varchar(128);not null;default:''"`
 	CreatedAt          int64  `json:"created_at" gorm:"autoCreateTime;index:idx_enterprise_governance_queue_admissions_created_at,priority:2"`
+	UpdatedAt          int64  `json:"updated_at" gorm:"autoUpdateTime;index"`
 }
 
 func (EnterpriseGovernanceQueueAdmission) TableName() string {

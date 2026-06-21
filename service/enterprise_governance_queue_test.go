@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"sync"
@@ -61,6 +62,8 @@ func TestApplyEnterpriseGovernanceQueueAdmitsAuditsAndReleases(t *testing.T) {
 	assert.EqualValues(t, 701, admission.ChannelId)
 	assert.EqualValues(t, relayconstant.RelayModeChatCompletions, admission.RelayMode)
 	assert.Equal(t, "enterprise_governance.policy_action_observed", admission.UserMessageKey)
+	assert.Greater(t, admission.AdmittedAt, int64(0))
+	assert.Zero(t, admission.ReleasedAt)
 	assert.Equal(t, strconv.FormatInt(result.TimeoutMs, 10), ctx.Writer.Header().Get(enterpriseQueueTimeoutMsHeader))
 	var admissionPolicyActions []PolicyActionObservation
 	require.NoError(t, common.Unmarshal([]byte(admission.PolicyActionsJson), &admissionPolicyActions))
@@ -68,6 +71,10 @@ func TestApplyEnterpriseGovernanceQueueAdmitsAuditsAndReleases(t *testing.T) {
 	assert.Equal(t, model.PolicyActionQueue, admissionPolicyActions[0].Action)
 
 	release()
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-admit").First(&admission).Error)
+	assert.Equal(t, enterpriseQueueStatusReleased, admission.Status)
+	assert.Greater(t, admission.ReleasedAt, int64(0))
+	assert.GreaterOrEqual(t, admission.RunMs, int64(0))
 	secondCtx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-queue-admit-second", 702)
 	secondRelayInfo := *relayInfo
 	secondRelayInfo.RequestId = "req-enterprise-queue-admit-second"
@@ -123,6 +130,72 @@ func TestApplyEnterpriseGovernanceQueueTimeoutAudits(t *testing.T) {
 	assert.EqualValues(t, 10, admission.TimeoutMs)
 	assert.GreaterOrEqual(t, admission.WaitMs, int64(10))
 	assert.Equal(t, "enterprise_governance.queue_timeout", admission.UserMessageKey)
+	assert.Zero(t, admission.AdmittedAt)
+	assert.Zero(t, admission.ReleasedAt)
+	var count int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseGovernanceQueueAdmission{}).Where("request_id = ?", "req-enterprise-queue-timeout").Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+}
+
+func TestApplyEnterpriseGovernanceQueueCancelUpdatesQueuedAdmission(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 200*time.Millisecond)
+	gin.SetMode(gin.TestMode)
+
+	relayInfo, _ := prepareEnterpriseGovernanceQueueRequest(t, "req-enterprise-queue-held-cancel", 1032, 122)
+	heldCtx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-queue-held-cancel", 721)
+	require.Nil(t, PreCheckEnterpriseGovernance(heldCtx, relayInfo, 20))
+	heldResult, heldRelease, err := ApplyEnterpriseGovernanceQueue(heldCtx, relayInfo)
+	require.NoError(t, err)
+	require.NotNil(t, heldRelease)
+	defer heldRelease()
+	require.Equal(t, enterpriseQueueStatusAdmitted, heldResult.Status)
+
+	waitingRelayInfo := *relayInfo
+	waitingRelayInfo.RequestId = "req-enterprise-queue-canceled"
+	waitingCtx := newEnterpriseGovernanceRelayTestContext(t, "req-enterprise-queue-canceled", 722)
+	ctxWithCancel, cancel := context.WithCancel(waitingCtx.Request.Context())
+	waitingCtx.Request = waitingCtx.Request.WithContext(ctxWithCancel)
+	require.Nil(t, PreCheckEnterpriseGovernance(waitingCtx, &waitingRelayInfo, 20))
+
+	type queueOutcome struct {
+		result  EnterpriseGovernanceQueueResult
+		release func()
+		err     error
+	}
+	done := make(chan queueOutcome, 1)
+	go func() {
+		result, release, err := ApplyEnterpriseGovernanceQueue(waitingCtx, &waitingRelayInfo)
+		done <- queueOutcome{result: result, release: release, err: err}
+	}()
+
+	require.Eventually(t, func() bool {
+		var admission model.EnterpriseGovernanceQueueAdmission
+		err := model.DB.Where("request_id = ?", "req-enterprise-queue-canceled").First(&admission).Error
+		return err == nil && admission.Status == enterpriseQueueStatusQueued
+	}, time.Second, 5*time.Millisecond)
+	cancel()
+
+	var outcome queueOutcome
+	select {
+	case outcome = <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for queue cancellation")
+	}
+	require.ErrorIs(t, outcome.err, context.Canceled)
+	assert.Nil(t, outcome.release)
+	assert.Equal(t, enterpriseQueueStatusCanceled, outcome.result.Status)
+	assert.Equal(t, "canceled", waitingCtx.Writer.Header().Get(enterpriseQueueStatusHeader))
+
+	var admission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-canceled").First(&admission).Error)
+	assert.Equal(t, enterpriseQueueStatusCanceled, admission.Status)
+	assert.Greater(t, admission.CanceledAt, int64(0))
+	assert.Zero(t, admission.AdmittedAt)
+	assert.Zero(t, admission.ReleasedAt)
+	var count int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseGovernanceQueueAdmission{}).Where("request_id = ?", "req-enterprise-queue-canceled").Count(&count).Error)
+	assert.EqualValues(t, 1, count)
 }
 
 func prepareEnterpriseGovernanceQueueRequest(t *testing.T, requestId string, userId int, tokenId int) (*relaycommon.RelayInfo, model.EnterpriseQuotaPolicy) {

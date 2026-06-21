@@ -369,13 +369,18 @@ export type EnterpriseQueueAdmission = {
   channel_id: number
   relay_mode: number
   queue_key: string
-  status: 'admitted' | 'timeout' | 'canceled' | string
+  status: 'queued' | 'admitted' | 'released' | 'timeout' | 'canceled' | string
   wait_ms: number
   timeout_ms: number
+  admitted_at: number
+  released_at: number
+  canceled_at: number
+  run_ms: number
   dry_run: boolean
   policy_actions_json: string
   user_message_key: string
   created_at: number
+  updated_at: number
 }
 
 export type EnterpriseWebhook = {
@@ -490,7 +495,10 @@ export type EnterpriseOrgUnitPayload = {
 export type EnterprisePolicyGroupPayload = {
   org_unit_id?: number
   shared_org_unit_ids?: number[]
-  shared_org_unit_roles?: Record<string, EnterprisePolicyGroupShareRole | string>
+  shared_org_unit_roles?: Record<
+    string,
+    EnterprisePolicyGroupShareRole | string
+  >
   shared_expires_at?: number
   name: string
   slug: string
