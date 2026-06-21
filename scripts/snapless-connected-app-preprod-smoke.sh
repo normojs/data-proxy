@@ -76,6 +76,48 @@ api() {
   printf '%s' "$output"
 }
 
+cleanup_preprod_smoke() {
+  if [[ "${SNAPLESS_PREPROD_CLEANUP:-}" != "1" || "${CLEANUP_DONE:-0}" == "1" ]]; then
+    return
+  fi
+  CLEANUP_DONE=1
+
+  set +e
+  local header output status body
+  header="$(header_for_role admin)"
+
+  if [[ -n "${APP_ID:-}" ]]; then
+    echo "[snapless-preprod-smoke] cleanup: disable connected app $APP_ID" >&2
+    output="$(mktemp)"
+    body="$(jq -n \
+      --arg name "$APP_NAME" \
+      '{name:$name,description:"Preprod connected app smoke",allowed_scopes:["openai.models","openai.chat","quota.read","token.manage"],default_scopes:["openai.models","openai.chat","quota.read"],authorization_flow:"device_code",trusted:true,status:2}')"
+    status="$(curl -sS -o "$output" -w '%{http_code}' -X PUT "$BASE_URL/api/connected-apps/$APP_ID" -H "$header" -H 'Content-Type: application/json' --data "$body")"
+    if [[ "$status" -ge 200 && "$status" -lt 300 ]] && jq -e '.success == true' "$output" >/dev/null 2>&1; then
+      CLEANUP_RESULT="app_disabled"
+    else
+      CLEANUP_RESULT="app_disable_failed_http_$status"
+      cat "$output" >&2
+    fi
+    set -e
+    return
+  fi
+
+  if [[ -n "${REQUEST_ID:-}" ]]; then
+    echo "[snapless-preprod-smoke] cleanup: reject pending connected app request $REQUEST_ID" >&2
+    output="$(mktemp)"
+    body='{"decision":"rejected","review_note":"preprod smoke cleanup"}'
+    status="$(curl -sS -o "$output" -w '%{http_code}' -X POST "$BASE_URL/api/connected-apps/requests/$REQUEST_ID/review" -H "$header" -H 'Content-Type: application/json' --data "$body")"
+    if [[ "$status" -ge 200 && "$status" -lt 300 ]] && jq -e '.success == true' "$output" >/dev/null 2>&1; then
+      CLEANUP_RESULT="request_rejected"
+    else
+      CLEANUP_RESULT="request_reject_failed_http_$status"
+      cat "$output" >&2
+    fi
+  fi
+  set -e
+}
+
 need curl
 need jq
 
@@ -83,6 +125,7 @@ if [[ "${SNAPLESS_PREPROD_CONFIRM:-}" != "1" ]]; then
   cat >&2 <<'EOF'
 [snapless-preprod-smoke] this smoke creates a connected app request, approves it,
 creates/rotates developer keys, and authorizes a device session.
+Set SNAPLESS_PREPROD_CLEANUP=1 to disable the smoke app after the run.
 Set SNAPLESS_PREPROD_CONFIRM=1 to run it against preprod.
 EOF
   exit 1
@@ -99,6 +142,11 @@ APP_SLUG="${SNAPLESS_PREPROD_APP_SLUG:-snapless-preprod-$RUN_ID}"
 APP_NAME="${SNAPLESS_PREPROD_APP_NAME:-Snapless Preprod $RUN_ID}"
 DEVICE_ID="${SNAPLESS_PREPROD_DEVICE_ID:-preprod-device-$RUN_ID}"
 DEVELOPER_DEVICE_ID="${SNAPLESS_PREPROD_DEVELOPER_DEVICE_ID:-preprod-developer-$RUN_ID}"
+REQUEST_ID=""
+APP_ID=""
+CLEANUP_DONE=0
+CLEANUP_RESULT="${SNAPLESS_PREPROD_CLEANUP:-0}"
+trap cleanup_preprod_smoke EXIT
 
 SUMMARY="$(mktemp)"
 {
@@ -236,6 +284,13 @@ response="$(api developer GET "/api/connected-apps/$APP_SLUG/developer/notificat
 DEVELOPER_OUTBOX_TOTAL="$(json_field "$response" '.data.total')"
 summary_row "developer_outbox_total" "$DEVELOPER_OUTBOX_TOTAL" >> "$SUMMARY"
 api admin GET /api/connected-apps/notification-outbox/worker-metrics >/dev/null
+
+if [[ "${SNAPLESS_PREPROD_CLEANUP:-}" == "1" ]]; then
+  cleanup_preprod_smoke
+else
+  CLEANUP_RESULT="not_requested"
+fi
+summary_row "cleanup" "$CLEANUP_RESULT" >> "$SUMMARY"
 
 echo
 cat "$SUMMARY"

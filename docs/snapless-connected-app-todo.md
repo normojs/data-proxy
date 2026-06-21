@@ -54,5 +54,5 @@
 
 ## 立即下一步
 
-1. 在预发环境运行 `make snapless-connected-app-preprod-smoke`，或手动执行 `docs/snapless-connected-app-v1.3-release-evidence.md` 的检查表，补充真实 request ID、outbox ID、token ID、截图或变更单链接。
+1. 在预发环境运行 `make snapless-connected-app-preprod-smoke`，或手动执行 `docs/snapless-connected-app-v1.3-release-evidence.md` 的检查表，补充真实 request ID、outbox ID、token ID、截图或变更单链接。默认保留 smoke app 便于排查；需要停用测试 app 时设置 `SNAPLESS_PREPROD_CLEANUP=1`。
 2. 预发通过后按 `docs/data-proxy-release-runbook.md` 创建发布 tag，运行 `make snapless-connected-app-release-evidence`，确认 CI、Docker image digest 和回滚镜像 digest。

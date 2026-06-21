@@ -43,13 +43,14 @@
 
 ## 预发执行记录
 
-可用预发 smoke 脚本生成本节需要的大部分 ID。`ADMIN_HEADER`、`DEVELOPER_HEADER` 和 `AUTHORIZING_USER_HEADER` 使用完整 HTTP header，例如 `Cookie: session=...` 或 `Authorization: Bearer ...`；脚本会创建测试 connected app、开发者 key 和 device session，但不会打印 API key 明文。
+可用预发 smoke 脚本生成本节需要的大部分 ID。`ADMIN_HEADER`、`DEVELOPER_HEADER` 和 `AUTHORIZING_USER_HEADER` 使用完整 HTTP header，例如 `Cookie: session=...` 或 `Authorization: Bearer ...`；脚本会创建测试 connected app、开发者 key 和 device session，但不会打印 API key 明文。默认保留测试 app 便于排查和截图；需要执行后停用测试 app 时，可显式设置 `SNAPLESS_PREPROD_CLEANUP=1`。
 
 ```bash
 DATA_PROXY_BASE_URL=https://preprod.example.com \
 ADMIN_HEADER='Cookie: session=...' \
 DEVELOPER_HEADER='Cookie: session=...' \
 AUTHORIZING_USER_HEADER='Cookie: session=...' \
+SNAPLESS_PREPROD_CLEANUP=1 \
 SNAPLESS_PREPROD_CONFIRM=1 \
 make snapless-connected-app-preprod-smoke
 ```
@@ -66,6 +67,7 @@ make snapless-connected-app-preprod-smoke
 | 测试授权用户 ID |  |
 | 测试 token ID |  |
 | 关联变更单 |  |
+| cleanup | not_requested / app_disabled |
 
 ### 预发检查项
 

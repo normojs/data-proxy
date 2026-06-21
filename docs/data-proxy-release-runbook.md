@@ -52,13 +52,14 @@ ghcr.io/normojs/data-proxy:latest
 
 V1.3 通知闭环的业务证据继续补到 `docs/enterprise-governance-v1.3-release-evidence.md`；Snapless Connected App 证据补到 `docs/snapless-connected-app-v1.3-release-evidence.md` 或对应变更单。
 
-可用以下命令在预发环境执行 Snapless Connected App smoke。`*_HEADER` 使用完整 HTTP header，例如 `Cookie: session=...` 或 `Authorization: Bearer ...`；脚本不会打印 API key 明文。
+可用以下命令在预发环境执行 Snapless Connected App smoke。`*_HEADER` 使用完整 HTTP header，例如 `Cookie: session=...` 或 `Authorization: Bearer ...`；脚本不会打印 API key 明文。默认保留测试 app 便于排查和截图；如需执行后停用测试 app，设置 `SNAPLESS_PREPROD_CLEANUP=1`。
 
 ```bash
 DATA_PROXY_BASE_URL=https://preprod.example.com \
 ADMIN_HEADER='Cookie: session=...' \
 DEVELOPER_HEADER='Cookie: session=...' \
 AUTHORIZING_USER_HEADER='Cookie: session=...' \
+SNAPLESS_PREPROD_CLEANUP=1 \
 SNAPLESS_PREPROD_CONFIRM=1 \
 make snapless-connected-app-preprod-smoke
 ```
