@@ -82,7 +82,7 @@ type ConnectedAppTokenBinding struct {
 	AppId             int    `json:"app_id" gorm:"not null;uniqueIndex:idx_connected_app_token_bindings_app_user_device,priority:1;index"`
 	GrantId           int64  `json:"grant_id" gorm:"not null;index"`
 	UserId            int    `json:"user_id" gorm:"not null;uniqueIndex:idx_connected_app_token_bindings_app_user_device,priority:2;index"`
-	TokenId           int    `json:"token_id" gorm:"not null;uniqueIndex;index"`
+	TokenId           int    `json:"token_id" gorm:"not null;uniqueIndex:idx_connected_app_token_bindings_token_id"`
 	DeviceFingerprint string `json:"device_fingerprint" gorm:"type:varchar(128);not null;uniqueIndex:idx_connected_app_token_bindings_app_user_device,priority:3"`
 	DeviceName        string `json:"device_name" gorm:"type:varchar(128);not null;default:''"`
 	Platform          string `json:"platform" gorm:"type:varchar(32);not null;default:'';index"`
