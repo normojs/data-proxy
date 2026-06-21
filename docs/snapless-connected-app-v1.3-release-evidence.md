@@ -6,8 +6,8 @@
 
 | 字段 | 记录 |
 | --- | --- |
-| 记录时间 | 2026-06-21 11:33:23 CST |
-| 核验代码 commit | `0dd88e11` |
+| 记录时间 | 2026-06-21 12:13:04 CST |
+| 核验代码 commit | `066f813218a0b30db73e4609a038e9a7f9a2a9ba` |
 | 工作区 | `/Users/fushilu/workspace/revocloud/data-proxy/upstream/new-api` |
 | 核验命令 | `scripts/snapless-connected-app-preflight.sh` |
 | 结果 | 通过 |
@@ -22,7 +22,7 @@
 - notification outbox：router/service 测试覆盖审批、设备授权、token lifecycle、email/webhook preference、幂等、webhook HMAC payload 和非法配置拒绝。
 - MCP 计费回归：`go test ./pkg/mcp/billing ./pkg/mcp/proxy ./pkg/mcp/executor -count=1`，保持 MCP 按调用次数和 `price_per_call` 语义。
 - Profile 和系统设置前端：connected app 相关页面 eslint、`bun run typecheck`、`bun run build`。
-- GitHub CI 门禁：`CI` workflow 新增 `Snapless Connected App` job，独立执行 `scripts/snapless-connected-app-preflight.sh`；目标 commit `8f61ab24` 的 run 已通过。
+- GitHub CI 门禁：`CI` workflow 新增 `Snapless Connected App` job，独立执行 `scripts/snapless-connected-app-preflight.sh`；目标 commit `066f813218a0b30db73e4609a038e9a7f9a2a9ba` 的 run 已通过。
 - 发布合规：`LICENSE`、`NOTICE`、`THIRD-PARTY-LICENSES.md`、README new-api attribution、NOTICE Section 7 文案和 Docker `/licenses/` copy 检查。
 - 空白和本地构建产物检查：`git diff --check` 和 release artifact check。
 
@@ -38,7 +38,7 @@
 | 授权排障视图数据源 | router 测试覆盖 authorizations 和 device sessions status 筛选 | 通过 |
 | email/webhook outbox | router/service 测试覆盖 preference、webhook、HMAC、幂等和 retry 基础状态 | 通过 |
 | MCP 计费语义 | MCP billing/proxy/executor 回归测试 | 通过 |
-| GitHub CI 门禁 | `CI / Snapless Connected App` job 执行 preflight | 通过，run: `https://github.com/normojs/data-proxy/actions/runs/27892488510` |
+| GitHub CI 门禁 | `CI / Snapless Connected App` job 执行 preflight | 通过，run: `https://github.com/normojs/data-proxy/actions/runs/27893090431` |
 | 发布协议合规 | preflight 检查 README、NOTICE、LICENSE、THIRD-PARTY-LICENSES.md 和 Dockerfile | 通过 |
 
 ## 预发执行记录
