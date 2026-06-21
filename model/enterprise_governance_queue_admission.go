@@ -1,11 +1,12 @@
 package model
 
 const (
-	EnterpriseGovernanceQueueAdmissionStatusQueued   = "queued"
-	EnterpriseGovernanceQueueAdmissionStatusAdmitted = "admitted"
-	EnterpriseGovernanceQueueAdmissionStatusReleased = "released"
-	EnterpriseGovernanceQueueAdmissionStatusTimeout  = "timeout"
-	EnterpriseGovernanceQueueAdmissionStatusCanceled = "canceled"
+	EnterpriseGovernanceQueueAdmissionStatusQueued       = "queued"
+	EnterpriseGovernanceQueueAdmissionStatusAdmitted     = "admitted"
+	EnterpriseGovernanceQueueAdmissionStatusReleased     = "released"
+	EnterpriseGovernanceQueueAdmissionStatusTimeout      = "timeout"
+	EnterpriseGovernanceQueueAdmissionStatusCanceled     = "canceled"
+	EnterpriseGovernanceQueueAdmissionStatusRetryPending = "retry_pending"
 )
 
 type EnterpriseGovernanceQueueAdmission struct {
@@ -33,6 +34,9 @@ type EnterpriseGovernanceQueueAdmission struct {
 	DryRun             bool   `json:"dry_run" gorm:"not null;default:false"`
 	PolicyActionsJson  string `json:"policy_actions_json" gorm:"type:text"`
 	RequestPayloadJson string `json:"request_payload_json" gorm:"type:text"`
+	RetryCount         int    `json:"retry_count" gorm:"not null;default:0"`
+	NextRetryAt        int64  `json:"next_retry_at" gorm:"index"`
+	LastError          string `json:"last_error" gorm:"type:text"`
 	UserMessageKey     string `json:"user_message_key" gorm:"type:varchar(128);not null;default:''"`
 	CreatedAt          int64  `json:"created_at" gorm:"autoCreateTime;index:idx_enterprise_governance_queue_admissions_created_at,priority:2"`
 	UpdatedAt          int64  `json:"updated_at" gorm:"autoUpdateTime;index"`

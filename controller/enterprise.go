@@ -2459,6 +2459,31 @@ func CancelEnterpriseGovernanceQueueAdmission(c *gin.Context) {
 	common.ApiSuccess(c, after)
 }
 
+func RetryEnterpriseGovernanceQueueAdmission(c *gin.Context) {
+	id, err := parsePathInt64(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var before model.EnterpriseGovernanceQueueAdmission
+	if err := model.DB.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&before).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	after, err := service.RetryEnterpriseGovernanceQueueAdmission(before, common.GetTimestamp())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordEnterpriseAudit(c, enterprise.Id, "queue_admission.retry", "enterprise_governance_queue_admission", int(id), before, after)
+	common.ApiSuccess(c, after)
+}
+
 func ListEnterpriseGovernanceSharedPoolConfigs(c *gin.Context) {
 	enterprise, err := currentEnterprise()
 	if err != nil {

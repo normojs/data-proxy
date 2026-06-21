@@ -145,6 +145,7 @@ import {
   getEnterpriseUsageSummary,
   getEnterpriseWebhooks,
   previewEnterpriseOrgSync,
+  retryEnterpriseQueueAdmission,
   retryEnterpriseNotificationOutbox,
   testEnterpriseWebhook,
   updateEnterpriseCurrent,
@@ -744,6 +745,47 @@ function OutboxStatusBadge(props: { status: string }) {
       {t(formatOutboxStatus(props.status))}
     </Badge>
   )
+}
+
+function QueueAdmissionStatusBadge(props: { status: string }) {
+  const { t } = useTranslation()
+  const className = {
+    queued: 'border-amber-500/40 text-amber-700',
+    admitted: 'border-blue-500/40 text-blue-700',
+    released: 'border-emerald-500/40 text-emerald-700',
+    timeout: 'border-destructive/40 text-destructive',
+    canceled: 'border-destructive/40 text-destructive',
+    retry_pending: 'border-purple-500/40 text-purple-700',
+  }[props.status]
+
+  return (
+    <Badge variant='outline' className={className}>
+      {t(formatQueueAdmissionStatus(props.status))}
+    </Badge>
+  )
+}
+
+function formatQueueAdmissionStatus(status: string) {
+  switch (status) {
+    case 'queued':
+      return 'Queued'
+    case 'admitted':
+      return 'Admitted'
+    case 'released':
+      return 'Released'
+    case 'timeout':
+      return 'Timeout'
+    case 'canceled':
+      return 'Canceled'
+    case 'retry_pending':
+      return 'Retry Pending'
+    default:
+      return status || '-'
+  }
+}
+
+function isRetryableQueueAdmissionStatus(status: string) {
+  return status === 'timeout' || status === 'canceled'
 }
 
 function formatOutboxStatus(status: string) {
@@ -4324,6 +4366,15 @@ function QueueAdmissionsPanel(props: {
       queryClient.invalidateQueries({ queryKey: ['enterprise', 'audit-logs'] })
     },
   })
+  const retryMutation = useMutation({
+    mutationFn: retryEnterpriseQueueAdmission,
+    onSuccess: (response) => {
+      if (!response.success) return
+      toast.success(t('Queued for retry'))
+      queryClient.invalidateQueries({ queryKey: ['enterprise'] })
+      queryClient.invalidateQueries({ queryKey: ['enterprise', 'audit-logs'] })
+    },
+  })
 
   return (
     <div className='bg-muted/20 rounded-lg border'>
@@ -4367,6 +4418,9 @@ function QueueAdmissionsPanel(props: {
                 <SelectItem value='released'>{t('Released')}</SelectItem>
                 <SelectItem value='timeout'>{t('Timeout')}</SelectItem>
                 <SelectItem value='canceled'>{t('Canceled')}</SelectItem>
+                <SelectItem value='retry_pending'>
+                  {t('Retry Pending')}
+                </SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
@@ -4444,6 +4498,9 @@ function QueueAdmissionsPanel(props: {
                 <TableHead>{t('Scope')}</TableHead>
                 <TableHead className='text-right'>{t('Wait')}</TableHead>
                 <TableHead className='text-right'>{t('Run')}</TableHead>
+                <TableHead>{t('Retry')}</TableHead>
+                <TableHead>{t('Next Retry')}</TableHead>
+                <TableHead>{t('Last Error')}</TableHead>
                 {props.canManage && (
                   <TableHead className='text-right'>{t('Actions')}</TableHead>
                 )}
@@ -4454,18 +4511,7 @@ function QueueAdmissionsPanel(props: {
                 <TableRow key={admission.id}>
                   <TableCell>{formatDateTime(admission.created_at)}</TableCell>
                   <TableCell>
-                    <Badge
-                      variant={
-                        admission.status === 'timeout' ||
-                        admission.status === 'canceled'
-                          ? 'destructive'
-                          : admission.status === 'released'
-                            ? 'secondary'
-                            : 'outline'
-                      }
-                    >
-                      {admission.status || '-'}
-                    </Badge>
+                    <QueueAdmissionStatusBadge status={admission.status} />
                   </TableCell>
                   <TableCell>
                     <span className='text-muted-foreground font-mono text-xs'>
@@ -4506,6 +4552,15 @@ function QueueAdmissionsPanel(props: {
                         : '-'}
                     </span>
                   </TableCell>
+                  <TableCell>{formatNumber(admission.retry_count)}</TableCell>
+                  <TableCell>
+                    {formatDateTime(admission.next_retry_at)}
+                  </TableCell>
+                  <TableCell>
+                    <span className='block max-w-72 truncate text-xs'>
+                      {admission.last_error || '-'}
+                    </span>
+                  </TableCell>
                   {props.canManage && (
                     <TableCell>
                       <div className='flex justify-end'>
@@ -4519,6 +4574,19 @@ function QueueAdmissionsPanel(props: {
                           >
                             <Ban className='size-3.5' />
                             <span className='sr-only'>{t('Cancel')}</span>
+                          </Button>
+                        ) : isRetryableQueueAdmissionStatus(
+                            admission.status
+                          ) ? (
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon-sm'
+                            disabled={retryMutation.isPending}
+                            onClick={() => retryMutation.mutate(admission.id)}
+                          >
+                            <TimerReset className='size-3.5' />
+                            <span className='sr-only'>{t('Retry')}</span>
                           </Button>
                         ) : (
                           <span className='text-muted-foreground text-xs'>

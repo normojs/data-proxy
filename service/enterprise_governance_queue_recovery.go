@@ -142,6 +142,7 @@ func enterpriseGovernanceQueueRecoveryUpdates(row model.EnterpriseGovernanceQueu
 			"status":           enterpriseQueueStatusTimeout,
 			"wait_ms":          waitMs,
 			"timeout_ms":       timeoutMs,
+			"last_error":       "enterprise governance queue admission recovered as timeout",
 			"user_message_key": enterpriseQueueUserMessageKey(enterpriseQueueStatusTimeout),
 			"updated_at":       now,
 		}
@@ -154,6 +155,7 @@ func enterpriseGovernanceQueueRecoveryUpdates(row model.EnterpriseGovernanceQueu
 			"status":           enterpriseQueueStatusCanceled,
 			"canceled_at":      now,
 			"run_ms":           runMs,
+			"last_error":       "enterprise governance admitted queue admission recovered as canceled",
 			"user_message_key": enterpriseQueueUserMessageKey(enterpriseQueueStatusCanceled),
 			"updated_at":       now,
 		}

@@ -393,7 +393,14 @@ export type EnterpriseQueueAdmission = {
   channel_id: number
   relay_mode: number
   queue_key: string
-  status: 'queued' | 'admitted' | 'released' | 'timeout' | 'canceled' | string
+  status:
+    | 'queued'
+    | 'admitted'
+    | 'released'
+    | 'timeout'
+    | 'canceled'
+    | 'retry_pending'
+    | string
   wait_ms: number
   timeout_ms: number
   admitted_at: number
@@ -403,6 +410,9 @@ export type EnterpriseQueueAdmission = {
   dry_run: boolean
   policy_actions_json: string
   request_payload_json: string
+  retry_count: number
+  next_retry_at: number
+  last_error: string
   user_message_key: string
   created_at: number
   updated_at: number

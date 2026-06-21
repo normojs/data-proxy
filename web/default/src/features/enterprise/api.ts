@@ -560,6 +560,13 @@ export async function cancelEnterpriseQueueAdmission(id: number) {
   return res.data
 }
 
+export async function retryEnterpriseQueueAdmission(id: number) {
+  const res = await api.post<ApiResponse<EnterpriseQueueAdmission>>(
+    `${ENTERPRISE_API}/queue-admissions/${id}/retry`
+  )
+  return res.data
+}
+
 export async function getEnterpriseSharedPoolConfigs(
   params: EnterpriseSharedPoolConfigParams = {}
 ) {

@@ -765,6 +765,45 @@ func TestEnterpriseQueueAdmissionFilters(t *testing.T) {
 	assert.EqualValues(t, 12, item["policy_id"])
 }
 
+func TestRetryEnterpriseGovernanceQueueAdmission(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	row := model.EnterpriseGovernanceQueueAdmission{
+		EnterpriseId:       enterprise.Id,
+		RequestId:          "req-queue-retry",
+		UserId:             9103,
+		TokenId:            103,
+		PolicyId:           13,
+		ModelName:          "gpt-4o",
+		QueueKey:           "enterprise:1",
+		Status:             model.EnterpriseGovernanceQueueAdmissionStatusTimeout,
+		TimeoutMs:          30000,
+		RequestPayloadJson: `{"method":"POST","path":"/v1/chat/completions"}`,
+		LastError:          service.ErrEnterpriseGovernanceQueueTimeout.Error(),
+		UserMessageKey:     "enterprise_governance.queue_timeout",
+		CreatedAt:          3000,
+	}
+	require.NoError(t, model.DB.Create(&row).Error)
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodPost, "/api/enterprise/queue-admissions/"+strconv.FormatInt(row.Id, 10)+"/retry", "{}")
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.FormatInt(row.Id, 10)}}
+	RetryEnterpriseGovernanceQueueAdmission(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	var after model.EnterpriseGovernanceQueueAdmission
+	decodeEnterpriseResponseData(t, response, &after)
+	assert.Equal(t, model.EnterpriseGovernanceQueueAdmissionStatusRetryPending, after.Status)
+	assert.EqualValues(t, 1, after.RetryCount)
+	assert.Greater(t, after.NextRetryAt, int64(0))
+	assert.Empty(t, after.LastError)
+	assert.Equal(t, "enterprise_governance.queue_retry_pending", after.UserMessageKey)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("action = ? AND target_type = ? AND target_id = ?", "queue_admission.retry", "enterprise_governance_queue_admission", row.Id).First(&audit).Error)
+	assert.Equal(t, "req-enterprise-controller-test", audit.RequestId)
+}
+
 func TestEnterpriseSharedPoolFilters(t *testing.T) {
 	setupEnterpriseControllerTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()

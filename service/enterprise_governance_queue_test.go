@@ -156,6 +156,7 @@ func TestApplyEnterpriseGovernanceQueueTimeoutAudits(t *testing.T) {
 	assert.EqualValues(t, 10, admission.TimeoutMs)
 	assert.GreaterOrEqual(t, admission.WaitMs, int64(10))
 	assert.Equal(t, "enterprise_governance.queue_timeout", admission.UserMessageKey)
+	assert.Equal(t, ErrEnterpriseGovernanceQueueTimeout.Error(), admission.LastError)
 	assert.Zero(t, admission.AdmittedAt)
 	assert.Zero(t, admission.ReleasedAt)
 	var count int64
@@ -217,6 +218,7 @@ func TestApplyEnterpriseGovernanceQueueCancelUpdatesQueuedAdmission(t *testing.T
 	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-canceled").First(&admission).Error)
 	assert.Equal(t, enterpriseQueueStatusCanceled, admission.Status)
 	assert.Greater(t, admission.CanceledAt, int64(0))
+	assert.NotEmpty(t, admission.LastError)
 	assert.Zero(t, admission.AdmittedAt)
 	assert.Zero(t, admission.ReleasedAt)
 	var count int64
@@ -280,6 +282,7 @@ func TestCancelEnterpriseGovernanceQueuedAdmissionCancelsWaitingRequest(t *testi
 	assert.Equal(t, enterpriseQueueStatusCanceled, admission.Status)
 	assert.Greater(t, admission.CanceledAt, int64(0))
 	assert.Equal(t, "enterprise_governance.queue_canceled", admission.UserMessageKey)
+	assert.Equal(t, ErrEnterpriseGovernanceQueueCanceled.Error(), admission.LastError)
 
 	var audit model.EnterpriseAuditLog
 	require.NoError(t, model.DB.Where("request_id = ? AND action = ?", "req-enterprise-queue-admin-canceled", enterpriseGovernanceAuditActionQueueAdmission).
@@ -347,6 +350,7 @@ func TestRecoverStaleEnterpriseGovernanceQueueAdmissionsMarksStaleRows(t *testin
 	assert.Equal(t, enterpriseQueueStatusTimeout, queued.Status)
 	assert.EqualValues(t, 120000, queued.WaitMs)
 	assert.Equal(t, "enterprise_governance.queue_timeout", queued.UserMessageKey)
+	assert.Equal(t, "enterprise governance queue admission recovered as timeout", queued.LastError)
 
 	var admitted model.EnterpriseGovernanceQueueAdmission
 	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-stale-admitted").First(&admitted).Error)
@@ -354,6 +358,7 @@ func TestRecoverStaleEnterpriseGovernanceQueueAdmissionsMarksStaleRows(t *testin
 	assert.EqualValues(t, now, admitted.CanceledAt)
 	assert.EqualValues(t, 2*60*60*1000, admitted.RunMs)
 	assert.Equal(t, "enterprise_governance.queue_canceled", admitted.UserMessageKey)
+	assert.Equal(t, "enterprise governance admitted queue admission recovered as canceled", admitted.LastError)
 
 	var fresh model.EnterpriseGovernanceQueueAdmission
 	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-fresh").First(&fresh).Error)
@@ -364,6 +369,56 @@ func TestRecoverStaleEnterpriseGovernanceQueueAdmissionsMarksStaleRows(t *testin
 		Where("action = ?", enterpriseGovernanceAuditActionQueueRecovery).
 		Count(&auditCount).Error)
 	assert.EqualValues(t, 2, auditCount)
+}
+
+func TestRetryEnterpriseGovernanceQueueAdmissionMarksRetryPending(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	resetEnterpriseGovernanceQueueForTest(t, 1, 30*time.Second)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	now := int64(1700000100)
+	require.NoError(t, model.DB.Create(&[]model.EnterpriseGovernanceQueueAdmission{
+		{
+			RequestId:          "req-enterprise-queue-retry-timeout",
+			EnterpriseId:       enterprise.Id,
+			UserId:             1037,
+			TokenId:            127,
+			QueueKey:           "enterprise:1",
+			Status:             model.EnterpriseGovernanceQueueAdmissionStatusTimeout,
+			TimeoutMs:          30000,
+			RequestPayloadJson: `{"method":"POST","path":"/v1/chat/completions"}`,
+			LastError:          ErrEnterpriseGovernanceQueueTimeout.Error(),
+			UserMessageKey:     "enterprise_governance.queue_timeout",
+			CreatedAt:          now - 60,
+			UpdatedAt:          now - 60,
+		},
+		{
+			RequestId:      "req-enterprise-queue-retry-released",
+			EnterpriseId:   enterprise.Id,
+			UserId:         1038,
+			TokenId:        128,
+			QueueKey:       "enterprise:1",
+			Status:         model.EnterpriseGovernanceQueueAdmissionStatusReleased,
+			UserMessageKey: "enterprise_governance.policy_action_observed",
+			CreatedAt:      now - 30,
+			UpdatedAt:      now - 30,
+		},
+	}).Error)
+
+	var timeoutAdmission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-retry-timeout").First(&timeoutAdmission).Error)
+	retry, err := RetryEnterpriseGovernanceQueueAdmission(timeoutAdmission, now)
+	require.NoError(t, err)
+	assert.Equal(t, enterpriseQueueStatusRetryPending, retry.Status)
+	assert.EqualValues(t, 1, retry.RetryCount)
+	assert.EqualValues(t, now, retry.NextRetryAt)
+	assert.Empty(t, retry.LastError)
+	assert.Equal(t, "enterprise_governance.queue_retry_pending", retry.UserMessageKey)
+
+	var releasedAdmission model.EnterpriseGovernanceQueueAdmission
+	require.NoError(t, model.DB.Where("request_id = ?", "req-enterprise-queue-retry-released").First(&releasedAdmission).Error)
+	_, err = RetryEnterpriseGovernanceQueueAdmission(releasedAdmission, now)
+	require.ErrorIs(t, err, ErrEnterpriseGovernanceQueueAdmissionNotRetryable)
 }
 
 func TestEnterpriseGovernanceQueuePayloadSnapshotTruncatesAndRestoresBody(t *testing.T) {

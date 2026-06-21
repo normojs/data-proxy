@@ -28,6 +28,7 @@ const (
 	enterpriseQueueStatusReleased                 = model.EnterpriseGovernanceQueueAdmissionStatusReleased
 	enterpriseQueueStatusTimeout                  = model.EnterpriseGovernanceQueueAdmissionStatusTimeout
 	enterpriseQueueStatusCanceled                 = model.EnterpriseGovernanceQueueAdmissionStatusCanceled
+	enterpriseQueueStatusRetryPending             = model.EnterpriseGovernanceQueueAdmissionStatusRetryPending
 	enterpriseQueueStatusHeader                   = "X-Data-Proxy-Enterprise-Queue-Status"
 	enterpriseQueueWaitMsHeader                   = "X-Data-Proxy-Enterprise-Queue-Wait-Ms"
 	enterpriseQueueTimeoutMsHeader                = "X-Data-Proxy-Enterprise-Queue-Timeout-Ms"
@@ -45,6 +46,7 @@ var (
 var ErrEnterpriseGovernanceQueueTimeout = errors.New("enterprise governance queue timeout")
 var ErrEnterpriseGovernanceQueueCanceled = errors.New("enterprise governance queue canceled")
 var ErrEnterpriseGovernanceQueueAdmissionNotCancelable = errors.New("enterprise governance queue admission is not queued on this node")
+var ErrEnterpriseGovernanceQueueAdmissionNotRetryable = errors.New("enterprise governance queue admission is not retryable")
 
 type EnterpriseGovernanceQueueResult struct {
 	Applied   bool
@@ -154,6 +156,7 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 				if c.Request != nil && c.Request.Context().Err() != nil {
 					finalResult.Status = enterpriseQueueStatusCanceled
 					updates["canceled_at"] = releasedAt.Unix()
+					updates["last_error"] = c.Request.Context().Err().Error()
 				}
 				updateEnterpriseGovernanceQueueAdmission(c, admission, finalResult, updates)
 			})
@@ -164,7 +167,9 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 		result.Status = enterpriseQueueStatusTimeout
 		result.WaitMs = durationMillis(now.Sub(start))
 		setEnterpriseQueueHeaders(c, result)
-		updateEnterpriseGovernanceQueueAdmission(c, admission, result, nil)
+		updateEnterpriseGovernanceQueueAdmission(c, admission, result, map[string]any{
+			"last_error": ErrEnterpriseGovernanceQueueTimeout.Error(),
+		})
 		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
 		logger.LogWarn(c, fmt.Sprintf("enterprise governance queue timeout after %dms", result.WaitMs))
 		return result, nil, ErrEnterpriseGovernanceQueueTimeout
@@ -173,14 +178,15 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 		result.Status = enterpriseQueueStatusCanceled
 		result.WaitMs = durationMillis(now.Sub(start))
 		setEnterpriseQueueHeaders(c, result)
-		updateEnterpriseGovernanceQueueAdmission(c, admission, result, map[string]any{
-			"canceled_at": now.Unix(),
-		})
-		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
 		err := context.Canceled
 		if c.Request != nil && c.Request.Context().Err() != nil {
 			err = c.Request.Context().Err()
 		}
+		updateEnterpriseGovernanceQueueAdmission(c, admission, result, map[string]any{
+			"canceled_at": now.Unix(),
+			"last_error":  err.Error(),
+		})
+		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
 		return result, nil, err
 	case <-queueCanceled:
 		now := time.Now()
@@ -189,6 +195,7 @@ func ApplyEnterpriseGovernanceQueue(c *gin.Context, relayInfo *relaycommon.Relay
 		setEnterpriseQueueHeaders(c, result)
 		updateEnterpriseGovernanceQueueAdmission(c, admission, result, map[string]any{
 			"canceled_at": now.Unix(),
+			"last_error":  ErrEnterpriseGovernanceQueueCanceled.Error(),
 		})
 		recordEnterpriseGovernanceQueueAudit(c, enterpriseCtx, relayInfo, decision, result)
 		return result, nil, ErrEnterpriseGovernanceQueueCanceled
@@ -419,6 +426,9 @@ func updateEnterpriseGovernanceQueueAdmission(c *gin.Context, admission *model.E
 }
 
 func enterpriseQueueUserMessageKey(status string) string {
+	if status == enterpriseQueueStatusRetryPending {
+		return "enterprise_governance.queue_retry_pending"
+	}
 	if status == enterpriseQueueStatusTimeout {
 		return "enterprise_governance.queue_timeout"
 	}
@@ -426,6 +436,19 @@ func enterpriseQueueUserMessageKey(status string) string {
 		return "enterprise_governance.queue_canceled"
 	}
 	return "enterprise_governance.policy_action_observed"
+}
+
+func isEnterpriseGovernanceQueueAdmissionRetryable(status string) bool {
+	switch status {
+	case enterpriseQueueStatusTimeout, enterpriseQueueStatusCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
+func enterpriseGovernanceQueueRetryableStatuses() []string {
+	return []string{enterpriseQueueStatusTimeout, enterpriseQueueStatusCanceled}
 }
 
 type enterpriseQueueCancelRegistration struct {
@@ -487,6 +510,7 @@ func CancelEnterpriseGovernanceQueuedAdmission(admission model.EnterpriseGoverna
 		Updates(map[string]any{
 			"status":           enterpriseQueueStatusCanceled,
 			"canceled_at":      now,
+			"last_error":       ErrEnterpriseGovernanceQueueCanceled.Error(),
 			"user_message_key": enterpriseQueueUserMessageKey(enterpriseQueueStatusCanceled),
 			"updated_at":       now,
 		})
@@ -497,6 +521,36 @@ func CancelEnterpriseGovernanceQueuedAdmission(admission model.EnterpriseGoverna
 		return admission, ErrEnterpriseGovernanceQueueAdmissionNotCancelable
 	}
 	registration.Cancel()
+	var after model.EnterpriseGovernanceQueueAdmission
+	if err := model.DB.Where("id = ?", admission.Id).First(&after).Error; err != nil {
+		return admission, err
+	}
+	return after, nil
+}
+
+func RetryEnterpriseGovernanceQueueAdmission(admission model.EnterpriseGovernanceQueueAdmission, now int64) (model.EnterpriseGovernanceQueueAdmission, error) {
+	if admission.Id <= 0 || !isEnterpriseGovernanceQueueAdmissionRetryable(admission.Status) {
+		return admission, ErrEnterpriseGovernanceQueueAdmissionNotRetryable
+	}
+	if now <= 0 {
+		now = common.GetTimestamp()
+	}
+	result := model.DB.Model(&model.EnterpriseGovernanceQueueAdmission{}).
+		Where("id = ? AND status IN ?", admission.Id, enterpriseGovernanceQueueRetryableStatuses()).
+		Updates(map[string]any{
+			"status":           enterpriseQueueStatusRetryPending,
+			"retry_count":      admission.RetryCount + 1,
+			"next_retry_at":    now,
+			"last_error":       "",
+			"user_message_key": enterpriseQueueUserMessageKey(enterpriseQueueStatusRetryPending),
+			"updated_at":       now,
+		})
+	if result.Error != nil {
+		return admission, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return admission, ErrEnterpriseGovernanceQueueAdmissionNotRetryable
+	}
 	var after model.EnterpriseGovernanceQueueAdmission
 	if err := model.DB.Where("id = ?", admission.Id).First(&after).Error; err != nil {
 		return admission, err
