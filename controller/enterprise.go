@@ -20,9 +20,10 @@ import (
 )
 
 type enterpriseUpdateRequest struct {
-	Name     string `json:"name"`
-	Timezone string `json:"timezone"`
-	Status   int    `json:"status"`
+	Name                  string                                        `json:"name"`
+	Timezone              string                                        `json:"timezone"`
+	Status                int                                           `json:"status"`
+	AnomalyThrottleConfig *service.EnterpriseAnomalyThrottleConfigInput `json:"anomaly_throttle_config"`
 }
 
 type enterpriseOrgUnitRequest struct {
@@ -262,13 +263,18 @@ type enterpriseUsageBreakdownItem struct {
 	TotalTokens      int64  `json:"total_tokens"`
 }
 
+type enterpriseCurrentItem struct {
+	model.Enterprise
+	AnomalyThrottleConfig service.EnterpriseAnomalyThrottleConfig `json:"anomaly_throttle_config"`
+}
+
 func GetCurrentEnterprise(c *gin.Context) {
 	enterprise, err := currentEnterprise()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, enterprise)
+	common.ApiSuccess(c, buildEnterpriseCurrentItem(*enterprise))
 }
 
 func UpdateCurrentEnterprise(c *gin.Context) {
@@ -293,11 +299,21 @@ func UpdateCurrentEnterprise(c *gin.Context) {
 	if req.Status != 0 {
 		enterprise.Status = req.Status
 	}
+	if req.AnomalyThrottleConfig != nil {
+		baseConfig := service.EnterpriseAnomalyThrottleConfigFromJSON(enterprise.AnomalyThrottleConfigJson)
+		config := service.NormalizeEnterpriseAnomalyThrottleConfigInput(baseConfig, req.AnomalyThrottleConfig)
+		configJson, err := service.EnterpriseAnomalyThrottleConfigJSON(config)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		enterprise.AnomalyThrottleConfigJson = configJson
+	}
 	if err := model.DB.Save(enterprise).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	recordEnterpriseAudit(c, enterprise.Id, "enterprise.update", "enterprise", enterprise.Id, before, *enterprise)
+	recordEnterpriseAudit(c, enterprise.Id, "enterprise.update", "enterprise", enterprise.Id, buildEnterpriseCurrentItem(before), buildEnterpriseCurrentItem(*enterprise))
 	common.ApiSuccess(c, gin.H{"id": enterprise.Id})
 }
 
@@ -2390,6 +2406,13 @@ func currentEnterprise() (*model.Enterprise, error) {
 		return nil, err
 	}
 	return model.GetDefaultEnterprise()
+}
+
+func buildEnterpriseCurrentItem(enterprise model.Enterprise) enterpriseCurrentItem {
+	return enterpriseCurrentItem{
+		Enterprise:            enterprise,
+		AnomalyThrottleConfig: service.EnterpriseAnomalyThrottleConfigFromJSON(enterprise.AnomalyThrottleConfigJson),
+	}
 }
 
 func enterpriseAccessForRequest(c *gin.Context) (service.EnterpriseAccess, error) {

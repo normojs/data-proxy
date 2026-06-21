@@ -218,6 +218,67 @@ func disableEnterpriseControllerWebhookSSRFProtection(t *testing.T) {
 	})
 }
 
+func TestEnterpriseCurrentAnomalyThrottleConfigRoundTripAndAudit(t *testing.T) {
+	setupEnterpriseControllerTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+
+	ctx, recorder := newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/current", "")
+	GetCurrentEnterprise(ctx)
+	response := decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	var current enterpriseCurrentItem
+	decodeEnterpriseResponseData(t, response, &current)
+	defaultConfig := service.DefaultEnterpriseAnomalyThrottleConfig()
+	assert.True(t, current.AnomalyThrottleConfig.Enabled)
+	assert.Equal(t, defaultConfig.CurrentWindowSeconds, current.AnomalyThrottleConfig.CurrentWindowSeconds)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodPut, "/api/enterprise/current", `{
+		"name": "Default Enterprise",
+		"timezone": "UTC",
+		"status": 1,
+		"anomaly_throttle_config": {
+			"enabled": false,
+			"current_window_seconds": 0,
+			"baseline_window_seconds": 600,
+			"cooldown_seconds": 30,
+			"request_spike_ratio": 3.5,
+			"failure_rate": 1.7
+		}
+	}`)
+	UpdateCurrentEnterprise(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	var stored model.Enterprise
+	require.NoError(t, model.DB.First(&stored, enterprise.Id).Error)
+	storedConfig := service.EnterpriseAnomalyThrottleConfigFromJSON(stored.AnomalyThrottleConfigJson)
+	assert.False(t, storedConfig.Enabled)
+	assert.EqualValues(t, defaultConfig.CurrentWindowSeconds, storedConfig.CurrentWindowSeconds)
+	assert.EqualValues(t, 600, storedConfig.BaselineWindowSeconds)
+	assert.EqualValues(t, 30, storedConfig.CooldownSeconds)
+	assert.Equal(t, 3.5, storedConfig.RequestSpikeRatio)
+	assert.Equal(t, 1.0, storedConfig.FailureRate)
+
+	ctx, recorder = newEnterpriseControllerContext(t, http.MethodGet, "/api/enterprise/current", "")
+	GetCurrentEnterprise(ctx)
+	response = decodeEnterpriseControllerResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	decodeEnterpriseResponseData(t, response, &current)
+	assert.False(t, current.AnomalyThrottleConfig.Enabled)
+	assert.EqualValues(t, 600, current.AnomalyThrottleConfig.BaselineWindowSeconds)
+	assert.Equal(t, 3.5, current.AnomalyThrottleConfig.RequestSpikeRatio)
+
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("enterprise_id = ? AND action = ?", enterprise.Id, "enterprise.update").First(&audit).Error)
+	var auditAfter struct {
+		AnomalyThrottleConfig service.EnterpriseAnomalyThrottleConfig `json:"anomaly_throttle_config"`
+	}
+	require.NoError(t, common.Unmarshal([]byte(audit.AfterJson), &auditAfter))
+	assert.False(t, auditAfter.AnomalyThrottleConfig.Enabled)
+	assert.Equal(t, 3.5, auditAfter.AnomalyThrottleConfig.RequestSpikeRatio)
+}
+
 func enterpriseResponseId(t *testing.T, response enterpriseControllerResponse) int {
 	t.Helper()
 	raw, ok := response.Data["id"].(float64)

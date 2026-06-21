@@ -16,13 +16,14 @@ const (
 )
 
 type Enterprise struct {
-	Id        int    `json:"id" gorm:"primaryKey"`
-	Name      string `json:"name" gorm:"type:varchar(128);not null"`
-	Slug      string `json:"slug" gorm:"type:varchar(64);not null;uniqueIndex"`
-	Status    int    `json:"status" gorm:"not null;default:1;index"`
-	Timezone  string `json:"timezone" gorm:"type:varchar(64);not null;default:'Asia/Shanghai'"`
-	CreatedAt int64  `json:"created_at" gorm:"autoCreateTime;index"`
-	UpdatedAt int64  `json:"updated_at" gorm:"autoUpdateTime"`
+	Id                        int    `json:"id" gorm:"primaryKey"`
+	Name                      string `json:"name" gorm:"type:varchar(128);not null"`
+	Slug                      string `json:"slug" gorm:"type:varchar(64);not null;uniqueIndex"`
+	Status                    int    `json:"status" gorm:"not null;default:1;index"`
+	Timezone                  string `json:"timezone" gorm:"type:varchar(64);not null;default:'Asia/Shanghai'"`
+	AnomalyThrottleConfigJson string `json:"-" gorm:"type:text"`
+	CreatedAt                 int64  `json:"created_at" gorm:"autoCreateTime;index"`
+	UpdatedAt                 int64  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (Enterprise) TableName() string {

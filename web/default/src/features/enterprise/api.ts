@@ -20,6 +20,7 @@ import { api } from '@/lib/api'
 import type {
   ApiResponse,
   Enterprise,
+  EnterpriseAnomalyThrottleConfig,
   EnterpriseAuditLog,
   EnterpriseAuditLogParams,
   EnterpriseListParams,
@@ -94,6 +95,7 @@ export async function updateEnterpriseCurrent(payload: {
   name: string
   timezone: string
   status: number
+  anomaly_throttle_config?: EnterpriseAnomalyThrottleConfig
 }) {
   const res = await api.put<ApiResponse<{ id: number }>>(
     `${ENTERPRISE_API}/current`,

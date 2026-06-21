@@ -30,12 +30,29 @@ export type PageInfo<T> = {
   items: T[]
 }
 
+export type EnterpriseAnomalyThrottleConfig = {
+  enabled: boolean
+  current_window_seconds: number
+  baseline_window_seconds: number
+  cooldown_seconds: number
+  min_current_requests: number
+  min_baseline_requests: number
+  request_spike_ratio: number
+  min_current_quota: number
+  min_baseline_quota: number
+  cost_spike_ratio: number
+  min_failure_requests: number
+  min_failures: number
+  failure_rate: number
+}
+
 export type Enterprise = {
   id: number
   name: string
   slug: string
   status: number
   timezone: string
+  anomaly_throttle_config: EnterpriseAnomalyThrottleConfig
   created_at: number
   updated_at: number
 }

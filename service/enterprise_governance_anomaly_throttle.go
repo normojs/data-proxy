@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,7 +33,6 @@ const (
 )
 
 var (
-	// Keep defaults conservative until these thresholds become administrator-configurable.
 	enterpriseAnomalyThrottleEnabled                   = true
 	enterpriseAnomalyThrottleCurrentWindow             = 5 * time.Minute
 	enterpriseAnomalyThrottleBaselineWindow            = 30 * time.Minute
@@ -84,6 +84,38 @@ type EnterpriseGovernanceAnomalyTrigger struct {
 	Threshold     float64 `json:"threshold"`
 }
 
+type EnterpriseAnomalyThrottleConfig struct {
+	Enabled               bool    `json:"enabled"`
+	CurrentWindowSeconds  int64   `json:"current_window_seconds"`
+	BaselineWindowSeconds int64   `json:"baseline_window_seconds"`
+	CooldownSeconds       int64   `json:"cooldown_seconds"`
+	MinCurrentRequests    int64   `json:"min_current_requests"`
+	MinBaselineRequests   int64   `json:"min_baseline_requests"`
+	RequestSpikeRatio     float64 `json:"request_spike_ratio"`
+	MinCurrentQuota       int64   `json:"min_current_quota"`
+	MinBaselineQuota      int64   `json:"min_baseline_quota"`
+	CostSpikeRatio        float64 `json:"cost_spike_ratio"`
+	MinFailureRequests    int64   `json:"min_failure_requests"`
+	MinFailures           int64   `json:"min_failures"`
+	FailureRate           float64 `json:"failure_rate"`
+}
+
+type EnterpriseAnomalyThrottleConfigInput struct {
+	Enabled               *bool    `json:"enabled"`
+	CurrentWindowSeconds  *int64   `json:"current_window_seconds"`
+	BaselineWindowSeconds *int64   `json:"baseline_window_seconds"`
+	CooldownSeconds       *int64   `json:"cooldown_seconds"`
+	MinCurrentRequests    *int64   `json:"min_current_requests"`
+	MinBaselineRequests   *int64   `json:"min_baseline_requests"`
+	RequestSpikeRatio     *float64 `json:"request_spike_ratio"`
+	MinCurrentQuota       *int64   `json:"min_current_quota"`
+	MinBaselineQuota      *int64   `json:"min_baseline_quota"`
+	CostSpikeRatio        *float64 `json:"cost_spike_ratio"`
+	MinFailureRequests    *int64   `json:"min_failure_requests"`
+	MinFailures           *int64   `json:"min_failures"`
+	FailureRate           *float64 `json:"failure_rate"`
+}
+
 type enterpriseAnomalyProtection struct {
 	Reason         string
 	Triggers       []EnterpriseGovernanceAnomalyTrigger
@@ -102,6 +134,137 @@ type enterpriseAnomalyProtectionPayload struct {
 	ProtectedUntil int64                                    `json:"protected_until"`
 }
 
+func DefaultEnterpriseAnomalyThrottleConfig() EnterpriseAnomalyThrottleConfig {
+	return EnterpriseAnomalyThrottleConfig{
+		Enabled:               true,
+		CurrentWindowSeconds:  int64(normalizedEnterpriseAnomalyWindow(enterpriseAnomalyThrottleCurrentWindow, 5*time.Minute) / time.Second),
+		BaselineWindowSeconds: int64(normalizedEnterpriseAnomalyWindow(enterpriseAnomalyThrottleBaselineWindow, 30*time.Minute) / time.Second),
+		CooldownSeconds:       int64(normalizedEnterpriseAnomalyWindow(enterpriseAnomalyThrottleCooldown, time.Minute) / time.Second),
+		MinCurrentRequests:    enterpriseAnomalyThrottleMinCurrentRequests,
+		MinBaselineRequests:   enterpriseAnomalyThrottleMinBaselineRequests,
+		RequestSpikeRatio:     enterpriseAnomalyThrottleRequestSpikeRatio,
+		MinCurrentQuota:       enterpriseAnomalyThrottleMinCurrentQuota,
+		MinBaselineQuota:      enterpriseAnomalyThrottleMinBaselineQuota,
+		CostSpikeRatio:        enterpriseAnomalyThrottleCostSpikeRatio,
+		MinFailureRequests:    enterpriseAnomalyThrottleMinFailureRequests,
+		MinFailures:           enterpriseAnomalyThrottleMinFailures,
+		FailureRate:           enterpriseAnomalyThrottleFailureRate,
+	}
+}
+
+func EnterpriseAnomalyThrottleConfigFromJSON(raw string) EnterpriseAnomalyThrottleConfig {
+	config := DefaultEnterpriseAnomalyThrottleConfig()
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return config
+	}
+	var input EnterpriseAnomalyThrottleConfigInput
+	if err := common.Unmarshal([]byte(raw), &input); err != nil {
+		common.SysError("error unmarshaling enterprise anomaly throttle config: " + err.Error())
+		return config
+	}
+	return NormalizeEnterpriseAnomalyThrottleConfigInput(config, &input)
+}
+
+func NormalizeEnterpriseAnomalyThrottleConfigInput(base EnterpriseAnomalyThrottleConfig, input *EnterpriseAnomalyThrottleConfigInput) EnterpriseAnomalyThrottleConfig {
+	config := normalizeEnterpriseAnomalyThrottleConfig(base)
+	if input == nil {
+		return config
+	}
+	if input.Enabled != nil {
+		config.Enabled = *input.Enabled
+	}
+	if input.CurrentWindowSeconds != nil {
+		config.CurrentWindowSeconds = *input.CurrentWindowSeconds
+	}
+	if input.BaselineWindowSeconds != nil {
+		config.BaselineWindowSeconds = *input.BaselineWindowSeconds
+	}
+	if input.CooldownSeconds != nil {
+		config.CooldownSeconds = *input.CooldownSeconds
+	}
+	if input.MinCurrentRequests != nil {
+		config.MinCurrentRequests = *input.MinCurrentRequests
+	}
+	if input.MinBaselineRequests != nil {
+		config.MinBaselineRequests = *input.MinBaselineRequests
+	}
+	if input.RequestSpikeRatio != nil {
+		config.RequestSpikeRatio = *input.RequestSpikeRatio
+	}
+	if input.MinCurrentQuota != nil {
+		config.MinCurrentQuota = *input.MinCurrentQuota
+	}
+	if input.MinBaselineQuota != nil {
+		config.MinBaselineQuota = *input.MinBaselineQuota
+	}
+	if input.CostSpikeRatio != nil {
+		config.CostSpikeRatio = *input.CostSpikeRatio
+	}
+	if input.MinFailureRequests != nil {
+		config.MinFailureRequests = *input.MinFailureRequests
+	}
+	if input.MinFailures != nil {
+		config.MinFailures = *input.MinFailures
+	}
+	if input.FailureRate != nil {
+		config.FailureRate = *input.FailureRate
+	}
+	return normalizeEnterpriseAnomalyThrottleConfig(config)
+}
+
+func EnterpriseAnomalyThrottleConfigJSON(config EnterpriseAnomalyThrottleConfig) (string, error) {
+	data, err := common.Marshal(normalizeEnterpriseAnomalyThrottleConfig(config))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func normalizeEnterpriseAnomalyThrottleConfig(config EnterpriseAnomalyThrottleConfig) EnterpriseAnomalyThrottleConfig {
+	defaults := DefaultEnterpriseAnomalyThrottleConfig()
+	if config.CurrentWindowSeconds <= 0 {
+		config.CurrentWindowSeconds = defaults.CurrentWindowSeconds
+	}
+	if config.BaselineWindowSeconds <= 0 {
+		config.BaselineWindowSeconds = defaults.BaselineWindowSeconds
+	}
+	if config.CooldownSeconds <= 0 {
+		config.CooldownSeconds = defaults.CooldownSeconds
+	}
+	if config.MinCurrentRequests <= 0 {
+		config.MinCurrentRequests = defaults.MinCurrentRequests
+	}
+	if config.MinBaselineRequests <= 0 {
+		config.MinBaselineRequests = defaults.MinBaselineRequests
+	}
+	if config.RequestSpikeRatio <= 0 {
+		config.RequestSpikeRatio = defaults.RequestSpikeRatio
+	}
+	if config.MinCurrentQuota <= 0 {
+		config.MinCurrentQuota = defaults.MinCurrentQuota
+	}
+	if config.MinBaselineQuota <= 0 {
+		config.MinBaselineQuota = defaults.MinBaselineQuota
+	}
+	if config.CostSpikeRatio <= 0 {
+		config.CostSpikeRatio = defaults.CostSpikeRatio
+	}
+	if config.MinFailureRequests <= 0 {
+		config.MinFailureRequests = defaults.MinFailureRequests
+	}
+	if config.MinFailures <= 0 {
+		config.MinFailures = defaults.MinFailures
+	}
+	if config.FailureRate <= 0 {
+		config.FailureRate = defaults.FailureRate
+	}
+	if config.FailureRate > 1 {
+		config.FailureRate = 1
+	}
+	return config
+}
+
 func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relaycommon.RelayInfo) (EnterpriseGovernanceAnomalyThrottleResult, error) {
 	result := EnterpriseGovernanceAnomalyThrottleResult{}
 	if !common.EnterpriseGovernanceEnabled || !enterpriseAnomalyThrottleEnabled || c == nil || relayInfo == nil {
@@ -118,6 +281,13 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 	if enterpriseCtx == nil || !enterpriseCtx.Enabled || enterpriseCtx.EnterpriseId <= 0 {
 		return result, nil
 	}
+	config, err := enterpriseAnomalyThrottleConfigForContext(enterpriseCtx)
+	if err != nil {
+		return result, err
+	}
+	if !config.Enabled {
+		return result, nil
+	}
 
 	now := time.Now()
 	protectionKey := enterpriseAnomalyProtectionKey(enterpriseCtx)
@@ -131,7 +301,7 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 		return result, ErrEnterpriseGovernanceAnomalyThrottled
 	}
 
-	result, err := detectEnterpriseGovernanceAnomalyThrottle(enterpriseCtx, now)
+	result, err = detectEnterpriseGovernanceAnomalyThrottle(enterpriseCtx, config, now)
 	if err != nil {
 		return EnterpriseGovernanceAnomalyThrottleResult{}, err
 	}
@@ -163,11 +333,12 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 	return result, ErrEnterpriseGovernanceAnomalyThrottled
 }
 
-func detectEnterpriseGovernanceAnomalyThrottle(enterpriseCtx *EnterpriseContext, now time.Time) (EnterpriseGovernanceAnomalyThrottleResult, error) {
+func detectEnterpriseGovernanceAnomalyThrottle(enterpriseCtx *EnterpriseContext, config EnterpriseAnomalyThrottleConfig, now time.Time) (EnterpriseGovernanceAnomalyThrottleResult, error) {
 	result := EnterpriseGovernanceAnomalyThrottleResult{}
-	currentWindow := normalizedEnterpriseAnomalyWindow(enterpriseAnomalyThrottleCurrentWindow, 5*time.Minute)
-	baselineWindow := normalizedEnterpriseAnomalyWindow(enterpriseAnomalyThrottleBaselineWindow, 30*time.Minute)
-	cooldown := normalizedEnterpriseAnomalyWindow(enterpriseAnomalyThrottleCooldown, time.Minute)
+	config = normalizeEnterpriseAnomalyThrottleConfig(config)
+	currentWindow := time.Duration(config.CurrentWindowSeconds) * time.Second
+	baselineWindow := time.Duration(config.BaselineWindowSeconds) * time.Second
+	cooldown := time.Duration(config.CooldownSeconds) * time.Second
 	currentStart := now.Add(-currentWindow)
 	baselineStart := currentStart.Add(-baselineWindow)
 
@@ -180,7 +351,7 @@ func detectEnterpriseGovernanceAnomalyThrottle(enterpriseCtx *EnterpriseContext,
 		return result, err
 	}
 
-	triggers := enterpriseAnomalyTriggers(current, baseline, currentWindow, baselineWindow)
+	triggers := enterpriseAnomalyTriggers(current, baseline, currentWindow, baselineWindow, config)
 	if len(triggers) == 0 {
 		return result, nil
 	}
@@ -198,12 +369,13 @@ func detectEnterpriseGovernanceAnomalyThrottle(enterpriseCtx *EnterpriseContext,
 	}, nil
 }
 
-func enterpriseAnomalyTriggers(current EnterpriseGovernanceAnomalyUsageSnapshot, baseline EnterpriseGovernanceAnomalyUsageSnapshot, currentWindow time.Duration, baselineWindow time.Duration) []EnterpriseGovernanceAnomalyTrigger {
+func enterpriseAnomalyTriggers(current EnterpriseGovernanceAnomalyUsageSnapshot, baseline EnterpriseGovernanceAnomalyUsageSnapshot, currentWindow time.Duration, baselineWindow time.Duration, config EnterpriseAnomalyThrottleConfig) []EnterpriseGovernanceAnomalyTrigger {
 	triggers := make([]EnterpriseGovernanceAnomalyTrigger, 0, 3)
-	if current.RequestCount >= enterpriseAnomalyThrottleMinFailureRequests &&
-		current.ErrorCount >= enterpriseAnomalyThrottleMinFailures {
+	config = normalizeEnterpriseAnomalyThrottleConfig(config)
+	if current.RequestCount >= config.MinFailureRequests &&
+		current.ErrorCount >= config.MinFailures {
 		failureRate := safeRatio(current.ErrorCount, current.RequestCount)
-		if failureRate >= enterpriseAnomalyThrottleFailureRate {
+		if failureRate >= config.FailureRate {
 			triggers = append(triggers, EnterpriseGovernanceAnomalyTrigger{
 				Reason:        enterpriseAnomalyReasonFailureRate,
 				CurrentValue:  current.ErrorCount,
@@ -211,16 +383,16 @@ func enterpriseAnomalyTriggers(current EnterpriseGovernanceAnomalyUsageSnapshot,
 				CurrentRate:   failureRate,
 				BaselineRate:  safeRatio(baseline.ErrorCount, baseline.RequestCount),
 				Ratio:         failureRate,
-				Threshold:     enterpriseAnomalyThrottleFailureRate,
+				Threshold:     config.FailureRate,
 			})
 		}
 	}
-	if current.Quota >= enterpriseAnomalyThrottleMinCurrentQuota &&
-		baseline.Quota >= enterpriseAnomalyThrottleMinBaselineQuota {
+	if current.Quota >= config.MinCurrentQuota &&
+		baseline.Quota >= config.MinBaselineQuota {
 		currentRate := ratePerSecond(current.Quota, currentWindow)
 		baselineRate := ratePerSecond(baseline.Quota, baselineWindow)
 		ratio := currentRate / baselineRate
-		if baselineRate > 0 && ratio >= enterpriseAnomalyThrottleCostSpikeRatio {
+		if baselineRate > 0 && ratio >= config.CostSpikeRatio {
 			triggers = append(triggers, EnterpriseGovernanceAnomalyTrigger{
 				Reason:        enterpriseAnomalyReasonCostSpike,
 				CurrentValue:  current.Quota,
@@ -228,16 +400,16 @@ func enterpriseAnomalyTriggers(current EnterpriseGovernanceAnomalyUsageSnapshot,
 				CurrentRate:   currentRate,
 				BaselineRate:  baselineRate,
 				Ratio:         ratio,
-				Threshold:     enterpriseAnomalyThrottleCostSpikeRatio,
+				Threshold:     config.CostSpikeRatio,
 			})
 		}
 	}
-	if current.RequestCount >= enterpriseAnomalyThrottleMinCurrentRequests &&
-		baseline.RequestCount >= enterpriseAnomalyThrottleMinBaselineRequests {
+	if current.RequestCount >= config.MinCurrentRequests &&
+		baseline.RequestCount >= config.MinBaselineRequests {
 		currentRate := ratePerSecond(current.RequestCount, currentWindow)
 		baselineRate := ratePerSecond(baseline.RequestCount, baselineWindow)
 		ratio := currentRate / baselineRate
-		if baselineRate > 0 && ratio >= enterpriseAnomalyThrottleRequestSpikeRatio {
+		if baselineRate > 0 && ratio >= config.RequestSpikeRatio {
 			triggers = append(triggers, EnterpriseGovernanceAnomalyTrigger{
 				Reason:        enterpriseAnomalyReasonRequestSpike,
 				CurrentValue:  current.RequestCount,
@@ -245,11 +417,26 @@ func enterpriseAnomalyTriggers(current EnterpriseGovernanceAnomalyUsageSnapshot,
 				CurrentRate:   currentRate,
 				BaselineRate:  baselineRate,
 				Ratio:         ratio,
-				Threshold:     enterpriseAnomalyThrottleRequestSpikeRatio,
+				Threshold:     config.RequestSpikeRatio,
 			})
 		}
 	}
 	return triggers
+}
+
+func enterpriseAnomalyThrottleConfigForContext(enterpriseCtx *EnterpriseContext) (EnterpriseAnomalyThrottleConfig, error) {
+	config := DefaultEnterpriseAnomalyThrottleConfig()
+	if enterpriseCtx == nil || enterpriseCtx.EnterpriseId <= 0 || model.DB == nil {
+		return config, nil
+	}
+	var enterprise model.Enterprise
+	if err := model.DB.Select("anomaly_throttle_config_json").Where("id = ?", enterpriseCtx.EnterpriseId).First(&enterprise).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return config, nil
+		}
+		return config, err
+	}
+	return EnterpriseAnomalyThrottleConfigFromJSON(enterprise.AnomalyThrottleConfigJson), nil
 }
 
 func loadEnterpriseAnomalyUsageSnapshot(enterpriseCtx *EnterpriseContext, start time.Time, end time.Time) (EnterpriseGovernanceAnomalyUsageSnapshot, error) {

@@ -156,6 +156,7 @@ import { QuotaRequestDetailSheet } from './components/quota-request-detail-sheet
 import type {
   ApiResponse,
   Enterprise,
+  EnterpriseAnomalyThrottleConfig,
   EnterpriseAuditLog,
   EnterpriseMember,
   EnterpriseNotificationOutbox,
@@ -309,6 +310,22 @@ const WEBHOOK_EVENT_TYPES = [
   'quota_request.expiring_soon',
 ]
 
+const DEFAULT_ANOMALY_THROTTLE_CONFIG: EnterpriseAnomalyThrottleConfig = {
+  enabled: true,
+  current_window_seconds: 300,
+  baseline_window_seconds: 1800,
+  cooldown_seconds: 60,
+  min_current_requests: 100,
+  min_baseline_requests: 100,
+  request_spike_ratio: 8,
+  min_current_quota: 1000000,
+  min_baseline_quota: 1000000,
+  cost_spike_ratio: 8,
+  min_failure_requests: 50,
+  min_failures: 25,
+  failure_rate: 0.5,
+}
+
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -366,6 +383,25 @@ function formatRemainingTime(expiresAt: number | undefined) {
   if (days > 0) return `${days}d ${hours}h`
   if (hours > 0) return `${hours}h ${minutes}m`
   return `${minutes}m`
+}
+
+function enterpriseAnomalyConfig(
+  config: EnterpriseAnomalyThrottleConfig | undefined
+) {
+  return config ?? DEFAULT_ANOMALY_THROTTLE_CONFIG
+}
+
+function positiveNumberInput(value: string, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function positiveIntegerInput(value: string, fallback: number) {
+  return Math.trunc(positiveNumberInput(value, fallback))
+}
+
+function rateNumberInput(value: string, fallback: number) {
+  return Math.min(1, positiveNumberInput(value, fallback))
 }
 
 function formatAuditJson(value: string | undefined) {
@@ -4895,6 +4931,47 @@ type EnterpriseFormState = {
   name: string
   timezone: string
   status: string
+  anomaly_enabled: boolean
+  anomaly_current_window_seconds: string
+  anomaly_baseline_window_seconds: string
+  anomaly_cooldown_seconds: string
+  anomaly_min_current_requests: string
+  anomaly_min_baseline_requests: string
+  anomaly_request_spike_ratio: string
+  anomaly_min_current_quota: string
+  anomaly_min_baseline_quota: string
+  anomaly_cost_spike_ratio: string
+  anomaly_min_failure_requests: string
+  anomaly_min_failures: string
+  anomaly_failure_rate: string
+}
+
+function buildEnterpriseFormState(enterprise?: Enterprise): EnterpriseFormState {
+  const anomalyConfig = enterpriseAnomalyConfig(
+    enterprise?.anomaly_throttle_config
+  )
+  return {
+    name: enterprise?.name ?? '',
+    timezone: enterprise?.timezone ?? 'Asia/Shanghai',
+    status: String(enterprise?.status ?? ENABLED_STATUS),
+    anomaly_enabled: anomalyConfig.enabled,
+    anomaly_current_window_seconds: String(
+      anomalyConfig.current_window_seconds
+    ),
+    anomaly_baseline_window_seconds: String(
+      anomalyConfig.baseline_window_seconds
+    ),
+    anomaly_cooldown_seconds: String(anomalyConfig.cooldown_seconds),
+    anomaly_min_current_requests: String(anomalyConfig.min_current_requests),
+    anomaly_min_baseline_requests: String(anomalyConfig.min_baseline_requests),
+    anomaly_request_spike_ratio: String(anomalyConfig.request_spike_ratio),
+    anomaly_min_current_quota: String(anomalyConfig.min_current_quota),
+    anomaly_min_baseline_quota: String(anomalyConfig.min_baseline_quota),
+    anomaly_cost_spike_ratio: String(anomalyConfig.cost_spike_ratio),
+    anomaly_min_failure_requests: String(anomalyConfig.min_failure_requests),
+    anomaly_min_failures: String(anomalyConfig.min_failures),
+    anomaly_failure_rate: String(anomalyConfig.failure_rate),
+  }
 }
 
 function EnterpriseDialog(props: {
@@ -4904,11 +4981,17 @@ function EnterpriseDialog(props: {
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [form, setForm] = useState<EnterpriseFormState>(() => ({
-    name: props.enterprise?.name ?? '',
-    timezone: props.enterprise?.timezone ?? 'Asia/Shanghai',
-    status: String(props.enterprise?.status ?? ENABLED_STATUS),
-  }))
+  const anomalyConfig = enterpriseAnomalyConfig(
+    props.enterprise?.anomaly_throttle_config
+  )
+  const [form, setForm] = useState<EnterpriseFormState>(() =>
+    buildEnterpriseFormState(props.enterprise)
+  )
+
+  useEffect(() => {
+    if (!props.open) return
+    setForm(buildEnterpriseFormState(props.enterprise))
+  }, [props.open, props.enterprise])
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -4916,6 +4999,57 @@ function EnterpriseDialog(props: {
         name: form.name.trim(),
         timezone: form.timezone.trim(),
         status: Number(form.status),
+        anomaly_throttle_config: {
+          enabled: form.anomaly_enabled,
+          current_window_seconds: positiveIntegerInput(
+            form.anomaly_current_window_seconds,
+            anomalyConfig.current_window_seconds
+          ),
+          baseline_window_seconds: positiveIntegerInput(
+            form.anomaly_baseline_window_seconds,
+            anomalyConfig.baseline_window_seconds
+          ),
+          cooldown_seconds: positiveIntegerInput(
+            form.anomaly_cooldown_seconds,
+            anomalyConfig.cooldown_seconds
+          ),
+          min_current_requests: positiveIntegerInput(
+            form.anomaly_min_current_requests,
+            anomalyConfig.min_current_requests
+          ),
+          min_baseline_requests: positiveIntegerInput(
+            form.anomaly_min_baseline_requests,
+            anomalyConfig.min_baseline_requests
+          ),
+          request_spike_ratio: positiveNumberInput(
+            form.anomaly_request_spike_ratio,
+            anomalyConfig.request_spike_ratio
+          ),
+          min_current_quota: positiveIntegerInput(
+            form.anomaly_min_current_quota,
+            anomalyConfig.min_current_quota
+          ),
+          min_baseline_quota: positiveIntegerInput(
+            form.anomaly_min_baseline_quota,
+            anomalyConfig.min_baseline_quota
+          ),
+          cost_spike_ratio: positiveNumberInput(
+            form.anomaly_cost_spike_ratio,
+            anomalyConfig.cost_spike_ratio
+          ),
+          min_failure_requests: positiveIntegerInput(
+            form.anomaly_min_failure_requests,
+            anomalyConfig.min_failure_requests
+          ),
+          min_failures: positiveIntegerInput(
+            form.anomaly_min_failures,
+            anomalyConfig.min_failures
+          ),
+          failure_rate: rateNumberInput(
+            form.anomaly_failure_rate,
+            anomalyConfig.failure_rate
+          ),
+        },
       }),
     onSuccess: (response) => {
       if (!response.success) return
@@ -4927,7 +5061,7 @@ function EnterpriseDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent>
+      <DialogContent className='max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl'>
         <DialogHeader>
           <DialogTitle>{t('Enterprise Settings')}</DialogTitle>
           <DialogDescription>
@@ -4981,6 +5115,182 @@ function EnterpriseDialog(props: {
               </SelectContent>
             </Select>
           </Field>
+          <Field label='Anomaly Throttle'>
+            <label className='flex h-10 items-center gap-2 rounded-md border px-3 text-sm'>
+              <Checkbox
+                checked={form.anomaly_enabled}
+                onCheckedChange={(checked) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_enabled: checked === true,
+                  }))
+                }
+              />
+              <span>{t('Enabled')}</span>
+            </label>
+          </Field>
+          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+            <Field label='Current Window Seconds'>
+              <Input
+                type='number'
+                min={1}
+                value={form.anomaly_current_window_seconds}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_current_window_seconds: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Baseline Window Seconds'>
+              <Input
+                type='number'
+                min={1}
+                value={form.anomaly_baseline_window_seconds}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_baseline_window_seconds: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Cooldown Seconds'>
+              <Input
+                type='number'
+                min={1}
+                value={form.anomaly_cooldown_seconds}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_cooldown_seconds: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Request Spike Ratio'>
+              <Input
+                type='number'
+                min={0.1}
+                step={0.1}
+                value={form.anomaly_request_spike_ratio}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_request_spike_ratio: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Min Current Requests'>
+              <Input
+                type='number'
+                min={1}
+                value={form.anomaly_min_current_requests}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_min_current_requests: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Min Baseline Requests'>
+              <Input
+                type='number'
+                min={1}
+                value={form.anomaly_min_baseline_requests}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_min_baseline_requests: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Cost Spike Ratio'>
+              <Input
+                type='number'
+                min={0.1}
+                step={0.1}
+                value={form.anomaly_cost_spike_ratio}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_cost_spike_ratio: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Min Current Quota'>
+              <Input
+                type='number'
+                min={1}
+                value={form.anomaly_min_current_quota}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_min_current_quota: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Min Baseline Quota'>
+              <Input
+                type='number'
+                min={1}
+                value={form.anomaly_min_baseline_quota}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_min_baseline_quota: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Failure Rate'>
+              <Input
+                type='number'
+                min={0.01}
+                max={1}
+                step={0.01}
+                value={form.anomaly_failure_rate}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_failure_rate: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Min Failure Requests'>
+              <Input
+                type='number'
+                min={1}
+                value={form.anomaly_min_failure_requests}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_min_failure_requests: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Field label='Min Failures'>
+              <Input
+                type='number'
+                min={1}
+                value={form.anomaly_min_failures}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    anomaly_min_failures: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+          </div>
           <DialogFooter>
             <Button type='submit' disabled={mutation.isPending}>
               {t('Save')}
