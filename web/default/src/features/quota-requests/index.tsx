@@ -16,10 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { type FormEvent, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, RefreshCcw, Trash2 } from 'lucide-react'
+import { Route } from '@/routes/_authenticated/quota-requests'
+import { Eye, Plus, RefreshCcw, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Route } from '@/routes/_authenticated/quota-requests'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -59,6 +59,7 @@ import {
   submitEnterpriseQuotaRequest,
   withdrawEnterpriseQuotaRequest,
 } from '@/features/enterprise/api'
+import { QuotaRequestDetailSheet } from '@/features/enterprise/components/quota-request-detail-sheet'
 import type {
   EnterpriseQuotaRequestPolicy,
   EnterpriseQuotaRequest,
@@ -367,6 +368,7 @@ function QuotaRequestDialog(props: {
 function QuotaRequestsTable(props: {
   requests: EnterpriseQuotaRequest[]
   onWithdraw: (request: EnterpriseQuotaRequest) => void
+  onViewDetails: (request: EnterpriseQuotaRequest) => void
 }) {
   const { t } = useTranslation()
   return (
@@ -404,15 +406,25 @@ function QuotaRequestsTable(props: {
             </TableCell>
             <TableCell>{formatDateTime(request.expires_at)}</TableCell>
             <TableCell className='text-right'>
-              <Button
-                variant='ghost'
-                size='icon-sm'
-                disabled={request.status !== 'pending'}
-                onClick={() => props.onWithdraw(request)}
-              >
-                <Trash2 className='size-3.5' />
-                <span className='sr-only'>{t('Withdraw')}</span>
-              </Button>
+              <div className='flex justify-end gap-1'>
+                <Button
+                  variant='ghost'
+                  size='icon-sm'
+                  onClick={() => props.onViewDetails(request)}
+                >
+                  <Eye className='size-3.5' />
+                  <span className='sr-only'>{t('Details')}</span>
+                </Button>
+                <Button
+                  variant='ghost'
+                  size='icon-sm'
+                  disabled={request.status !== 'pending'}
+                  onClick={() => props.onWithdraw(request)}
+                >
+                  <Trash2 className='size-3.5' />
+                  <span className='sr-only'>{t('Withdraw')}</span>
+                </Button>
+              </div>
             </TableCell>
           </TableRow>
         ))}
@@ -427,6 +439,8 @@ export function QuotaRequests() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [viewingRequest, setViewingRequest] =
+    useState<EnterpriseQuotaRequest | null>(null)
   const [page, setPage] = useState(1)
   const status = search.status ?? ''
   const requestId = search.quota_request_id
@@ -539,6 +553,7 @@ export function QuotaRequests() {
                 <QuotaRequestsTable
                   requests={requests}
                   onWithdraw={(request) => withdrawMutation.mutate(request.id)}
+                  onViewDetails={setViewingRequest}
                 />
                 <div className='flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2 text-xs'>
                   <span className='text-muted-foreground'>
@@ -572,6 +587,13 @@ export function QuotaRequests() {
         </SectionPageLayout.Content>
       </SectionPageLayout>
       <QuotaRequestDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <QuotaRequestDetailSheet
+        open={Boolean(viewingRequest)}
+        request={viewingRequest}
+        onOpenChange={(open) => {
+          if (!open) setViewingRequest(null)
+        }}
+      />
     </>
   )
 }

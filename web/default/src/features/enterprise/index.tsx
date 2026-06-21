@@ -32,6 +32,7 @@ import {
   Building2,
   ClipboardList,
   Download,
+  Eye,
   Gauge,
   Mail,
   Layers3,
@@ -149,6 +150,7 @@ import {
   applyEnterpriseOrgSync,
   downloadEnterpriseUsageBreakdownExport,
 } from './api'
+import { QuotaRequestDetailSheet } from './components/quota-request-detail-sheet'
 import type {
   ApiResponse,
   Enterprise,
@@ -2617,6 +2619,7 @@ function QuotaRequestsTab(props: {
   onApprove: (request: EnterpriseQuotaRequest) => void
   onReject: (request: EnterpriseQuotaRequest) => void
   onWithdraw: (request: EnterpriseQuotaRequest) => void
+  onViewDetails: (request: EnterpriseQuotaRequest) => void
 }) {
   const { t } = useTranslation()
 
@@ -2740,6 +2743,14 @@ function QuotaRequestsTab(props: {
                   <TableCell>{formatDateTime(request.expires_at)}</TableCell>
                   <TableCell>
                     <div className='flex justify-end gap-1'>
+                      <Button
+                        variant='ghost'
+                        size='icon-sm'
+                        onClick={() => props.onViewDetails(request)}
+                      >
+                        <Eye className='size-3.5' />
+                        <span className='sr-only'>{t('Details')}</span>
+                      </Button>
                       {props.isAdmin && (
                         <>
                           <Button
@@ -3124,6 +3135,9 @@ function AuditTab(props: {
                 </SelectItem>
                 <SelectItem value='quota_policy'>
                   {t('Quota Policy')}
+                </SelectItem>
+                <SelectItem value='quota_request'>
+                  {t('Quota Request')}
                 </SelectItem>
                 <SelectItem value='user'>{t('User')}</SelectItem>
                 <SelectItem value='relay_request'>
@@ -6536,6 +6550,8 @@ export function EnterpriseGovernance() {
     useState<QuotaRequestInitialValues | null>(null)
   const [decidingQuotaRequest, setDecidingQuotaRequest] =
     useState<EnterpriseQuotaRequest | null>(null)
+  const [viewingQuotaRequest, setViewingQuotaRequest] =
+    useState<EnterpriseQuotaRequest | null>(null)
   const [quotaRequestDecisionAction, setQuotaRequestDecisionAction] = useState<
     'approve' | 'reject'
   >('approve')
@@ -6654,6 +6670,22 @@ export function EnterpriseGovernance() {
   const [auditRequestId, setAuditRequestId] = useState('')
   const [auditStartDate, setAuditStartDate] = useState('')
   const [auditEndDate, setAuditEndDate] = useState('')
+  const viewQuotaRequestAudit = (request: EnterpriseQuotaRequest) => {
+    setViewingQuotaRequest(null)
+    setAuditActorUserId('')
+    setAuditRequestId('')
+    setAuditStartDate('')
+    setAuditEndDate('')
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        tab: 'audit',
+        audit_target_type: 'quota_request',
+        audit_target_id: request.id,
+        audit_action: undefined,
+      }),
+    })
+  }
   const auditActorUserIdValue = auditActorUserId
     ? Number(auditActorUserId)
     : undefined
@@ -7331,6 +7363,7 @@ export function EnterpriseGovernance() {
                   onWithdraw={(request) => {
                     withdrawQuotaRequestMutation.mutate(request.id)
                   }}
+                  onViewDetails={setViewingQuotaRequest}
                 />
               </TabsContent>
 
@@ -7529,6 +7562,15 @@ export function EnterpriseGovernance() {
           }}
         />
       ) : null}
+      <QuotaRequestDetailSheet
+        open={Boolean(viewingQuotaRequest)}
+        request={viewingQuotaRequest}
+        canViewAudit={canReadAudit}
+        onViewAudit={canReadAudit ? viewQuotaRequestAudit : undefined}
+        onOpenChange={(open) => {
+          if (!open) setViewingQuotaRequest(null)
+        }}
+      />
     </>
   )
 }
