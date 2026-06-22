@@ -10,8 +10,11 @@ const (
 	PolicyTargetPolicyGroup = "policy_group"
 	PolicyTargetUser        = "user"
 
-	PolicyMetricRequestCount = "request_count"
-	PolicyMetricQuota        = "quota"
+	PolicyMetricRequestCount     = "request_count"
+	PolicyMetricQuota            = "quota"
+	PolicyMetricPromptTokens     = "prompt_tokens"
+	PolicyMetricCompletionTokens = "completion_tokens"
+	PolicyMetricTotalTokens      = "total_tokens"
 
 	PolicyPeriodDay   = "day"
 	PolicyPeriodMonth = "month"

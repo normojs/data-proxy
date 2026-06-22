@@ -290,7 +290,16 @@ func enterprisePolicyCELInputFromRequest(req PolicyEvaluationRequest) Enterprise
 }
 
 func isEnterpriseCounterPolicy(policy model.EnterpriseQuotaPolicy) bool {
-	return policy.Metric == model.PolicyMetricRequestCount || policy.Metric == model.PolicyMetricQuota
+	switch policy.Metric {
+	case model.PolicyMetricRequestCount,
+		model.PolicyMetricQuota,
+		model.PolicyMetricPromptTokens,
+		model.PolicyMetricCompletionTokens,
+		model.PolicyMetricTotalTokens:
+		return true
+	default:
+		return false
+	}
 }
 
 func splitEnterprisePoliciesByAction(policies []model.EnterpriseQuotaPolicy) ([]model.EnterpriseQuotaPolicy, []model.EnterpriseQuotaPolicy) {

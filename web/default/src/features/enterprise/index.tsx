@@ -1171,7 +1171,20 @@ function formatPolicyTarget(policy: EnterpriseQuotaPolicy) {
 }
 
 function formatMetric(metric: PolicyMetric) {
-  return metric === 'request_count' ? 'Requests' : 'Quota'
+  switch (metric) {
+    case 'request_count':
+      return 'Requests'
+    case 'quota':
+      return 'Quota'
+    case 'prompt_tokens':
+      return 'Prompt Tokens'
+    case 'completion_tokens':
+      return 'Completion Tokens'
+    case 'total_tokens':
+      return 'Total Tokens'
+    default:
+      return metric
+  }
 }
 
 function formatPeriod(period: PolicyPeriod) {
@@ -3012,6 +3025,15 @@ function QuotaPoliciesTab(props: {
                   <SelectItem value={ALL_VALUE}>{t('All Metrics')}</SelectItem>
                   <SelectItem value='request_count'>{t('Requests')}</SelectItem>
                   <SelectItem value='quota'>{t('Quota')}</SelectItem>
+                  <SelectItem value='prompt_tokens'>
+                    {t('Prompt Tokens')}
+                  </SelectItem>
+                  <SelectItem value='completion_tokens'>
+                    {t('Completion Tokens')}
+                  </SelectItem>
+                  <SelectItem value='total_tokens'>
+                    {t('Total Tokens')}
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -5038,6 +5060,15 @@ function SharedPoolsPanel(props: { canManage: boolean }) {
                         {t('Requests')}
                       </SelectItem>
                       <SelectItem value='quota'>{t('Quota')}</SelectItem>
+                      <SelectItem value='prompt_tokens'>
+                        {t('Prompt Tokens')}
+                      </SelectItem>
+                      <SelectItem value='completion_tokens'>
+                        {t('Completion Tokens')}
+                      </SelectItem>
+                      <SelectItem value='total_tokens'>
+                        {t('Total Tokens')}
+                      </SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>
@@ -5156,6 +5187,15 @@ function SharedPoolsPanel(props: { canManage: boolean }) {
                   <SelectItem value={ALL_VALUE}>{t('All Metrics')}</SelectItem>
                   <SelectItem value='request_count'>{t('Requests')}</SelectItem>
                   <SelectItem value='quota'>{t('Quota')}</SelectItem>
+                  <SelectItem value='prompt_tokens'>
+                    {t('Prompt Tokens')}
+                  </SelectItem>
+                  <SelectItem value='completion_tokens'>
+                    {t('Completion Tokens')}
+                  </SelectItem>
+                  <SelectItem value='total_tokens'>
+                    {t('Total Tokens')}
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -5323,6 +5363,15 @@ function SharedPoolsPanel(props: { canManage: boolean }) {
                   <SelectItem value={ALL_VALUE}>{t('All Metrics')}</SelectItem>
                   <SelectItem value='request_count'>{t('Requests')}</SelectItem>
                   <SelectItem value='quota'>{t('Quota')}</SelectItem>
+                  <SelectItem value='prompt_tokens'>
+                    {t('Prompt Tokens')}
+                  </SelectItem>
+                  <SelectItem value='completion_tokens'>
+                    {t('Completion Tokens')}
+                  </SelectItem>
+                  <SelectItem value='total_tokens'>
+                    {t('Total Tokens')}
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -8467,6 +8516,15 @@ function QuotaPolicyDialog(props: {
                     <SelectItem value='quota'>{t('Quota')}</SelectItem>
                     <SelectItem value='request_count'>
                       {t('Requests')}
+                    </SelectItem>
+                    <SelectItem value='prompt_tokens'>
+                      {t('Prompt Tokens')}
+                    </SelectItem>
+                    <SelectItem value='completion_tokens'>
+                      {t('Completion Tokens')}
+                    </SelectItem>
+                    <SelectItem value='total_tokens'>
+                      {t('Total Tokens')}
                     </SelectItem>
                   </SelectGroup>
                 </SelectContent>

@@ -4234,7 +4234,16 @@ func isSupportedEnterpriseUsageGranularity(granularity string) bool {
 }
 
 func isSupportedEnterprisePolicyMetric(metric string) bool {
-	return metric == model.PolicyMetricRequestCount || metric == model.PolicyMetricQuota
+	switch metric {
+	case model.PolicyMetricRequestCount,
+		model.PolicyMetricQuota,
+		model.PolicyMetricPromptTokens,
+		model.PolicyMetricCompletionTokens,
+		model.PolicyMetricTotalTokens:
+		return true
+	default:
+		return false
+	}
 }
 
 func enterprisePolicyGroupIdsContain(data string, target int) bool {
@@ -4928,7 +4937,7 @@ func quotaPolicyFromRequest(enterpriseId int, req enterpriseQuotaPolicyRequest) 
 	if err := validateQuotaPolicyTarget(enterpriseId, req.TargetType, req.TargetId); err != nil {
 		return model.EnterpriseQuotaPolicy{}, err
 	}
-	if req.Metric != model.PolicyMetricRequestCount && req.Metric != model.PolicyMetricQuota {
+	if !isSupportedEnterprisePolicyMetric(req.Metric) {
 		return model.EnterpriseQuotaPolicy{}, errors.New("不支持的策略指标")
 	}
 	if req.Period != model.PolicyPeriodDay && req.Period != model.PolicyPeriodMonth {

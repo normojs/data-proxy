@@ -75,6 +75,8 @@ func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayIn
 		Estimated: UsageAmount{
 			RequestCount: 1,
 			Quota:        int64(estimatedQuota),
+			PromptTokens: int64(relayInfo.GetEstimatePromptTokens()),
+			TotalTokens:  int64(relayInfo.GetEstimatePromptTokens()),
 		},
 		RequestId: enterpriseRequestIdFromRelay(c, relayInfo),
 	}

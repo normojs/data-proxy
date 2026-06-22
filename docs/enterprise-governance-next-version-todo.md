@@ -187,6 +187,19 @@
 | NV-0504 | P1 | 失败补偿队列 | 上游失败、结算失败、进程中断后的 reservation 可补偿 |
 | NV-0505 | P1 | 大客户压测脚本 | 覆盖并发、streaming、失败回滚、dry-run 和 hard limit |
 
+当前进度：
+
+- NV-0501 已有基础交付：企业额度 hard-limit 支持 Redis 原子预留/结算/退款脚本，
+  高并发路径会优先使用 Redis counter，失败时保守回退 DB counter；已有 fake backend
+  单测和可选压力 smoke。
+- NV-0502 已有基础交付：提供 Redis/DB counter 对账与修复服务和管理 API，可 dry-run、
+  修复 Redis 快照、创建缺失 DB mirror，并可包含 Redis orphan key。
+- NV-0503 已完成 token 级指标 MVP：quota policy metric 支持 `prompt_tokens`、
+  `completion_tokens`、`total_tokens`，预留/结算/临时额度/对账复用同一 counter 链路；
+  relay pre-check 会基于已知 prompt token 估算预留 `prompt_tokens` 与 `total_tokens`，
+  settle 阶段按真实 usage 校正。严格 output token 预扣需要后续把 max output token meta
+  透传到企业治理 pre-check。
+
 ## V1.6: 高级策略动作
 
 目标：策略命中后不只拒绝，还能降级、排队、告警或走共享池。

@@ -274,7 +274,12 @@ export type PolicyTargetType =
   | 'policy_group'
   | 'user'
 
-export type PolicyMetric = 'request_count' | 'quota'
+export type PolicyMetric =
+  | 'request_count'
+  | 'quota'
+  | 'prompt_tokens'
+  | 'completion_tokens'
+  | 'total_tokens'
 
 export type PolicyPeriod = 'day' | 'month'
 

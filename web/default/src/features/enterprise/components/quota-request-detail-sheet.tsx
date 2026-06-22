@@ -63,7 +63,20 @@ function formatDateTime(value: number | undefined) {
 }
 
 function formatMetric(metric: string) {
-  return metric === 'request_count' ? 'Requests' : 'Quota'
+  switch (metric) {
+    case 'request_count':
+      return 'Requests'
+    case 'quota':
+      return 'Quota'
+    case 'prompt_tokens':
+      return 'Prompt Tokens'
+    case 'completion_tokens':
+      return 'Completion Tokens'
+    case 'total_tokens':
+      return 'Total Tokens'
+    default:
+      return metric
+  }
 }
 
 function formatPeriod(period: string) {

@@ -458,7 +458,7 @@ func SettleEnterpriseReservation(reservation *Reservation, actual UsageAmount) e
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
 		for _, policyId := range reservation.PolicyIds {
 			reserved := reservation.ReservedAmounts[policyId]
-			reservedValue := reserved.RequestCount + reserved.Quota
+			reservedValue := reservedUsageAmountValue(reserved)
 			if reservedValue <= 0 {
 				continue
 			}
@@ -494,7 +494,7 @@ func RefundEnterpriseReservation(reservation *Reservation) error {
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
 		for _, policyId := range reservation.PolicyIds {
 			amount := reservation.ReservedAmounts[policyId]
-			delta := amount.RequestCount + amount.Quota
+			delta := reservedUsageAmountValue(amount)
 			if delta <= 0 {
 				continue
 			}
@@ -768,7 +768,7 @@ func settleRedisEnterpriseReservation(reservation *Reservation, actual UsageAmou
 			continue
 		}
 		reserved := reservation.ReservedAmounts[policyId]
-		reservedValue := reserved.RequestCount + reserved.Quota
+		reservedValue := reservedUsageAmountValue(reserved)
 		if reservedValue <= 0 {
 			continue
 		}
@@ -797,7 +797,7 @@ func refundRedisEnterpriseReservation(reservation *Reservation) {
 			continue
 		}
 		amount := reservation.ReservedAmounts[policyId]
-		delta := amount.RequestCount + amount.Quota
+		delta := reservedUsageAmountValue(amount)
 		if delta <= 0 {
 			continue
 		}
@@ -825,6 +825,15 @@ func amountForEnterprisePolicyMetric(metric string, usage UsageAmount) int64 {
 		return 1
 	case model.PolicyMetricQuota:
 		return usage.Quota
+	case model.PolicyMetricPromptTokens:
+		return usage.PromptTokens
+	case model.PolicyMetricCompletionTokens:
+		return usage.CompletionTokens
+	case model.PolicyMetricTotalTokens:
+		if usage.TotalTokens > 0 {
+			return usage.TotalTokens
+		}
+		return usage.PromptTokens + usage.CompletionTokens
 	default:
 		return 0
 	}
@@ -837,7 +846,36 @@ func actualAmountForReservedMetric(reserved UsageAmount, actual UsageAmount) int
 	if reserved.Quota > 0 {
 		return actual.Quota
 	}
+	if reserved.PromptTokens > 0 {
+		return actual.PromptTokens
+	}
+	if reserved.CompletionTokens > 0 {
+		return actual.CompletionTokens
+	}
+	if reserved.TotalTokens > 0 {
+		if actual.TotalTokens > 0 {
+			return actual.TotalTokens
+		}
+		return actual.PromptTokens + actual.CompletionTokens
+	}
 	return 0
+}
+
+func reservedUsageAmountValue(amount UsageAmount) int64 {
+	switch {
+	case amount.RequestCount > 0:
+		return amount.RequestCount
+	case amount.Quota > 0:
+		return amount.Quota
+	case amount.PromptTokens > 0:
+		return amount.PromptTokens
+	case amount.CompletionTokens > 0:
+		return amount.CompletionTokens
+	case amount.TotalTokens > 0:
+		return amount.TotalTokens
+	default:
+		return 0
+	}
 }
 
 func usageAmountForMetric(metric string, amount int64) UsageAmount {
@@ -846,6 +884,12 @@ func usageAmountForMetric(metric string, amount int64) UsageAmount {
 		return UsageAmount{RequestCount: amount}
 	case model.PolicyMetricQuota:
 		return UsageAmount{Quota: amount}
+	case model.PolicyMetricPromptTokens:
+		return UsageAmount{PromptTokens: amount}
+	case model.PolicyMetricCompletionTokens:
+		return UsageAmount{CompletionTokens: amount}
+	case model.PolicyMetricTotalTokens:
+		return UsageAmount{TotalTokens: amount}
 	default:
 		return UsageAmount{}
 	}

@@ -702,6 +702,73 @@ func TestEnterpriseQuotaRedisCounterSeedsFromDatabase(t *testing.T) {
 	assert.EqualValues(t, 1, snapshot.ReservedValue)
 }
 
+func TestEnterpriseTokenMetricQuotaPoliciesReserveAndSettle(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	ctx := &EnterpriseContext{Enabled: true, EnterpriseId: enterprise.Id, UserId: 1088}
+	now := time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name      string
+		metric    string
+		estimated UsageAmount
+		actual    UsageAmount
+		wantUsed  int64
+	}{
+		{
+			name:      "prompt tokens",
+			metric:    model.PolicyMetricPromptTokens,
+			estimated: UsageAmount{PromptTokens: 40},
+			actual:    UsageAmount{PromptTokens: 35},
+			wantUsed:  35,
+		},
+		{
+			name:      "completion tokens",
+			metric:    model.PolicyMetricCompletionTokens,
+			estimated: UsageAmount{CompletionTokens: 24},
+			actual:    UsageAmount{CompletionTokens: 20},
+			wantUsed:  20,
+		},
+		{
+			name:      "total tokens",
+			metric:    model.PolicyMetricTotalTokens,
+			estimated: UsageAmount{TotalTokens: 60},
+			actual:    UsageAmount{PromptTokens: 21, CompletionTokens: 34},
+			wantUsed:  55,
+		},
+	}
+
+	for index, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+				EnterpriseId: enterprise.Id,
+				Name:         tc.name,
+				TargetType:   model.PolicyTargetEnterprise,
+				TargetId:     enterprise.Id,
+				Metric:       tc.metric,
+				Period:       model.PolicyPeriodDay,
+				LimitValue:   100,
+				ModelScope:   model.PolicyModelScopeAll,
+				Status:       model.QuotaPolicyStatusEnabled,
+			})
+			reservation, err := ReserveEnterpriseQuota(PolicyEvaluationRequest{
+				EnterpriseContext: ctx,
+				Estimated:         tc.estimated,
+				Now:               now.Add(time.Duration(index) * time.Hour),
+			}, []model.EnterpriseQuotaPolicy{policy})
+			require.NoError(t, err)
+			require.NotNil(t, reservation)
+			require.NoError(t, SettleEnterpriseReservation(reservation, tc.actual))
+
+			var counter model.EnterpriseQuotaCounter
+			require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&counter).Error)
+			assert.EqualValues(t, 0, counter.ReservedValue)
+			assert.EqualValues(t, tc.wantUsed, counter.UsedValue)
+		})
+	}
+}
+
 func TestEnterpriseQuotaRedisCounterReconciliationRepairsRedisFromDB(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	common.EnterpriseQuotaRedisCounterEnabled = true
