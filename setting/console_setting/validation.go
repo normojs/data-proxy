@@ -20,6 +20,11 @@ var (
 		"light-green": true, "teal": true, "light-blue": true, "indigo": true,
 		"violet": true, "grey": true, "slate": true,
 	}
+	validDownloadIcons = map[string]bool{
+		"terminal": true, "code": true, "package": true, "bot": true,
+		"cloud": true, "desktop": true, "apple": true, "windows": true,
+		"linux": true, "download": true,
+	}
 	slugRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 )
 
@@ -74,6 +79,8 @@ func ValidateConsoleSettings(settingsStr string, settingType string) error {
 		return validateFAQ(settingsStr)
 	case "UptimeKumaGroups":
 		return validateUptimeKumaGroups(settingsStr)
+	case "Downloads":
+		return validateDownloads(settingsStr)
 	default:
 		return fmt.Errorf("未知的设置类型：%s", settingType)
 	}
@@ -238,6 +245,92 @@ func GetAnnouncements() []map[string]interface{} {
 
 func GetFAQ() []map[string]interface{} {
 	return getJSONList(GetConsoleSetting().FAQ)
+}
+
+func validateDownloads(downloadsStr string) error {
+	list, err := parseJSONArray(downloadsStr, "软件下载配置")
+	if err != nil {
+		return err
+	}
+	if len(list) > 100 {
+		return fmt.Errorf("软件下载配置数量不能超过100个")
+	}
+
+	for i, item := range list {
+		name, ok := item["name"].(string)
+		if !ok || strings.TrimSpace(name) == "" {
+			return fmt.Errorf("第%d个软件下载配置缺少名称字段", i+1)
+		}
+		urlStr, ok := item["url"].(string)
+		if !ok || strings.TrimSpace(urlStr) == "" {
+			return fmt.Errorf("第%d个软件下载配置缺少下载链接字段", i+1)
+		}
+		description, ok := item["description"].(string)
+		if !ok {
+			description = ""
+		}
+		icon, ok := item["icon"].(string)
+		if !ok || strings.TrimSpace(icon) == "" {
+			icon = "download"
+		}
+		customIconURL, ok := item["customIconUrl"].(string)
+		if !ok {
+			customIconURL = ""
+		}
+		if enabled, exists := item["enabled"]; exists {
+			if _, ok := enabled.(bool); !ok {
+				return fmt.Errorf("第%d个软件下载配置的启用字段必须为布尔值", i+1)
+			}
+		}
+		if openInNewTab, exists := item["openInNewTab"]; exists {
+			if _, ok := openInNewTab.(bool); !ok {
+				return fmt.Errorf("第%d个软件下载配置的新窗口打开字段必须为布尔值", i+1)
+			}
+		}
+
+		if err := validateURL(urlStr, i+1, "软件下载配置"); err != nil {
+			return err
+		}
+		if strings.TrimSpace(customIconURL) != "" {
+			if err := validateURL(customIconURL, i+1, "软件图标"); err != nil {
+				return err
+			}
+		}
+		if len(name) > 80 {
+			return fmt.Errorf("第%d个软件下载配置的名称长度不能超过80字符", i+1)
+		}
+		if len(description) > 240 {
+			return fmt.Errorf("第%d个软件下载配置的描述长度不能超过240字符", i+1)
+		}
+		if len(urlStr) > 500 {
+			return fmt.Errorf("第%d个软件下载配置的下载链接长度不能超过500字符", i+1)
+		}
+		if len(customIconURL) > 500 {
+			return fmt.Errorf("第%d个软件下载配置的自定义图标链接长度不能超过500字符", i+1)
+		}
+		if !validDownloadIcons[icon] {
+			return fmt.Errorf("第%d个软件下载配置的图标值不合法", i+1)
+		}
+		if err := checkDangerousContent(name, i+1, "软件下载配置"); err != nil {
+			return err
+		}
+		if err := checkDangerousContent(description, i+1, "软件下载配置"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func GetDownloads() []map[string]interface{} {
+	list := getJSONList(GetConsoleSetting().Downloads)
+	enabledList := make([]map[string]interface{}, 0, len(list))
+	for _, item := range list {
+		if enabled, ok := item["enabled"].(bool); ok && !enabled {
+			continue
+		}
+		enabledList = append(enabledList, item)
+	}
+	return enabledList
 }
 
 func validateUptimeKumaGroups(groupsStr string) error {

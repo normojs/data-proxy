@@ -18,6 +18,7 @@ import { Route as StatusIndexRouteImport } from './routes/status/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
+import { Route as DownloadsIndexRouteImport } from './routes/downloads/index'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as SnaplessDeviceRouteImport } from './routes/snapless/device'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
@@ -119,6 +120,11 @@ const RankingsIndexRoute = RankingsIndexRouteImport.update({
 const PricingIndexRoute = PricingIndexRouteImport.update({
   id: '/pricing/',
   path: '/pricing/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DownloadsIndexRoute = DownloadsIndexRouteImport.update({
+  id: '/downloads/',
+  path: '/downloads/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutIndexRoute = AboutIndexRouteImport.update({
@@ -472,6 +478,7 @@ export interface FileRoutesByFullPath {
   '/oauth/$provider': typeof OauthProviderRoute
   '/snapless/device': typeof SnaplessDeviceRoute
   '/about/': typeof AboutIndexRoute
+  '/downloads/': typeof DownloadsIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
@@ -538,6 +545,7 @@ export interface FileRoutesByTo {
   '/oauth/$provider': typeof OauthProviderRoute
   '/snapless/device': typeof SnaplessDeviceRoute
   '/about': typeof AboutIndexRoute
+  '/downloads': typeof DownloadsIndexRoute
   '/pricing': typeof PricingIndexRoute
   '/rankings': typeof RankingsIndexRoute
   '/setup': typeof SetupIndexRoute
@@ -609,6 +617,7 @@ export interface FileRoutesById {
   '/oauth/$provider': typeof OauthProviderRoute
   '/snapless/device': typeof SnaplessDeviceRoute
   '/about/': typeof AboutIndexRoute
+  '/downloads/': typeof DownloadsIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
@@ -679,6 +688,7 @@ export interface FileRouteTypes {
     | '/oauth/$provider'
     | '/snapless/device'
     | '/about/'
+    | '/downloads/'
     | '/pricing/'
     | '/rankings/'
     | '/setup/'
@@ -745,6 +755,7 @@ export interface FileRouteTypes {
     | '/oauth/$provider'
     | '/snapless/device'
     | '/about'
+    | '/downloads'
     | '/pricing'
     | '/rankings'
     | '/setup'
@@ -815,6 +826,7 @@ export interface FileRouteTypes {
     | '/oauth/$provider'
     | '/snapless/device'
     | '/about/'
+    | '/downloads/'
     | '/pricing/'
     | '/rankings/'
     | '/setup/'
@@ -876,6 +888,7 @@ export interface RootRouteChildren {
   OauthProviderRoute: typeof OauthProviderRoute
   SnaplessDeviceRoute: typeof SnaplessDeviceRoute
   AboutIndexRoute: typeof AboutIndexRoute
+  DownloadsIndexRoute: typeof DownloadsIndexRoute
   PricingIndexRoute: typeof PricingIndexRoute
   RankingsIndexRoute: typeof RankingsIndexRoute
   SetupIndexRoute: typeof SetupIndexRoute
@@ -946,6 +959,13 @@ declare module '@tanstack/react-router' {
       path: '/pricing'
       fullPath: '/pricing/'
       preLoaderRoute: typeof PricingIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/downloads/': {
+      id: '/downloads/'
+      path: '/downloads'
+      fullPath: '/downloads/'
+      preLoaderRoute: typeof DownloadsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about/': {
@@ -1536,6 +1556,7 @@ const rootRouteChildren: RootRouteChildren = {
   OauthProviderRoute: OauthProviderRoute,
   SnaplessDeviceRoute: SnaplessDeviceRoute,
   AboutIndexRoute: AboutIndexRoute,
+  DownloadsIndexRoute: DownloadsIndexRoute,
   PricingIndexRoute: PricingIndexRoute,
   RankingsIndexRoute: RankingsIndexRoute,
   SetupIndexRoute: SetupIndexRoute,

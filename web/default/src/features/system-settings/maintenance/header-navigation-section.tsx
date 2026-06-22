@@ -54,6 +54,7 @@ const headerNavSchema = z.object({
   rankingsEnabled: z.boolean(),
   rankingsRequireAuth: z.boolean(),
   docs: z.boolean(),
+  downloads: z.boolean(),
   about: z.boolean(),
 })
 
@@ -89,6 +90,10 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
       : Boolean(config.rankings.requireAuth),
   docs:
     config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
+  downloads:
+    config.downloads === undefined
+      ? HEADER_NAV_DEFAULT.downloads
+      : Boolean(config.downloads),
   about:
     config.about === undefined
       ? HEADER_NAV_DEFAULT.about
@@ -118,6 +123,7 @@ export function HeaderNavigationSection({
       home: values.home,
       console: values.console,
       docs: values.docs,
+      downloads: values.downloads,
       about: values.about,
       pricing: {
         ...(config.pricing ?? HEADER_NAV_DEFAULT.pricing),
@@ -165,6 +171,11 @@ export function HeaderNavigationSection({
       key: 'docs',
       title: t('Docs'),
       description: t('Documentation or external knowledge base.'),
+    },
+    {
+      key: 'downloads',
+      title: t('Downloads'),
+      description: t('Companion software and client download links.'),
     },
     {
       key: 'about',

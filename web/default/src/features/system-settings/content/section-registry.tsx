@@ -22,6 +22,7 @@ import { AnnouncementsSection } from './announcements-section'
 import { ApiInfoSection } from './api-info-section'
 import { ChatSettingsSection } from './chat-settings-section'
 import { DashboardSection } from './dashboard-section'
+import { DownloadsSection } from './downloads-section'
 import { DrawingSettingsSection } from './drawing-settings-section'
 import { FAQSection } from './faq-section'
 import { UptimeKumaSection } from './uptime-kuma-section'
@@ -70,6 +71,16 @@ const CONTENT_SECTIONS = [
       <ApiInfoSection
         enabled={settings['console_setting.api_info_enabled']}
         data={settings['console_setting.api_info']}
+      />
+    ),
+  },
+  {
+    id: 'downloads',
+    titleKey: 'Downloads',
+    build: (settings: ContentSettings) => (
+      <DownloadsSection
+        enabled={settings['console_setting.downloads_enabled']}
+        data={settings['console_setting.downloads']}
       />
     ),
   },

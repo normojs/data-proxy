@@ -39,6 +39,7 @@ export type TopNavLink = {
  *   pricing: { enabled: true, requireAuth: false },
  *   rankings: { enabled: true, requireAuth: false },
  *   docs: true,
+ *   downloads: true,
  *   about: true
  * }
  */
@@ -92,6 +93,11 @@ export function useTopNavLinks(): TopNavLink[] {
     } else {
       links.push({ title: t('Docs'), href: '/docs' })
     }
+  }
+
+  // Downloads
+  if (modules?.downloads !== false && status?.downloads_enabled !== false) {
+    links.push({ title: t('Downloads'), href: '/downloads' })
   }
 
   // About
