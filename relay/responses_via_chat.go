@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -188,6 +189,124 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 		})
 	}
 
+	toolOutputIndex := func(state *streamToolState) int {
+		if state == nil {
+			return 0
+		}
+		if textItemStarted {
+			return state.Index + 1
+		}
+		return state.Index
+	}
+
+	toolCallForState := func(state *streamToolState, arguments string) dto.ToolCallRequest {
+		callID := strings.TrimSpace(state.ID)
+		if callID == "" {
+			callID = "call_" + common.GetUUID()
+			state.ID = callID
+		}
+		name := strings.TrimSpace(state.Name)
+		if name == "" {
+			name = "tool"
+		}
+		return dto.ToolCallRequest{
+			ID:   callID,
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name:      name,
+				Arguments: arguments,
+			},
+		}
+	}
+
+	toolItemForState := func(state *streamToolState, arguments string, status string) map[string]any {
+		item := openaicompat.ChatToolCallToResponsesItem(toolCallForState(state, arguments), compatCtx)
+		if status != "" {
+			item["status"] = status
+		}
+		itemID := strings.TrimSpace(common.Interface2String(item["id"]))
+		if itemID == "" {
+			itemID = "fc_" + state.ID
+			item["id"] = itemID
+		}
+		if state.ItemID == "" {
+			state.ItemID = itemID
+		}
+		return item
+	}
+
+	ensureToolStarted := func(state *streamToolState) bool {
+		if state == nil {
+			return true
+		}
+		if state.Started {
+			return true
+		}
+		if !ensureCreated() {
+			return false
+		}
+		state.Started = true
+		item := toolItemForState(state, "", "in_progress")
+		return send("response.output_item.added", map[string]any{
+			"output_index": toolOutputIndex(state),
+			"item":         item,
+		})
+	}
+
+	sendToolArgumentsDelta := func(state *streamToolState, delta string) bool {
+		if state == nil || delta == "" {
+			return true
+		}
+		if !ensureToolStarted(state) {
+			return false
+		}
+		item := toolItemForState(state, state.Arguments.String(), "in_progress")
+		if common.Interface2String(item["type"]) != "function_call" {
+			return true
+		}
+		return send("response.function_call_arguments.delta", map[string]any{
+			"output_index": toolOutputIndex(state),
+			"item_id":      state.ItemID,
+			"delta":        delta,
+		})
+	}
+
+	finalizeTool := func(state *streamToolState) bool {
+		if state == nil || state.Done {
+			return true
+		}
+		if !ensureToolStarted(state) {
+			return false
+		}
+		state.Done = true
+		arguments := state.Arguments.String()
+		item := toolItemForState(state, arguments, "completed")
+		if common.Interface2String(item["type"]) == "function_call" {
+			if !send("response.function_call_arguments.done", map[string]any{
+				"output_index": toolOutputIndex(state),
+				"item_id":      state.ItemID,
+				"arguments":    arguments,
+			}) {
+				return false
+			}
+		}
+		return send("response.output_item.done", map[string]any{
+			"output_index": toolOutputIndex(state),
+			"item":         item,
+		})
+	}
+
+	sortedToolStates := func() []*streamToolState {
+		states := make([]*streamToolState, 0, len(toolStates))
+		for _, state := range toolStates {
+			states = append(states, state)
+		}
+		sort.Slice(states, func(i, j int) bool {
+			return states[i].Index < states[j].Index
+		})
+		return states
+	}
+
 	ensureTextStarted := func() bool {
 		if textItemStarted {
 			return true
@@ -306,6 +425,16 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 				if tool.Function.Arguments != "" {
 					state.Arguments.WriteString(tool.Function.Arguments)
 				}
+				if !ensureToolStarted(state) {
+					sr.Stop(streamErr)
+					return
+				}
+				if tool.Function.Arguments != "" {
+					if !sendToolArgumentsDelta(state, tool.Function.Arguments) {
+						sr.Stop(streamErr)
+						return
+					}
+				}
 			}
 		}
 	})
@@ -333,26 +462,12 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 			return nil, streamErr
 		}
 		output = append(output, openaicompat.ResponseMessageItem("msg_"+responseID, outputText.String()))
-	} else {
-		for _, state := range toolStates {
-			toolCall := dto.ToolCallRequest{
-				ID:   state.ID,
-				Type: "function",
-				Function: dto.FunctionRequest{
-					Name:      state.Name,
-					Arguments: state.Arguments.String(),
-				},
-			}
-			output = append(output, openaicompat.ChatToolCallToResponsesItem(toolCall, compatCtx))
+	}
+	for _, state := range sortedToolStates() {
+		if !finalizeTool(state) {
+			return nil, streamErr
 		}
-		for i, item := range output {
-			if !send("response.output_item.done", map[string]any{
-				"output_index": i,
-				"item":         item,
-			}) {
-				return nil, streamErr
-			}
-		}
+		output = append(output, toolItemForState(state, state.Arguments.String(), "completed"))
 	}
 	if usage.TotalTokens == 0 && usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
 		usage = service.ResponseText2Usage(c, outputText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
@@ -374,6 +489,9 @@ type streamToolState struct {
 	ID        string
 	Name      string
 	Arguments strings.Builder
+	ItemID    string
+	Started   bool
+	Done      bool
 }
 
 func mergeResponseUsageForRelay(response map[string]any, usage *dto.Usage) map[string]any {
