@@ -50,9 +50,22 @@ export function WechatPayQRDialog({
     typeof payment?.expires_at === 'number'
       ? new Date(payment.expires_at * 1000).toLocaleTimeString()
       : null
+  const handleOpenChange = (
+    nextOpen: boolean,
+    eventDetails: { reason: string }
+  ) => {
+    if (!nextOpen && eventDetails.reason === 'escape-key') {
+      return
+    }
+    onOpenChange(nextOpen)
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      disablePointerDismissal
+    >
       <DialogContent className='max-sm:w-[calc(100vw-1.5rem)] sm:max-w-md'>
         <DialogHeader>
           <DialogTitle>{t('WeChat Pay')}</DialogTitle>
