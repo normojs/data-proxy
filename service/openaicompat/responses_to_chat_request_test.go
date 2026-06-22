@@ -162,6 +162,52 @@ func TestChatCompletionResponseToResponses(t *testing.T) {
 	require.Equal(t, "message", item["type"])
 }
 
+func TestChatCompletionResponseToResponsesReasoningFallback(t *testing.T) {
+	reasoning := "当前时间需要由客户端环境提供。"
+	chat := &dto.OpenAITextResponse{
+		Id:      "chatcmpl-reasoning",
+		Model:   "deepseek-chat",
+		Created: float64(123),
+		Choices: []dto.OpenAITextResponseChoice{
+			{
+				Message: dto.Message{
+					Role:             "assistant",
+					ReasoningContent: &reasoning,
+				},
+			},
+		},
+	}
+
+	resp, _, err := ChatCompletionResponseToResponses(chat, &dto.OpenAIResponsesRequest{Model: "deepseek-chat"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, reasoning, responseOutputText(t, resp))
+}
+
+func TestChatStreamDeltaOutputTextReasoningFallback(t *testing.T) {
+	reasoning := "现在是测试时间。"
+	require.Equal(t, reasoning, ChatStreamDeltaOutputText(dto.ChatCompletionsStreamResponseChoiceDelta{
+		ReasoningContent: &reasoning,
+	}))
+
+	content := "优先显示正文。"
+	require.Equal(t, content, ChatStreamDeltaOutputText(dto.ChatCompletionsStreamResponseChoiceDelta{
+		Content:          &content,
+		ReasoningContent: &reasoning,
+	}))
+}
+
+func responseOutputText(t *testing.T, resp map[string]any) string {
+	t.Helper()
+	output := resp["output"].([]any)
+	require.Len(t, output, 1)
+	item := output[0].(map[string]any)
+	content := item["content"].([]map[string]any)
+	require.Len(t, content, 1)
+	text, ok := content[0]["text"].(string)
+	require.True(t, ok)
+	return text
+}
+
 func uintPtr(v uint) *uint {
 	return &v
 }

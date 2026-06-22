@@ -264,16 +264,16 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 			return
 		}
 		choice := chunk.Choices[0]
-		if choice.Delta.Content != nil && *choice.Delta.Content != "" {
+		if textDelta := openaicompat.ChatStreamDeltaOutputText(choice.Delta); textDelta != "" {
 			if !ensureTextStarted() {
 				sr.Stop(streamErr)
 				return
 			}
-			outputText.WriteString(*choice.Delta.Content)
+			outputText.WriteString(textDelta)
 			if !send("response.output_text.delta", map[string]any{
 				"output_index":  0,
 				"content_index": 0,
-				"delta":         *choice.Delta.Content,
+				"delta":         textDelta,
 			}) {
 				sr.Stop(streamErr)
 				return

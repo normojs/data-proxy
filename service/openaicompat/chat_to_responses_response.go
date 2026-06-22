@@ -31,7 +31,7 @@ func ChatCompletionResponseToResponses(chat *dto.OpenAITextResponse, req *dto.Op
 			for _, toolCall := range toolCalls {
 				output = append(output, chatToolCallToResponsesItem(toolCall, ctx))
 			}
-		} else if text := msg.StringContent(); text != "" {
+		} else if text := ChatMessageOutputText(msg); text != "" {
 			output = append(output, responseMessageItem("msg_"+responseID, text))
 		}
 	}
@@ -95,6 +95,20 @@ func ResponseIDFromChatID(chatID string) string {
 
 func ChatStreamIDToResponsesID(chatID string) string {
 	return ResponseIDFromChatID(chatID)
+}
+
+func ChatMessageOutputText(message dto.Message) string {
+	if text := message.StringContent(); text != "" {
+		return text
+	}
+	return message.GetReasoningContent()
+}
+
+func ChatStreamDeltaOutputText(delta dto.ChatCompletionsStreamResponseChoiceDelta) string {
+	if text := delta.GetContentString(); text != "" {
+		return text
+	}
+	return delta.GetReasoningContent()
 }
 
 func chatCreatedAt(value any) int64 {
