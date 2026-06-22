@@ -8,6 +8,7 @@ upload
 build
 *.db-journal
 logs
+secrets/
 output/
 web/default/dist
 web/classic/dist

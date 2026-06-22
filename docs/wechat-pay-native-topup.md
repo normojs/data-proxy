@@ -11,8 +11,8 @@ Configure these options in the admin payment gateway settings, or write the same
 - `WechatPayMchID`: WeChat Pay merchant ID
 - `WechatPayAPIv3Key`: 32-byte API v3 key
 - `WechatPayMerchantSerialNo`: merchant API certificate serial number
-- `WechatPayPrivateKeyPath`: path to `apiclient_key.pem`
-- `WechatPayPrivateKey`: optional inline private key; used when `WechatPayPrivateKeyPath` is empty
+- `WechatPayPrivateKeyPath`: container path to `apiclient_key.pem`; file path is preferred
+- `WechatPayPrivateKey`: optional inline private key fallback; leave blank for production secret-file deployments
 - `WechatPayNotifyUrl`: optional override; otherwise `${CustomCallbackAddress || ServerAddress}/api/wechat-pay/notify`
 - `WechatPayProductName`: optional QR order description prefix
 - `WechatPayMinTopUp`: minimum topup amount, default `1`
@@ -24,6 +24,37 @@ https://dp.app.mbu.ltd/api/wechat-pay/notify
 ```
 
 Also make sure `ServerAddress` or `CustomCallbackAddress` points to the public HTTPS domain, and that server time is synchronized.
+
+## Merchant Private Key Management
+
+Production deployments should keep the WeChat Pay merchant private key out of Git and out of database option values. The provided `docker-compose.wechat-pay.yml` override mounts this host directory as read-only:
+
+```text
+./secrets/wechatpay -> /run/secrets/data-proxy/wechatpay
+```
+
+On the server, place the merchant private key next to `docker-compose.prod.yml`:
+
+```bash
+mkdir -p secrets/wechatpay
+install -m 600 /path/to/apiclient_key.pem secrets/wechatpay/apiclient_key.pem
+chmod 700 secrets secrets/wechatpay
+```
+
+Start or restart the service with the WeChat Pay compose override:
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.wechat-pay.yml up -d
+```
+
+Then configure these fields in the data-proxy admin payment gateway settings:
+
+```text
+WechatPayPrivateKeyPath=/run/secrets/data-proxy/wechatpay/apiclient_key.pem
+WechatPayPrivateKey=
+```
+
+When both fields are set, `WechatPayPrivateKeyPath` takes precedence so certificate rotation can be handled by replacing the mounted file and restarting the service.
 
 ## Runtime Flow
 

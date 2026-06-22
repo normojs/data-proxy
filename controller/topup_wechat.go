@@ -82,15 +82,15 @@ func getWechatPayNotifyUrl() string {
 }
 
 func loadWechatPayPrivateKey() (*rsa.PrivateKey, error) {
+	privateKeyPath := strings.TrimSpace(setting.WechatPayPrivateKeyPath)
+	if privateKeyPath != "" {
+		return utils.LoadPrivateKeyWithPath(privateKeyPath)
+	}
 	privateKeyText := strings.TrimSpace(setting.WechatPayPrivateKey)
 	if privateKeyText != "" {
 		return utils.LoadPrivateKey(privateKeyText)
 	}
-	privateKeyPath := strings.TrimSpace(setting.WechatPayPrivateKeyPath)
-	if privateKeyPath == "" {
-		return nil, errors.New("微信支付商户私钥未配置")
-	}
-	return utils.LoadPrivateKeyWithPath(privateKeyPath)
+	return nil, errors.New("微信支付商户私钥未配置")
 }
 
 func newWechatPayNativeService(ctx context.Context) (*native.NativeApiService, error) {

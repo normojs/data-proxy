@@ -1,0 +1,4 @@
+services:
+  data-proxy:
+    volumes:
+      - ./secrets/wechatpay:/run/secrets/data-proxy/wechatpay:ro

@@ -1765,14 +1765,16 @@ export function PaymentSettingsSection({
                     <FormLabel>{t('Private key path')}</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder='/run/secrets/apiclient_key.pem'
+                        placeholder='/run/secrets/data-proxy/wechatpay/apiclient_key.pem'
                         autoComplete='off'
                         {...field}
                         onChange={(event) => field.onChange(event.target.value)}
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('Path to apiclient_key.pem on the server')}
+                      {t(
+                        'Path to mounted apiclient_key.pem inside the server or container'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -1819,7 +1821,9 @@ export function PaymentSettingsSection({
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Leave blank unless updating the inline private key')}
+                    {t(
+                      'File path is preferred; leave blank unless updating the inline private key fallback'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
