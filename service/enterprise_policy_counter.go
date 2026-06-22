@@ -70,6 +70,7 @@ type Reservation struct {
 	PolicyIds        []int
 	CounterIds       map[int]int
 	ReservedAmounts  map[int]UsageAmount
+	EventIds         map[int]int
 	RedisCounterKeys map[int]string
 	RedisCounterTTLs map[int]time.Duration
 	RedisCounterUsed bool
@@ -154,6 +155,14 @@ func MergeEnterpriseReservations(primary *Reservation, extra *Reservation) *Rese
 	for policyId, amount := range extra.ReservedAmounts {
 		primary.ReservedAmounts[policyId] = amount
 	}
+	if len(extra.EventIds) > 0 {
+		if primary.EventIds == nil {
+			primary.EventIds = map[int]int{}
+		}
+		for policyId, eventId := range extra.EventIds {
+			primary.EventIds[policyId] = eventId
+		}
+	}
 	if len(extra.RedisCounterKeys) > 0 {
 		if primary.RedisCounterKeys == nil {
 			primary.RedisCounterKeys = map[int]string{}
@@ -184,6 +193,7 @@ func reserveEnterpriseQuotaWithDB(req PolicyEvaluationRequest, policies []model.
 		UserId:          req.EnterpriseContext.UserId,
 		CounterIds:      map[int]int{},
 		ReservedAmounts: map[int]UsageAmount{},
+		EventIds:        map[int]int{},
 	}
 	now := req.Now
 	if now.IsZero() {
@@ -217,6 +227,9 @@ func reserveEnterpriseQuotaWithDB(req PolicyEvaluationRequest, policies []model.
 			reservation.PolicyIds = append(reservation.PolicyIds, policy.Id)
 			reservation.CounterIds[policy.Id] = counter.Id
 			reservation.ReservedAmounts[policy.Id] = usageAmountForMetric(policy.Metric, amount)
+			if err := createEnterpriseQuotaReservationEventWithDB(tx, reservation, policy, counter.Id, amount, "", 0); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -239,6 +252,7 @@ func reserveEnterpriseQuotaObservationWithDB(req PolicyEvaluationRequest, polici
 		UserId:          req.EnterpriseContext.UserId,
 		CounterIds:      map[int]int{},
 		ReservedAmounts: map[int]UsageAmount{},
+		EventIds:        map[int]int{},
 	}
 	now := req.Now
 	if now.IsZero() {
@@ -265,6 +279,9 @@ func reserveEnterpriseQuotaObservationWithDB(req PolicyEvaluationRequest, polici
 			reservation.PolicyIds = append(reservation.PolicyIds, policy.Id)
 			reservation.CounterIds[policy.Id] = counter.Id
 			reservation.ReservedAmounts[policy.Id] = usageAmountForMetric(policy.Metric, amount)
+			if err := createEnterpriseQuotaReservationEventWithDB(tx, reservation, policy, counter.Id, amount, "", 0); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -287,6 +304,7 @@ func reserveEnterpriseQuotaWithRedis(req PolicyEvaluationRequest, policies []mod
 		UserId:           req.EnterpriseContext.UserId,
 		CounterIds:       map[int]int{},
 		ReservedAmounts:  map[int]UsageAmount{},
+		EventIds:         map[int]int{},
 		RedisCounterKeys: map[int]string{},
 		RedisCounterTTLs: map[int]time.Duration{},
 		RedisCounterUsed: true,
@@ -348,6 +366,9 @@ func reserveEnterpriseQuotaWithRedis(req PolicyEvaluationRequest, policies []mod
 				return err
 			}
 			reservation.CounterIds[item.Policy.Id] = counter.Id
+			if err := createEnterpriseQuotaReservationEventWithDB(tx, reservation, item.Policy, counter.Id, item.Amount, item.Key, enterpriseQuotaCounterRedisTTL(item.End)); err != nil {
+				return err
+			}
 		}
 		return nil
 	}); err != nil {
@@ -478,6 +499,9 @@ func SettleEnterpriseReservation(reservation *Reservation, actual UsageAmount) e
 			if err := tx.Save(counter).Error; err != nil {
 				return err
 			}
+			if err := markEnterpriseQuotaReservationSettledWithDB(tx, reservation, policyId, actualValue); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -507,6 +531,9 @@ func RefundEnterpriseReservation(reservation *Reservation) error {
 				counter.ReservedValue = 0
 			}
 			if err := tx.Save(counter).Error; err != nil {
+				return err
+			}
+			if err := markEnterpriseQuotaReservationRefundedWithDB(tx, reservation, policyId); err != nil {
 				return err
 			}
 		}

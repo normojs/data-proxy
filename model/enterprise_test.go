@@ -12,6 +12,7 @@ func clearEnterpriseTables(t *testing.T) {
 	t.Helper()
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_audit_logs").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_usage_attributions").Error)
+	require.NoError(t, DB.Exec("DELETE FROM enterprise_quota_reservation_events").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_quota_counters").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_quota_policies").Error)
 	require.NoError(t, DB.Exec("DELETE FROM enterprise_quota_requests").Error)
@@ -55,6 +56,7 @@ func TestEnterpriseGovernanceTablesMigrated(t *testing.T) {
 		&EnterpriseQuotaPolicy{},
 		&EnterpriseQuotaCounter{},
 		&EnterpriseQuotaRequest{},
+		&EnterpriseQuotaReservationEvent{},
 		&EnterpriseUsageAttribution{},
 		&EnterpriseGovernanceQueueAdmission{},
 		&EnterpriseGovernanceQueuePayload{},

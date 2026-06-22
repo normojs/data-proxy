@@ -133,6 +133,9 @@ func main() {
 	// Enterprise quota Redis counter reconciliation task
 	service.StartEnterpriseQuotaCounterReconciliationTask()
 
+	// Enterprise quota stale reservation compensation task
+	service.StartEnterpriseQuotaReservationCompensationTask()
+
 	// Billing event relation inspection task (admin-configurable)
 	service.StartBillingEventRelationInspectionTask()
 

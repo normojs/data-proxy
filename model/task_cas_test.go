@@ -63,6 +63,7 @@ func TestMain(m *testing.M) {
 		&EnterpriseQuotaPolicy{},
 		&EnterpriseQuotaCounter{},
 		&EnterpriseQuotaRequest{},
+		&EnterpriseQuotaReservationEvent{},
 		&EnterpriseUsageAttribution{},
 		&EnterpriseGovernanceQueueAdmission{},
 		&EnterpriseGovernanceQueuePayload{},

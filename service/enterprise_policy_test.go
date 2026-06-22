@@ -40,6 +40,7 @@ func setupEnterprisePolicyServiceTestDB(t *testing.T) {
 		&model.EnterpriseQuotaPolicy{},
 		&model.EnterpriseQuotaCounter{},
 		&model.EnterpriseQuotaRequest{},
+		&model.EnterpriseQuotaReservationEvent{},
 		&model.EnterpriseWebhook{},
 		&model.EnterpriseNotificationRead{},
 		&model.EnterpriseNotificationPreference{},
@@ -974,6 +975,47 @@ func TestEnterpriseReservationSettleMovesReservedToUsed(t *testing.T) {
 	assert.EqualValues(t, 7, counter.UsedValue)
 }
 
+func TestEnterpriseQuotaReservationEventTracksSettleLifecycle(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1104, Username: "quota-event-settle", Status: common.UserStatusEnabled, Group: "default"}).Error)
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "reservation event quota",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   100,
+		ModelScope:   model.PolicyModelScopeAll,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+	ctx := &EnterpriseContext{Enabled: true, EnterpriseId: enterprise.Id, UserId: 1104}
+
+	reservation, err := ReserveEnterpriseQuota(PolicyEvaluationRequest{
+		EnterpriseContext: ctx,
+		Estimated:         UsageAmount{Quota: 10},
+		RequestId:         "req-reservation-event-settle",
+		Now:               time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC),
+	}, []model.EnterpriseQuotaPolicy{policy})
+	require.NoError(t, err)
+	require.NotNil(t, reservation)
+	require.NotZero(t, reservation.EventIds[policy.Id])
+
+	var event model.EnterpriseQuotaReservationEvent
+	require.NoError(t, model.DB.First(&event, reservation.EventIds[policy.Id]).Error)
+	assert.Equal(t, model.EnterpriseQuotaReservationStatusReserved, event.Status)
+	assert.EqualValues(t, 10, event.ReservedValue)
+	assert.Equal(t, "req-reservation-event-settle", event.RequestId)
+
+	require.NoError(t, SettleEnterpriseReservation(reservation, UsageAmount{Quota: 7}))
+	require.NoError(t, model.DB.First(&event, event.Id).Error)
+	assert.Equal(t, model.EnterpriseQuotaReservationStatusSettled, event.Status)
+	assert.EqualValues(t, 7, event.ActualValue)
+	assert.NotZero(t, event.SettledAt)
+}
+
 func TestEnterpriseReservationRefundReleasesReserved(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	enterprise, err := model.GetDefaultEnterprise()
@@ -1005,6 +1047,79 @@ func TestEnterpriseReservationRefundReleasesReserved(t *testing.T) {
 	require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&counter).Error)
 	assert.EqualValues(t, 0, counter.ReservedValue)
 	assert.EqualValues(t, 0, counter.UsedValue)
+}
+
+func TestEnterpriseQuotaReservationCompensationReleasesStaleReserved(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{Id: 1105, Username: "quota-event-compensate", Status: common.UserStatusEnabled, Group: "default"}).Error)
+	policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+		EnterpriseId: enterprise.Id,
+		Name:         "reservation compensation quota",
+		TargetType:   model.PolicyTargetEnterprise,
+		TargetId:     enterprise.Id,
+		Metric:       model.PolicyMetricQuota,
+		Period:       model.PolicyPeriodDay,
+		LimitValue:   100,
+		ModelScope:   model.PolicyModelScopeAll,
+		Status:       model.QuotaPolicyStatusEnabled,
+	})
+	ctx := &EnterpriseContext{Enabled: true, EnterpriseId: enterprise.Id, UserId: 1105}
+
+	reservation, err := ReserveEnterpriseQuota(PolicyEvaluationRequest{
+		EnterpriseContext: ctx,
+		Estimated:         UsageAmount{Quota: 10},
+		RequestId:         "req-reservation-event-compensate",
+		Now:               time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC),
+	}, []model.EnterpriseQuotaPolicy{policy})
+	require.NoError(t, err)
+	require.NotNil(t, reservation)
+	eventId := reservation.EventIds[policy.Id]
+	staleCreatedAt := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC).Unix()
+	require.NoError(t, model.DB.Model(&model.EnterpriseQuotaReservationEvent{}).
+		Where("id = ?", eventId).
+		Updates(map[string]any{"created_at": staleCreatedAt, "reserved_at": staleCreatedAt}).Error)
+
+	now := time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC)
+	dryRun, err := CompensateStaleEnterpriseQuotaReservations(EnterpriseQuotaReservationCompensationParams{
+		EnterpriseId:      enterprise.Id,
+		Limit:             10,
+		StaleAfterSeconds: 1800,
+		DryRun:            true,
+		Now:               now,
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, dryRun.Scanned)
+	assert.EqualValues(t, 0, dryRun.Compensated)
+
+	repaired, err := CompensateStaleEnterpriseQuotaReservations(EnterpriseQuotaReservationCompensationParams{
+		EnterpriseId:      enterprise.Id,
+		Limit:             10,
+		StaleAfterSeconds: 1800,
+		ActorUserId:       1105,
+		RequestId:         "req-compensate-worker",
+		Now:               now,
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, repaired.Scanned)
+	assert.EqualValues(t, 1, repaired.Compensated)
+	require.Len(t, repaired.Items, 1)
+	assert.Equal(t, model.EnterpriseQuotaReservationStatusCompensated, repaired.Items[0].Status)
+	assert.EqualValues(t, 10, repaired.Items[0].BeforeReserved)
+	assert.EqualValues(t, 0, repaired.Items[0].AfterReserved)
+
+	var counter model.EnterpriseQuotaCounter
+	require.NoError(t, model.DB.Where("policy_id = ?", policy.Id).First(&counter).Error)
+	assert.EqualValues(t, 0, counter.ReservedValue)
+	assert.EqualValues(t, 0, counter.UsedValue)
+	var event model.EnterpriseQuotaReservationEvent
+	require.NoError(t, model.DB.First(&event, eventId).Error)
+	assert.Equal(t, model.EnterpriseQuotaReservationStatusCompensated, event.Status)
+	assert.NotZero(t, event.RefundedAt)
+	var audit model.EnterpriseAuditLog
+	require.NoError(t, model.DB.Where("action = ? AND target_id = ?", "enterprise_quota_reservation.compensate", counter.Id).First(&audit).Error)
+	assert.Equal(t, "req-compensate-worker", audit.RequestId)
 }
 
 func createEnterprisePolicyServiceTestPolicy(t *testing.T, policy model.EnterpriseQuotaPolicy) model.EnterpriseQuotaPolicy {

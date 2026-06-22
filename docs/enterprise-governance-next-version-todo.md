@@ -198,6 +198,9 @@
   `completion_tokens`、`total_tokens`，预留/结算/临时额度/对账复用同一 counter 链路；
   relay pre-check 会基于已知 prompt token 和请求最大输出 token 估算预留
   `prompt_tokens`、`completion_tokens` 与 `total_tokens`，settle 阶段按真实 usage 校正。
+- NV-0504 已完成失败补偿队列 MVP：企业 quota 预留会持久化为
+  `enterprise_quota_reservation_events`，正常 settle/refund 会关闭事件；主节点后台任务会扫描
+  超过阈值仍处于 `reserved` 的记录并释放 counter，同时提供管理 API 支持 dry-run 和手动修复。
 
 ## V1.6: 高级策略动作
 

@@ -173,6 +173,13 @@ type enterpriseQuotaCounterReconciliationRequest struct {
 	IncludeRedisOrphans bool `json:"include_redis_orphans"`
 }
 
+type enterpriseQuotaReservationCompensationRequest struct {
+	Limit             int   `json:"limit"`
+	Repair            bool  `json:"repair"`
+	DryRun            bool  `json:"dry_run"`
+	StaleAfterSeconds int64 `json:"stale_after_seconds"`
+}
+
 type enterpriseOrgSyncRequest = service.EnterpriseOrgSyncInput
 
 type enterpriseQuotaRequestItem struct {
@@ -1943,6 +1950,32 @@ func ReconcileEnterpriseQuotaCounters(c *gin.Context) {
 		IncludeRedisOrphans: req.IncludeRedisOrphans,
 		ActorUserId:         c.GetInt("id"),
 		RequestId:           c.GetHeader(common.RequestIdKey),
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
+func CompensateEnterpriseQuotaReservations(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterpriseQuotaReservationCompensationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	result, err := service.CompensateStaleEnterpriseQuotaReservations(service.EnterpriseQuotaReservationCompensationParams{
+		EnterpriseId:      enterprise.Id,
+		Limit:             req.Limit,
+		StaleAfterSeconds: req.StaleAfterSeconds,
+		DryRun:            req.DryRun || !req.Repair,
+		ActorUserId:       c.GetInt("id"),
+		RequestId:         c.GetHeader(common.RequestIdKey),
 	})
 	if err != nil {
 		common.ApiError(c, err)
