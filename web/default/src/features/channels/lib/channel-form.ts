@@ -187,6 +187,9 @@ export const channelFormSchema = z
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
     aws_key_type: z.enum(['ak_sk', 'api_key']).optional(), // AWS specific
     azure_responses_version: z.string().optional(), // Azure specific
+    responses_protocol: z
+      .enum(['auto', 'native', 'chat_completions', 'disabled'])
+      .optional(),
     // Field passthrough controls (stored in settings JSON)
     allow_service_tier: z.boolean().optional(), // OpenAI/Anthropic
     disable_store: z.boolean().optional(), // OpenAI only
@@ -305,6 +308,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   vertex_key_type: 'json',
   aws_key_type: 'ak_sk',
   azure_responses_version: '',
+  responses_protocol: 'auto',
   // Field passthrough controls
   allow_service_tier: false,
   disable_store: false,
@@ -358,6 +362,8 @@ export function transformChannelToFormDefaults(
   // Parse type-specific settings from settings field
   let vertexKeyType: 'json' | 'api_key' = 'json'
   let azureResponsesVersion = ''
+  let responsesProtocol: 'auto' | 'native' | 'chat_completions' | 'disabled' =
+    'auto'
   let isEnterpriseAccount = false
   let awsKeyType: 'ak_sk' | 'api_key' = 'ak_sk'
   let allowServiceTier = false
@@ -376,6 +382,14 @@ export function transformChannelToFormDefaults(
       const parsed = JSON.parse(channel.settings)
       vertexKeyType = parsed.vertex_key_type || 'json'
       azureResponsesVersion = parsed.azure_responses_version || ''
+      responsesProtocol = [
+        'auto',
+        'native',
+        'chat_completions',
+        'disabled',
+      ].includes(parsed.responses_protocol)
+        ? parsed.responses_protocol
+        : 'auto'
       isEnterpriseAccount = parsed.openrouter_enterprise === true
       awsKeyType = parsed.aws_key_type || 'ak_sk'
       allowServiceTier = parsed.allow_service_tier === true
@@ -432,6 +446,7 @@ export function transformChannelToFormDefaults(
     is_enterprise_account: isEnterpriseAccount,
     vertex_key_type: vertexKeyType,
     azure_responses_version: azureResponsesVersion,
+    responses_protocol: responsesProtocol,
     aws_key_type: awsKeyType,
     allow_service_tier: allowServiceTier,
     disable_store: disableStore,
@@ -489,6 +504,12 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.azure_responses_version = formData.azure_responses_version
   } else if ('azure_responses_version' in settingsObj) {
     delete settingsObj.azure_responses_version
+  }
+
+  if (formData.responses_protocol && formData.responses_protocol !== 'auto') {
+    settingsObj.responses_protocol = formData.responses_protocol
+  } else if ('responses_protocol' in settingsObj) {
+    delete settingsObj.responses_protocol
   }
 
   // Add enterprise account setting for OpenRouter (type 20)

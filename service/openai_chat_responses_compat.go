@@ -16,3 +16,11 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 func ExtractOutputTextFromResponses(resp *dto.OpenAIResponsesResponse) string {
 	return openaicompat.ExtractOutputTextFromResponses(resp)
 }
+
+func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (*dto.GeneralOpenAIRequest, *openaicompat.ResponsesToChatContext, error) {
+	return openaicompat.ResponsesRequestToChatCompletionsRequest(req)
+}
+
+func ChatCompletionResponseToResponses(resp *dto.OpenAITextResponse, req *dto.OpenAIResponsesRequest, ctx *openaicompat.ResponsesToChatContext) (map[string]any, *dto.Usage, error) {
+	return openaicompat.ChatCompletionResponseToResponses(resp, req, ctx)
+}

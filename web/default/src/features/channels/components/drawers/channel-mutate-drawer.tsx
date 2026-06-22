@@ -214,6 +214,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.weight ||
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
+    (values.responses_protocol && values.responses_protocol !== 'auto') ||
     values.force_format ||
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
@@ -3165,6 +3166,46 @@ export function ChannelMutateDrawer({
                                   onCheckedChange={field.onChange}
                                 />
                               </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='responses_protocol'
+                          render={({ field }) => (
+                            <FormItem className='px-4 py-3'>
+                              <FormLabel>{t('Responses Protocol')}</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || 'auto'}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder={t('Auto')} />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='auto'>
+                                    {t('Auto')}
+                                  </SelectItem>
+                                  <SelectItem value='native'>
+                                    {t('Native /v1/responses')}
+                                  </SelectItem>
+                                  <SelectItem value='chat_completions'>
+                                    {t('Convert to Chat Completions')}
+                                  </SelectItem>
+                                  <SelectItem value='disabled'>
+                                    {t('Disable Responses')}
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                {t(
+                                  'Controls how this channel handles /v1/responses requests'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
                             </FormItem>
                           )}
                         />

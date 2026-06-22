@@ -14,6 +14,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/openaicompat"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -70,6 +71,22 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
 	}
 	adaptor.Init(info)
+	if openaicompat.IsResponsesProtocolDisabled(info.ChannelOtherSettings.ResponsesProtocol) {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("responses API is disabled for channel #%d", info.ChannelId),
+			types.ErrorCodeInvalidRequest,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+	if info.RelayMode != relayconstant.RelayModeResponsesCompact && openaicompat.ShouldConvertResponsesToChat(info.ChannelType, info.ChannelOtherSettings.ResponsesProtocol) {
+		usage, newAPIError := responsesViaChatCompletions(c, info, adaptor, request)
+		if newAPIError != nil {
+			return newAPIError
+		}
+		service.PostTextConsumeQuota(c, info, usage, nil)
+		return nil
+	}
 	var requestBody io.Reader
 	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
 		storage, err := common.GetBodyStorage(c)
