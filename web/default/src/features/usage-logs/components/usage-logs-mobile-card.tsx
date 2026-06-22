@@ -212,6 +212,11 @@ function CommonLogsCard<TData>({
           cell={cells.get('channel')}
           primaryOnly
         />
+        <SummaryField
+          label={t('Request ID')}
+          cell={cells.get('request_id')}
+          primaryOnly
+        />
         <SummaryField label={t('User')} cell={cells.get('user')} primaryOnly />
         <SummaryField
           label={t('Token')}

@@ -96,6 +96,12 @@ function splitQuotaDisplay(value: string): { prefix: string; amount: string } {
   return { prefix: match[1], amount: match[2] }
 }
 
+function formatRequestId(value: string): string {
+  if (!value) return ''
+  if (value.length <= 16) return value
+  return `${value.slice(0, 6)}...${value.slice(-6)}`
+}
+
 function buildDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
@@ -295,6 +301,42 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       },
       enableHiding: false,
       meta: { label: t('Time') },
+    },
+    {
+      accessorKey: 'request_id',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Request ID')} />
+      ),
+      cell: ({ row }) => {
+        const requestId = row.original.request_id
+        if (!requestId) {
+          return <span className='text-muted-foreground/50 text-xs'>-</span>
+        }
+
+        return (
+          <TooltipProvider delay={300}>
+            <Tooltip>
+              <TooltipTrigger render={<div className='max-w-[150px]' />}>
+                <StatusBadge
+                  label={formatRequestId(requestId)}
+                  copyText={requestId}
+                  size='sm'
+                  showDot={false}
+                  className='border-border/60 bg-muted/30 text-foreground h-6 max-w-full gap-1.5 overflow-hidden rounded-md border px-2 py-0.5 font-mono'
+                />
+              </TooltipTrigger>
+              <TooltipContent
+                side='top'
+                className='max-w-xs break-all font-mono text-xs'
+              >
+                {requestId}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
+      meta: { label: t('Request ID') },
+      size: 150,
     },
   ]
 
