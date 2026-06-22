@@ -143,7 +143,7 @@ export interface TopupInfo {
   wechat_pay_min_topup?: number
   /** Preset amount options */
   amount_options: number[]
-  /** Discount rates by amount */
+  /** Discount rates by minimum amount threshold */
   discount: Record<number, number>
   /** Optional topup link for purchasing codes */
   topup_link?: string

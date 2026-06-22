@@ -166,6 +166,46 @@ export function generatePresetAmounts(minAmount: number): PresetAmount[] {
 }
 
 /**
+ * Get the discount rate for a topup amount by matching the largest configured
+ * minimum amount threshold that does not exceed the current amount.
+ */
+export function getDiscountRateForAmount(
+  discounts: Record<number, number> | undefined,
+  amount: number
+): number {
+  if (!discounts || amount <= 0) {
+    return 1.0
+  }
+
+  return Object.entries(discounts).reduce(
+    (matchedDiscount, [key, value]) => {
+      const threshold = Number(key)
+      const discountRate = Number(value)
+
+      if (
+        !Number.isFinite(threshold) ||
+        !Number.isFinite(discountRate) ||
+        threshold <= 0 ||
+        discountRate <= 0 ||
+        threshold > amount
+      ) {
+        return matchedDiscount
+      }
+
+      if (
+        !matchedDiscount.threshold ||
+        threshold >= matchedDiscount.threshold
+      ) {
+        return { threshold, rate: discountRate }
+      }
+
+      return matchedDiscount
+    },
+    { threshold: 0, rate: 1.0 }
+  ).rate
+}
+
+/**
  * Merge custom preset amounts with discounts
  */
 export function mergePresetAmounts(
@@ -178,6 +218,6 @@ export function mergePresetAmounts(
 
   return amountOptions.map((amount) => ({
     value: amount,
-    discount: discounts[amount] || 1.0,
+    discount: getDiscountRateForAmount(discounts, amount),
   }))
 }
