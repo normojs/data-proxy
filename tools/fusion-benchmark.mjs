@@ -759,6 +759,121 @@ function finalMessages(originalMessages, panelResults, judgeJsonText) {
   ];
 }
 
+function truncateText(text, maxChars = 6000) {
+  const value = String(text || "");
+  if (value.length <= maxChars) return value;
+  const head = Math.floor(maxChars * 0.6);
+  const tail = Math.max(0, maxChars - head - 80);
+  return `${value.slice(0, head)}\n\n[... truncated ${value.length - head - tail} chars ...]\n\n${value.slice(-tail)}`;
+}
+
+function readTextIfExists(file, maxChars = 6000) {
+  if (!file || !fs.existsSync(file)) return "";
+  return truncateText(fs.readFileSync(file, "utf8"), maxChars);
+}
+
+function repairMessages({ prompt, task, failedContent, failureLog }) {
+  return [
+    {
+      role: "system",
+      content:
+        "You repair code inside a verified coding pipeline. Return only the corrected implementation in a single fenced code block or plain code. Do not explain. Preserve the required entrypoint and public API."
+    },
+    {
+      role: "user",
+      content: JSON.stringify(
+        {
+          task_id: task.id,
+          scoring_type: task.scoring?.type,
+          language: task.language || null,
+          required_entrypoint: task.entrypoint || null,
+          original_prompt: prompt,
+          failed_answer: failedContent,
+          verifier_failure_log: failureLog,
+          instruction:
+            "Fix the answer so it passes the verifier. Address the specific failure without weakening the required behavior."
+        },
+        null,
+        2
+      )
+    }
+  ];
+}
+
+function verifiedCodingDirectRepairConfig(config = {}) {
+  const cfg = config.verifiedCoding || {};
+  const nested = cfg.directRepair && typeof cfg.directRepair === "object" ? cfg.directRepair : {};
+  const enabled = cfg.directRepairEnabled ?? nested.enabled ?? true;
+  const maxCandidates = Number(cfg.directRepairMaxCandidates ?? nested.maxCandidates ?? 1);
+  const maxAttempts = Number(cfg.directRepairMaxAttempts ?? nested.maxAttempts ?? 2);
+  const configuredTimeout = Number(cfg.directRepairTimeoutMs ?? nested.timeoutMs ?? 0);
+  const models = Array.isArray(cfg.directRepairModels)
+    ? cfg.directRepairModels
+    : Array.isArray(nested.models)
+      ? nested.models
+      : [];
+  return {
+    enabled: enabled !== false,
+    models,
+    maxCandidates: Math.max(0, Number.isFinite(maxCandidates) ? maxCandidates : 1),
+    maxAttempts: Math.max(0, Number.isFinite(maxAttempts) ? maxAttempts : 2),
+    timeoutMs: Math.max(1000, Number.isFinite(configuredTimeout) && configuredTimeout > 0
+      ? configuredTimeout
+      : timeoutMs(config, "repairMs", timeoutMs(config, "finalMs", 60000)))
+  };
+}
+
+function verifiedCodingDirectRepairModels(preset, config) {
+  const cfg = verifiedCodingDirectRepairConfig(config);
+  const configured = cfg.models.length
+    ? cfg.models
+    : [
+        preset?.judge,
+        ...(preset?.judgeFallbacks || []),
+        preset?.final,
+        ...(preset?.finalFallbacks || [])
+      ];
+  return dedupeModels(configured.filter(Boolean))
+    .filter((model) => model !== "openai/gpt-5.5")
+    .slice(0, cfg.maxAttempts);
+}
+
+function verifiedCodingDirectRepairTargets(candidateVerifications, config) {
+  const cfg = verifiedCodingDirectRepairConfig(config);
+  if (!cfg.enabled || cfg.maxCandidates <= 0) return [];
+  const failurePriority = {
+    test_failure: 0,
+    patch_apply_failure: 1,
+    timeout: 2
+  };
+  return (candidateVerifications || [])
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ candidate }) => {
+      if (!candidate || !candidate.ok || candidate.passed) return false;
+      if (!String(candidate.content || "").trim()) return false;
+      if (candidate.failure_type === "provider_error" || candidate.failure_type === "empty_content") return false;
+      if (candidate.patch_risk?.forbidden_touch) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const left = a.candidate;
+      const right = b.candidate;
+      if ((right.score || 0) !== (left.score || 0)) return (right.score || 0) - (left.score || 0);
+      const leftPriority = failurePriority[left.failure_type] ?? 9;
+      const rightPriority = failurePriority[right.failure_type] ?? 9;
+      if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+      const leftExecution = left.execution_latency_ms || 0;
+      const rightExecution = right.execution_latency_ms || 0;
+      if (leftExecution !== rightExecution) return leftExecution - rightExecution;
+      const leftChars = left.content_chars || String(left.content || "").length;
+      const rightChars = right.content_chars || String(right.content || "").length;
+      if (leftChars !== rightChars) return leftChars - rightChars;
+      return a.index - b.index;
+    })
+    .slice(0, cfg.maxCandidates)
+    .map(({ candidate }) => candidate);
+}
+
 function pairwiseJudgeMessages(question, left, right) {
   return [
     {
@@ -853,6 +968,26 @@ function routeFusionPortfolio({ presetName, preset, config, context = {} }) {
   };
 }
 
+function verifiedCodingFastLanePanel(router, config, context = {}) {
+  const cfg = config.verifiedCoding || {};
+  const allowedDifficulties = Array.isArray(cfg.fastLaneDifficulties)
+    ? cfg.fastLaneDifficulties.map((item) => String(item).toLowerCase())
+    : [];
+  const difficulty = String(context.difficulty || "").toLowerCase();
+  if (allowedDifficulties.length > 0 && difficulty && !allowedDifficulties.includes(difficulty)) {
+    return [];
+  }
+  return dedupeModels([
+    ...(cfg.fastLaneByTier?.[router.profile] || []),
+    ...(cfg.fastLane || [])
+  ]);
+}
+
+function verifiedCodingPrimaryPanel(router, config, context = {}) {
+  const fastLane = verifiedCodingFastLanePanel(router, config, context);
+  return dedupeModels([...fastLane, ...(router.panel || [])]);
+}
+
 function defaultPolicyForTaskFamily(taskFamily) {
   if (taskFamily === "objective") return "objective";
   if (taskFamily === "coding") return "verified_coding";
@@ -943,6 +1078,27 @@ function buildFusionMetrics({
     preferred_judge_model: preset?.judge || null,
     preferred_final_model: preset?.final || null,
     ...extras
+  };
+}
+
+function summarizeCandidateVerification(candidate) {
+  if (!candidate) return null;
+  return {
+    model: candidate.model,
+    attempt: candidate.attempt,
+    ok: candidate.ok,
+    passed: candidate.passed,
+    score: candidate.score,
+    score_reason: candidate.score_reason,
+    failure_type: candidate.failure_type,
+    execution_log: candidate.execution_log,
+    execution_latency_ms: candidate.execution_latency_ms,
+    workspace: candidate.workspace,
+    estimated_cost_usd: candidate.estimated_cost_usd,
+    actual_cost_usd: candidate.actual_cost_usd,
+    patch_risk: candidate.patch_risk,
+    content_chars: candidate.content_chars,
+    error: candidate.error
   };
 }
 
@@ -1155,60 +1311,71 @@ function heuristicCandidateRank(panelResults, context = {}, config = {}) {
   };
 }
 
-async function runFusionPanelCandidates(body, preset, config, options = {}) {
+async function runFusionPanelCandidate(body, config, options = {}) {
   const originalMessages = body.messages || [];
   const maxTokens = body.max_tokens || body.max_completion_tokens || 4096;
-  const temperature = body.temperature ?? 0.2;
+  const temperature = options.temperature ?? body.temperature ?? 0.2;
+  const attempt = options.attempt || "primary";
+  const model = options.model;
+  const started = Date.now();
+  try {
+    const upstream = resolveModelUpstream(model, config, {
+      apiBaseOverride: options.upstreamApiBase,
+      apiKeyOverride: options.apiKey
+    });
+    const result = await callChat({
+      apiBase: upstream.apiBase,
+      apiKey: upstream.apiKey,
+      body: {
+        ...body,
+        ...modelOptions(model, config),
+        model: upstream.model,
+        messages: panelMessages(originalMessages, model),
+        max_tokens: maxTokens,
+        temperature
+      },
+      extraHeaders: { "x-revo-fusion-depth": "1" },
+      timeoutMs: options.timeoutMs || timeoutMs(config, "panelMs", 30000),
+      retries: options.retries ?? 2,
+      config,
+      upstreamName: upstream.upstreamName,
+      signal: options.signal
+    });
+    const costs = costFields(model, result, config);
+    return {
+      model,
+      ok: true,
+      attempt,
+      content: extractContent(result),
+      usage: result.usage,
+      latency_ms: result._latency_ms ?? Date.now() - started,
+      ...costs
+    };
+  } catch (err) {
+    return {
+      model,
+      ok: false,
+      attempt,
+      content: "",
+      error: err.message,
+      latency_ms: Date.now() - started,
+      cost_usd: 0,
+      estimated_cost_usd: 0,
+      actual_cost_usd: null
+    };
+  }
+}
+
+async function runFusionPanelCandidates(body, preset, config, options = {}) {
   const panelModels = options.panelModels || preset.panel || [];
   const attempt = options.attempt || "primary";
 
   const panelPromises = panelModels.map(async (model) => {
-    const started = Date.now();
-    try {
-      const upstream = resolveModelUpstream(model, config, {
-        apiBaseOverride: options.upstreamApiBase,
-        apiKeyOverride: options.apiKey
-      });
-      const result = await callChat({
-        apiBase: upstream.apiBase,
-        apiKey: upstream.apiKey,
-        body: {
-          ...body,
-          ...modelOptions(model, config),
-          model: upstream.model,
-          messages: panelMessages(originalMessages, model),
-          max_tokens: maxTokens,
-          temperature
-        },
-        extraHeaders: { "x-revo-fusion-depth": "1" },
-        timeoutMs: timeoutMs(config, "panelMs", 30000),
-        config,
-        upstreamName: upstream.upstreamName,
-        signal: options.signal
-      });
-      const costs = costFields(model, result, config);
-      return {
-        model,
-        ok: true,
-        attempt,
-        content: extractContent(result),
-        usage: result.usage,
-        latency_ms: result._latency_ms ?? Date.now() - started,
-        ...costs
-      };
-    } catch (err) {
-      return {
-        model,
-        ok: false,
-        attempt,
-        content: "",
-        error: err.message,
-        latency_ms: Date.now() - started,
-        cost_usd: 0,
-        estimated_cost_usd: 0,
-        actual_cost_usd: null
-      };
-    }
+    return runFusionPanelCandidate(body, config, {
+      ...options,
+      model,
+      attempt
+    });
   });
 
   return Promise.all(panelPromises);
@@ -2411,6 +2578,251 @@ async function verifyCodeCandidate({ task, model, virtualModel, artifactRoot, ca
   };
 }
 
+function throwIfAborted(signal) {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new Error("Fusion request aborted");
+  }
+}
+
+function linkedAbortController(parentSignal) {
+  const controller = new AbortController();
+  let cleanup = () => {};
+  if (parentSignal?.aborted) {
+    controller.abort(parentSignal.reason);
+  } else if (parentSignal) {
+    const abortFromParent = () => controller.abort(parentSignal.reason);
+    parentSignal.addEventListener("abort", abortFromParent, { once: true });
+    cleanup = () => parentSignal.removeEventListener("abort", abortFromParent);
+  }
+  return { controller, signal: controller.signal, cleanup };
+}
+
+async function runVerifiedCodingRepairAttempts({
+  body,
+  config,
+  task,
+  prompt,
+  artifactRoot,
+  virtualModel,
+  failedCandidate,
+  failureLog,
+  repairModels,
+  attemptPrefix,
+  repairTimeoutMs,
+  apiBaseOverride,
+  apiKeyOverride,
+  signal
+}) {
+  const attempts = [];
+  const responses = [];
+  let verifierLatencyMs = 0;
+
+  for (const repairModel of repairModels || []) {
+    throwIfAborted(signal);
+    const repairStarted = Date.now();
+    let repairResult = null;
+    let repairCandidate = null;
+    try {
+      const repairUpstream = resolveModelUpstream(repairModel, config, {
+        apiBaseOverride,
+        apiKeyOverride
+      });
+      repairResult = await callChat({
+        apiBase: repairUpstream.apiBase,
+        apiKey: repairUpstream.apiKey,
+        body: {
+          ...body,
+          ...modelOptions(repairModel, config),
+          model: repairUpstream.model,
+          messages: repairMessages({
+            prompt,
+            task,
+            failedContent: failedCandidate.content,
+            failureLog
+          }),
+          max_tokens: body.max_tokens || body.max_completion_tokens || task.max_tokens || 4096,
+          temperature: 0
+        },
+        extraHeaders: { "x-revo-fusion-depth": "1" },
+        timeoutMs: repairTimeoutMs || timeoutMs(config, "repairMs", timeoutMs(config, "finalMs", 60000)),
+        config,
+        upstreamName: repairUpstream.upstreamName,
+        signal
+      });
+      const repairContent = extractContent(repairResult);
+      if (!repairContent.trim()) throw new Error("Fusion repair candidate returned empty content");
+      repairCandidate = {
+        model: repairModel,
+        attempt: attemptPrefix || "repair",
+        ok: true,
+        content: repairContent,
+        usage: repairResult.usage,
+        ...costFields(repairModel, repairResult, config)
+      };
+      responses.push({ response: repairResult, candidate: repairCandidate });
+      const verificationStarted = Date.now();
+      const verification = await verifyCodeCandidate({
+        task,
+        virtualModel,
+        artifactRoot,
+        candidate: repairCandidate,
+        attempt: `${attemptPrefix || "repair"}-${repairModel}`
+      });
+      verifierLatencyMs += Date.now() - verificationStarted;
+      attempts.push({
+        source_model: failedCandidate.model,
+        source_attempt: failedCandidate.attempt,
+        model: repairModel,
+        ok: true,
+        passed: verification.passed,
+        score: verification.score,
+        score_reason: verification.score_reason,
+        failure_type: verification.failure_type,
+        latency_ms: repairResult._latency_ms ?? Date.now() - repairStarted,
+        execution_latency_ms: verification.execution_latency_ms,
+        execution_log: verification.execution_log,
+        workspace: verification.workspace,
+        estimated_cost_usd: repairCandidate.estimated_cost_usd,
+        actual_cost_usd: repairCandidate.actual_cost_usd
+      });
+      if (verification.passed) {
+        return {
+          passed: true,
+          model: repairModel,
+          response: repairResult,
+          candidate: repairCandidate,
+          verification,
+          attempts,
+          responses,
+          verifier_latency_ms: verifierLatencyMs
+        };
+      }
+    } catch (err) {
+      if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : err;
+      }
+      const failure = classifyRequestFailure(err.message);
+      attempts.push({
+        source_model: failedCandidate.model,
+        source_attempt: failedCandidate.attempt,
+        model: repairModel,
+        ok: false,
+        passed: false,
+        score: 0,
+        score_reason: failure.score_reason,
+        failure_type: failure.failure_type,
+        latency_ms: Date.now() - repairStarted,
+        execution_latency_ms: 0,
+        execution_log: null,
+        workspace: null,
+        estimated_cost_usd: repairCandidate?.estimated_cost_usd || 0,
+        actual_cost_usd: repairCandidate?.actual_cost_usd ?? null,
+        error: err.message
+      });
+    }
+  }
+
+  return {
+    passed: false,
+    model: null,
+    response: null,
+    candidate: null,
+    verification: null,
+    attempts,
+    responses,
+    verifier_latency_ms: verifierLatencyMs
+  };
+}
+
+async function runVerifiedCodingPanelStage({
+  body,
+  config,
+  task,
+  virtualModel,
+  artifactRoot,
+  panelModels,
+  attempt,
+  panelTimeoutMs,
+  retries,
+  apiBaseOverride,
+  apiKeyOverride,
+  signal
+}) {
+  const linked = linkedAbortController(signal);
+  const pending = new Map();
+  const panelResults = [];
+  const candidateVerifications = [];
+  const stageStarted = Date.now();
+  let verificationLatencyMs = 0;
+
+  try {
+    for (const [index, panelModel] of (panelModels || []).entries()) {
+      const promise = runFusionPanelCandidate(body, config, {
+        model: panelModel,
+        attempt,
+        upstreamApiBase: apiBaseOverride,
+        apiKey: apiKeyOverride,
+        temperature: config.verifiedCoding?.temperature ?? 0,
+        timeoutMs: panelTimeoutMs,
+        retries,
+        signal: linked.signal
+      }).then((result) => ({ index, result }));
+      pending.set(index, promise);
+    }
+
+    while (pending.size > 0) {
+      throwIfAborted(signal);
+      const settled = await Promise.race(pending.values());
+      pending.delete(settled.index);
+      throwIfAborted(signal);
+      panelResults.push(settled.result);
+
+      const verificationStarted = Date.now();
+      const verification = await verifyCodeCandidate({
+        task,
+        virtualModel,
+        artifactRoot,
+        candidate: settled.result,
+        attempt
+      });
+      verificationLatencyMs += Date.now() - verificationStarted;
+      candidateVerifications.push(verification);
+
+      const passing = rankVerifiedCodeCandidates(candidateVerifications);
+      if (passing.length > 0) {
+        const cancelledPendingCount = pending.size;
+        if (cancelledPendingCount > 0) {
+          linked.controller.abort(new Error("Verified coding early exit after passing candidate"));
+          const remaining = await Promise.all([...pending.values()]);
+          pending.clear();
+          for (const item of remaining) panelResults.push(item.result);
+        }
+        return {
+          panelResults,
+          candidateVerifications,
+          passing,
+          earlyExit: cancelledPendingCount > 0,
+          cancelledPendingCount,
+          latency_ms: Date.now() - stageStarted,
+          verifier_latency_ms: verificationLatencyMs
+        };
+      }
+    }
+
+    return {
+      panelResults,
+      candidateVerifications,
+      passing: rankVerifiedCodeCandidates(candidateVerifications),
+      earlyExit: false,
+      cancelledPendingCount: 0,
+      latency_ms: Date.now() - stageStarted,
+      verifier_latency_ms: verificationLatencyMs
+    };
+  } finally {
+    linked.cleanup();
+  }
+}
+
 async function runVerifiedCodingFusion({
   model,
   body,
@@ -2442,15 +2854,203 @@ async function runVerifiedCodingFusion({
     config,
     context: fusionContext
   });
+  const fastLanePanel = verifiedCodingFastLanePanel(router, config, fusionContext);
+  const primaryPanel = router.panel;
+  const combinedPanel = verifiedCodingPrimaryPanel(router, config, fusionContext);
+  const metricsRouter = {
+    ...router,
+    base_panel: router.panel,
+    fast_lane: fastLanePanel,
+    panel: combinedPanel
+  };
   const fusionBody = { ...body, model };
-  let { panelResults, fallbackPanel } = await ensurePanelCandidates(fusionBody, preset, config, {
-    upstreamApiBase: apiBaseOverride,
-    apiKey: apiKeyOverride,
-    router,
-    fusionContext,
-    signal
-  });
-  const successfulPanels = panelResults.filter((r) => r.ok && r.content.trim());
+  let panelResults = [];
+  let fallbackPanel = [];
+  let candidateVerifications = [];
+  let verifierLatencyMs = 0;
+  const verifiedPanelStages = [];
+  const directRepairAttempts = [];
+  const directRepairResponses = [];
+  const directRepairBillable = [];
+  const directRepairSourceCandidates = [];
+  const appendVerifiedStage = (stageName, panelModels, stage) => {
+    panelResults = [...panelResults, ...stage.panelResults];
+    candidateVerifications = [...candidateVerifications, ...stage.candidateVerifications];
+    verifierLatencyMs += stage.verifier_latency_ms || 0;
+    verifiedPanelStages.push({
+      attempt: stageName,
+      panel_models: panelModels,
+      completed: stage.panelResults.length,
+      successful: stage.panelResults.filter((r) => r.ok && r.content.trim()).length,
+      verified: stage.candidateVerifications.length,
+      early_exit: stage.earlyExit,
+      cancelled_pending: stage.cancelledPendingCount,
+      latency_ms: stage.latency_ms,
+      verifier_latency_ms: stage.verifier_latency_ms
+    });
+    return rankVerifiedCodeCandidates(candidateVerifications);
+  };
+  const directRepairCfg = verifiedCodingDirectRepairConfig(config);
+  const directRepairModels = verifiedCodingDirectRepairModels(preset, config);
+  const directRepairSourceKeys = new Set();
+  const directRepairKey = (candidate) => `${candidate?.attempt || ""}\t${candidate?.model || ""}`;
+  const attemptDirectRepair = async () => {
+    if (!directRepairCfg.enabled || directRepairModels.length === 0) return null;
+    const untriedCandidates = candidateVerifications.filter((candidate) => !directRepairSourceKeys.has(directRepairKey(candidate)));
+    const directRepairTargets = verifiedCodingDirectRepairTargets(untriedCandidates, config);
+    for (const failedCandidate of directRepairTargets) {
+      directRepairSourceKeys.add(directRepairKey(failedCandidate));
+      directRepairSourceCandidates.push(summarizeCandidateVerification(failedCandidate));
+      const repair = await runVerifiedCodingRepairAttempts({
+        body: fusionBody,
+        config,
+        task,
+        prompt,
+        artifactRoot,
+        virtualModel: model,
+        failedCandidate,
+        failureLog: readTextIfExists(failedCandidate.execution_log, 8000),
+        repairModels: directRepairModels,
+        attemptPrefix: `direct_repair-${failedCandidate.model}`,
+        repairTimeoutMs: directRepairCfg.timeoutMs,
+        apiBaseOverride,
+        apiKeyOverride,
+        signal
+      });
+      directRepairAttempts.push(...repair.attempts);
+      directRepairResponses.push(...repair.responses.map((item) => item.response));
+      directRepairBillable.push(...repair.responses.map((item) => item.candidate));
+      verifierLatencyMs += repair.verifier_latency_ms || 0;
+      if (repair.passed) return repair;
+    }
+    return null;
+  };
+  const buildDirectRepairCompletion = (repair) => {
+    const usage = aggregateUsage([...panelResults, ...directRepairResponses]);
+    const estimatedCostUsd = sumEstimatedCost([...panelResults, ...directRepairBillable]);
+    const actualCostUsd = sumActualCost([...panelResults, ...directRepairBillable]);
+    const fusionMetrics = buildFusionMetrics({
+      presetName: model,
+      preset,
+      panelResults,
+      context: fusionContext,
+      policy: "verified_coding_direct_repair",
+      selectedModel: repair.model,
+      selectionReason: "direct_repair_tests_passed",
+      passingCandidateCount: 1,
+      antiDegradationGuard: true,
+      verifierStage: task.scoring?.type || "code_verifier",
+      verifierLatencyMs,
+      finalChangedSelectedAnswer: true,
+      repairUsed: true,
+      extras: {
+        router: metricsRouter,
+        candidate_verifications: candidateVerifications,
+        fallback_panel: fallbackPanel,
+        verified_panel_stages: verifiedPanelStages,
+        direct_repair: {
+          enabled: true,
+          models: directRepairModels,
+          max_candidates: directRepairCfg.maxCandidates,
+          source_candidates: directRepairSourceCandidates,
+          attempts: directRepairAttempts
+        },
+        direct_repair_verification: summarizeCandidateVerification(repair.verification),
+        early_exit: {
+          strategy: "verified_coding_staged_first_pass",
+          triggered: verifiedPanelStages.some((stage) => stage.early_exit || stage.attempt === "fast_lane"),
+          cancelled_pending: verifiedPanelStages.reduce((sum, stage) => sum + (stage.cancelled_pending || 0), 0),
+          stages: verifiedPanelStages,
+          agreed_models: [repair.model]
+        },
+        judge: {
+          skipped: true,
+          model: null,
+          preferred_model: preset.judge,
+          json_valid: null,
+          usage: null,
+          latency_ms: 0,
+          errors: []
+        },
+        final: {
+          skipped: true,
+          model: null,
+          preferred_model: preset.final,
+          usage: null,
+          latency_ms: 0
+        },
+        judge_json_valid: null,
+        cost_usd: estimatedCostUsd,
+        estimated_cost_usd: estimatedCostUsd,
+        actual_cost_usd: actualCostUsd
+      }
+    });
+    return chatCompletionFromContent({
+      model,
+      content: extractContent(repair.response),
+      usage,
+      fusionMetrics,
+      latencyMs: Date.now() - started
+    });
+  };
+
+  let passing = [];
+  if (fastLanePanel.length > 0) {
+    const fastLaneStage = await runVerifiedCodingPanelStage({
+      body: fusionBody,
+      config,
+      task,
+      virtualModel: model,
+      artifactRoot,
+      panelModels: fastLanePanel,
+      attempt: "fast_lane",
+      panelTimeoutMs: Number(config.verifiedCoding?.fastLaneTimeoutMs || 30000),
+      retries: Number(config.verifiedCoding?.fastLaneRetries ?? 0),
+      apiBaseOverride,
+      apiKeyOverride,
+      signal
+    });
+    passing = appendVerifiedStage("fast_lane", fastLanePanel, fastLaneStage);
+  }
+
+  if (passing.length === 0) {
+    const primaryStage = await runVerifiedCodingPanelStage({
+      body: fusionBody,
+      config,
+      task,
+      virtualModel: model,
+      artifactRoot,
+      panelModels: primaryPanel,
+      attempt: "primary",
+      apiBaseOverride,
+      apiKeyOverride,
+      signal
+    });
+    passing = appendVerifiedStage("primary", primaryPanel, primaryStage);
+  }
+  let successfulPanels = panelResults.filter((r) => r.ok && r.content.trim());
+
+  if (passing.length === 0 && successfulPanels.length === 0) {
+    const bootstrapFallbackPanel = fallbackPanelModels(combinedPanel, preset, config, router);
+    if (bootstrapFallbackPanel.length > 0) {
+      const fallbackStage = await runVerifiedCodingPanelStage({
+        body: fusionBody,
+        config,
+        task,
+        virtualModel: model,
+        artifactRoot,
+        panelModels: bootstrapFallbackPanel,
+        attempt: "fallback",
+        apiBaseOverride,
+        apiKeyOverride,
+        signal
+      });
+      fallbackPanel = dedupeModels([...fallbackPanel, ...bootstrapFallbackPanel]);
+      passing = appendVerifiedStage("fallback", bootstrapFallbackPanel, fallbackStage);
+      successfulPanels = panelResults.filter((r) => r.ok && r.content.trim());
+    }
+  }
+
   if (successfulPanels.length === 0) {
     writePanelFailureArtifacts(panelResults, path.join(artifactRoot, sanitizePathPart(model), sanitizePathPart(task.id)));
     const err = new Error("All Fusion panel calls failed");
@@ -2459,45 +3059,35 @@ async function runVerifiedCodingFusion({
     throw err;
   }
 
-  const verifierStarted = Date.now();
-  const candidateVerifications = [];
-  for (const candidate of panelResults) {
-    candidateVerifications.push(await verifyCodeCandidate({
-      task,
-      virtualModel: model,
-      artifactRoot,
-      candidate
-    }));
+  if (passing.length === 0) {
+    const directRepair = await attemptDirectRepair();
+    if (directRepair?.passed) return buildDirectRepairCompletion(directRepair);
   }
-  let passing = rankVerifiedCodeCandidates(candidateVerifications);
+
   if (passing.length === 0) {
     const verifierFallbackPanel = fallbackPanelModels(panelResults.map((candidate) => candidate.model), preset, config, router);
     if (verifierFallbackPanel.length > 0) {
-      const verifierFallbackResults = await runFusionPanelCandidates(fusionBody, preset, config, {
-        upstreamApiBase: apiBaseOverride,
-        apiKey: apiKeyOverride,
+      const verifierFallbackStage = await runVerifiedCodingPanelStage({
+        body: fusionBody,
+        config,
+        task,
+        virtualModel: model,
+        artifactRoot,
         panelModels: verifierFallbackPanel,
         attempt: "verifier_fallback",
+        apiBaseOverride,
+        apiKeyOverride,
         signal
       });
       fallbackPanel = dedupeModels([...fallbackPanel, ...verifierFallbackPanel]);
-      panelResults = [...panelResults, ...verifierFallbackResults];
-      for (const candidate of verifierFallbackResults) {
-        candidateVerifications.push(await verifyCodeCandidate({
-          task,
-          virtualModel: model,
-          artifactRoot,
-          candidate,
-          attempt: "verifier_fallback"
-        }));
-      }
-      passing = rankVerifiedCodeCandidates(candidateVerifications);
+      passing = appendVerifiedStage("verifier_fallback", verifierFallbackPanel, verifierFallbackStage);
     }
   }
-  const verifierLatencyMs = Date.now() - verifierStarted;
   if (passing.length > 0) {
     const selected = passing[0];
-    const selectedPanel = panelResults.find((candidate) => candidate.model === selected.model);
+    const selectedPanel =
+      panelResults.find((candidate) => candidate.model === selected.model && candidate.attempt === selected.attempt) ||
+      panelResults.find((candidate) => candidate.model === selected.model);
     const usage = aggregateUsage(panelResults);
     const estimatedCostUsd = sumEstimatedCost(panelResults);
     const actualCostUsd = sumActualCost(panelResults);
@@ -2515,11 +3105,15 @@ async function runVerifiedCodingFusion({
       verifierLatencyMs,
       finalChangedSelectedAnswer: false,
       extras: {
-        router,
+        router: metricsRouter,
         candidate_verifications: candidateVerifications,
         fallback_panel: fallbackPanel,
+        verified_panel_stages: verifiedPanelStages,
         early_exit: {
-          strategy: "verified_coding",
+          strategy: "verified_coding_staged_first_pass",
+          triggered: verifiedPanelStages.some((stage) => stage.early_exit || stage.attempt === "fast_lane"),
+          cancelled_pending: verifiedPanelStages.reduce((sum, stage) => sum + (stage.cancelled_pending || 0), 0),
+          stages: verifiedPanelStages,
           agreed_models: passing.map((candidate) => candidate.model)
         },
         judge: {
@@ -2546,21 +3140,33 @@ async function runVerifiedCodingFusion({
     });
     return chatCompletionFromContent({
       model,
-      content: selectedPanel.content,
+      content: selectedPanel?.content || selected.content,
       usage,
       fusionMetrics,
       latencyMs: Date.now() - started
     });
   }
 
+  const postFallbackDirectRepair = await attemptDirectRepair();
+  if (postFallbackDirectRepair?.passed) return buildDirectRepairCompletion(postFallbackDirectRepair);
+
   const fallback = await runFusion(fusionBody, config, {
     panelResults,
-    router,
+    router: metricsRouter,
     fusionContext,
     upstreamApiBase: apiBaseOverride,
     apiKey: apiKeyOverride,
     signal
   });
+  if (directRepairResponses.length > 0) {
+    fallback.usage = aggregateUsage([fallback, ...directRepairResponses]);
+  }
+  const directRepairEstimatedCostUsd = sumEstimatedCost(directRepairBillable);
+  const fallbackBaseEstimatedCostUsd = fallback.fusion_metrics?.estimated_cost_usd ?? fallback.fusion_metrics?.cost_usd ?? 0;
+  const fallbackEstimatedCostUsd = fallbackBaseEstimatedCostUsd + directRepairEstimatedCostUsd;
+  const fallbackActualCostUsd = directRepairBillable.length > 0
+    ? sumActualCost([fallback.fusion_metrics, ...directRepairBillable])
+    : fallback.fusion_metrics?.actual_cost_usd ?? null;
   fallback._latency_ms = Date.now() - started;
   fallback.fusion_metrics = {
     ...fallback.fusion_metrics,
@@ -2573,9 +3179,167 @@ async function runVerifiedCodingFusion({
     verifier_latency_ms: verifierLatencyMs,
     repair_used: false,
     candidate_verifications: candidateVerifications,
-    router,
-    fallback_panel: fallbackPanel
+    verified_panel_stages: verifiedPanelStages,
+    router: metricsRouter,
+    fallback_panel: fallbackPanel,
+    direct_repair: {
+      enabled: directRepairCfg.enabled,
+      attempted: directRepairAttempts.length > 0,
+      models: directRepairModels,
+      max_candidates: directRepairCfg.maxCandidates,
+      source_candidates: directRepairSourceCandidates,
+      attempts: directRepairAttempts
+    },
+    cost_usd: fallbackEstimatedCostUsd,
+    estimated_cost_usd: fallbackEstimatedCostUsd,
+    actual_cost_usd: fallbackActualCostUsd
   };
+  const finalCandidate = {
+    model: fallback.fusion_metrics?.selected_model || model,
+    attempt: "fallback_synthesis",
+    ok: true,
+    content: extractContent(fallback),
+    usage: fallback.usage,
+    estimated_cost_usd: 0,
+    actual_cost_usd: null
+  };
+  const finalVerification = await verifyCodeCandidate({
+    task,
+    virtualModel: model,
+    artifactRoot,
+    candidate: finalCandidate,
+    attempt: "fallback_synthesis"
+  });
+  fallback.fusion_metrics.final_verification = summarizeCandidateVerification(finalVerification);
+  if (finalVerification.passed) {
+    fallback.fusion_metrics.policy = "verified_coding_fallback_synthesis_verified";
+    fallback.fusion_metrics.selection_reason = "fallback_synthesis_tests_passed";
+    fallback.fusion_metrics.passing_candidate_count = 1;
+    fallback.fusion_metrics.anti_degradation_guard = true;
+    fallback.fusion_metrics.final_changed_selected_answer = false;
+    fallback.fusion_metrics.repair_used = false;
+    return fallback;
+  }
+
+  const repairModels = dedupeModels([
+    fallback.fusion_metrics?.selected_model,
+    ...(preset.finalFallbacks || []),
+    preset.final,
+    preset.judge,
+    ...(preset.judgeFallbacks || [])
+  ].filter(Boolean));
+  const repairAttempts = [];
+  let repairedResponse = null;
+  let repairedVerification = null;
+  let repairedModel = null;
+  let repairedCosts = null;
+  const failureLog = readTextIfExists(finalVerification.execution_log, 8000);
+  for (const repairModel of repairModels) {
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error ? signal.reason : new Error("Fusion request aborted");
+    }
+    const repairStarted = Date.now();
+    try {
+      const repairUpstream = resolveModelUpstream(repairModel, config, {
+        apiBaseOverride,
+        apiKeyOverride
+      });
+      const repairResult = await callChat({
+        apiBase: repairUpstream.apiBase,
+        apiKey: repairUpstream.apiKey,
+        body: {
+          ...fusionBody,
+          ...modelOptions(repairModel, config),
+          model: repairUpstream.model,
+          messages: repairMessages({
+            prompt,
+            task,
+            failedContent: finalCandidate.content,
+            failureLog
+          }),
+          max_tokens: fusionBody.max_tokens || fusionBody.max_completion_tokens || task.max_tokens || 4096,
+          temperature: 0
+        },
+        extraHeaders: { "x-revo-fusion-depth": "1" },
+        timeoutMs: timeoutMs(config, "repairMs", timeoutMs(config, "finalMs", 60000)),
+        config,
+        upstreamName: repairUpstream.upstreamName,
+        signal
+      });
+      const repairContent = extractContent(repairResult);
+      if (!repairContent.trim()) throw new Error("Fusion repair candidate returned empty content");
+      const repairCandidate = {
+        model: repairModel,
+        attempt: "repair",
+        ok: true,
+        content: repairContent,
+        usage: repairResult.usage,
+        ...costFields(repairModel, repairResult, config)
+      };
+      const verification = await verifyCodeCandidate({
+        task,
+        virtualModel: model,
+        artifactRoot,
+        candidate: repairCandidate,
+        attempt: `repair-${repairModel}`
+      });
+      repairAttempts.push({
+        model: repairModel,
+        ok: true,
+        passed: verification.passed,
+        score_reason: verification.score_reason,
+        failure_type: verification.failure_type,
+        latency_ms: repairResult._latency_ms ?? Date.now() - repairStarted,
+        execution_latency_ms: verification.execution_latency_ms,
+        execution_log: verification.execution_log,
+        workspace: verification.workspace,
+        estimated_cost_usd: repairCandidate.estimated_cost_usd,
+        actual_cost_usd: repairCandidate.actual_cost_usd
+      });
+      if (verification.passed) {
+        repairedResponse = repairResult;
+        repairedVerification = verification;
+        repairedModel = repairModel;
+        repairedCosts = repairCandidate;
+        break;
+      }
+    } catch (err) {
+      repairAttempts.push({
+        model: repairModel,
+        ok: false,
+        passed: false,
+        score_reason: err.message,
+        failure_type: classifyRequestFailure(err.message).failure_type,
+        latency_ms: Date.now() - repairStarted,
+        execution_latency_ms: 0,
+        execution_log: null,
+        workspace: null,
+        estimated_cost_usd: 0,
+        actual_cost_usd: null,
+        error: err.message
+      });
+    }
+  }
+  fallback.fusion_metrics.repair_attempts = repairAttempts;
+  if (repairedResponse && repairedVerification) {
+    const repairUsage = aggregateUsage([fallback, repairedResponse]);
+    const repairEstimatedCostUsd = (fallback.fusion_metrics.estimated_cost_usd || 0) + (repairedCosts?.estimated_cost_usd || 0);
+    const repairActualCostUsd = sumActualCost([fallback.fusion_metrics, repairedCosts]);
+    fallback.usage = repairUsage;
+    fallback.choices[0].message.content = extractContent(repairedResponse);
+    fallback.fusion_metrics.policy = "verified_coding_repair";
+    fallback.fusion_metrics.selected_model = repairedModel;
+    fallback.fusion_metrics.selection_reason = "repair_tests_passed";
+    fallback.fusion_metrics.passing_candidate_count = 1;
+    fallback.fusion_metrics.anti_degradation_guard = true;
+    fallback.fusion_metrics.repair_used = true;
+    fallback.fusion_metrics.final_changed_selected_answer = true;
+    fallback.fusion_metrics.final_verification = summarizeCandidateVerification(finalVerification);
+    fallback.fusion_metrics.repair_verification = summarizeCandidateVerification(repairedVerification);
+    fallback.fusion_metrics.cost_usd = repairEstimatedCostUsd;
+    fallback.fusion_metrics.estimated_cost_usd = repairEstimatedCostUsd;
+    fallback.fusion_metrics.actual_cost_usd = repairActualCostUsd;
+  }
   return fallback;
 }
 
@@ -2710,12 +3474,84 @@ function selfTest() {
     config,
     { profile: "budget", task_family: "coding" }
   );
+  const verifiedCodingPanel = verifiedCodingPrimaryPanel(codingRouter, config, { difficulty: "hard" });
+  const veryHardVerifiedCodingPanel = verifiedCodingPrimaryPanel(codingRouter, config, { difficulty: "very_hard" });
+  const repairPrompt = repairMessages({
+    prompt: "Implement solve().",
+    task: {
+      id: "repair-smoke",
+      scoring: { type: "patch_exec" },
+      language: "python",
+      entrypoint: "solve"
+    },
+    failedContent: "def solve():\n    return 0",
+    failureLog: "AssertionError: 0 != 1"
+  });
+  const repairPayload = JSON.parse(repairPrompt[1].content);
+  const summarizedVerification = summarizeCandidateVerification({
+    model: "qwen/qwen3.7-plus",
+    attempt: "repair",
+    ok: true,
+    passed: true,
+    score: 1,
+    content: "large implementation omitted",
+    execution_log: "execution.log"
+  });
+  const directRepairCfg = verifiedCodingDirectRepairConfig(config);
+  const directRepairModels = verifiedCodingDirectRepairModels(config.fusionPresets["fusion-cn-budget"], config);
+  const directRepairTargets = verifiedCodingDirectRepairTargets(
+    [
+      {
+        model: "provider",
+        ok: false,
+        passed: false,
+        content: "",
+        failure_type: "provider_error"
+      },
+      {
+        model: "timeout",
+        ok: true,
+        passed: false,
+        content: "def solve():\n    while True:\n        pass",
+        failure_type: "timeout",
+        execution_latency_ms: 10
+      },
+      {
+        model: "test-fail",
+        ok: true,
+        passed: false,
+        content: "def solve():\n    return 0",
+        failure_type: "test_failure",
+        execution_latency_ms: 100
+      },
+      {
+        model: "forbidden-patch",
+        ok: true,
+        passed: false,
+        content: "diff --git a/tests/test_solution.py b/tests/test_solution.py",
+        failure_type: "test_failure",
+        patch_risk: { forbidden_touch: true }
+      }
+    ],
+    config
+  );
   const checks = [
     objectiveRouter.panel.length >= 2,
     codingRouter.panel.length >= 2,
     objectiveRank?.selected?.content === "cache-warmer",
     rank?.clear_winner?.content === "short answer",
-    fallbackCandidates.length === 1 && fallbackCandidates[0] === "minimax/minimax-m3"
+    fallbackCandidates.length === 1 && fallbackCandidates[0] === "minimax/minimax-m3",
+    codingRouter.panel[0] !== "qwen/qwen3.6-flash" && verifiedCodingPanel[0] === "qwen/qwen3.6-flash",
+    !veryHardVerifiedCodingPanel.includes("qwen/qwen3.6-flash"),
+    repairPrompt.length === 2 && repairPayload.task_id === "repair-smoke",
+    repairPayload.required_entrypoint === "solve",
+    repairPayload.verifier_failure_log.includes("AssertionError"),
+    summarizedVerification.passed === true && summarizedVerification.content === undefined,
+    directRepairCfg.enabled && directRepairCfg.maxCandidates === 1 && directRepairCfg.maxAttempts === 2,
+    directRepairModels.join(",") === "qwen/qwen3.7-plus,deepseek/deepseek-v4-pro",
+    !directRepairModels.includes("openai/gpt-5.5"),
+    directRepairTargets.length === 1 && directRepairTargets[0].model === "test-fail",
+    truncateText("abc", 10) === "abc" && truncateText("x".repeat(100), 30).includes("[... truncated")
   ];
   if (checks.every(Boolean)) {
     console.log("Fusion benchmark self-test passed");
@@ -4595,8 +5431,16 @@ function evaluateProductionGate(records, config, targetModel) {
   const minValidCoverage = criteria.minValidCoverageForClaim ?? 0.99;
   const maxProviderErrorRate = criteria.maxProviderErrorRate ?? 0.01;
   const maxTimeoutRate = criteria.maxTimeoutRate ?? 0.02;
+  const maxAvgCostRatio = criteria.maxAvgCostRatioVsStrongestSingleForClaim ?? 1;
+  const maxP95LatencyRatio = criteria.maxP95LatencyRatioVsStrongestSingleForClaim ?? 1.5;
   const targetScore = targetCapability?.score ?? target?.score ?? 0;
   const bestSingleScore = bestSingleCapability?.score ?? bestSingle?.score ?? 0;
+  const avgCostRatio =
+    target && bestSingle && bestSingle.avg_estimated_cost_usd > 0
+      ? target.avg_estimated_cost_usd / bestSingle.avg_estimated_cost_usd
+      : null;
+  const p95LatencyRatio =
+    target && bestSingle && bestSingle.p95_latency_ms > 0 ? target.p95_latency_ms / bestSingle.p95_latency_ms : null;
   const reasons = [];
 
   if (!target) reasons.push(`Missing target model rows: ${targetModel}`);
@@ -4643,6 +5487,16 @@ function evaluateProductionGate(records, config, targetModel) {
       `Target Wilson95 lower bound ${formatPct(target.score_ci_low)} does not exceed strongest-single upper bound ${formatPct(bestSingle.score_ci_high)}.`
     );
   }
+  if (avgCostRatio !== null && avgCostRatio > maxAvgCostRatio) {
+    reasons.push(
+      `Target average estimated cost ratio ${formatRatio(avgCostRatio)} exceeds strongest-single limit ${formatRatio(maxAvgCostRatio)}.`
+    );
+  }
+  if (p95LatencyRatio !== null && p95LatencyRatio > maxP95LatencyRatio) {
+    reasons.push(
+      `Target p95 latency ratio ${formatRatio(p95LatencyRatio)} exceeds same-latency limit ${formatRatio(maxP95LatencyRatio)}.`
+    );
+  }
 
   const pilotReady = Boolean(
     target &&
@@ -4670,6 +5524,12 @@ function evaluateProductionGate(records, config, targetModel) {
     oracle_degradation_ci_high: comp?.degradation_rate_ci_high_vs_oracle_single ?? null,
     target_score_ci_low: target?.score_ci_low ?? null,
     strongest_single_score_ci_high: bestSingle?.score_ci_high ?? null,
+    target_avg_estimated_cost_usd: target?.avg_estimated_cost_usd ?? null,
+    strongest_single_avg_estimated_cost_usd: bestSingle?.avg_estimated_cost_usd ?? null,
+    avg_estimated_cost_ratio: avgCostRatio,
+    target_p95_latency_ms: target?.p95_latency_ms ?? null,
+    strongest_single_p95_latency_ms: bestSingle?.p95_latency_ms ?? null,
+    p95_latency_ratio: p95LatencyRatio,
     reasons
   };
 }

@@ -255,6 +255,17 @@
       "pro": 1
     }
   },
+  "verifiedCoding": {
+    "fastLane": ["qwen/qwen3.6-flash"],
+    "fastLaneDifficulties": ["hard"],
+    "temperature": 0,
+    "fastLaneTimeoutMs": 30000,
+    "fastLaneRetries": 0,
+    "directRepairModels": ["qwen/qwen3.7-plus", "deepseek/deepseek-v4-pro"],
+    "directRepairMaxCandidates": 1,
+    "directRepairMaxAttempts": 2,
+    "directRepairTimeoutMs": 45000
+  },
   "pricing": {
     "qwen/qwen3.7-plus": { "prompt": 0.00000032, "completion": 0.00000128 },
     "qwen/qwen3.6-flash": { "prompt": 0.0000001875, "completion": 0.000001125 },
@@ -292,6 +303,8 @@
     "minValidCoverageForClaim": 0.99,
     "maxProviderErrorRate": 0.01,
     "maxTimeoutRate": 0.02,
+    "maxAvgCostRatioVsStrongestSingleForClaim": 1.0,
+    "maxP95LatencyRatioVsStrongestSingleForClaim": 1.5,
     "maxOracleDegradationRate": 0,
     "maxOracleDegradationWilsonHighForClaim": 0.03
   },

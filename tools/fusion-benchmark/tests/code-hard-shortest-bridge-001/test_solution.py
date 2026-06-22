@@ -7,7 +7,7 @@ class ShortestBridgeTests(unittest.TestCase):
     def test_small_examples(self):
         self.assertEqual(shortest_bridge([[0, 1], [1, 0]]), 1)
         self.assertEqual(shortest_bridge([[0, 1, 0], [0, 0, 0], [0, 0, 1]]), 2)
-        self.assertEqual(shortest_bridge([[1, 1, 0, 0, 0], [1, 0, 0, 0, 1], [0, 0, 0, 1, 1]]), 2)
+        self.assertEqual(shortest_bridge([[1, 1, 0, 0, 0], [1, 0, 0, 0, 1], [0, 0, 0, 1, 1]]), 3)
 
     def test_invalid_empty_grid(self):
         with self.assertRaises(ValueError):
