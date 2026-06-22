@@ -140,6 +140,7 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 	model := request.Model
 	createdAt := time.Now().Unix()
 	var outputText strings.Builder
+	var fallbackReasoningText strings.Builder
 	var textItemStarted bool
 	var textDone bool
 	toolStates := map[int]*streamToolState{}
@@ -264,7 +265,7 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 			return
 		}
 		choice := chunk.Choices[0]
-		if textDelta := openaicompat.ChatStreamDeltaOutputText(choice.Delta); textDelta != "" {
+		if textDelta := choice.Delta.GetContentString(); textDelta != "" {
 			if !ensureTextStarted() {
 				sr.Stop(streamErr)
 				return
@@ -278,6 +279,8 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 				sr.Stop(streamErr)
 				return
 			}
+		} else if fallbackDelta := openaicompat.ChatStreamDeltaOutputText(choice.Delta); fallbackDelta != "" {
+			fallbackReasoningText.WriteString(fallbackDelta)
 		}
 		if len(choice.Delta.ToolCalls) > 0 {
 			if !ensureCreated() {
@@ -311,6 +314,20 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 	}
 
 	output := make([]any, 0)
+	if outputText.Len() == 0 && fallbackReasoningText.Len() > 0 {
+		text := fallbackReasoningText.String()
+		if !ensureTextStarted() {
+			return nil, streamErr
+		}
+		outputText.WriteString(text)
+		if !send("response.output_text.delta", map[string]any{
+			"output_index":  0,
+			"content_index": 0,
+			"delta":         text,
+		}) {
+			return nil, streamErr
+		}
+	}
 	if outputText.Len() > 0 {
 		if !finalizeText() {
 			return nil, streamErr
