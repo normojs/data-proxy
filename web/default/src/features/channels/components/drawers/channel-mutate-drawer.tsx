@@ -3174,38 +3174,51 @@ export function ChannelMutateDrawer({
                           control={form.control}
                           name='responses_protocol'
                           render={({ field }) => (
-                            <FormItem className='px-4 py-3'>
-                              <FormLabel>{t('Responses Protocol')}</FormLabel>
-                              <Select
-                                onValueChange={field.onChange}
-                                value={field.value || 'auto'}
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder={t('Auto')} />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value='auto'>
-                                    {t('Auto')}
-                                  </SelectItem>
-                                  <SelectItem value='native'>
-                                    {t('Native /v1/responses')}
-                                  </SelectItem>
-                                  <SelectItem value='chat_completions'>
-                                    {t('Convert to Chat Completions')}
-                                  </SelectItem>
-                                  <SelectItem value='disabled'>
-                                    {t('Disable Responses')}
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <FormDescription>
-                                {t(
-                                  'Controls how this channel handles /v1/responses requests'
-                                )}
-                              </FormDescription>
-                              <FormMessage />
+                            <FormItem className='flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
+                              <div className='min-w-0 flex-1 space-y-0.5'>
+                                <FormLabel>
+                                  {t('Responses Protocol')}
+                                </FormLabel>
+                                <FormDescription>
+                                  {t(
+                                    'Controls how this channel handles /v1/responses requests'
+                                  )}
+                                </FormDescription>
+                              </div>
+                              <div className='w-full sm:ml-4 sm:w-60'>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  value={field.value || 'auto'}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger className='w-full'>
+                                      <SelectValue
+                                        placeholder={t('Auto (Recommended)')}
+                                      />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent
+                                    align='end'
+                                    alignItemWithTrigger={false}
+                                  >
+                                    <SelectGroup>
+                                      <SelectItem value='auto'>
+                                        {t('Auto (Recommended)')}
+                                      </SelectItem>
+                                      <SelectItem value='native'>
+                                        {t('Native /v1/responses')}
+                                      </SelectItem>
+                                      <SelectItem value='chat_completions'>
+                                        {t('Convert to Chat Completions')}
+                                      </SelectItem>
+                                      <SelectItem value='disabled'>
+                                        {t('Disable Responses')}
+                                      </SelectItem>
+                                    </SelectGroup>
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </div>
                             </FormItem>
                           )}
                         />

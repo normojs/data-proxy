@@ -26,17 +26,24 @@ Supported:
 - string and array `input` items to chat messages.
 - `function` tools.
 - Codex-style `custom` and `tool_search` tools as Chat function tools.
+- tools returned by `tool_search_output`, when they can be represented as Chat
+  function tools.
 - non-streaming Chat responses back to Responses JSON.
 - streaming Chat SSE back to basic Responses SSE events.
 - token usage mapping for billing.
 
-Rejected:
+Filtered during Chat conversion:
 
 - hosted OpenAI tools such as `web_search`, `web_search_preview`,
   `file_search`, `computer`, `computer_use_preview`, `image_generation`,
   `code_interpreter`, and hosted `mcp`.
+- unknown Responses tool types that cannot be represented as Chat function
+  tools.
 
-Those tools require a native Responses upstream or a future local replacement.
+This follows the compatibility behavior used by mature local routing proxies:
+requests are allowed to continue, but Chat-only upstreams do not execute those
+hosted tools. Use a native Responses upstream when true hosted tool execution is
+required.
 
 ## Operational Guidance
 

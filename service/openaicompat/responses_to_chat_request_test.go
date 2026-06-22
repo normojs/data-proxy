@@ -66,18 +66,73 @@ func TestResponsesRequestToChatCompletionsRequest(t *testing.T) {
 	require.Contains(t, ctx.ToolsByChatName, "lookup")
 }
 
-func TestResponsesRequestToChatRejectsHostedTools(t *testing.T) {
+func TestResponsesRequestToChatSkipsHostedTools(t *testing.T) {
 	req := &dto.OpenAIResponsesRequest{
 		Model: "gpt-5",
 		Input: rawJSON(t, "hello"),
 		Tools: rawJSON(t, []any{
-			map[string]any{"type": "web_search_preview"},
+			map[string]any{"type": "web_search"},
+			map[string]any{
+				"type":        "function",
+				"name":        "lookup",
+				"description": "Lookup data",
+				"parameters":  map[string]any{"type": "object"},
+			},
 		}),
+		ToolChoice: rawJSON(t, map[string]any{"type": "web_search"}),
 	}
 
-	_, _, err := ResponsesRequestToChatCompletionsRequest(req)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot be converted")
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Tools, 1)
+	require.Equal(t, "lookup", chatReq.Tools[0].Function.Name)
+	require.Nil(t, chatReq.ToolChoice)
+}
+
+func TestResponsesRequestToChatDropsToolChoiceWhenAllToolsFiltered(t *testing.T) {
+	parallelToolCalls := rawJSON(t, true)
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-5",
+		Input: rawJSON(t, "hello"),
+		Tools: rawJSON(t, []any{
+			map[string]any{"type": "web_search"},
+		}),
+		ToolChoice:        rawJSON(t, "auto"),
+		ParallelToolCalls: parallelToolCalls,
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Empty(t, chatReq.Tools)
+	require.Nil(t, chatReq.ToolChoice)
+	require.Nil(t, chatReq.ParallelTooCalls)
+}
+
+func TestResponsesRequestToChatUsesToolSearchOutputTools(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-5",
+		Input: rawJSON(t, []any{
+			map[string]any{
+				"type":    "tool_search_output",
+				"call_id": "call_search",
+				"tools": []any{
+					map[string]any{
+						"type":        "function",
+						"name":        "search_docs",
+						"description": "Search documentation.",
+						"parameters":  map[string]any{"type": "object"},
+					},
+				},
+			},
+		}),
+		ToolChoice: rawJSON(t, "auto"),
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Tools, 1)
+	require.Equal(t, "search_docs", chatReq.Tools[0].Function.Name)
+	require.Equal(t, "auto", chatReq.ToolChoice)
 }
 
 func TestChatCompletionResponseToResponses(t *testing.T) {

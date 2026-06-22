@@ -115,6 +115,7 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 	if err != nil {
 		return nil, nil, err
 	}
+	tools = append(tools, collectResponsesInputProvidedChatTools(req.Input, ctx)...)
 
 	messages, err := convertResponsesInputToChatMessages(req.Input, ctx)
 	if err != nil {
@@ -177,18 +178,35 @@ func convertResponsesToolsToChatTools(raw json.RawMessage, ctx *ResponsesToChatC
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	var tools []map[string]any
+	var tools []any
 	if err := common.Unmarshal(raw, &tools); err != nil {
 		return nil, fmt.Errorf("invalid responses tools: %w", err)
 	}
 
+	return convertResponsesToolValuesToChatTools(tools, ctx), nil
+}
+
+func convertResponsesToolValuesToChatTools(tools []any, ctx *ResponsesToChatContext) []dto.ToolCallRequest {
 	chatTools := make([]dto.ToolCallRequest, 0, len(tools))
-	for _, tool := range tools {
+	for _, rawTool := range tools {
+		var tool map[string]any
+		switch value := rawTool.(type) {
+		case string:
+			tool = map[string]any{"type": "custom", "name": value}
+		case map[string]any:
+			tool = value
+		default:
+			continue
+		}
+
 		toolType := strings.TrimSpace(common.Interface2String(tool["type"]))
 		switch toolType {
 		case "function":
 			name := strings.TrimSpace(common.Interface2String(tool["name"]))
 			if name == "" {
+				continue
+			}
+			if _, exists := ctx.ToolsByChatName[name]; exists {
 				continue
 			}
 			chatTools = append(chatTools, dto.ToolCallRequest{
@@ -203,6 +221,9 @@ func convertResponsesToolsToChatTools(raw json.RawMessage, ctx *ResponsesToChatC
 		case "custom":
 			name := strings.TrimSpace(common.Interface2String(tool["name"]))
 			if name == "" {
+				continue
+			}
+			if _, exists := ctx.ToolsByChatName[name]; exists {
 				continue
 			}
 			chatTools = append(chatTools, dto.ToolCallRequest{
@@ -225,6 +246,9 @@ func convertResponsesToolsToChatTools(raw json.RawMessage, ctx *ResponsesToChatC
 			ctx.ToolsByChatName[name] = ResponseToolSpec{Kind: ResponseToolKindCustom, Name: name, ChatName: name}
 		case "tool_search":
 			name := "tool_search"
+			if _, exists := ctx.ToolsByChatName[name]; exists {
+				continue
+			}
 			chatTools = append(chatTools, dto.ToolCallRequest{
 				Type: "function",
 				Function: dto.FunctionRequest{
@@ -257,6 +281,9 @@ func convertResponsesToolsToChatTools(raw json.RawMessage, ctx *ResponsesToChatC
 				if namespace != "" {
 					chatName = namespace + "__" + name
 				}
+				if _, exists := ctx.ToolsByChatName[chatName]; exists {
+					continue
+				}
 				chatTools = append(chatTools, dto.ToolCallRequest{
 					Type: "function",
 					Function: dto.FunctionRequest{
@@ -267,13 +294,40 @@ func convertResponsesToolsToChatTools(raw json.RawMessage, ctx *ResponsesToChatC
 				})
 				ctx.ToolsByChatName[chatName] = ResponseToolSpec{Kind: ResponseToolKindFunction, Name: name, ChatName: chatName}
 			}
-		case "web_search", "web_search_preview", "file_search", "computer", "computer_use_preview", "image_generation", "code_interpreter", "mcp":
-			return nil, fmt.Errorf("responses tool %q cannot be converted to chat completions; use a native Responses channel", toolType)
 		default:
-			return nil, fmt.Errorf("responses tool %q is not supported by chat compatibility mode", toolType)
+			continue
 		}
 	}
-	return chatTools, nil
+	return chatTools
+}
+
+func collectResponsesInputProvidedChatTools(raw json.RawMessage, ctx *ResponsesToChatContext) []dto.ToolCallRequest {
+	if len(raw) == 0 || common.GetJsonType(raw) == "string" {
+		return nil
+	}
+
+	var items []map[string]any
+	if err := common.Unmarshal(raw, &items); err != nil {
+		var single map[string]any
+		if err2 := common.Unmarshal(raw, &single); err2 == nil {
+			items = []map[string]any{single}
+		} else {
+			return nil
+		}
+	}
+
+	var chatTools []dto.ToolCallRequest
+	for _, item := range items {
+		if strings.TrimSpace(common.Interface2String(item["type"])) != "tool_search_output" {
+			continue
+		}
+		rawTools, ok := item["tools"].([]any)
+		if !ok || len(rawTools) == 0 {
+			continue
+		}
+		chatTools = append(chatTools, convertResponsesToolValuesToChatTools(rawTools, ctx)...)
+	}
+	return chatTools
 }
 
 func convertResponsesInputToChatMessages(raw json.RawMessage, ctx *ResponsesToChatContext) ([]dto.Message, error) {
@@ -459,10 +513,14 @@ func responsesToolChoiceToChat(raw json.RawMessage, ctx *ResponsesToChatContext)
 	if err := common.Unmarshal(raw, &m); err != nil {
 		return raw
 	}
-	if common.Interface2String(m["type"]) == "function" {
+	choiceType := strings.TrimSpace(common.Interface2String(m["type"]))
+	switch choiceType {
+	case "function":
 		name := common.Interface2String(m["name"])
 		if spec, ok := ctx.ToolsByChatName[name]; ok && spec.ChatName != "" {
 			name = spec.ChatName
+		} else {
+			return nil
 		}
 		if name != "" {
 			return map[string]any{
@@ -472,8 +530,45 @@ func responsesToolChoiceToChat(raw json.RawMessage, ctx *ResponsesToChatContext)
 				},
 			}
 		}
+	case "custom":
+		name := common.Interface2String(m["name"])
+		if spec, ok := ctx.ToolsByChatName[name]; ok && spec.ChatName != "" {
+			name = spec.ChatName
+		} else {
+			return nil
+		}
+		return map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name": name,
+			},
+		}
+	case "tool_search":
+		if _, ok := ctx.ToolsByChatName["tool_search"]; !ok {
+			return nil
+		}
+		return map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name": "tool_search",
+			},
+		}
+	case "auto", "none", "required":
+		return choiceType
 	}
-	return m
+	if isSkippedResponsesHostedToolType(choiceType) {
+		return nil
+	}
+	return nil
+}
+
+func isSkippedResponsesHostedToolType(toolType string) bool {
+	switch strings.TrimSpace(toolType) {
+	case "web_search", "web_search_preview", "file_search", "computer", "computer_use_preview", "image_generation", "code_interpreter", "mcp":
+		return true
+	default:
+		return false
+	}
 }
 
 func responsesTextFormatToChatResponseFormat(raw json.RawMessage) *dto.ResponseFormat {
