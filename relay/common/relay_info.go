@@ -82,7 +82,8 @@ type ChannelMeta struct {
 
 type TokenCountMeta struct {
 	//promptTokens int
-	estimatePromptTokens int
+	estimatePromptTokens     int
+	estimateCompletionTokens int
 }
 
 type RelayInfo struct {
@@ -257,6 +258,7 @@ func (info *RelayInfo) ToString() string {
 	fmt.Fprintf(b, "RequestURLPath: %q, ", info.RequestURLPath)
 	fmt.Fprintf(b, "OriginModelName: %q, ", info.OriginModelName)
 	fmt.Fprintf(b, "EstimatePromptTokens: %d, ", info.estimatePromptTokens)
+	fmt.Fprintf(b, "EstimateCompletionTokens: %d, ", info.estimateCompletionTokens)
 	fmt.Fprintf(b, "ShouldIncludeUsage: %t, ", info.ShouldIncludeUsage)
 	fmt.Fprintf(b, "DisablePing: %t, ", info.DisablePing)
 	fmt.Fprintf(b, "SendResponseCount: %d, ", info.SendResponseCount)
@@ -655,6 +657,14 @@ func (info *RelayInfo) SetEstimatePromptTokens(promptTokens int) {
 
 func (info *RelayInfo) GetEstimatePromptTokens() int {
 	return info.estimatePromptTokens
+}
+
+func (info *RelayInfo) SetEstimateCompletionTokens(completionTokens int) {
+	info.estimateCompletionTokens = completionTokens
+}
+
+func (info *RelayInfo) GetEstimateCompletionTokens() int {
+	return info.estimateCompletionTokens
 }
 
 func (info *RelayInfo) SetFirstResponseTime() {

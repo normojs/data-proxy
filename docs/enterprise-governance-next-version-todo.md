@@ -196,9 +196,8 @@
   修复 Redis 快照、创建缺失 DB mirror，并可包含 Redis orphan key。
 - NV-0503 已完成 token 级指标 MVP：quota policy metric 支持 `prompt_tokens`、
   `completion_tokens`、`total_tokens`，预留/结算/临时额度/对账复用同一 counter 链路；
-  relay pre-check 会基于已知 prompt token 估算预留 `prompt_tokens` 与 `total_tokens`，
-  settle 阶段按真实 usage 校正。严格 output token 预扣需要后续把 max output token meta
-  透传到企业治理 pre-check。
+  relay pre-check 会基于已知 prompt token 和请求最大输出 token 估算预留
+  `prompt_tokens`、`completion_tokens` 与 `total_tokens`，settle 阶段按真实 usage 校正。
 
 ## V1.6: 高级策略动作
 

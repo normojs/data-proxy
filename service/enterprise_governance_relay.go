@@ -66,6 +66,8 @@ func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayIn
 		return nil
 	}
 
+	estimatedPromptTokens := int64(relayInfo.GetEstimatePromptTokens())
+	estimatedCompletionTokens := int64(relayInfo.GetEstimateCompletionTokens())
 	req := PolicyEvaluationRequest{
 		EnterpriseContext: enterpriseCtx,
 		ModelName:         relayInfo.OriginModelName,
@@ -73,10 +75,11 @@ func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayIn
 		IsPlayground:      relayInfo.IsPlayground,
 		ChannelId:         enterpriseChannelIdFromRelay(c, relayInfo),
 		Estimated: UsageAmount{
-			RequestCount: 1,
-			Quota:        int64(estimatedQuota),
-			PromptTokens: int64(relayInfo.GetEstimatePromptTokens()),
-			TotalTokens:  int64(relayInfo.GetEstimatePromptTokens()),
+			RequestCount:     1,
+			Quota:            int64(estimatedQuota),
+			PromptTokens:     estimatedPromptTokens,
+			CompletionTokens: estimatedCompletionTokens,
+			TotalTokens:      estimatedPromptTokens + estimatedCompletionTokens,
 		},
 		RequestId: enterpriseRequestIdFromRelay(c, relayInfo),
 	}

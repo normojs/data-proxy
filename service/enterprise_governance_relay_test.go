@@ -184,6 +184,92 @@ func TestPreCheckEnterpriseGovernanceHardLimitReservesAndSettles(t *testing.T) {
 	assert.Nil(t, reservation)
 }
 
+func TestPreCheckEnterpriseGovernanceTokenMetricsUseEstimatedCompletionTokens(t *testing.T) {
+	cases := []struct {
+		name           string
+		metric         string
+		limit          int64
+		requestedValue int64
+	}{
+		{
+			name:           "completion tokens",
+			metric:         model.PolicyMetricCompletionTokens,
+			limit:          30,
+			requestedValue: 40,
+		},
+		{
+			name:           "total tokens",
+			metric:         model.PolicyMetricTotalTokens,
+			limit:          50,
+			requestedValue: 60,
+		},
+	}
+
+	for index, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupEnterprisePolicyServiceTestDB(t)
+			gin.SetMode(gin.TestMode)
+
+			enterprise, err := model.GetDefaultEnterprise()
+			require.NoError(t, err)
+			userId := 1090 + index
+			require.NoError(t, model.DB.Create(&model.User{
+				Id:       userId,
+				Username: fmt.Sprintf("token-metric-%d", index),
+				Role:     common.RoleCommonUser,
+				Status:   common.UserStatusEnabled,
+				Group:    "default",
+			}).Error)
+			policy := createEnterprisePolicyServiceTestPolicy(t, model.EnterpriseQuotaPolicy{
+				EnterpriseId: enterprise.Id,
+				Name:         tc.name,
+				TargetType:   model.PolicyTargetEnterprise,
+				TargetId:     enterprise.Id,
+				Metric:       tc.metric,
+				Period:       model.PolicyPeriodDay,
+				LimitValue:   tc.limit,
+				ModelScope:   model.PolicyModelScopeAll,
+				Status:       model.QuotaPolicyStatusEnabled,
+			})
+
+			requestId := fmt.Sprintf("req-enterprise-%s-reject", strings.ReplaceAll(tc.metric, "_", "-"))
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			ctx.Set(common.RequestIdKey, requestId)
+			relayInfo := &relaycommon.RelayInfo{
+				UserId:          userId,
+				TokenId:         190 + index,
+				RequestId:       requestId,
+				OriginModelName: "gpt-4o",
+				RelayMode:       relayconstant.RelayModeChatCompletions,
+			}
+			relayInfo.SetEstimatePromptTokens(20)
+			relayInfo.SetEstimateCompletionTokens(40)
+
+			apiErr := PreCheckEnterpriseGovernance(ctx, relayInfo, 1)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+
+			internalReason := decisionInternalReasonForTest(t, ctx)
+			assert.Contains(t, internalReason, fmt.Sprintf("policy_id=%d", policy.Id))
+			var audit model.EnterpriseAuditLog
+			require.NoError(t, model.DB.Where("request_id = ? AND action = ?", requestId, enterpriseGovernanceAuditActionHardReject).
+				First(&audit).Error)
+			auditAfter := enterpriseAuditAfterForTest(t, audit)
+			assert.EqualValues(t, policy.Id, auditAfter["policy_id"])
+			assert.EqualValues(t, tc.limit, auditAfter["limit_value"])
+			assert.EqualValues(t, tc.requestedValue, auditAfter["requested_value"])
+
+			reservation, _ := common.GetContextKeyType[*Reservation](ctx, constant.ContextKeyEnterpriseGovernanceReserve)
+			assert.Nil(t, reservation)
+			var counterCount int64
+			require.NoError(t, model.DB.Model(&model.EnterpriseQuotaCounter{}).Where("policy_id = ?", policy.Id).Count(&counterCount).Error)
+			assert.EqualValues(t, 0, counterCount)
+		})
+	}
+}
+
 func TestPreCheckEnterpriseGovernanceHardLimitRejectsWithEnterpriseErrorCode(t *testing.T) {
 	setupEnterprisePolicyServiceTestDB(t)
 	gin.SetMode(gin.TestMode)

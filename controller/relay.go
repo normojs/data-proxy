@@ -150,6 +150,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	relayInfo.SetEstimatePromptTokens(tokens)
+	setRelayEstimatedCompletionTokens(relayInfo, meta)
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
@@ -179,6 +180,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 		relayInfo.SetEstimatePromptTokens(tokens)
+		setRelayEstimatedCompletionTokens(relayInfo, meta)
 
 		priceData, err = helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 		if err != nil {
@@ -335,6 +337,8 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 		meta.MaxTokens = int(lo.FromPtrOr(r.MaxOutputTokens, uint(0)))
 	case *dto.ClaudeRequest:
 		meta.MaxTokens = int(lo.FromPtr(r.MaxTokens))
+	case *dto.GeminiChatRequest:
+		meta.MaxTokens = int(lo.FromPtrOr(r.GenerationConfig.MaxOutputTokens, uint(0)))
 	case *dto.ImageRequest:
 		// Pricing for image requests depends on ImagePriceRatio; safe to compute even when CountToken is disabled.
 		return r.GetTokenCountMeta()
@@ -342,6 +346,17 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 		// Best-effort: leave CombineText empty to avoid large allocations.
 	}
 	return meta
+}
+
+func setRelayEstimatedCompletionTokens(info *relaycommon.RelayInfo, meta *types.TokenCountMeta) {
+	if info == nil {
+		return
+	}
+	estimatedCompletionTokens := 0
+	if meta != nil && meta.MaxTokens > 0 {
+		estimatedCompletionTokens = meta.MaxTokens
+	}
+	info.SetEstimateCompletionTokens(estimatedCompletionTokens)
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
