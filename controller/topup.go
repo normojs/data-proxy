@@ -24,11 +24,7 @@ import (
 func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 
-	// 获取支付方式
-	payMethods := operation_setting.PayMethods
-	if !complianceConfirmed {
-		payMethods = []map[string]string{}
-	}
+	payMethods := getBasePayMethodsForTopUp(complianceConfirmed)
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
 	if isStripeTopUpEnabled() {
@@ -143,6 +139,28 @@ func GetTopUpInfo(c *gin.Context) {
 		"topup_link":              common.TopUpLink,
 	}
 	common.ApiSuccess(c, data)
+}
+
+func clonePayMethods(methods []map[string]string) []map[string]string {
+	if len(methods) == 0 {
+		return []map[string]string{}
+	}
+	cloned := make([]map[string]string, 0, len(methods))
+	for _, method := range methods {
+		item := make(map[string]string, len(method))
+		for key, value := range method {
+			item[key] = value
+		}
+		cloned = append(cloned, item)
+	}
+	return cloned
+}
+
+func getBasePayMethodsForTopUp(complianceConfirmed bool) []map[string]string {
+	if !complianceConfirmed || !isEpayWebhookConfigured() {
+		return []map[string]string{}
+	}
+	return clonePayMethods(operation_setting.PayMethods)
 }
 
 type EpayRequest struct {
