@@ -62,6 +62,8 @@ require (
 
 require github.com/waffo-com/waffo-pancake-sdk-go v0.3.1
 
+require github.com/wechatpay-apiv3/wechatpay-go v0.2.21
+
 require (
 	cel.dev/expr v0.25.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect

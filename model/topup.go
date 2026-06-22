@@ -28,6 +28,7 @@ type TopUp struct {
 const (
 	PaymentMethodStripe       = "stripe"
 	PaymentMethodCreem        = "creem"
+	PaymentMethodWechatPay    = "wechat_pay"
 	PaymentMethodWaffo        = "waffo"
 	PaymentMethodWaffoPancake = "waffo_pancake"
 	PaymentMethodBalance      = "balance"
@@ -37,6 +38,7 @@ const (
 	PaymentProviderEpay         = "epay"
 	PaymentProviderStripe       = "stripe"
 	PaymentProviderCreem        = "creem"
+	PaymentProviderWechatPay    = "wechat_pay"
 	PaymentProviderWaffo        = "waffo"
 	PaymentProviderWaffoPancake = "waffo_pancake"
 	PaymentProviderBalance      = "balance"
@@ -107,9 +109,12 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, ta
 	})
 }
 
-func CompleteEpayTopUp(tradeNo string, actualPaymentMethod string, callerIp string) (*TopUp, int, error) {
+func completeQuotaTopUp(tradeNo string, expectedPaymentProvider string, actualPaymentMethod string, metadata map[string]any) (*TopUp, int, error) {
 	if tradeNo == "" {
 		return nil, 0, errors.New("未提供支付单号")
+	}
+	if expectedPaymentProvider == "" {
+		return nil, 0, errors.New("未提供支付渠道")
 	}
 
 	refCol := "`trade_no`"
@@ -124,7 +129,7 @@ func CompleteEpayTopUp(tradeNo string, actualPaymentMethod string, callerIp stri
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
 			return ErrTopUpNotFound
 		}
-		if topUp.PaymentProvider != PaymentProviderEpay {
+		if topUp.PaymentProvider != expectedPaymentProvider {
 			return ErrPaymentMethodMismatch
 		}
 		if topUp.Status == common.TopUpStatusSuccess {
@@ -149,10 +154,13 @@ func CompleteEpayTopUp(tradeNo string, actualPaymentMethod string, callerIp stri
 		if err := tx.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", gorm.Expr("quota + ?", quotaToAdd)).Error; err != nil {
 			return err
 		}
-		if err := RecordWalletTopUpBillingEvent(tx, topUp, quotaToAdd, "success", map[string]any{
-			"channel":   PaymentProviderEpay,
-			"caller_ip": callerIp,
-		}); err != nil {
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		if _, ok := metadata["channel"]; !ok {
+			metadata["channel"] = expectedPaymentProvider
+		}
+		if err := RecordWalletTopUpBillingEvent(tx, topUp, quotaToAdd, "success", metadata); err != nil {
 			return err
 		}
 		completed = *topUp
@@ -162,6 +170,21 @@ func CompleteEpayTopUp(tradeNo string, actualPaymentMethod string, callerIp stri
 		return nil, 0, err
 	}
 	return &completed, quotaToAdd, nil
+}
+
+func CompleteEpayTopUp(tradeNo string, actualPaymentMethod string, callerIp string) (*TopUp, int, error) {
+	return completeQuotaTopUp(tradeNo, PaymentProviderEpay, actualPaymentMethod, map[string]any{
+		"channel":   PaymentProviderEpay,
+		"caller_ip": callerIp,
+	})
+}
+
+func CompleteWechatPayTopUp(tradeNo string, transactionID string, callerIp string) (*TopUp, int, error) {
+	return completeQuotaTopUp(tradeNo, PaymentProviderWechatPay, PaymentMethodWechatPay, map[string]any{
+		"channel":        PaymentProviderWechatPay,
+		"transaction_id": transactionID,
+		"caller_ip":      callerIp,
+	})
 }
 
 func Recharge(referenceId string, customerId string, callerIp string) (err error) {

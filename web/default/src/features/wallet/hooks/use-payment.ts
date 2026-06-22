@@ -25,13 +25,16 @@ import {
   calculateWaffoPancakeAmount,
   requestPayment,
   requestStripePayment,
+  requestWechatPayPayment,
   isApiSuccess,
 } from '../api'
 import {
   isStripePayment,
+  isWechatPayPayment,
   isWaffoPancakePayment,
   submitPaymentForm,
 } from '../lib'
+import type { WechatPayPaymentData } from '../types'
 
 // ============================================================================
 // Payment Hook
@@ -41,6 +44,9 @@ export function usePayment() {
   const [amount, setAmount] = useState<number>(0)
   const [calculating, setCalculating] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [wechatPayQr, setWechatPayQr] = useState<WechatPayPaymentData | null>(
+    null
+  )
 
   // Calculate payment amount
   const calculatePaymentAmount = useCallback(
@@ -82,6 +88,7 @@ export function usePayment() {
         setProcessing(true)
 
         const isStripe = isStripePayment(paymentType)
+        const isWechatPay = isWechatPayPayment(paymentType)
         const amount = Math.floor(topupAmount)
 
         const response = isStripe
@@ -89,19 +96,35 @@ export function usePayment() {
               amount,
               payment_method: 'stripe',
             })
-          : await requestPayment({
-              amount,
-              payment_method: paymentType,
-            })
+          : isWechatPay
+            ? await requestWechatPayPayment({
+                amount,
+              })
+            : await requestPayment({
+                amount,
+                payment_method: paymentType,
+              })
 
         if (!isApiSuccess(response)) {
           toast.error(response.message || i18next.t('Payment request failed'))
           return false
         }
 
+        if (isWechatPay) {
+          const data = response.data as WechatPayPaymentData | undefined
+          if (data?.code_url && data.trade_no) {
+            setWechatPayQr(data)
+            toast.success(i18next.t('Payment QR code ready'))
+            return true
+          }
+          toast.error(i18next.t('Payment request failed'))
+          return false
+        }
+
         // Handle Stripe payment
-        if (isStripe && response.data?.pay_link) {
-          window.open(response.data.pay_link as string, '_blank')
+        const stripeData = response.data as { pay_link?: string } | undefined
+        if (isStripe && stripeData?.pay_link) {
+          window.open(stripeData.pay_link, '_blank')
           toast.success(i18next.t('Redirecting to payment page...'))
           return true
         }
@@ -134,5 +157,7 @@ export function usePayment() {
     calculatePaymentAmount,
     processPayment,
     setAmount,
+    wechatPayQr,
+    clearWechatPayQr: () => setWechatPayQr(null),
   }
 }

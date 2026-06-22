@@ -98,9 +98,8 @@ const BILLING_SECTIONS = [
             custom_currency_exchange_rate:
               settings['general_setting.custom_currency_exchange_rate'] ?? 1,
             exchange_rate_auto_update_enabled:
-              settings[
-                'general_setting.exchange_rate_auto_update_enabled'
-              ] ?? false,
+              settings['general_setting.exchange_rate_auto_update_enabled'] ??
+              false,
             exchange_rate_auto_update_interval_minutes:
               settings[
                 'general_setting.exchange_rate_auto_update_interval_minutes'
@@ -166,6 +165,17 @@ const BILLING_SECTIONS = [
           CreemWebhookSecret: settings.CreemWebhookSecret,
           CreemTestMode: settings.CreemTestMode,
           CreemProducts: settings.CreemProducts,
+          WechatPayEnabled: settings.WechatPayEnabled ?? false,
+          WechatPayAppID: settings.WechatPayAppID ?? '',
+          WechatPayMchID: settings.WechatPayMchID ?? '',
+          WechatPayAPIv3Key: settings.WechatPayAPIv3Key ?? '',
+          WechatPayMerchantSerialNo: settings.WechatPayMerchantSerialNo ?? '',
+          WechatPayPrivateKey: settings.WechatPayPrivateKey ?? '',
+          WechatPayPrivateKeyPath: settings.WechatPayPrivateKeyPath ?? '',
+          WechatPayNotifyUrl: settings.WechatPayNotifyUrl ?? '',
+          WechatPayProductName:
+            settings.WechatPayProductName ?? 'Data Proxy Topup',
+          WechatPayMinTopUp: settings.WechatPayMinTopUp ?? 1,
         }}
         waffoDefaultValues={{
           WaffoEnabled: settings.WaffoEnabled ?? false,

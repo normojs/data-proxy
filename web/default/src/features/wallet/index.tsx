@@ -28,6 +28,7 @@ import { BillingHistoryDialog } from './components/dialogs/billing-history-dialo
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
+import { WechatPayQRDialog } from './components/dialogs/wechat-pay-qr-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { UnifiedLedgerCard } from './components/unified-ledger-card'
@@ -112,6 +113,8 @@ export function Wallet(props: WalletProps) {
     processing,
     calculatePaymentAmount,
     processPayment,
+    wechatPayQr,
+    clearWechatPayQr,
   } = usePayment()
   const {
     affiliateLink,
@@ -354,6 +357,19 @@ export function Wallet(props: WalletProps) {
         onConfirm={handleCreemConfirm}
         product={selectedCreemProduct}
         processing={creemProcessing}
+      />
+
+      <WechatPayQRDialog
+        open={!!wechatPayQr}
+        onOpenChange={(open) => {
+          if (!open) clearWechatPayQr()
+        }}
+        payment={wechatPayQr}
+        onRefresh={fetchUser}
+        onOpenBilling={() => {
+          clearWechatPayQr()
+          setBillingDialogOpen(true)
+        }}
       />
     </>
   )

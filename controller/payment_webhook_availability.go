@@ -46,6 +46,30 @@ func isCreemWebhookEnabled() bool {
 	return isCreemTopUpEnabled() && isCreemWebhookConfigured()
 }
 
+func isWechatPayTopUpEnabled() bool {
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	if !setting.WechatPayEnabled {
+		return false
+	}
+	return isWechatPayWebhookConfigured()
+}
+
+func isWechatPayWebhookConfigured() bool {
+	hasPrivateKey := strings.TrimSpace(setting.WechatPayPrivateKey) != "" ||
+		strings.TrimSpace(setting.WechatPayPrivateKeyPath) != ""
+	return strings.TrimSpace(setting.WechatPayAppID) != "" &&
+		strings.TrimSpace(setting.WechatPayMchID) != "" &&
+		strings.TrimSpace(setting.WechatPayAPIv3Key) != "" &&
+		strings.TrimSpace(setting.WechatPayMerchantSerialNo) != "" &&
+		hasPrivateKey
+}
+
+func isWechatPayWebhookEnabled() bool {
+	return isWechatPayTopUpEnabled()
+}
+
 func isWaffoTopUpEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
 		return false

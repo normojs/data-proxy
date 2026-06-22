@@ -96,6 +96,16 @@ func InitOptionMap() {
 	common.OptionMap["CreemProducts"] = setting.CreemProducts
 	common.OptionMap["CreemTestMode"] = strconv.FormatBool(setting.CreemTestMode)
 	common.OptionMap["CreemWebhookSecret"] = setting.CreemWebhookSecret
+	common.OptionMap["WechatPayEnabled"] = strconv.FormatBool(setting.WechatPayEnabled)
+	common.OptionMap["WechatPayAppID"] = setting.WechatPayAppID
+	common.OptionMap["WechatPayMchID"] = setting.WechatPayMchID
+	common.OptionMap["WechatPayAPIv3Key"] = setting.WechatPayAPIv3Key
+	common.OptionMap["WechatPayMerchantSerialNo"] = setting.WechatPayMerchantSerialNo
+	common.OptionMap["WechatPayPrivateKey"] = setting.WechatPayPrivateKey
+	common.OptionMap["WechatPayPrivateKeyPath"] = setting.WechatPayPrivateKeyPath
+	common.OptionMap["WechatPayNotifyUrl"] = setting.WechatPayNotifyUrl
+	common.OptionMap["WechatPayProductName"] = setting.WechatPayProductName
+	common.OptionMap["WechatPayMinTopUp"] = strconv.Itoa(setting.WechatPayMinTopUp)
 	common.OptionMap["WaffoEnabled"] = strconv.FormatBool(setting.WaffoEnabled)
 	common.OptionMap["WaffoApiKey"] = setting.WaffoApiKey
 	common.OptionMap["WaffoPrivateKey"] = setting.WaffoPrivateKey
@@ -437,6 +447,26 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.CreemTestMode = value == "true"
 	case "CreemWebhookSecret":
 		setting.CreemWebhookSecret = value
+	case "WechatPayEnabled":
+		setting.WechatPayEnabled = value == "true"
+	case "WechatPayAppID":
+		setting.WechatPayAppID = value
+	case "WechatPayMchID":
+		setting.WechatPayMchID = value
+	case "WechatPayAPIv3Key":
+		setting.WechatPayAPIv3Key = value
+	case "WechatPayMerchantSerialNo":
+		setting.WechatPayMerchantSerialNo = value
+	case "WechatPayPrivateKey":
+		setting.WechatPayPrivateKey = value
+	case "WechatPayPrivateKeyPath":
+		setting.WechatPayPrivateKeyPath = value
+	case "WechatPayNotifyUrl":
+		setting.WechatPayNotifyUrl = value
+	case "WechatPayProductName":
+		setting.WechatPayProductName = value
+	case "WechatPayMinTopUp":
+		setting.WechatPayMinTopUp, _ = strconv.Atoi(value)
 	case "WaffoEnabled":
 		setting.WaffoEnabled = value == "true"
 	case "WaffoApiKey":

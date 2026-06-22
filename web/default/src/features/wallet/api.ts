@@ -28,6 +28,7 @@ import type {
   AmountResponse,
   PaymentResponse,
   StripePaymentResponse,
+  WechatPayPaymentResponse,
   AffiliateCodeResponse,
   AffiliateTransferResponse,
   BillingHistoryResponse,
@@ -118,6 +119,18 @@ export async function requestStripePayment(
   request: PaymentRequest
 ): Promise<StripePaymentResponse> {
   const res = await api.post('/api/user/stripe/pay', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Request direct WeChat Pay Native QR payment
+ */
+export async function requestWechatPayPayment(
+  request: AmountRequest
+): Promise<WechatPayPaymentResponse> {
+  const res = await api.post('/api/user/wechat-pay/pay', request, {
     skipBusinessError: true,
   } as Record<string, unknown>)
   return res.data

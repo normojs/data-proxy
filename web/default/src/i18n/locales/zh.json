@@ -5341,6 +5341,26 @@
     "Review note": "审批备注",
     "This note is visible on the request record.": "该备注会显示在申请记录中。",
     "Connected app request approved": "应用接入申请已批准",
-    "Connected app request rejected": "应用接入申请已拒绝"
+    "Connected app request rejected": "应用接入申请已拒绝",
+    "32-byte API v3 key (leave blank unless updating)": "32 字节 API v3 密钥（除非更新，否则留空）",
+    "API v3 key": "API v3 密钥",
+    "AppID": "AppID",
+    "AppID bound to the WeChat Pay merchant account": "绑定到微信支付商户号的 AppID",
+    "Direct WeChat Pay API v3 Native QR code integration": "微信支付 API v3 Native 二维码直连配置",
+    "Enable WeChat Pay": "启用微信支付",
+    "Leave blank to use callback address automatically": "留空则自动使用回调地址",
+    "Merchant certificate serial no.": "商户证书序列号",
+    "Notify URL override": "通知地址覆盖",
+    "Order": "订单",
+    "Paste apiclient_key.pem only if no path is used": "仅在未使用文件路径时粘贴 apiclient_key.pem",
+    "Path to apiclient_key.pem on the server": "服务器上的 apiclient_key.pem 路径",
+    "Payment QR code ready": "支付二维码已生成",
+    "Private key path": "私钥路径",
+    "Private key text": "私钥文本",
+    "Product name": "商品名称",
+    "Requires a public HTTPS domain, API v3 key, merchant certificate serial number, and apiclient_key.pem.": "需要公网 HTTPS 域名、API v3 密钥、商户证书序列号和 apiclient_key.pem。",
+    "Scan the QR code to pay": "请扫描二维码支付",
+    "Show direct WeChat Pay in the wallet payment list": "在钱包支付列表中显示微信支付直连",
+    "WeChat Pay Gateway": "微信支付网关"
   }
 }

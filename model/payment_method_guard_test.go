@@ -140,6 +140,31 @@ func TestUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T)
 	}
 }
 
+func TestCompleteWechatPayTopUp_CreditsQuotaAndGuardsProvider(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 180, 0)
+	insertTopUpForPaymentGuardTest(t, "wechat-pay-success", 180, PaymentProviderWechatPay)
+
+	completed, quotaToAdd, err := CompleteWechatPayTopUp("wechat-pay-success", "4200000000000000000", "127.0.0.1")
+	require.NoError(t, err)
+	require.NotNil(t, completed)
+	assert.Equal(t, common.TopUpStatusSuccess, completed.Status)
+	assert.Equal(t, int(2*common.QuotaPerUnit), quotaToAdd)
+	assert.Equal(t, quotaToAdd, getUserQuotaForPaymentGuardTest(t, 180))
+
+	truncateTables(t)
+	insertUserForPaymentGuardTest(t, 181, 0)
+	insertTopUpForPaymentGuardTest(t, "wechat-pay-mismatch", 181, PaymentProviderStripe)
+
+	completed, quotaToAdd, err = CompleteWechatPayTopUp("wechat-pay-mismatch", "4200000000000000001", "127.0.0.1")
+	require.ErrorIs(t, err, ErrPaymentMethodMismatch)
+	assert.Nil(t, completed)
+	assert.Zero(t, quotaToAdd)
+	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, "wechat-pay-mismatch"))
+	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 181))
+}
+
 func TestCompleteSubscriptionOrder_RejectsMismatchedPaymentProvider(t *testing.T) {
 	truncateTables(t)
 
