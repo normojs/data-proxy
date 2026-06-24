@@ -77,7 +77,7 @@ func (c CLI) Run(args []string) int {
 
 func (c CLI) printHelp() {
 	fmt.Fprint(c.Out, `data-proxy-agent connects local MCP and HTTP services to Data Proxy.
-It runs like cloudflared: a local outbound daemon for HTTP tunnels, MCP bridge, and read-only workspace tools.
+It runs like cloudflared: a local outbound daemon for HTTP tunnels, MCP bridge, and policy-guarded workspace tools.
 
 Usage:
   data-proxy-agent version

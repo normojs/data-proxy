@@ -209,7 +209,7 @@ go run ./cmd/data-proxy-agent --help
 go run ./cmd/data-proxy-agent self-test
 ```
 
-当前 Go 版已具备 `enroll` 注册写配置、`report` 脱敏诊断包、`service install/start/stop/status/uninstall`、配置管理、`/bridge/ws` 注册/心跳、只读本地文件工具 `remote_read` / `remote_tree` / `remote_glob` / `remote_grep` / `remote_env_info`、`http_tunnel.request` 普通/流式/SSE/WebSocket 转发，以及 MCP bridge 的 `mcp_proxy.test` / `mcp_proxy.tools_list` / `mcp_proxy.tools_call` / `mcp_proxy.rpc`；写文件、执行命令、安装脚本和自动更新仍由后续版本提供。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
+当前 Go 版已具备 `enroll` 注册写配置、`report` 脱敏诊断包、`service install/start/stop/status/uninstall`、配置管理、`/bridge/ws` 注册/心跳、本地文件工具 `remote_read` / `remote_tree` / `remote_glob` / `remote_grep` / `remote_env_info` / `remote_write` / `remote_edit`、`http_tunnel.request` 普通/流式/SSE/WebSocket 转发，以及 MCP bridge 的 `mcp_proxy.test` / `mcp_proxy.tools_list` / `mcp_proxy.tools_call` / `mcp_proxy.rpc`；其中写入工具默认关闭，需要本机配置 `policy.allow_write=true`。执行命令、安装脚本和自动更新仍由后续版本提供。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
 
 常用本地配置命令：
 

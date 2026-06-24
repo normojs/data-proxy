@@ -54,6 +54,7 @@ type AgentConfig struct {
 
 type PolicyConfig struct {
 	DefaultPermission    string     `json:"default_permission,omitempty" yaml:"default_permission,omitempty"`
+	AllowWrite           bool       `json:"allow_write" yaml:"allow_write"`
 	AllowNonLoopbackHTTP bool       `json:"allow_non_loopback_http" yaml:"allow_non_loopback_http"`
 	AllowNonLoopbackMCP  bool       `json:"allow_non_loopback_mcp" yaml:"allow_non_loopback_mcp"`
 	AllowedWorkspaces    []string   `json:"allowed_workspaces,omitempty" yaml:"allowed_workspaces,omitempty"`
@@ -100,6 +101,7 @@ type RuntimeConfig struct {
 	WalkDepth        int   `json:"walk_depth,omitempty" yaml:"walk_depth,omitempty"`
 	MaxResultBytes   int64 `json:"max_result_bytes,omitempty" yaml:"max_result_bytes,omitempty"`
 	MaxScanFileBytes int64 `json:"max_scan_file_bytes,omitempty" yaml:"max_scan_file_bytes,omitempty"`
+	MaxWriteBytes    int64 `json:"max_write_bytes,omitempty" yaml:"max_write_bytes,omitempty"`
 }
 
 type RuntimeOptions struct {
@@ -171,6 +173,7 @@ func DefaultConfig() Config {
 			WalkDepth:        DefaultRemoteWalkDepth,
 			MaxResultBytes:   DefaultRemoteMaxResultBytes,
 			MaxScanFileBytes: DefaultRemoteMaxScanFileBytes,
+			MaxWriteBytes:    DefaultRemoteMaxWriteBytes,
 		},
 	}
 }
@@ -411,6 +414,9 @@ func EffectiveCapabilities(cfg Config) []string {
 		result = append(result, value)
 	}
 	for _, capability := range cfg.Agent.Capabilities {
+		if isRemoteWriteTool(capability) && !cfg.Policy.AllowWrite {
+			continue
+		}
 		add(capability)
 	}
 	if strings.TrimSpace(cfg.Agent.Workspace) != "" {
@@ -419,6 +425,10 @@ func EffectiveCapabilities(cfg Config) []string {
 		add(BridgeToolRemoteGlob)
 		add(BridgeToolRemoteGrep)
 		add(BridgeToolRemoteEnvInfo)
+		if cfg.Policy.AllowWrite {
+			add(BridgeToolRemoteWrite)
+			add(BridgeToolRemoteEdit)
+		}
 	}
 	if len(cfg.HTTPRoutes) > 0 {
 		add(BridgeCapabilityHTTPTunnel)
@@ -481,6 +491,9 @@ func fillConfigDefaults(cfg *Config) {
 	}
 	if cfg.Runtime.MaxScanFileBytes <= 0 {
 		cfg.Runtime.MaxScanFileBytes = DefaultRemoteMaxScanFileBytes
+	}
+	if cfg.Runtime.MaxWriteBytes <= 0 {
+		cfg.Runtime.MaxWriteBytes = DefaultRemoteMaxWriteBytes
 	}
 }
 

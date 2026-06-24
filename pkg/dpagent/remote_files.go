@@ -23,17 +23,21 @@ const (
 	BridgeToolRemoteGlob    = "remote_glob"
 	BridgeToolRemoteGrep    = "remote_grep"
 	BridgeToolRemoteEnvInfo = "remote_env_info"
+	BridgeToolRemoteWrite   = "remote_write"
+	BridgeToolRemoteEdit    = "remote_edit"
 
 	DefaultRemoteMaxResults       = 200
 	DefaultRemoteTreeDepth        = 3
 	DefaultRemoteWalkDepth        = 8
 	DefaultRemoteMaxResultBytes   = int64(512 * 1024)
 	DefaultRemoteMaxScanFileBytes = int64(2 * 1024 * 1024)
+	DefaultRemoteMaxWriteBytes    = int64(1024 * 1024)
 	remoteHardMaxResults          = 5000
 	remoteHardTreeDepth           = 16
 	remoteHardWalkDepth           = 32
 	remoteHardMaxResultBytes      = int64(50 * 1024 * 1024)
 	remoteHardMaxScanFileBytes    = int64(100 * 1024 * 1024)
+	remoteHardMaxWriteBytes       = int64(50 * 1024 * 1024)
 	remoteDefaultReadLineLimit    = 100
 	remoteHardReadLineLimit       = 100000
 	remoteTruncatedMarker         = "\n\n[result truncated by data-proxy-agent]"
@@ -57,6 +61,7 @@ type remoteFileLimits struct {
 	WalkDepth        int
 	MaxResultBytes   int64
 	MaxScanFileBytes int64
+	MaxWriteBytes    int64
 }
 
 type remotePathInfo struct {
@@ -94,6 +99,10 @@ func (c BridgeClient) handleRemoteFileTool(ctx context.Context, toolName string,
 		return c.handleRemoteGrep(ctx, args)
 	case BridgeToolRemoteEnvInfo:
 		return c.handleRemoteEnvInfo(ctx, args)
+	case BridgeToolRemoteWrite:
+		return c.handleRemoteWrite(ctx, args)
+	case BridgeToolRemoteEdit:
+		return c.handleRemoteEdit(ctx, args)
 	default:
 		return dto.BridgeToolCallResult{}, ToolError{
 			Code:    "REMOTE_TOOL_NOT_SUPPORTED",
@@ -136,6 +145,109 @@ func (c BridgeClient) handleRemoteRead(_ context.Context, args map[string]any) (
 			"total_lines": sliced.TotalLines,
 			"truncated":   truncated,
 			"daemon":      true,
+		},
+	}, nil
+}
+
+func (c BridgeClient) handleRemoteWrite(_ context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
+	startedAt := time.Now()
+	content, ok := remoteStringArg(args, "content")
+	if !ok {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_WRITE_INVALID_ARGUMENT", Message: "content must be a string"}
+	}
+	createDirs := true
+	if _, exists := args["create_dirs"]; exists {
+		createDirs = boolFromMap(args, "create_dirs")
+	}
+	info, err := resolveWritableRemotePath(c.Config, stringFromMap(args, "file_path", ""), createDirs, "REMOTE_WRITE")
+	if err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	bytes := len([]byte(content))
+	limits := remoteLimitsFromConfig(c.Config, args)
+	if int64(bytes) > limits.MaxWriteBytes {
+		return dto.BridgeToolCallResult{}, ToolError{
+			Code:    "REMOTE_WRITE_TOO_LARGE",
+			Message: fmt.Sprintf("content size %d exceeds max_write_bytes %d", bytes, limits.MaxWriteBytes),
+		}
+	}
+	if err := os.WriteFile(info.Path, []byte(content), 0o600); err != nil {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_WRITE_FAILED", Message: err.Error()}
+	}
+	return dto.BridgeToolCallResult{
+		Content:    []dto.MCPContentBlock{{Type: "text", Text: fmt.Sprintf("wrote %d bytes to %s", bytes, info.Rel)}},
+		Summary:    "wrote " + info.Rel,
+		DurationMS: int(time.Since(startedAt).Milliseconds()),
+		ResultSize: bytes,
+		Metadata: map[string]any{
+			"file_path": info.Rel,
+			"bytes":     bytes,
+			"daemon":    true,
+		},
+	}, nil
+}
+
+func (c BridgeClient) handleRemoteEdit(_ context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
+	startedAt := time.Now()
+	oldString, ok := remoteStringArg(args, "old_string")
+	if !ok || oldString == "" {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_EDIT_INVALID_ARGUMENT", Message: "old_string must be a non-empty string"}
+	}
+	newString, ok := remoteStringArg(args, "new_string")
+	if !ok {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_EDIT_INVALID_ARGUMENT", Message: "new_string must be a string"}
+	}
+	info, err := resolveWritableRemotePath(c.Config, stringFromMap(args, "file_path", ""), false, "REMOTE_EDIT")
+	if err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	stat, err := os.Stat(info.Path)
+	if err != nil {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_EDIT_NOT_FOUND", Message: err.Error()}
+	}
+	if !stat.Mode().IsRegular() {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_EDIT_NOT_FILE", Message: "target is not a regular file: " + info.Rel}
+	}
+	raw, err := os.ReadFile(info.Path)
+	if err != nil {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_EDIT_FAILED", Message: err.Error()}
+	}
+	original := string(raw)
+	occurrences := strings.Count(original, oldString)
+	if occurrences == 0 {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_EDIT_NOT_FOUND", Message: "old_string was not found"}
+	}
+	replaceAll := boolFromMap(args, "replace_all")
+	if occurrences > 1 && !replaceAll {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_EDIT_AMBIGUOUS", Message: "old_string matched multiple times; set replace_all=true"}
+	}
+	replacements := 1
+	next := strings.Replace(original, oldString, newString, 1)
+	if replaceAll {
+		replacements = occurrences
+		next = strings.ReplaceAll(original, oldString, newString)
+	}
+	bytes := len([]byte(next))
+	limits := remoteLimitsFromConfig(c.Config, args)
+	if int64(bytes) > limits.MaxWriteBytes {
+		return dto.BridgeToolCallResult{}, ToolError{
+			Code:    "REMOTE_EDIT_TOO_LARGE",
+			Message: fmt.Sprintf("edited file size %d exceeds max_write_bytes %d", bytes, limits.MaxWriteBytes),
+		}
+	}
+	if err := os.WriteFile(info.Path, []byte(next), 0o600); err != nil {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_EDIT_FAILED", Message: err.Error()}
+	}
+	return dto.BridgeToolCallResult{
+		Content:    []dto.MCPContentBlock{{Type: "text", Text: fmt.Sprintf("edited %s; replacements=%d", info.Rel, replacements)}},
+		Summary:    "edited " + info.Rel,
+		DurationMS: int(time.Since(startedAt).Milliseconds()),
+		ResultSize: bytes,
+		Metadata: map[string]any{
+			"file_path":    info.Rel,
+			"replacements": replacements,
+			"bytes":        bytes,
+			"daemon":       true,
 		},
 	}, nil
 }
@@ -337,6 +449,7 @@ func (c BridgeClient) handleRemoteEnvInfo(_ context.Context, args map[string]any
 			"walk_depth":          limits.WalkDepth,
 			"max_result_bytes":    limits.MaxResultBytes,
 			"max_scan_file_bytes": limits.MaxScanFileBytes,
+			"max_write_bytes":     limits.MaxWriteBytes,
 		},
 		"daemon": true,
 	}
@@ -391,6 +504,7 @@ func remoteLimitsFromConfig(cfg Config, args map[string]any) remoteFileLimits {
 		WalkDepth:        remoteCapInt(cfg.Runtime.WalkDepth, DefaultRemoteWalkDepth, remoteHardWalkDepth),
 		MaxResultBytes:   remoteCapInt64(cfg.Runtime.MaxResultBytes, DefaultRemoteMaxResultBytes, remoteHardMaxResultBytes),
 		MaxScanFileBytes: remoteCapInt64(cfg.Runtime.MaxScanFileBytes, DefaultRemoteMaxScanFileBytes, remoteHardMaxScanFileBytes),
+		MaxWriteBytes:    remoteCapInt64(cfg.Runtime.MaxWriteBytes, DefaultRemoteMaxWriteBytes, remoteHardMaxWriteBytes),
 	}
 	policy := mapFromAny(args["_bridge_policy_limits"])
 	if len(policy) > 0 {
@@ -399,10 +513,12 @@ func remoteLimitsFromConfig(cfg Config, args map[string]any) remoteFileLimits {
 		limits.WalkDepth = minPositiveInt(limits.WalkDepth, remotePositiveInt(policy["walk_depth"], limits.WalkDepth, remoteHardWalkDepth))
 		limits.MaxResultBytes = minPositiveInt64(limits.MaxResultBytes, remotePositiveInt64(policy["max_result_bytes"], limits.MaxResultBytes, remoteHardMaxResultBytes))
 		limits.MaxScanFileBytes = minPositiveInt64(limits.MaxScanFileBytes, remotePositiveInt64(policy["max_scan_file_bytes"], limits.MaxScanFileBytes, remoteHardMaxScanFileBytes))
+		limits.MaxWriteBytes = minPositiveInt64(limits.MaxWriteBytes, remotePositiveInt64(policy["max_write_bytes"], limits.MaxWriteBytes, remoteHardMaxWriteBytes))
 	}
 	if args != nil {
 		limits.MaxResultBytes = minPositiveInt64(limits.MaxResultBytes, remotePositiveInt64(args["max_result_bytes"], limits.MaxResultBytes, remoteHardMaxResultBytes))
 		limits.MaxScanFileBytes = minPositiveInt64(limits.MaxScanFileBytes, remotePositiveInt64(args["max_scan_file_bytes"], limits.MaxScanFileBytes, remoteHardMaxScanFileBytes))
+		limits.MaxWriteBytes = minPositiveInt64(limits.MaxWriteBytes, remotePositiveInt64(args["max_write_bytes"], limits.MaxWriteBytes, remoteHardMaxWriteBytes))
 	}
 	return limits
 }
@@ -442,6 +558,105 @@ func resolveExistingRemotePath(cfg Config, requestedPath string, fallback string
 		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target path is denied by local policy"}
 	}
 	return remotePathInfo{Root: root, Path: realPath, Rel: relativeRemotePath(root, realPath)}, nil
+}
+
+func resolveWritableRemotePath(cfg Config, requestedPath string, createDirs bool, codePrefix string) (remotePathInfo, error) {
+	if !cfg.Policy.AllowWrite {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_DISABLED", Message: "write tools require policy.allow_write=true in data-proxy-agent config"}
+	}
+	rawPath := strings.TrimSpace(requestedPath)
+	if rawPath == "" {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_INVALID_ARGUMENT", Message: "file_path must be a non-empty string"}
+	}
+	root, allowedRoots, err := remoteWorkspaceRoots(cfg, codePrefix)
+	if err != nil {
+		return remotePathInfo{}, err
+	}
+	expanded := expandPath(rawPath)
+	candidate := expanded
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, candidate)
+	}
+	target, err := filepath.Abs(candidate)
+	if err != nil {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_INVALID_ARGUMENT", Message: err.Error()}
+	}
+	target = filepath.Clean(target)
+	if !pathInside(root, target) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target path is outside workspace"}
+	}
+	if len(allowedRoots) > 0 && !pathInsideAny(allowedRoots, target) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target path is outside allowed workspaces"}
+	}
+	if isDeniedRemotePath(cfg, root, target) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target path is denied by local policy"}
+	}
+	if info, err := os.Lstat(target); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target path is a symlink"}
+		}
+		if !info.Mode().IsRegular() {
+			return remotePathInfo{}, ToolError{Code: codePrefix + "_NOT_FILE", Message: "target is not a regular file"}
+		}
+	} else if !os.IsNotExist(err) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FAILED", Message: err.Error()}
+	} else if !createDirs {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_NOT_FOUND", Message: "path does not exist: " + rawPath}
+	}
+
+	parent := filepath.Dir(target)
+	ancestor, err := nearestExistingAncestor(parent)
+	if err != nil {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_NOT_FOUND", Message: err.Error()}
+	}
+	realAncestor, err := filepath.EvalSymlinks(ancestor)
+	if err != nil {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_NOT_FOUND", Message: err.Error()}
+	}
+	if !pathInside(root, realAncestor) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target parent is outside workspace"}
+	}
+	if len(allowedRoots) > 0 && !pathInsideAny(allowedRoots, realAncestor) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target parent is outside allowed workspaces"}
+	}
+	if isDeniedRemotePath(cfg, root, realAncestor) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target parent is denied by local policy"}
+	}
+	if createDirs {
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			return remotePathInfo{}, ToolError{Code: codePrefix + "_FAILED", Message: err.Error()}
+		}
+	}
+	realParent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_NOT_FOUND", Message: err.Error()}
+	}
+	if !pathInside(root, realParent) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target parent is outside workspace"}
+	}
+	if len(allowedRoots) > 0 && !pathInsideAny(allowedRoots, realParent) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target parent is outside allowed workspaces"}
+	}
+	if isDeniedRemotePath(cfg, root, realParent) {
+		return remotePathInfo{}, ToolError{Code: codePrefix + "_FORBIDDEN", Message: "target parent is denied by local policy"}
+	}
+	return remotePathInfo{Root: root, Path: target, Rel: relativeRemotePath(root, target)}, nil
+}
+
+func nearestExistingAncestor(pathValue string) (string, error) {
+	current := filepath.Clean(pathValue)
+	for {
+		if _, err := os.Lstat(current); err == nil {
+			return current, nil
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		next := filepath.Dir(current)
+		if next == current {
+			return "", fmt.Errorf("no existing ancestor for %s", pathValue)
+		}
+		current = next
+	}
 }
 
 func remoteWorkspaceRoots(cfg Config, codePrefix string) (string, []string, error) {
@@ -663,6 +878,22 @@ func firstString(args map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func remoteStringArg(args map[string]any, key string) (string, bool) {
+	if args == nil {
+		return "", false
+	}
+	value, ok := args[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := value.(string)
+	return text, ok
+}
+
+func isRemoteWriteTool(toolName string) bool {
+	return toolName == BridgeToolRemoteWrite || toolName == BridgeToolRemoteEdit
 }
 
 func remotePositiveInt(value any, fallback int, hardMax int) int {
