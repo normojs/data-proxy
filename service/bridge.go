@@ -180,6 +180,8 @@ const (
 	defaultBridgeAgentSetupTokenTTLSeconds = 10 * 60
 	minBridgeAgentSetupTokenTTLSeconds     = 60
 	maxBridgeAgentSetupTokenTTLSeconds     = 60 * 60
+	maxBridgeAgentHealthChecks             = 100
+	maxBridgeAgentHealthJSONBytes          = 60 * 1024
 )
 
 func EnsureBridgeAgentSetup(params BridgeAgentSetupParams) (dto.BridgeAgentSetupResponse, error) {
@@ -454,6 +456,7 @@ func GetBridgeClientHealth(params BridgeClientHealthParams) (dto.BridgeClientHea
 		ClientId:       client.ClientId,
 		WindowSeconds:  windowSeconds,
 		GeneratedAt:    now,
+		AgentHealth:    bridgeAgentHealthFromClient(*client),
 		Calls:          bridgeAuditHealthFromStats(stats),
 		RecentErrors:   bridgeRecentErrorsToDTO(errors),
 		RecentSessions: bridgeSessionsToDTO(sessions),
@@ -464,6 +467,35 @@ func GetBridgeClientHealth(params BridgeClientHealthParams) (dto.BridgeClientHea
 		health.OnlineSession = &converted
 	}
 	return health, nil
+}
+
+func UpdateBridgeClientHealth(clientId string, report dto.BridgeAgentHealthReport) error {
+	clientId = strings.TrimSpace(clientId)
+	if clientId == "" {
+		return errors.New("client_id is required")
+	}
+	report = normalizeBridgeAgentHealthReport(report)
+	bytes, err := common.Marshal(report)
+	if err != nil {
+		return err
+	}
+	for len(bytes) > maxBridgeAgentHealthJSONBytes && len(report.Checks) > 0 {
+		report.Checks = report.Checks[:len(report.Checks)-1]
+		report.Summary = summarizeBridgeAgentHealthChecks(report.Checks)
+		bytes, err = common.Marshal(report)
+		if err != nil {
+			return err
+		}
+	}
+	if len(bytes) > maxBridgeAgentHealthJSONBytes {
+		report.Checks = nil
+		report.Summary = summarizeBridgeAgentHealthChecks(report.Checks)
+		bytes, err = common.Marshal(report)
+		if err != nil {
+			return err
+		}
+	}
+	return model.UpdateBridgeClientHealth(clientId, string(bytes), report.GeneratedAt)
 }
 
 func UpdateBridgeClient(params BridgeClientUpdateParams) (dto.BridgeClientDetail, error) {
@@ -864,6 +896,73 @@ func bridgeRecentErrorsToDTO(logs []model.BridgeAuditLog) []dto.BridgeRecentErro
 		})
 	}
 	return items
+}
+
+func bridgeAgentHealthFromClient(client model.BridgeClient) *dto.BridgeAgentHealthReport {
+	if strings.TrimSpace(client.HealthJson) == "" {
+		return nil
+	}
+	var report dto.BridgeAgentHealthReport
+	if err := common.UnmarshalJsonStr(client.HealthJson, &report); err != nil {
+		return nil
+	}
+	if report.GeneratedAt == 0 {
+		report.GeneratedAt = client.HealthReportedAt
+	}
+	return &report
+}
+
+func normalizeBridgeAgentHealthReport(report dto.BridgeAgentHealthReport) dto.BridgeAgentHealthReport {
+	if report.GeneratedAt <= 0 {
+		report.GeneratedAt = common.GetTimestamp()
+	}
+	report.Version = truncateBridgeString(report.Version, 64)
+	report.Platform = truncateBridgeString(report.Platform, 64)
+	report.Workspace = truncateBridgeString(report.Workspace, 512)
+	if len(report.Checks) > maxBridgeAgentHealthChecks {
+		report.Checks = report.Checks[:maxBridgeAgentHealthChecks]
+	}
+	for i := range report.Checks {
+		report.Checks[i].Name = truncateBridgeString(report.Checks[i].Name, 128)
+		report.Checks[i].Status = normalizeBridgeAgentHealthStatus(report.Checks[i].Status)
+		report.Checks[i].Detail = truncateBridgeString(report.Checks[i].Detail, 512)
+	}
+	report.Summary = summarizeBridgeAgentHealthChecks(report.Checks)
+	return report
+}
+
+func summarizeBridgeAgentHealthChecks(checks []dto.BridgeAgentHealthCheck) dto.BridgeAgentHealthSummary {
+	summary := dto.BridgeAgentHealthSummary{
+		Status: "ok",
+		Total:  len(checks),
+	}
+	for _, check := range checks {
+		switch normalizeBridgeAgentHealthStatus(check.Status) {
+		case "fail":
+			summary.Fail++
+		case "warn":
+			summary.Warn++
+		default:
+			summary.OK++
+		}
+	}
+	if summary.Fail > 0 {
+		summary.Status = "fail"
+	} else if summary.Warn > 0 {
+		summary.Status = "warn"
+	}
+	return summary
+}
+
+func normalizeBridgeAgentHealthStatus(status string) string {
+	switch strings.TrimSpace(strings.ToLower(status)) {
+	case "fail", "failed", "error":
+		return "fail"
+	case "warn", "warning":
+		return "warn"
+	default:
+		return "ok"
+	}
 }
 
 func bridgeAuditLogToDTO(log model.BridgeAuditLog) dto.BridgeAuditLogItem {

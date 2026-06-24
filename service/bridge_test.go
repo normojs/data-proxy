@@ -251,6 +251,50 @@ func TestRegisterBridgeClientRejectsCrossUserClientId(t *testing.T) {
 	require.Equal(t, owner.Id, archived.UserId)
 }
 
+func TestUpdateBridgeClientHealthReturnedByHealthAPI(t *testing.T) {
+	setupMCPProxyServiceTestDB(t)
+
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+	_, err := RegisterBridgeClient(BridgeRegisterInput{
+		UserId:       user.Id,
+		TokenId:      token.Id,
+		ClientId:     "bridge-health-report",
+		Name:         "Health Bridge",
+		Version:      "0.1.0",
+		Platform:     "darwin-arm64",
+		Workspace:    "/tmp/project",
+		Capabilities: []string{"remote_read"},
+	})
+	require.NoError(t, err)
+
+	err = UpdateBridgeClientHealth("bridge-health-report", dto.BridgeAgentHealthReport{
+		GeneratedAt: 12345,
+		Version:     "0.2.0",
+		Platform:    "darwin-arm64",
+		Workspace:   "/tmp/project",
+		Checks: []dto.BridgeAgentHealthCheck{
+			{Name: "workspace", Status: "ok", Detail: "/tmp/project"},
+			{Name: "mcp_server.coding", Status: "warning", Detail: "not reachable"},
+		},
+	})
+	require.NoError(t, err)
+
+	health, err := GetBridgeClientHealth(BridgeClientHealthParams{
+		UserId:        user.Id,
+		ClientId:      "bridge-health-report",
+		WindowSeconds: 24 * 60 * 60,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, health.AgentHealth)
+	require.Equal(t, int64(12345), health.AgentHealth.GeneratedAt)
+	require.Equal(t, "0.2.0", health.AgentHealth.Version)
+	require.Equal(t, "warn", health.AgentHealth.Summary.Status)
+	require.Equal(t, 2, health.AgentHealth.Summary.Total)
+	require.Equal(t, 1, health.AgentHealth.Summary.OK)
+	require.Equal(t, 1, health.AgentHealth.Summary.Warn)
+	require.Equal(t, "warn", health.AgentHealth.Checks[1].Status)
+}
+
 func TestCloseOldBridgeSessionKeepsReconnectedClientOnline(t *testing.T) {
 	setupMCPProxyServiceTestDB(t)
 

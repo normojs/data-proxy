@@ -103,6 +103,17 @@ func BridgeWebSocket(c *gin.Context) {
 				return
 			}
 			outbound <- bridge.OutboundMessage{Type: "pong", Id: msg.Id}
+		case "health":
+			report, err := decodeBridgeAgentHealthReport(msg.Data)
+			if err != nil {
+				outbound <- bridge.OutboundMessage{Type: "error", Id: msg.Id, Data: gin.H{"message": err.Error()}}
+				continue
+			}
+			if err := service.UpdateBridgeClientHealth(result.ClientId, report); err != nil {
+				outbound <- bridge.OutboundMessage{Type: "error", Id: msg.Id, Data: gin.H{"message": err.Error()}}
+				continue
+			}
+			_ = service.TouchBridgeClientSession(result.SessionId)
 		case "tool_result":
 			result, err := decodeBridgeToolResult(msg.Data)
 			if err != nil {
@@ -179,6 +190,15 @@ func decodeBridgeToolResult(data any) (dto.BridgeToolCallResult, error) {
 
 func decodeBridgeToolError(data any) (dto.BridgeToolCallError, error) {
 	var result dto.BridgeToolCallError
+	bytes, err := common.Marshal(data)
+	if err != nil {
+		return result, err
+	}
+	return result, common.Unmarshal(bytes, &result)
+}
+
+func decodeBridgeAgentHealthReport(data any) (dto.BridgeAgentHealthReport, error) {
+	var result dto.BridgeAgentHealthReport
 	bytes, err := common.Marshal(data)
 	if err != nil {
 		return result, err

@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/dto"
 )
 
 const (
@@ -36,6 +38,56 @@ func AgentLocalHealthChecks(cfg Config, timeout time.Duration) []AgentHealthChec
 		checks = append(checks, checkMCPServer(cfg, server, timeout))
 	}
 	return checks
+}
+
+func BuildAgentHealthReport(cfg Config, timeout time.Duration) dto.BridgeAgentHealthReport {
+	fillConfigDefaults(&cfg)
+	checks := AgentLocalHealthChecks(cfg, timeout)
+	reportChecks := make([]dto.BridgeAgentHealthCheck, 0, len(checks))
+	summary := dto.BridgeAgentHealthSummary{
+		Status: HealthStatusOK,
+		Total:  len(checks),
+	}
+	for _, check := range checks {
+		status := normalizeAgentHealthStatus(check.Status)
+		switch status {
+		case HealthStatusFail:
+			summary.Fail++
+		case HealthStatusWarn:
+			summary.Warn++
+		default:
+			summary.OK++
+		}
+		reportChecks = append(reportChecks, dto.BridgeAgentHealthCheck{
+			Name:   check.Name,
+			Status: status,
+			Detail: check.Detail,
+		})
+	}
+	if summary.Fail > 0 {
+		summary.Status = HealthStatusFail
+	} else if summary.Warn > 0 {
+		summary.Status = HealthStatusWarn
+	}
+	return dto.BridgeAgentHealthReport{
+		GeneratedAt: time.Now().Unix(),
+		Version:     agentVersion(cfg),
+		Platform:    agentPlatform(),
+		Workspace:   cfg.Agent.Workspace,
+		Summary:     summary,
+		Checks:      reportChecks,
+	}
+}
+
+func normalizeAgentHealthStatus(status string) string {
+	switch strings.TrimSpace(strings.ToLower(status)) {
+	case HealthStatusFail:
+		return HealthStatusFail
+	case HealthStatusWarn:
+		return HealthStatusWarn
+	default:
+		return HealthStatusOK
+	}
 }
 
 func checkAgentWorkspace(cfg Config) []AgentHealthCheck {

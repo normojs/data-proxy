@@ -26,21 +26,23 @@ const (
 )
 
 type BridgeClient struct {
-	Id           int            `json:"id"`
-	ClientId     string         `json:"client_id" gorm:"type:varchar(128);not null;uniqueIndex"`
-	UserId       int            `json:"user_id" gorm:"not null;index"`
-	TokenId      int            `json:"token_id" gorm:"index"`
-	Name         string         `json:"name" gorm:"type:varchar(128);not null;default:''"`
-	Version      string         `json:"version" gorm:"type:varchar(64);not null;default:''"`
-	Platform     string         `json:"platform" gorm:"type:varchar(64);not null;default:''"`
-	Workspace    string         `json:"workspace" gorm:"type:varchar(512);not null;default:''"`
-	Capabilities string         `json:"capabilities" gorm:"type:text"`
-	Policy       string         `json:"policy" gorm:"type:text"`
-	Status       int            `json:"status" gorm:"not null;default:0;index"`
-	LastSeenAt   int64          `json:"last_seen_at" gorm:"bigint;index"`
-	CreatedAt    int64          `json:"created_at" gorm:"bigint"`
-	UpdatedAt    int64          `json:"updated_at" gorm:"bigint"`
-	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index"`
+	Id               int            `json:"id"`
+	ClientId         string         `json:"client_id" gorm:"type:varchar(128);not null;uniqueIndex"`
+	UserId           int            `json:"user_id" gorm:"not null;index"`
+	TokenId          int            `json:"token_id" gorm:"index"`
+	Name             string         `json:"name" gorm:"type:varchar(128);not null;default:''"`
+	Version          string         `json:"version" gorm:"type:varchar(64);not null;default:''"`
+	Platform         string         `json:"platform" gorm:"type:varchar(64);not null;default:''"`
+	Workspace        string         `json:"workspace" gorm:"type:varchar(512);not null;default:''"`
+	Capabilities     string         `json:"capabilities" gorm:"type:text"`
+	Policy           string         `json:"policy" gorm:"type:text"`
+	Status           int            `json:"status" gorm:"not null;default:0;index"`
+	LastSeenAt       int64          `json:"last_seen_at" gorm:"bigint;index"`
+	HealthJson       string         `json:"health_json" gorm:"type:text"`
+	HealthReportedAt int64          `json:"health_reported_at" gorm:"bigint;index"`
+	CreatedAt        int64          `json:"created_at" gorm:"bigint"`
+	UpdatedAt        int64          `json:"updated_at" gorm:"bigint"`
+	DeletedAt        gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 func (BridgeClient) TableName() string {
@@ -254,6 +256,23 @@ func MarkBridgeClientOfflineIfNoOnlineSession(clientId string) (bool, error) {
 			"updated_at": now,
 		})
 	return result.RowsAffected > 0, result.Error
+}
+
+func UpdateBridgeClientHealth(clientId string, healthJson string, reportedAt int64) error {
+	clientId = strings.TrimSpace(clientId)
+	if clientId == "" {
+		return nil
+	}
+	now := common.GetTimestamp()
+	if reportedAt <= 0 {
+		reportedAt = now
+	}
+	return DB.Model(&BridgeClient{}).Where("client_id = ?", clientId).Updates(map[string]any{
+		"health_json":        healthJson,
+		"health_reported_at": reportedAt,
+		"last_seen_at":       now,
+		"updated_at":         now,
+	}).Error
 }
 
 func UpdateBridgeClientFields(clientId string, updates map[string]any) (*BridgeClient, error) {

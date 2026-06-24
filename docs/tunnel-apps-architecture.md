@@ -76,7 +76,7 @@ Data Proxy 的 Tunnel Apps 分为两类：
 - HTTP Tunnel 的登录态访问、CONNECT 支持、分布式共享带宽限速，以及更长时间的 WebSocket/SSE/大文件压力测试。
 - TCP 反向隧道连接复用、路由和公网入口。
 - Tunnel 计费结算 worker。
-- 本地 user mcp 安装包/agent 程序自动下载、自动注册和在线健康检查。
+- 本地 user mcp 安装包/agent 程序自动下载、自动注册、agent 版本建议和更细粒度的 stdio MCP 子进程健康检查。
 
 ## 权限模式
 

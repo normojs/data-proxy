@@ -108,12 +108,24 @@ function MetricCard(props: {
         {props.value}
       </div>
       {props.detail && (
-        <div className='text-muted-foreground mt-1 text-xs'>
-          {props.detail}
-        </div>
+        <div className='text-muted-foreground mt-1 text-xs'>{props.detail}</div>
       )}
     </div>
   )
+}
+
+function agentHealthVariant(status?: string) {
+  if (status === 'fail') return 'danger' as const
+  if (status === 'warn') return 'warning' as const
+  if (status === 'ok') return 'success' as const
+  return 'neutral' as const
+}
+
+function agentHealthLabel(status?: string) {
+  if (status === 'fail') return 'Fail'
+  if (status === 'warn') return 'Warn'
+  if (status === 'ok') return 'OK'
+  return 'Unknown'
 }
 
 function SessionRow(props: {
@@ -208,10 +220,7 @@ export function BridgeClientDetailPanel(props: BridgeClientDetailPanelProps) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [closeSessionTarget, setCloseSessionTarget] =
     useState<BridgeSession | null>(null)
-  const detailParams = useMemo(
-    () => ({ scope: props.scope }),
-    [props.scope]
-  )
+  const detailParams = useMemo(() => ({ scope: props.scope }), [props.scope])
   const healthParams = useMemo(
     () => ({
       scope: props.scope,
@@ -547,7 +556,9 @@ export function BridgeClientDetailPanel(props: BridgeClientDetailPanelProps) {
         <MetricCard
           label={t('Session')}
           value={health?.online ? t('Online') : t('Offline')}
-          detail={health?.online_session?.session_id || client.session_id || '-'}
+          detail={
+            health?.online_session?.session_id || client.session_id || '-'
+          }
           tone={health?.online ? 'success' : 'default'}
         />
       </div>
@@ -575,13 +586,95 @@ export function BridgeClientDetailPanel(props: BridgeClientDetailPanelProps) {
       )}
 
       <div className='mt-4 rounded-md border px-3 py-2'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
+          <div className='flex items-center gap-2'>
+            <div className='text-sm font-medium'>{t('Agent Health')}</div>
+            {health?.agent_health && (
+              <StatusBadge
+                label={t(agentHealthLabel(health.agent_health.summary.status))}
+                variant={agentHealthVariant(health.agent_health.summary.status)}
+                copyable={false}
+              />
+            )}
+          </div>
+          {health?.agent_health && (
+            <div className='text-muted-foreground text-xs'>
+              {t('Last Report')}:{' '}
+              <TimestampCell value={health.agent_health.generated_at} />
+            </div>
+          )}
+        </div>
+        {!health?.agent_health ? (
+          <div className='text-muted-foreground mt-2 text-sm'>
+            {t('No agent health reported yet')}
+          </div>
+        ) : (
+          <>
+            <div className='text-muted-foreground mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums'>
+              <span>
+                {t('Checks')}: {formatNumber(health.agent_health.summary.total)}
+              </span>
+              <span>
+                {t('OK')}: {formatNumber(health.agent_health.summary.ok)}
+              </span>
+              <span>
+                {t('Warn')}: {formatNumber(health.agent_health.summary.warn)}
+              </span>
+              <span>
+                {t('Fail')}: {formatNumber(health.agent_health.summary.fail)}
+              </span>
+              {health.agent_health.version && (
+                <span>{health.agent_health.version}</span>
+              )}
+              {health.agent_health.platform && (
+                <span>{health.agent_health.platform}</span>
+              )}
+              {health.agent_health.workspace && (
+                <span className='min-w-0 truncate'>
+                  {health.agent_health.workspace}
+                </span>
+              )}
+            </div>
+            {health.agent_health.checks.length > 0 && (
+              <div className='mt-2 grid gap-2 lg:grid-cols-2'>
+                {health.agent_health.checks.slice(0, 8).map((check, index) => (
+                  <div
+                    key={`${check.name}-${index}`}
+                    className='bg-muted/35 min-w-0 rounded-md px-2 py-1.5'
+                  >
+                    <div className='flex min-w-0 items-center gap-2'>
+                      <StatusBadge
+                        label={t(agentHealthLabel(check.status))}
+                        variant={agentHealthVariant(check.status)}
+                        copyable={false}
+                      />
+                      <span className='min-w-0 truncate font-mono text-xs font-medium'>
+                        {check.name || '-'}
+                      </span>
+                    </div>
+                    {check.detail && (
+                      <div className='text-muted-foreground mt-1 truncate text-xs'>
+                        {check.detail}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className='mt-4 rounded-md border px-3 py-2'>
         <div className='text-sm font-medium'>{t('Server Policy')}</div>
         <div className='text-muted-foreground mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4'>
           <span className='min-w-0 truncate'>
-            {t('Allowed tools')}: {formatPolicyList(client.policy.allowed_tools)}
+            {t('Allowed tools')}:{' '}
+            {formatPolicyList(client.policy.allowed_tools)}
           </span>
           <span>
-            {t('Write')}: {client.policy.allow_write ? t('Allowed') : t('Denied')}
+            {t('Write')}:{' '}
+            {client.policy.allow_write ? t('Allowed') : t('Denied')}
           </span>
           <span>
             {t('Max results')}: {formatPolicyLimit(client.policy.max_results)}
@@ -691,12 +784,8 @@ export function BridgeClientDetailPanel(props: BridgeClientDetailPanelProps) {
                   canManage={props.isAdmin}
                   isClosing={closeSessionMutation.isPending}
                   onCloseSession={setCloseSessionTarget}
-                  onOpenAuditLogs={(sessionId) =>
-                    openAuditLogs({ sessionId })
-                  }
-                  onOpenToolCalls={(sessionId) =>
-                    openToolCalls({ sessionId })
-                  }
+                  onOpenAuditLogs={(sessionId) => openAuditLogs({ sessionId })}
+                  onOpenToolCalls={(sessionId) => openToolCalls({ sessionId })}
                 />
               ))}
             </div>

@@ -194,7 +194,7 @@ data-proxy-agent report --output ./agent-diagnostic.zip
 endpoint TCP 连通性，以及 stdio MCP 的 shell/命令前缀检查。stdio 检查不会主动启动
 MCP 进程；真正的协议握手继续使用 `data-proxy-agent mcp test <name>`。
 
-其中系统服务安装/启停命令和版本更新命令已具备基础能力；API token 远端有效性、系统服务运行状态和控制台健康页面仍属于后续产品化阶段。
+其中系统服务安装/启停命令、版本更新命令、agent 在线健康上报和控制台健康摘要展示已具备基础能力；API token 远端有效性、系统服务运行状态和更细粒度的 MCP stdio 进程健康仍属于后续产品化阶段。
 
 ## 配置文件
 
@@ -481,6 +481,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已实现 `tunnel route list/add/remove`，用于管理本地 HTTP/WebSocket/SSE route 配置。
 - `run` 已能读取配置和环境变量，连接 `/bridge/ws`，携带 Bearer token，发送 `register`，处理 `registered`、`pong`、`close` 和服务端 `error`。
 - 已实现心跳 `ping` 和重连退避。
+- 已实现 agent 在线健康上报：注册成功后立即通过 Bridge WebSocket 发送 `health` 摘要，之后按 `runtime.health_interval_ms` 定时上报；缺省为 60 秒，设为负数可禁用；服务端仅保存最新一份元数据级健康 JSON，并在 Bridge Client 健康详情 API/控制台展示。
 - 已实现敏感 token 脱敏、私有权限配置文件写入和基础配置校验。
 - 已实现 `http_tunnel.request` 普通/流式/SSE/WebSocket 转发：目标校验、loopback 默认限制、header 过滤、body base64、流式上传/下载、WebSocket frame 转发、响应截断和服务端兼容的 `http_response` metadata。
 - 已实现 MCP bridge 基础能力：`mcp_proxy.test`、`mcp_proxy.tools_list`、`mcp_proxy.tools_call` 和 `mcp_proxy.rpc`，支持 Streamable HTTP 目标、`Mcp-Session-Id` 会话复用、SSE `data:` 响应解析、loopback 默认限制，以及本地 stdio MCP 子进程桥接。stdio command 仅从本机配置读取，远端请求只能按本地 MCP server 名称选择。
@@ -543,7 +544,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 
 - 已实现自动更新命令，后续补签名和 Windows helper。
 - 已实现本地诊断包基础命令，后续可接控制台上传和版本建议。
-- 控制台健康检查页面。
+- 已实现控制台健康摘要展示，后续补远端 token 校验、系统服务状态和 stdio MCP 子进程健康。
 - 多 Agent 管理。
 - 策略版本和配置下发。
 - MCP stdio 的启动日志、自动重启策略和更细粒度进程健康检查。

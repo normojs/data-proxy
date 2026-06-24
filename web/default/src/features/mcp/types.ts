@@ -954,12 +954,36 @@ export type BridgeRecentError = {
   created_at: number
 }
 
+export type BridgeAgentHealthSummary = {
+  status: string
+  total: number
+  ok: number
+  warn: number
+  fail: number
+}
+
+export type BridgeAgentHealthCheck = {
+  name: string
+  status: string
+  detail?: string
+}
+
+export type BridgeAgentHealthReport = {
+  generated_at: number
+  version?: string
+  platform?: string
+  workspace?: string
+  summary: BridgeAgentHealthSummary
+  checks: BridgeAgentHealthCheck[]
+}
+
 export type BridgeClientHealth = {
   client_id: string
   window_seconds: number
   generated_at: number
   online: boolean
   online_session?: BridgeSessionSnapshot
+  agent_health?: BridgeAgentHealthReport
   calls: BridgeAuditHealth
   recent_errors: BridgeRecentError[]
   recent_sessions: BridgeSession[]

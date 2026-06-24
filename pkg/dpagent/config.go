@@ -16,6 +16,7 @@ const (
 	DefaultBridgePath       = "/bridge/ws"
 	DefaultAgentVersion     = "0.1.0-dev"
 	DefaultPingIntervalMS   = 30000
+	DefaultHealthIntervalMS = 60000
 	DefaultReconnectBaseMS  = 500
 	DefaultReconnectMaxMS   = 15000
 	DefaultMaxConcurrency   = 16
@@ -91,6 +92,7 @@ type LoggingConfig struct {
 
 type RuntimeConfig struct {
 	PingIntervalMS   int   `json:"ping_interval_ms,omitempty" yaml:"ping_interval_ms,omitempty"`
+	HealthIntervalMS int   `json:"health_interval_ms,omitempty" yaml:"health_interval_ms,omitempty"`
 	Reconnect        bool  `json:"reconnect" yaml:"reconnect"`
 	ReconnectBaseMS  int   `json:"reconnect_base_ms,omitempty" yaml:"reconnect_base_ms,omitempty"`
 	ReconnectMaxMS   int   `json:"reconnect_max_ms,omitempty" yaml:"reconnect_max_ms,omitempty"`
@@ -163,6 +165,7 @@ func DefaultConfig() Config {
 		},
 		Runtime: RuntimeConfig{
 			PingIntervalMS:   DefaultPingIntervalMS,
+			HealthIntervalMS: DefaultHealthIntervalMS,
 			Reconnect:        true,
 			ReconnectBaseMS:  DefaultReconnectBaseMS,
 			ReconnectMaxMS:   DefaultReconnectMaxMS,
@@ -467,6 +470,9 @@ func fillConfigDefaults(cfg *Config) {
 	}
 	if cfg.Runtime.PingIntervalMS <= 0 {
 		cfg.Runtime.PingIntervalMS = DefaultPingIntervalMS
+	}
+	if cfg.Runtime.HealthIntervalMS == 0 {
+		cfg.Runtime.HealthIntervalMS = DefaultHealthIntervalMS
 	}
 	if cfg.Runtime.ReconnectBaseMS <= 0 {
 		cfg.Runtime.ReconnectBaseMS = DefaultReconnectBaseMS

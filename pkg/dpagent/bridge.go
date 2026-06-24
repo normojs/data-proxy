@@ -124,6 +124,7 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			}
 		}()
 	}
+	var healthReporterOnce sync.Once
 	streamInputs := newBridgeStreamInputRegistry()
 
 	for {
@@ -139,6 +140,9 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			result.SessionID = sessionID
 			result.ClientID = clientID
 			logf(c.Out, "INFO", "registered bridge client", "client_id", clientID, "session_id", sessionID)
+			healthReporterOnce.Do(func() {
+				startBridgeHealthReporter(ctx, c.Config, writeJSON, c.Err)
+			})
 		case "pong":
 		case "close":
 			cancel()
@@ -200,6 +204,46 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			logf(c.Err, "WARN", "ignored bridge message", "type", msg.Type)
 		}
 	}
+}
+
+func startBridgeHealthReporter(ctx context.Context, cfg Config, writeJSON func(dto.BridgeWSMessage) error, errOut io.Writer) {
+	intervalMS := cfg.Runtime.HealthIntervalMS
+	if intervalMS <= 0 {
+		return
+	}
+	interval := time.Duration(intervalMS) * time.Millisecond
+	timeout := bridgeHealthReportTimeout(cfg)
+	send := func() {
+		report := BuildAgentHealthReport(cfg, timeout)
+		if err := writeJSON(dto.BridgeWSMessage{
+			Type: "health",
+			Id:   fmt.Sprintf("health-%d", time.Now().UnixMilli()),
+			Data: report,
+		}); err != nil {
+			logf(errOut, "WARN", "health report upload failed", "error", err.Error())
+		}
+	}
+	go func() {
+		send()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				send()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func bridgeHealthReportTimeout(cfg Config) time.Duration {
+	timeout := time.Duration(cfg.Runtime.HTTPTimeoutMS) * time.Millisecond
+	if timeout <= 0 || timeout > 5*time.Second {
+		return 5 * time.Second
+	}
+	return timeout
 }
 
 func (c BridgeClient) handleBridgeToolCall(ctx context.Context, toolName string, args map[string]any, inputQueue *bridgeStreamInputQueue, emit bridgeStreamChunkEmitter) (dto.BridgeToolCallResult, error) {

@@ -48,6 +48,39 @@ func TestBridgeRunOnceRegistersAndHandlesServerClose(t *testing.T) {
 	}
 }
 
+func TestBridgeRunOnceSendsHealthAfterRegistered(t *testing.T) {
+	server := newBridgeTestServer(t, func(t *testing.T, conn *websocket.Conn) {
+		_ = readBridgeTestMessage(t, conn)
+		if err := conn.WriteJSON(dto.BridgeWSMessage{Type: "registered", Data: map[string]any{
+			"session_id": "sess-health",
+			"client_id":  "test-agent",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		msg := readBridgeTestMessage(t, conn)
+		if msg.Type != "health" {
+			t.Fatalf("expected health, got %s", msg.Type)
+		}
+		var report dto.BridgeAgentHealthReport
+		if err := decodeBridgeData(msg.Data, &report); err != nil {
+			t.Fatal(err)
+		}
+		if report.GeneratedAt == 0 || report.Summary.Total == 0 || len(report.Checks) == 0 {
+			t.Fatalf("unexpected health report: %#v", report)
+		}
+		_ = conn.WriteJSON(dto.BridgeWSMessage{Type: "close"})
+	})
+	defer server.Close()
+
+	cfg := bridgeTestConfig(server.URL)
+	cfg.Agent.Workspace = t.TempDir()
+	cfg.Runtime.HealthIntervalMS = 60 * 1000
+	client := BridgeClient{Config: cfg}
+	if _, err := client.runOnce(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBridgeRunOnceRejectsUnknownToolCall(t *testing.T) {
 	server := newBridgeTestServer(t, func(t *testing.T, conn *websocket.Conn) {
 		_ = readBridgeTestMessage(t, conn)
@@ -100,6 +133,7 @@ func bridgeTestConfig(serverURL string) Config {
 	cfg.Agent.Token = "test-token"
 	cfg.Agent.Workspace = "/tmp"
 	cfg.Runtime.PingIntervalMS = 0
+	cfg.Runtime.HealthIntervalMS = 0
 	cfg.Runtime.Reconnect = false
 	return cfg
 }

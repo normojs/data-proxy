@@ -62,6 +62,29 @@ type BridgeToolCallError struct {
 	Message string `json:"message,omitempty"`
 }
 
+type BridgeAgentHealthReport struct {
+	GeneratedAt int64                    `json:"generated_at"`
+	Version     string                   `json:"version,omitempty"`
+	Platform    string                   `json:"platform,omitempty"`
+	Workspace   string                   `json:"workspace,omitempty"`
+	Summary     BridgeAgentHealthSummary `json:"summary"`
+	Checks      []BridgeAgentHealthCheck `json:"checks"`
+}
+
+type BridgeAgentHealthSummary struct {
+	Status string `json:"status"`
+	Total  int    `json:"total"`
+	OK     int    `json:"ok"`
+	Warn   int    `json:"warn"`
+	Fail   int    `json:"fail"`
+}
+
+type BridgeAgentHealthCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
 type BridgeClientUpdateRequest struct {
 	Name         *string              `json:"name,omitempty"`
 	Version      *string              `json:"version,omitempty"`
@@ -190,14 +213,15 @@ type BridgeSessionItem struct {
 }
 
 type BridgeClientHealth struct {
-	ClientId       string                 `json:"client_id"`
-	WindowSeconds  int64                  `json:"window_seconds"`
-	GeneratedAt    int64                  `json:"generated_at"`
-	Online         bool                   `json:"online"`
-	OnlineSession  *BridgeSessionSnapshot `json:"online_session,omitempty"`
-	Calls          BridgeAuditHealth      `json:"calls"`
-	RecentErrors   []BridgeRecentError    `json:"recent_errors"`
-	RecentSessions []BridgeSessionItem    `json:"recent_sessions"`
+	ClientId       string                   `json:"client_id"`
+	WindowSeconds  int64                    `json:"window_seconds"`
+	GeneratedAt    int64                    `json:"generated_at"`
+	Online         bool                     `json:"online"`
+	OnlineSession  *BridgeSessionSnapshot   `json:"online_session,omitempty"`
+	AgentHealth    *BridgeAgentHealthReport `json:"agent_health,omitempty"`
+	Calls          BridgeAuditHealth        `json:"calls"`
+	RecentErrors   []BridgeRecentError      `json:"recent_errors"`
+	RecentSessions []BridgeSessionItem      `json:"recent_sessions"`
 }
 
 type BridgeAuditHealth struct {
