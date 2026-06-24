@@ -87,7 +87,7 @@ Data Proxy 的 Tunnel Apps 分为两类：
 | `read_only` | `remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_env_info`、`remote_project_info`、`remote_get_related_files`、`remote_git_status`、`remote_git_diff`、`remote_git_log` | 只读代码浏览、搜索和 Git 状态。 |
 | `write` | `read_only` + `remote_write`、`remote_edit` | 允许文件写入和编辑，不开放命令执行。 |
 | `exec_safe` | `write` + `remote_run_tests` | 允许较保守的测试执行。服务端不解析命令内容。 |
-| `exec_trusted` | `exec_safe` + `remote_exec`、`remote_shell_open`、`remote_shell_eval`、`remote_install_package` | 高危可信模式，只应给明确授权用户和受控工作区。 |
+| `exec_trusted` | `exec_safe` + `remote_exec`、`remote_shell_open`、`remote_shell_eval`、`remote_install_package` | 高危可信模式，只应给明确授权用户和受控工作区；Go agent 现阶段已支持一次性 `remote_exec`，本机仍需额外开启 `policy.exec.allow_arbitrary=true`。 |
 
 `http_tunnel` / `tcp_tunnel` 固定为 `traffic` 权限，不能申请代码工具权限。
 

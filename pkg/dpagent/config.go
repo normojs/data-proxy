@@ -64,8 +64,9 @@ type PolicyConfig struct {
 }
 
 type ExecPolicy struct {
-	Enabled      bool     `json:"enabled" yaml:"enabled"`
-	SafeCommands []string `json:"safe_commands,omitempty" yaml:"safe_commands,omitempty"`
+	Enabled        bool     `json:"enabled" yaml:"enabled"`
+	AllowArbitrary bool     `json:"allow_arbitrary" yaml:"allow_arbitrary"`
+	SafeCommands   []string `json:"safe_commands,omitempty" yaml:"safe_commands,omitempty"`
 }
 
 type MCPServer struct {
@@ -417,7 +418,7 @@ func EffectiveCapabilities(cfg Config) []string {
 		result = append(result, value)
 	}
 	for _, capability := range cfg.Agent.Capabilities {
-		if isRemoteWriteTool(capability) && !cfg.Policy.AllowWrite {
+		if !capabilityAllowedByLocalPolicy(cfg, capability) {
 			continue
 		}
 		add(capability)
@@ -440,6 +441,9 @@ func EffectiveCapabilities(cfg Config) []string {
 		if cfg.Policy.Exec.Enabled && len(normalizedSafeCommands(cfg.Policy.Exec.SafeCommands)) > 0 {
 			add(BridgeToolRemoteRunTests)
 		}
+		if cfg.Policy.Exec.Enabled && cfg.Policy.Exec.AllowArbitrary {
+			add(BridgeToolRemoteExec)
+		}
 	}
 	if len(cfg.HTTPRoutes) > 0 {
 		add(BridgeCapabilityHTTPTunnel)
@@ -448,6 +452,19 @@ func EffectiveCapabilities(cfg Config) []string {
 		add(BridgeCapabilityMCPProxy)
 	}
 	return result
+}
+
+func capabilityAllowedByLocalPolicy(cfg Config, capability string) bool {
+	switch strings.TrimSpace(capability) {
+	case BridgeToolRemoteWrite, BridgeToolRemoteEdit:
+		return cfg.Policy.AllowWrite
+	case BridgeToolRemoteRunTests:
+		return cfg.Policy.Exec.Enabled && len(normalizedSafeCommands(cfg.Policy.Exec.SafeCommands)) > 0
+	case BridgeToolRemoteExec:
+		return cfg.Policy.Exec.Enabled && cfg.Policy.Exec.AllowArbitrary
+	default:
+		return true
+	}
 }
 
 func fillConfigDefaults(cfg *Config) {

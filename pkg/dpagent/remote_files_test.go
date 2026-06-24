@@ -293,6 +293,52 @@ func TestRemoteRunTestsRequiresLocalExecPolicy(t *testing.T) {
 	}
 }
 
+func TestRemoteExecRequiresExplicitTrustedLocalPolicy(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := remoteTestConfig(workspace)
+	cfg.Agent.Capabilities = []string{BridgeToolRemoteExec}
+	client := BridgeClient{Config: cfg}
+	if containsString(EffectiveCapabilities(cfg), BridgeToolRemoteExec) {
+		t.Fatalf("remote_exec should not be advertised by default: %#v", EffectiveCapabilities(cfg))
+	}
+
+	_, err := client.handleToolCall(context.Background(), BridgeToolRemoteExec, map[string]any{"command": "echo blocked"})
+	if err == nil {
+		t.Fatal("expected remote_exec to be disabled by default")
+	}
+	toolErr, ok := err.(ToolError)
+	if !ok || toolErr.Code != "REMOTE_EXEC_DISABLED" {
+		t.Fatalf("unexpected disabled error: %#v", err)
+	}
+
+	cfg.Policy.Exec.Enabled = true
+	cfg.Policy.Exec.SafeCommands = []string{"echo safe"}
+	client = BridgeClient{Config: cfg}
+	if containsString(EffectiveCapabilities(cfg), BridgeToolRemoteExec) {
+		t.Fatalf("remote_exec should not be advertised for exec_safe policy: %#v", EffectiveCapabilities(cfg))
+	}
+	_, err = client.handleToolCall(context.Background(), BridgeToolRemoteExec, map[string]any{"command": "echo blocked"})
+	if err == nil {
+		t.Fatal("expected remote_exec to require allow_arbitrary")
+	}
+
+	cfg.Policy.Exec.AllowArbitrary = true
+	client = BridgeClient{Config: cfg}
+	if !containsString(EffectiveCapabilities(cfg), BridgeToolRemoteExec) {
+		t.Fatalf("remote_exec capability missing when trusted exec is enabled: %#v", EffectiveCapabilities(cfg))
+	}
+	result, err := client.handleToolCall(context.Background(), BridgeToolRemoteExec, map[string]any{
+		"command": "echo trusted",
+		"workdir": ".",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Content[0].Text, "trusted") || result.Metadata["exit_code"].(int) != 0 {
+		t.Fatalf("unexpected remote_exec result: %#v", result)
+	}
+}
+
 func TestRemotePolicyLimitsAndDeniedPaths(t *testing.T) {
 	workspace := t.TempDir()
 	mustWriteFile(t, filepath.Join(workspace, "a.txt"), strings.Repeat("a", 64))
