@@ -62,7 +62,16 @@ require (
 
 require github.com/waffo-com/waffo-pancake-sdk-go v0.3.1
 
-require github.com/wechatpay-apiv3/wechatpay-go v0.2.21
+require (
+	github.com/creack/pty v1.1.24
+	github.com/wechatpay-apiv3/wechatpay-go v0.2.21
+	github.com/zalando/go-keyring v0.2.8
+)
+
+require (
+	github.com/danieljoos/wincred v1.2.3 // indirect
+	github.com/godbus/dbus/v5 v5.2.2 // indirect
+)
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -116,7 +125,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.18.0
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

@@ -24,7 +24,7 @@ func PolicyForPermissionMode(mode string) Policy {
 		policy.AllowedCategories = []string{ToolCategoryRead, ToolCategoryWrite}
 	case PermissionExecSafe:
 		policy.AllowedCategories = []string{ToolCategoryRead, ToolCategoryWrite, ToolCategoryExec}
-		policy.DeniedTools = []string{"remote_exec", "remote_shell_open", "remote_shell_eval", "remote_install_package"}
+		policy.DeniedTools = []string{"remote_exec", "remote_shell_open", "remote_shell_eval", "remote_shell_resize", "remote_install_package"}
 	case PermissionExecTrusted:
 		policy.AllowedCategories = []string{ToolCategoryRead, ToolCategoryWrite, ToolCategoryExec}
 	default:
@@ -61,6 +61,7 @@ func AllowedToolsForPermissionMode(mode string) []string {
 			"remote_exec",
 			"remote_shell_open",
 			"remote_shell_eval",
+			"remote_shell_resize",
 			"remote_install_package",
 		)
 	default:

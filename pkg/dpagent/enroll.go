@@ -30,6 +30,7 @@ type EnrollOptions struct {
 	Name        string
 	Workspace   string
 	Version     string
+	TokenStore  string
 	Rotate      bool
 	DryRun      bool
 	Timeout     time.Duration
@@ -61,6 +62,7 @@ func (c CLI) runEnroll(args []string) int {
 	clientID := fs.String("client-id", "", "bridge client id")
 	name := fs.String("name", "", "client display name")
 	workspace := fs.String("workspace", "", "workspace path")
+	tokenStore := fs.String("token-store", TokenStoreAuto, "token store: auto, native, secret-file, or config")
 	rotate := fs.Bool("rotate", false, "rotate agent token")
 	dryRun := fs.Bool("dry-run", false, "do not write config")
 	jsonOutput := fs.Bool("json", false, "print JSON")
@@ -87,6 +89,7 @@ func (c CLI) runEnroll(args []string) int {
 		Name:        *name,
 		Workspace:   *workspace,
 		Version:     c.Version,
+		TokenStore:  *tokenStore,
 		Rotate:      *rotate,
 		DryRun:      *dryRun,
 		Timeout:     *timeout,
@@ -210,6 +213,16 @@ func EnrollBridgeAgent(ctx context.Context, opts EnrollOptions) (EnrollResult, e
 	}
 	if opts.DryRun {
 		return result, nil
+	}
+	if strings.TrimSpace(setup.APIKey) != "" {
+		storeMode := opts.TokenStore
+		if strings.TrimSpace(storeMode) == "" {
+			storeMode = TokenStoreAuto
+		}
+		if _, err := StoreAgentToken(configPath, &cfg, setup.APIKey, storeMode); err != nil {
+			return EnrollResult{}, fmt.Errorf("failed to store agent token: %w", err)
+		}
+		result.Config = cfg
 	}
 	if err := SaveConfig(configPath, cfg); err != nil {
 		return EnrollResult{}, err

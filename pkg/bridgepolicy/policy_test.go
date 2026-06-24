@@ -25,15 +25,22 @@ func TestValidateToolDefaultsDenyWrite(t *testing.T) {
 	if ErrorCode(err) != ErrorCodeToolNotAllowed {
 		t.Fatalf("unknown tool should be denied by default, got %v code=%s", err, ErrorCode(err))
 	}
+	err = ValidateTool(Policy{}, "remote_shell_resize")
+	if ErrorCode(err) != ErrorCodeToolNotAllowed {
+		t.Fatalf("trusted shell resize should be denied by default, got %v code=%s", err, ErrorCode(err))
+	}
 }
 
 func TestValidateToolAllowedTools(t *testing.T) {
-	policy := Policy{AllowedTools: []string{"remote_read", "mcp_proxy"}}
+	policy := Policy{AllowedTools: []string{"remote_read", "mcp_proxy", "remote_shell_resize"}}
 	if err := ValidateTool(policy, "remote_read"); err != nil {
 		t.Fatalf("remote_read should be allowed: %v", err)
 	}
 	if err := ValidateTool(policy, "mcp_proxy.tools_call"); err != nil {
 		t.Fatalf("mcp_proxy.tools_call should be allowed by family entry: %v", err)
+	}
+	if err := ValidateTool(policy, "remote_shell_resize"); err != nil {
+		t.Fatalf("remote_shell_resize should be allowed when explicitly listed: %v", err)
 	}
 	err := ValidateTool(policy, "remote_tree")
 	if ErrorCode(err) != ErrorCodeToolNotAllowed {

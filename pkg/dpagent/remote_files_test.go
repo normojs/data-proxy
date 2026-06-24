@@ -352,10 +352,10 @@ func TestRemoteShellOpenEvalRequiresTrustedLocalPolicy(t *testing.T) {
 
 	workspace := t.TempDir()
 	cfg := remoteTestConfig(workspace)
-	cfg.Agent.Capabilities = []string{BridgeToolRemoteShellOpen, BridgeToolRemoteShellEval}
+	cfg.Agent.Capabilities = []string{BridgeToolRemoteShellOpen, BridgeToolRemoteShellEval, BridgeToolRemoteShellResize}
 	client := BridgeClient{Config: cfg}
 	capabilities := EffectiveCapabilities(cfg)
-	if containsString(capabilities, BridgeToolRemoteShellOpen) || containsString(capabilities, BridgeToolRemoteShellEval) {
+	if containsString(capabilities, BridgeToolRemoteShellOpen) || containsString(capabilities, BridgeToolRemoteShellEval) || containsString(capabilities, BridgeToolRemoteShellResize) {
 		t.Fatalf("remote shell should not be advertised by default: %#v", capabilities)
 	}
 	_, err := client.handleToolCall(context.Background(), BridgeToolRemoteShellOpen, map[string]any{"shell": "sh"})
@@ -371,7 +371,7 @@ func TestRemoteShellOpenEvalRequiresTrustedLocalPolicy(t *testing.T) {
 	cfg.Policy.Exec.AllowArbitrary = true
 	client = BridgeClient{Config: cfg}
 	capabilities = EffectiveCapabilities(cfg)
-	if !containsString(capabilities, BridgeToolRemoteShellOpen) || !containsString(capabilities, BridgeToolRemoteShellEval) {
+	if !containsString(capabilities, BridgeToolRemoteShellOpen) || !containsString(capabilities, BridgeToolRemoteShellEval) || !containsString(capabilities, BridgeToolRemoteShellResize) {
 		t.Fatalf("remote shell capabilities missing when trusted exec is enabled: %#v", capabilities)
 	}
 	opened, err := client.handleToolCall(context.Background(), BridgeToolRemoteShellOpen, map[string]any{"shell": "sh"})
@@ -396,6 +396,64 @@ func TestRemoteShellOpenEvalRequiresTrustedLocalPolicy(t *testing.T) {
 	}
 	if !strings.Contains(eval.Content[0].Text, "shell-ok") {
 		t.Fatalf("unexpected shell eval output: %s", eval.Content[0].Text)
+	}
+}
+
+func TestRemoteShellPTYOpenEvalResize(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PTY shell is not supported on windows yet")
+	}
+	previousRegistry := defaultRemoteShellSessions
+	defaultRemoteShellSessions = newRemoteShellSessionRegistry(2)
+	t.Cleanup(func() {
+		defaultRemoteShellSessions.CloseAll()
+		defaultRemoteShellSessions = previousRegistry
+	})
+
+	workspace := t.TempDir()
+	cfg := remoteTestConfig(workspace)
+	cfg.Policy.Exec.Enabled = true
+	cfg.Policy.Exec.AllowArbitrary = true
+	client := BridgeClient{Config: cfg}
+	opened, err := client.handleToolCall(context.Background(), BridgeToolRemoteShellOpen, map[string]any{
+		"shell":      "sh",
+		"pty":        true,
+		"cols":       100,
+		"rows":       24,
+		"timeout_ms": 200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(opened.Content[0].Text), &payload); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, _ := payload["session_id"].(string)
+	if sessionID == "" || payload["pty"] != true {
+		t.Fatalf("unexpected pty open payload: %#v", payload)
+	}
+	eval, err := client.handleToolCall(context.Background(), BridgeToolRemoteShellEval, map[string]any{
+		"session_id": sessionID,
+		"input":      "printf 'pty-ok\\n'",
+		"timeout_ms": 300,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(eval.Content[0].Text, "pty-ok") || eval.Metadata["pty"] != true {
+		t.Fatalf("unexpected pty eval output: %s metadata=%#v", eval.Content[0].Text, eval.Metadata)
+	}
+	resized, err := client.handleToolCall(context.Background(), BridgeToolRemoteShellResize, map[string]any{
+		"session_id": sessionID,
+		"cols":       120,
+		"rows":       40,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resized.Metadata["cols"].(int) != 120 || resized.Metadata["rows"].(int) != 40 {
+		t.Fatalf("unexpected resize metadata: %#v", resized.Metadata)
 	}
 }
 

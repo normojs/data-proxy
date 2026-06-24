@@ -402,6 +402,7 @@ func TestCLIEnrollWritesPrivateConfig(t *testing.T) {
 		"--name", "Laptop Agent",
 		"--workspace", "/workspace/project",
 		"--config", configPath,
+		"--token-store", "secret-file",
 	}, &out, &errOut, "test-version")
 	if code != 0 {
 		t.Fatalf("enroll failed with code %d: %s", code, errOut.String())
@@ -416,7 +417,7 @@ func TestCLIEnrollWritesPrivateConfig(t *testing.T) {
 	if loaded.Server.BaseURL != server.URL {
 		t.Fatalf("unexpected base url: %s", loaded.Server.BaseURL)
 	}
-	if loaded.Agent.ClientID != "client-123" || loaded.Agent.Token != "sk-agent-token-secret" {
+	if loaded.Agent.ClientID != "client-123" || ResolveToken(loaded) != "sk-agent-token-secret" || loaded.Agent.Token != "" || loaded.Agent.TokenRef == "" {
 		t.Fatalf("unexpected enrolled config: %#v", loaded.Agent)
 	}
 	if runtime.GOOS != "windows" {
@@ -477,6 +478,7 @@ func TestCLIEnrollWithSetupTokenWritesPrivateConfig(t *testing.T) {
 		"--name", "Laptop Agent",
 		"--workspace", "/workspace/project",
 		"--config", configPath,
+		"--token-store", "secret-file",
 	}, &out, &errOut, "test-version")
 	if code != 0 {
 		t.Fatalf("enroll failed with code %d: %s", code, errOut.String())
@@ -488,8 +490,68 @@ func TestCLIEnrollWithSetupTokenWritesPrivateConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Agent.ClientID != "client-setup-token" || loaded.Agent.Token != "sk-agent-token-secret" {
+	if loaded.Agent.ClientID != "client-setup-token" || ResolveToken(loaded) != "sk-agent-token-secret" || loaded.Agent.Token != "" || loaded.Agent.TokenRef == "" {
 		t.Fatalf("unexpected enrolled config: %#v", loaded.Agent)
+	}
+}
+
+func TestSecretFileTokenRefAndCLIStatus(t *testing.T) {
+	configPath := t.TempDir() + "/config.yaml"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	cfg.Agent.ClientID = "secret-file-agent"
+	ref, err := StoreAgentToken(configPath, &cfg, "sk-secret-file-token", TokenStoreSecretFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref == "" || cfg.Agent.Token != "" || cfg.Agent.TokenRef == "" {
+		t.Fatalf("unexpected token storage result: ref=%q cfg=%#v", ref, cfg.Agent)
+	}
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, source := ResolveTokenWithSource(loaded)
+	if token != "sk-secret-file-token" || source != "agent.token_ref" {
+		t.Fatalf("unexpected resolved token/source: %q %q", token, source)
+	}
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{"config", "token", "status", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("token status failed with code %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "token_configured: true") || !strings.Contains(out.String(), "token_source: agent.token_ref") {
+		t.Fatalf("unexpected token status output: %s", out.String())
+	}
+}
+
+func TestCLIConfigTokenMigrateToSecretFile(t *testing.T) {
+	configPath := t.TempDir() + "/config.yaml"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	cfg.Agent.Token = "sk-migrate-token"
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{"config", "token", "migrate", "--store", "secret-file", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("token migrate failed with code %d: %s", code, errOut.String())
+	}
+	if strings.Contains(out.String(), "sk-migrate-token") {
+		t.Fatalf("token migrate leaked token: %s", out.String())
+	}
+	loaded, _, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Agent.Token != "" || loaded.Agent.TokenRef == "" || ResolveToken(loaded) != "sk-migrate-token" {
+		t.Fatalf("unexpected migrated config: %#v", loaded.Agent)
 	}
 }
 

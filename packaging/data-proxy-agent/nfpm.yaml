@@ -1,0 +1,28 @@
+name: data-proxy-agent
+arch: ${AGENT_PACKAGE_ARCH}
+platform: linux
+version: ${AGENT_PACKAGE_VERSION}
+section: net
+priority: optional
+maintainer: normojs <support@normojs.com>
+description: Data Proxy local tunnel and MCP bridge agent, based on new-api/Data Proxy.
+vendor: normojs
+homepage: https://github.com/normojs/data-proxy
+license: AGPL-3.0-or-later
+contents:
+  - src: ${AGENT_PACKAGE_BINARY}
+    dst: /usr/bin/data-proxy-agent
+    file_info:
+      mode: 0755
+  - src: packaging/data-proxy-agent/systemd/data-proxy-agent.service
+    dst: /lib/systemd/system/data-proxy-agent.service
+    type: config
+  - src: LICENSE
+    dst: /usr/share/doc/data-proxy-agent/LICENSE
+  - src: NOTICE
+    dst: /usr/share/doc/data-proxy-agent/NOTICE
+  - src: THIRD-PARTY-LICENSES.md
+    dst: /usr/share/doc/data-proxy-agent/THIRD-PARTY-LICENSES.md
+scripts:
+  postinstall: packaging/data-proxy-agent/scripts/postinstall.sh
+  preremove: packaging/data-proxy-agent/scripts/preremove.sh

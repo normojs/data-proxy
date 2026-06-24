@@ -373,29 +373,39 @@ func BridgeURLFromBaseURL(base string) (string, error) {
 }
 
 func ResolveToken(cfg Config) string {
+	token, _ := ResolveTokenWithSource(cfg)
+	return token
+}
+
+func ResolveTokenWithSource(cfg Config) (string, string) {
 	if token := strings.TrimSpace(cfg.Agent.Token); token != "" {
-		return token
+		return token, "agent.token"
 	}
 	envName := strings.TrimSpace(cfg.Agent.TokenEnv)
 	if envName == "" {
 		envName = "DATA_PROXY_API_KEY"
 	}
 	if token := strings.TrimSpace(os.Getenv(envName)); token != "" {
-		return token
+		return token, "env:" + envName
 	}
 	if token := strings.TrimSpace(os.Getenv("DATA_PROXY_AGENT_TOKEN")); token != "" {
-		return token
+		return token, "env:DATA_PROXY_AGENT_TOKEN"
 	}
 	if token := strings.TrimSpace(os.Getenv("BRIDGE_DAEMON_TOKEN")); token != "" {
-		return token
+		return token, "env:BRIDGE_DAEMON_TOKEN"
+	}
+	if ref := strings.TrimSpace(cfg.Agent.TokenRef); ref != "" {
+		if token, err := ReadSecretRef(ref); err == nil && strings.TrimSpace(token) != "" {
+			return strings.TrimSpace(token), "agent.token_ref"
+		}
 	}
 	if path := strings.TrimSpace(cfg.Agent.TokenFile); path != "" {
 		bytes, err := os.ReadFile(expandPath(path))
 		if err == nil {
-			return strings.TrimSpace(string(bytes))
+			return strings.TrimSpace(string(bytes)), "agent.token_file"
 		}
 	}
-	return ""
+	return "", ""
 }
 
 func RedactedConfig(cfg Config) Config {
@@ -445,6 +455,7 @@ func EffectiveCapabilities(cfg Config) []string {
 			add(BridgeToolRemoteExec)
 			add(BridgeToolRemoteShellOpen)
 			add(BridgeToolRemoteShellEval)
+			add(BridgeToolRemoteShellResize)
 			if cfg.Policy.AllowWrite {
 				add(BridgeToolRemoteInstallPackage)
 			}
@@ -467,7 +478,7 @@ func capabilityAllowedByLocalPolicy(cfg Config, capability string) bool {
 		return cfg.Policy.Exec.Enabled && len(normalizedSafeCommands(cfg.Policy.Exec.SafeCommands)) > 0
 	case BridgeToolRemoteExec:
 		return cfg.Policy.Exec.Enabled && cfg.Policy.Exec.AllowArbitrary
-	case BridgeToolRemoteShellOpen, BridgeToolRemoteShellEval:
+	case BridgeToolRemoteShellOpen, BridgeToolRemoteShellEval, BridgeToolRemoteShellResize:
 		return cfg.Policy.Exec.Enabled && cfg.Policy.Exec.AllowArbitrary
 	case BridgeToolRemoteInstallPackage:
 		return cfg.Policy.AllowWrite && cfg.Policy.Exec.Enabled && cfg.Policy.Exec.AllowArbitrary

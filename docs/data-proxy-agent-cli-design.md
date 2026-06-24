@@ -395,16 +395,25 @@ Data Proxy 控制台需要提供：
 
 - `data-proxy-agent-<version>-linux-amd64.tar.gz`
 - `data-proxy-agent-<version>-linux-arm64.tar.gz`
+- `data-proxy-agent-<version>-linux-amd64.deb`
+- `data-proxy-agent-<version>-linux-arm64.deb`
+- `data-proxy-agent-<version>-linux-amd64.rpm`
+- `data-proxy-agent-<version>-linux-arm64.rpm`
 - `data-proxy-agent-<version>-darwin-amd64.tar.gz`
 - `data-proxy-agent-<version>-darwin-arm64.tar.gz`
+- `data-proxy-agent-<version>-darwin-amd64-notarized.tar.gz`，需要 Apple signing secrets
+- `data-proxy-agent-<version>-darwin-arm64-notarized.tar.gz`，需要 Apple signing secrets
 - `data-proxy-agent-<version>-windows-amd64.zip`
 - `data-proxy-agent-<version>-windows-arm64.zip`
+- `data-proxy-agent-<version>-windows-amd64.msi`
+- `data-proxy-agent-<version>-windows-arm64.msi`
+- `data-proxy-agent.rb` Homebrew formula
 - per-asset `.sha256`
 - checksums.txt
 - `ghcr.io/normojs/data-proxy-agent:<version>`
 - `ghcr.io/normojs/data-proxy-agent:sha-<short-sha>`
 
-tag 以 `v*` push 时，`Data Proxy Agent` workflow 会把二进制产物上传到 GitHub Release，并使用 `Dockerfile.agent` 发布 linux/amd64、linux/arm64 多架构镜像到 GHCR。tag 发布默认同时更新 `latest`；手动 `workflow_dispatch` 可发布当前 ref 的 `sha-*` 镜像，也可显式选择是否更新 `latest`。
+tag 以 `v*` push 时，`Data Proxy Agent` workflow 会把二进制压缩包、Linux deb/rpm、Windows MSI、Homebrew formula 和可选 notarized macOS 包上传到 GitHub Release，并使用 `Dockerfile.agent` 发布 linux/amd64、linux/arm64 多架构镜像到 GHCR。tag 发布默认同时更新 `latest`；手动 `workflow_dispatch` 可发布当前 ref 的 `sha-*` 镜像，也可显式选择是否更新 `latest`。
 
 容器默认执行：
 
@@ -458,12 +467,12 @@ manifest 格式：
 Windows 正在运行中的 exe 不能由自身进程直接覆盖，当前实现会生成 `.new.exe`
 staged 文件，停止服务后再替换；后续可补 Windows helper 或 MSI。
 
-后续增强：
+已支持：
 
-- Homebrew tap
-- deb/rpm 包
-- Windows MSI
-- macOS notarization
+- Homebrew formula release asset；后续可拆出独立 tap 仓库自动提交 formula。
+- deb/rpm 包，内置 systemd service 模板和最小 `/etc/data-proxy-agent/config.yaml`。
+- Windows MSI，安装二进制与许可文件；系统服务仍由 `data-proxy-agent service install` 管理。
+- macOS notarization 条件执行；需要在 GitHub Secrets 配置 `APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_CERTIFICATE_P12_BASE64`、`APPLE_CERTIFICATE_PASSWORD`。
 - 已在 tag release workflow 中对 `checksums.txt` 生成 cosign signature/bundle，并对 GHCR agent 镜像 digest 做 keyless cosign 签名。
 
 ## 与当前原型的关系
@@ -493,7 +502,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
 - 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`update`、`run`，并补齐 `config`、`mcp`、`tunnel`、`logs`、`service` 命令组的 `--help` 输出。
 - `doctor` 已能检查本地 workspace、本地审计路径、远端 Bridge token 握手、系统服务状态、HTTP route TCP 连通性、MCP HTTP endpoint 连通性、stdio MCP shell/命令前缀和已启动进程状态。
-- 已实现 `enroll`，支持 `/api/bridge/agent-setup/consume` 一次性 setup token 绑定，也可兼容调用 `/api/bridge/agent-setup` 注册 Bridge Client，并把 agent token 写入本地私有配置。
+- 已实现 `enroll`，支持 `/api/bridge/agent-setup/consume` 一次性 setup token 绑定，也可兼容调用 `/api/bridge/agent-setup` 注册 Bridge Client，并默认通过 `--token-store auto` 把 agent token 写入系统 keyring；无可用 keyring 时回退到权限收紧的 secret-file，也可显式用 `--token-store config` 保持兼容。
 - 已实现 `report`，可生成脱敏诊断 zip，并记录远端 Bridge token 握手校验结果和系统服务状态。
 - 已实现 `logs path/tail`，读取本地 `logging.local_audit_jsonl` 审计 JSONL。
 - 已实现 `service install/uninstall/start/stop/restart/status/print`，可生成并管理 Linux systemd、macOS launchd、Windows Service 配置。
@@ -508,11 +517,11 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已实现本地文件和项目只读工具：`remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_env_info`、`remote_project_info`、`remote_get_related_files`、`remote_git_status`、`remote_git_diff`、`remote_git_log` 默认启用；Git 工具只运行固定只读 argv，并关闭外部 diff、pager 和交互提示。写入 `remote_write`、`remote_edit` 已实现但默认关闭，必须本机配置 `policy.allow_write=true` 才会上报和执行。所有路径默认限制在 `agent.workspace` 内，支持 `policy.allowed_workspaces`、`policy.denied_paths`、symlink 防逃逸、常见目录忽略、服务端 policy 限额收紧、本地结果截断和写入大小限制。
 - 已实现 `remote_run_tests` 安全测试命令：默认关闭，必须本机配置 `policy.exec.enabled=true` 且命令精确命中 `policy.exec.safe_commands`；执行目录仍限制在 workspace 内，输出受 `max_result_bytes` 限制，非零退出会作为工具结果返回给调用方。
 - 已实现 `update` 自动升级命令：支持 GitHub Release 和自定义 manifest，下载后校验 sha256、运行 `self-test`、替换前生成 `.new`、成功后保留 `.bak`。Windows 自替换先 staging，停止服务后再覆盖。
-- 已新增 GitHub Actions `Data Proxy Agent` workflow，对 agent 运行测试，构建 Linux/macOS/Windows 的 amd64/arm64 二进制包与 sha256 校验文件，在 `v*` tag 上传 GitHub Release 附件，并用 cosign 签名 `checksums.txt`。
+- 已新增 GitHub Actions `Data Proxy Agent` workflow，对 agent 运行测试，构建 Linux/macOS/Windows 的 amd64/arm64 二进制包、Linux deb/rpm、Windows MSI、Homebrew formula 与 sha256 校验文件，在 `v*` tag 上传 GitHub Release 附件，并用 cosign 签名 `checksums.txt`。
 - 已新增 `Dockerfile.agent` 和 GHCR 发布任务，发布 linux/amd64、linux/arm64 多架构镜像 `ghcr.io/normojs/data-proxy-agent:<version>`，镜像内保留 AGPL/NOTICE/第三方许可文件。
-- 已实现 `remote_exec` 一次性命令执行和基础持久 shell `remote_shell_open` / `remote_shell_eval`，但默认关闭；必须本机配置 `policy.exec.enabled=true` 且 `policy.exec.allow_arbitrary=true` 才会上报和执行。`remote_exec` 调用本机 shell，持久 shell 使用 stdin/stdout 而非 PTY，不提供进程级沙盒，只适合用户明确授权的可信工作区。已实现 `remote_install_package`，通过固定包管理器 argv 执行单包安装，除 trusted exec 外还要求 `policy.allow_write=true`。
+- 已实现 `remote_exec` 一次性命令执行、基础持久 shell `remote_shell_open` / `remote_shell_eval`、PTY shell 和 `remote_shell_resize`，但默认关闭；必须本机配置 `policy.exec.enabled=true` 且 `policy.exec.allow_arbitrary=true` 才会上报和执行。`remote_exec` 调用本机 shell；持久 shell 默认使用 stdin/stdout，传 `pty=true` 时在 Unix/macOS 使用 PTY，Windows 暂时降级为非 PTY。它们不提供进程级沙盒，只适合用户明确授权的可信工作区。已实现 `remote_install_package`，通过固定包管理器 argv 执行单包安装，除 trusted exec 外还要求 `policy.allow_write=true`。
 
-尚未从 Node 原型迁移到 Go CLI：暂无阻塞项；后续主要是安装包渠道和更强的终端体验增强。
+尚未从 Node 原型迁移到 Go CLI：暂无阻塞项；后续主要是 Windows ConPTY、更完整的终端信号处理、Homebrew tap 仓库自动提交和企业级配置下发。
 
 ## 开发顺序
 
@@ -527,7 +536,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 
 - 服务端已新增一次性 setup token 创建/消费接口。
 - CLI 已实现 `enroll --server --setup-token`。
-- 保存 agent token 到本地 secret store 或权限收紧的 token file。
+- 已支持保存 agent token 到本地 secret store 或权限收紧的 token file；`config token status/store/migrate/delete` 可管理 `agent.token_ref`。
 - 控制台显示一键安装命令。
 
 ### Phase 3: Bridge 连接
@@ -554,18 +563,19 @@ Go 版 `data-proxy-agent` 已开始落地：
 ### Phase 6: 系统服务和安装包
 
 - 已实现 `service install/start/stop/status/uninstall` 基础命令。
-- GitHub Actions 跨平台构建。
+- GitHub Actions 跨平台构建、deb/rpm、MSI、Homebrew formula 和可选 macOS notarization。
 - 已生成 install script。
 - 支持 Docker 镜像。
 
 ### Phase 7: 产品化
 
-- 已实现自动更新命令和 release/checksum/image 签名，后续可补 Windows helper。
+- 已实现自动更新命令、release/checksum/image 签名、deb/rpm、MSI、Homebrew formula 和可选 macOS notarization，后续可补 Windows helper 与 Homebrew tap 自动提交。
 - 已实现本地诊断包基础命令，后续可接控制台上传和版本建议。
 - 已实现控制台健康摘要展示、远端 token 校验、系统服务状态诊断和 stdio MCP 子进程健康摘要。
 - 多 Agent 管理。
 - 策略版本和配置下发。
 - MCP stdio 的 stderr 分级、长期 watchdog 和 UI 侧进程事件聚合。
+- Windows ConPTY、终端信号处理和更接近云 IDE 的交互式 shell 体验。
 
 ## 第一版不做的事情
 

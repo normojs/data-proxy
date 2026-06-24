@@ -88,6 +88,7 @@ Usage:
   data-proxy-agent enroll --server <url> --setup-token <one-time-token>
   data-proxy-agent enroll --server <url> --access-token <token> --user-id <id>
   data-proxy-agent config path|show|validate|export [--config <path>]
+  data-proxy-agent config token status|store|migrate|delete [--config <path>]
   data-proxy-agent mcp list|add|test|remove [--config <path>]
   data-proxy-agent tunnel route list|add|remove [--config <path>]
   data-proxy-agent status [--config <path>]
@@ -117,7 +118,8 @@ func (c CLI) printConfigHelp() {
   data-proxy-agent config validate [--config <path>]
   data-proxy-agent config export [--config <path>] [--json]
 
-Config commands print, validate, or export the local agent config. Secret values are redacted.
+	Config commands print, validate, or export the local agent config. Secret values are redacted.
+	Token commands manage agent.token_ref in system keyring or a private secret-file.
 `)
 }
 
@@ -169,6 +171,9 @@ func (c CLI) runConfig(args []string) int {
 		return 0
 	}
 	subcommand := args[0]
+	if subcommand == "token" {
+		return c.runConfigToken(args[1:])
+	}
 	fs := flag.NewFlagSet("config "+subcommand, flag.ContinueOnError)
 	fs.SetOutput(c.Err)
 	configPath := fs.String("config", "", "config path")
@@ -217,6 +222,161 @@ func (c CLI) runConfig(args []string) int {
 		c.printConfigHelp()
 		return 2
 	}
+}
+
+func (c CLI) runConfigToken(args []string) int {
+	if len(args) == 0 || isHelpArg(args[0]) {
+		fmt.Fprint(c.Out, `Usage:
+  data-proxy-agent config token status [--config <path>]
+  data-proxy-agent config token store --value <token> [--store auto|native|secret-file|config] [--config <path>]
+  data-proxy-agent config token store --value-env DATA_PROXY_API_KEY [--store auto|native|secret-file|config]
+  data-proxy-agent config token store --stdin [--store auto|native|secret-file|config]
+  data-proxy-agent config token migrate [--store auto|native|secret-file|config] [--config <path>]
+  data-proxy-agent config token delete [--config <path>]
+
+Token store modes:
+  auto        Try system keyring first, then fall back to a private secret-file.
+  native      Store in the OS keyring/Keychain/Credential Manager/Secret Service.
+  secret-file Store beside the config with 0600 file mode.
+  config      Store in agent.token for compatibility.
+`)
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
+	}
+	switch args[0] {
+	case "status":
+		return c.runConfigTokenStatus(args[1:])
+	case "store":
+		return c.runConfigTokenStore(args[1:])
+	case "migrate":
+		return c.runConfigTokenMigrate(args[1:])
+	case "delete", "remove", "rm":
+		return c.runConfigTokenDelete(args[1:])
+	default:
+		fmt.Fprintf(c.Err, "unknown config token subcommand: %s\n", args[0])
+		return 2
+	}
+}
+
+func (c CLI) runConfigTokenStatus(args []string) int {
+	fs := flag.NewFlagSet("config token status", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, loaded, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	token, source := ResolveTokenWithSource(cfg)
+	fmt.Fprintf(c.Out, "config_loaded: %t\n", loaded)
+	fmt.Fprintf(c.Out, "token_configured: %t\n", token != "")
+	if source != "" {
+		fmt.Fprintf(c.Out, "token_source: %s\n", source)
+	}
+	if strings.TrimSpace(cfg.Agent.TokenRef) != "" {
+		fmt.Fprintf(c.Out, "token_ref: %s\n", cfg.Agent.TokenRef)
+	}
+	return 0
+}
+
+func (c CLI) runConfigTokenStore(args []string) int {
+	fs := flag.NewFlagSet("config token store", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	store := fs.String("store", TokenStoreAuto, "token store: auto, native, secret-file, config")
+	value := fs.String("value", "", "agent token value")
+	valueEnv := fs.String("value-env", "", "environment variable containing the token")
+	readStdin := fs.Bool("stdin", false, "read token from stdin")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	token, err := tokenFromInput(*value, *valueEnv, *readStdin, os.Stdin)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 2
+	}
+	return c.storeTokenAndSave(*configPath, *store, token)
+}
+
+func (c CLI) runConfigTokenMigrate(args []string) int {
+	fs := flag.NewFlagSet("config token migrate", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	store := fs.String("store", TokenStoreAuto, "token store: auto, native, secret-file, config")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	token := ResolveToken(cfg)
+	if token == "" {
+		fmt.Fprintln(c.Err, "agent token is not configured")
+		return 1
+	}
+	return c.storeTokenAndSave(*configPath, *store, token)
+}
+
+func (c CLI) runConfigTokenDelete(args []string) int {
+	fs := flag.NewFlagSet("config token delete", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	if strings.TrimSpace(cfg.Agent.TokenRef) != "" {
+		if err := DeleteSecretRef(cfg.Agent.TokenRef); err != nil {
+			fmt.Fprintf(c.Err, "warning: failed to delete token_ref secret: %s\n", err)
+		}
+	}
+	cfg.Agent.Token = ""
+	cfg.Agent.TokenRef = ""
+	cfg.Agent.TokenFile = ""
+	if err := SaveConfig(*configPath, cfg); err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	fmt.Fprintln(c.Out, "agent token deleted")
+	return 0
+}
+
+func (c CLI) storeTokenAndSave(configPath string, store string, token string) int {
+	cfg, _, err := LoadConfig(configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	resolvedConfigPath := configPath
+	if strings.TrimSpace(resolvedConfigPath) == "" {
+		resolvedConfigPath, err = ConfigPath()
+		if err != nil {
+			fmt.Fprintln(c.Err, err)
+			return 1
+		}
+	}
+	ref, err := StoreAgentToken(resolvedConfigPath, &cfg, token, store)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	if err := SaveConfig(resolvedConfigPath, cfg); err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	fmt.Fprintf(c.Out, "agent token stored: %s\n", ref)
+	return 0
 }
 
 func (c CLI) runMCP(args []string) int {

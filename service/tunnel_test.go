@@ -669,10 +669,12 @@ func TestTunnelBridgePolicyPermissionModes(t *testing.T) {
 	require.Contains(t, execSafe.AllowedTools, "remote_write")
 	require.Contains(t, execSafe.AllowedTools, "remote_run_tests")
 	require.NotContains(t, execSafe.AllowedTools, "remote_exec")
+	require.NotContains(t, execSafe.AllowedTools, "remote_shell_resize")
 
 	execTrusted := tunnelBridgePolicyFromMode(model.TunnelPermissionExecTrusted, existing, bridgepolicy.Policy{})
 	require.True(t, execTrusted.AllowWrite)
 	require.Contains(t, execTrusted.AllowedTools, "remote_exec")
 	require.Contains(t, execTrusted.AllowedTools, "remote_shell_eval")
+	require.Contains(t, execTrusted.AllowedTools, "remote_shell_resize")
 	require.Contains(t, execTrusted.AllowedTools, "remote_install_package")
 }

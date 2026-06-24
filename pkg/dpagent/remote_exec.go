@@ -57,12 +57,14 @@ type remoteShellSession struct {
 	rel     string
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
+	tty     *os.File
 	output  *remoteShellOutputBuffer
 	cancel  context.CancelFunc
 
 	mu        sync.Mutex
 	closed    bool
 	exitError error
+	pty       bool
 	createdAt time.Time
 	lastUsed  time.Time
 }
@@ -172,7 +174,10 @@ func (c BridgeClient) handleRemoteShellOpen(ctx context.Context, args map[string
 	if !stat.IsDir() {
 		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_OPEN_NOT_DIRECTORY", Message: "workdir is not a directory: " + info.Rel}
 	}
-	session, err := defaultRemoteShellSessions.Open(ctx, spec, info, remoteLimitsFromConfig(c.Config, args).MaxResultBytes)
+	usePTY := boolFromMap(args, "pty") || boolFromMap(args, "use_pty")
+	cols := remotePositiveInt(args["cols"], 120, 500)
+	rows := remotePositiveInt(args["rows"], 30, 200)
+	session, err := defaultRemoteShellSessions.Open(ctx, spec, info, remoteLimitsFromConfig(c.Config, args).MaxResultBytes, usePTY, cols, rows)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
@@ -182,6 +187,7 @@ func (c BridgeClient) handleRemoteShellOpen(ctx context.Context, args map[string
 		"session_id":     session.id,
 		"shell":          session.shell,
 		"workdir":        session.rel,
+		"pty":            session.pty,
 		"initial_output": initial,
 	}
 	text, truncated, err := encodeLimitedRemoteJSON(payload, remoteLimitsFromConfig(c.Config, args).MaxResultBytes)
@@ -197,6 +203,7 @@ func (c BridgeClient) handleRemoteShellOpen(ctx context.Context, args map[string
 			"session_id": session.id,
 			"shell":      session.shell,
 			"workdir":    session.rel,
+			"pty":        session.pty,
 			"truncated":  truncated || initialTruncated,
 		},
 	}, nil
@@ -250,8 +257,45 @@ func (c BridgeClient) handleRemoteShellEval(ctx context.Context, args map[string
 			"session_id": session.id,
 			"shell":      session.shell,
 			"workdir":    session.rel,
+			"pty":        session.pty,
 			"closed":     closed,
 			"truncated":  truncated,
+		},
+	}, nil
+}
+
+func (c BridgeClient) handleRemoteShellResize(ctx context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
+	startedAt := time.Now()
+	if err := requireRemoteTrustedExec(c.Config, "remote_shell_resize"); err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	sessionID := stringFromMap(args, "session_id", "")
+	if sessionID == "" {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_RESIZE_INVALID_ARGUMENTS", Message: "session_id is required"}
+	}
+	cols := remotePositiveInt(args["cols"], 120, 500)
+	rows := remotePositiveInt(args["rows"], 30, 200)
+	session, ok := defaultRemoteShellSessions.Get(sessionID)
+	if !ok {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_RESIZE_NOT_FOUND", Message: "shell session not found: " + sessionID}
+	}
+	if !session.pty || session.tty == nil {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_RESIZE_NOT_PTY", Message: "shell session was not opened with pty=true"}
+	}
+	if err := resizeRemoteShellPTY(session.tty, cols, rows); err != nil {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_RESIZE_FAILED", Message: err.Error()}
+	}
+	text := fmt.Sprintf("shell session %s resized to %dx%d", session.id, cols, rows)
+	return dto.BridgeToolCallResult{
+		Content:    []dto.MCPContentBlock{{Type: "text", Text: text}},
+		Summary:    "remote shell resized " + session.id,
+		DurationMS: int(time.Since(startedAt).Milliseconds()),
+		ResultSize: len([]byte(text)),
+		Metadata: map[string]any{
+			"session_id": session.id,
+			"cols":       cols,
+			"rows":       rows,
+			"pty":        true,
 		},
 	}, nil
 }
@@ -273,33 +317,48 @@ func newRemoteShellSessionRegistry(max int) *remoteShellSessionRegistry {
 	return &remoteShellSessionRegistry{max: max, sessions: map[string]*remoteShellSession{}}
 }
 
-func (r *remoteShellSessionRegistry) Open(ctx context.Context, spec remoteShellSpec, info remotePathInfo, maxOutputBytes int64) (*remoteShellSession, error) {
+func (r *remoteShellSessionRegistry) Open(ctx context.Context, spec remoteShellSpec, info remotePathInfo, maxOutputBytes int64, usePTY bool, cols int, rows int) (*remoteShellSession, error) {
 	runCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(runCtx, spec.Name, spec.Args...)
 	cmd.Dir = info.Path
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		cancel()
-		return nil, ToolError{Code: "REMOTE_SHELL_OPEN_FAILED", Message: err.Error()}
-	}
 	session := &remoteShellSession{
 		id:        newRemoteShellSessionID(),
 		shell:     spec.Display,
 		workdir:   info.Path,
 		rel:       info.Rel,
 		cmd:       cmd,
-		stdin:     stdin,
 		output:    &remoteShellOutputBuffer{limit: maxOutputBytes},
 		cancel:    cancel,
+		pty:       false,
 		createdAt: time.Now(),
 		lastUsed:  time.Now(),
 	}
-	cmd.Stdout = session.output
-	cmd.Stderr = session.output
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return nil, ToolError{Code: "REMOTE_SHELL_OPEN_FAILED", Message: err.Error()}
+	if usePTY {
+		tty, err := startRemoteShellPTY(cmd, cols, rows)
+		if err != nil {
+			cancel()
+			return nil, ToolError{Code: "REMOTE_SHELL_OPEN_PTY_FAILED", Message: err.Error()}
+		}
+		session.stdin = tty
+		session.tty = tty
+		session.pty = true
+		go func() {
+			_, _ = io.Copy(session.output, tty)
+		}()
+	} else {
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			cancel()
+			return nil, ToolError{Code: "REMOTE_SHELL_OPEN_FAILED", Message: err.Error()}
+		}
+		session.stdin = stdin
+		cmd.Stdout = session.output
+		cmd.Stderr = session.output
+		if err := cmd.Start(); err != nil {
+			cancel()
+			return nil, ToolError{Code: "REMOTE_SHELL_OPEN_FAILED", Message: err.Error()}
+		}
 	}
 	r.mu.Lock()
 	for len(r.sessions) >= r.max {
@@ -393,6 +452,9 @@ func (s *remoteShellSession) Close() {
 	s.closed = true
 	s.mu.Unlock()
 	_ = s.stdin.Close()
+	if s.tty != nil {
+		_ = s.tty.Close()
+	}
 	s.cancel()
 }
 

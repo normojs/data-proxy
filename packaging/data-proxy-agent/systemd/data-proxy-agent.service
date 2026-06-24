@@ -1,0 +1,22 @@
+[Unit]
+Description=Data Proxy Agent
+Documentation=https://github.com/normojs/data-proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=data-proxy-agent
+Group=data-proxy-agent
+WorkingDirectory=/var/lib/data-proxy-agent
+ExecStart=/usr/bin/data-proxy-agent run --config /etc/data-proxy-agent/config.yaml
+Restart=always
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/etc/data-proxy-agent /var/lib/data-proxy-agent /var/log/data-proxy-agent
+
+[Install]
+WantedBy=multi-user.target

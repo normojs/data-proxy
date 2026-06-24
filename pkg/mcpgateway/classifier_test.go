@@ -45,9 +45,11 @@ func TestAuthorizeToolByPermissionMode(t *testing.T) {
 
 	execSafePolicy := PolicyForPermissionMode(PermissionExecSafe)
 	require.False(t, AuthorizeTool(execSafePolicy, execTool).Allowed())
+	require.NotContains(t, execSafePolicy.AllowedTools, "remote_shell_resize")
 
 	execTrustedPolicy := PolicyForPermissionMode(PermissionExecTrusted)
 	require.True(t, AuthorizeTool(execTrustedPolicy, execTool).Allowed())
+	require.Contains(t, execTrustedPolicy.AllowedTools, "remote_shell_resize")
 }
 
 func TestAuthorizeToolRejectsUnknown(t *testing.T) {

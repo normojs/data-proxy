@@ -28,6 +28,7 @@ const (
 	BridgeToolRemoteExec            = "remote_exec"
 	BridgeToolRemoteShellOpen       = "remote_shell_open"
 	BridgeToolRemoteShellEval       = "remote_shell_eval"
+	BridgeToolRemoteShellResize     = "remote_shell_resize"
 	BridgeToolRemoteInstallPackage  = "remote_install_package"
 	BridgeToolRemoteRunTests        = "remote_run_tests"
 	BridgeToolRemoteGitStatus       = "remote_git_status"

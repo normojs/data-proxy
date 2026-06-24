@@ -1,0 +1,34 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="Data Proxy Agent"
+    Manufacturer="normojs"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="{6F3B68FE-2D9E-45AE-B2A2-6072C78B7B7A}"
+    Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Data Proxy Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Feature Id="Main" Title="Data Proxy Agent" Level="1">
+      <ComponentGroupRef Id="DataProxyAgentComponents" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="Data Proxy Agent" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="DataProxyAgentComponents" Directory="INSTALLFOLDER">
+      <Component Id="AgentBinary" Guid="*">
+        <File Id="DataProxyAgentExe" Source="$(var.AgentBinary)" Name="data-proxy-agent.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="LicenseFile" Guid="*">
+        <File Id="LicenseTxt" Source="$(var.LicenseFile)" Name="LICENSE.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="NoticeFile" Guid="*">
+        <File Id="NoticeTxt" Source="$(var.NoticeFile)" Name="NOTICE.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
