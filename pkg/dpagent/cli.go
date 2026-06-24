@@ -62,6 +62,8 @@ func (c CLI) Run(args []string) int {
 		return c.runDoctor(args[1:])
 	case "report":
 		return c.runReport(args[1:])
+	case "service":
+		return c.runService(args[1:])
 	case "self-test":
 		return c.runSelfTest(args[1:])
 	case "run":
@@ -85,6 +87,7 @@ Usage:
   data-proxy-agent status [--config <path>]
   data-proxy-agent doctor [--config <path>]
   data-proxy-agent report [--config <path>] [--output <zip>]
+  data-proxy-agent service install|uninstall|start|stop|restart|status [--config <path>]
   data-proxy-agent self-test
   data-proxy-agent run [--config <path>] [--bridge-ws-url <url>] [--token <token>] [--client-id <id>]
 

@@ -175,7 +175,7 @@ data-proxy-agent report --output ./agent-diagnostic.zip
 - 系统服务是否已安装并正在运行。
 - 当前版本是否过旧。
 
-其中系统服务和版本更新检查仍属于后续产品化阶段。
+其中系统服务安装/启停命令已具备基础能力，版本更新检查仍属于后续产品化阶段。
 
 ## 配置文件
 
@@ -399,7 +399,7 @@ Data Proxy 控制台需要提供：
 2. 保持现有服务端 API 不变。
 3. 保持现有 Tunnel App、Connection、Audit、Billing event 不变。
 4. 先实现与 Node 原型等价的能力。
-5. 再增加 service install、doctor、config、update 等产品化能力。
+5. 再增加安装脚本、自动更新、控制台健康检查等产品化能力。
 
 ## 当前实现状态
 
@@ -408,6 +408,9 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已新增 `cmd/data-proxy-agent` 入口。
 - 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
 - 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`run`。
+- 已实现 `enroll`，可调用 `/api/bridge/agent-setup` 注册 Bridge Client 并写入本地私有配置。
+- 已实现 `report`，可生成脱敏诊断 zip。
+- 已实现 `service install/uninstall/start/stop/restart/status/print`，可生成并管理 Linux systemd、macOS launchd、Windows Service 配置。
 - 已实现 `mcp list/add/test/remove`，用于管理本地 Streamable HTTP MCP endpoint 配置。
 - 已实现 `tunnel route list/add/remove`，用于管理本地 HTTP/WebSocket/SSE route 配置。
 - `run` 已能读取配置和环境变量，连接 `/bridge/ws`，携带 Bearer token，发送 `register`，处理 `registered`、`pong`、`close` 和服务端 `error`。
@@ -421,8 +424,8 @@ Go 版 `data-proxy-agent` 已开始落地：
 尚未从 Node 原型迁移到 Go CLI：
 
 - 本地文件工具 `remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_write`、`remote_edit`。
-- `enroll`、`service install`、`report`、`update`。
-- install script、系统服务安装和自动更新。
+- `update` 自动更新命令。
+- install script、包管理器安装和 release 签名。
 
 ## 开发顺序
 
@@ -463,7 +466,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 
 ### Phase 6: 系统服务和安装包
 
-- 实现 `service install/start/stop/status/uninstall`。
+- 已实现 `service install/start/stop/status/uninstall` 基础命令。
 - GitHub Actions 跨平台构建。
 - 生成 install script。
 - 支持 Docker 镜像。
@@ -471,7 +474,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 ### Phase 7: 产品化
 
 - 自动更新。
-- 本地诊断包。
+- 已实现本地诊断包基础命令，后续可接控制台上传和版本建议。
 - 控制台健康检查页面。
 - 多 Agent 管理。
 - 策略版本和配置下发。

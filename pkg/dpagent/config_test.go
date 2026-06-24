@@ -3,6 +3,7 @@ package dpagent
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -313,6 +314,112 @@ func TestCLIReportWritesRedactedDiagnosticZip(t *testing.T) {
 	}
 }
 
+func TestServiceDefinitionsRenderPlatformManifests(t *testing.T) {
+	configPath := writeTestServiceConfig(t)
+
+	linux, err := BuildServiceDefinition(ServiceOptions{
+		ConfigPath: configPath,
+		BinaryPath: "/usr/local/bin/data-proxy-agent",
+		Platform:   "linux",
+		Scope:      "user",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(linux.InstallPath, "data-proxy-agent.service") {
+		t.Fatalf("unexpected linux install path: %s", linux.InstallPath)
+	}
+	if !strings.Contains(linux.Content, `[Unit]`) || !strings.Contains(linux.Content, `ExecStart="/usr/local/bin/data-proxy-agent" "run" --config`) {
+		t.Fatalf("unexpected linux unit:\n%s", linux.Content)
+	}
+	if !strings.Contains(linux.Content, configPath) {
+		t.Fatalf("linux unit missing config path:\n%s", linux.Content)
+	}
+
+	darwin, err := BuildServiceDefinition(ServiceOptions{
+		ConfigPath: configPath,
+		BinaryPath: "/usr/local/bin/data-proxy-agent",
+		Platform:   "darwin",
+		Scope:      "user",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(darwin.InstallPath, "ltd.mbu.dataproxy.agent.plist") {
+		t.Fatalf("unexpected launchd path: %s", darwin.InstallPath)
+	}
+	if !strings.Contains(darwin.Content, `<key>ProgramArguments</key>`) || !strings.Contains(darwin.Content, `<string>run</string>`) {
+		t.Fatalf("unexpected launchd plist:\n%s", darwin.Content)
+	}
+
+	windows, err := BuildServiceDefinition(ServiceOptions{
+		ConfigPath: configPath,
+		BinaryPath: `C:\Program Files\DataProxy\data-proxy-agent.exe`,
+		Platform:   "windows",
+		Scope:      "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if windows.InstallPath != `HKLM\SYSTEM\CurrentControlSet\Services\DataProxyAgent` {
+		t.Fatalf("unexpected windows install path: %s", windows.InstallPath)
+	}
+	if !strings.Contains(windows.Content, `"run" --config`) {
+		t.Fatalf("unexpected windows command line: %s", windows.Content)
+	}
+}
+
+func TestCLIServiceInstallDryRun(t *testing.T) {
+	configPath := writeTestServiceConfig(t)
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{
+		"service", "install",
+		"--dry-run",
+		"--platform", "linux",
+		"--scope", "user",
+		"--binary", "/usr/local/bin/data-proxy-agent",
+		"--config", configPath,
+	}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("service install dry-run failed with code %d: %s", code, errOut.String())
+	}
+	output := out.String()
+	for _, want := range []string{"service_action: install", "platform: linux", "[Unit]", "ExecStart="} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("dry-run output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunServiceCommandUsesPlatformRunner(t *testing.T) {
+	configPath := writeTestServiceConfig(t)
+	var gotName string
+	var gotArgs []string
+	err := RunServiceCommand(context.Background(), ServiceOptions{
+		Command:    "status",
+		ConfigPath: configPath,
+		BinaryPath: "/usr/local/bin/data-proxy-agent",
+		Platform:   "linux",
+		Scope:      "user",
+		CommandExec: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			gotName = name
+			gotArgs = append([]string(nil), args...)
+			return []byte("ok\n"), nil
+		},
+		Out: io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotName != "systemctl" {
+		t.Fatalf("unexpected command name: %s", gotName)
+	}
+	got := strings.Join(gotArgs, " ")
+	if got != "--user status data-proxy-agent.service" {
+		t.Fatalf("unexpected command args: %s", got)
+	}
+}
+
 func TestConfigPathEnvOverride(t *testing.T) {
 	t.Setenv("DATA_PROXY_AGENT_CONFIG", "/tmp/custom-agent.yaml")
 	got, err := ConfigPath()
@@ -322,6 +429,18 @@ func TestConfigPathEnvOverride(t *testing.T) {
 	if got != "/tmp/custom-agent.yaml" {
 		t.Fatalf("unexpected config path: %s", got)
 	}
+}
+
+func writeTestServiceConfig(t *testing.T) string {
+	t.Helper()
+	configPath := t.TempDir() + "/config.yaml"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	cfg.Agent.Token = "sk-service-test-token"
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	return configPath
 }
 
 func serverURLFromRequest(r *http.Request) string {
