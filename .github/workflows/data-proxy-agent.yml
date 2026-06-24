@@ -1,0 +1,158 @@
+name: Data Proxy Agent
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths:
+      - ".github/workflows/data-proxy-agent.yml"
+      - "cmd/data-proxy-agent/**"
+      - "pkg/dpagent/**"
+      - "dto/bridge.go"
+      - "dto/mcp.go"
+      - "go.mod"
+      - "go.sum"
+      - "README.md"
+      - "docs/data-proxy-agent-cli-design.md"
+  pull_request:
+    paths:
+      - ".github/workflows/data-proxy-agent.yml"
+      - "cmd/data-proxy-agent/**"
+      - "pkg/dpagent/**"
+      - "dto/bridge.go"
+      - "dto/mcp.go"
+      - "go.mod"
+      - "go.sum"
+      - "README.md"
+      - "docs/data-proxy-agent-cli-design.md"
+  workflow_dispatch:
+
+concurrency:
+  group: data-proxy-agent-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test agent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ">=1.25.1"
+          cache-dependency-path: go.sum
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Run agent tests
+        run: go test ./cmd/data-proxy-agent ./pkg/dpagent -count=1
+
+      - name: Build smoke
+        run: |
+          go build -trimpath -o /tmp/data-proxy-agent ./cmd/data-proxy-agent
+          /tmp/data-proxy-agent self-test
+          /tmp/data-proxy-agent version
+
+      - name: Check whitespace
+        run: git diff --check
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ">=1.25.1"
+          cache-dependency-path: go.sum
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="sha-${GITHUB_SHA::8}"
+          fi
+          ARTIFACT="data-proxy-agent-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "artifact=${ARTIFACT}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ steps.meta.outputs.version }}
+          ARTIFACT: ${{ steps.meta.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/${ARTIFACT}"
+          BINARY="data-proxy-agent"
+          if [ "${GOOS}" = "windows" ]; then
+            BINARY="${BINARY}.exe"
+          fi
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X main.version=${VERSION}" \
+            -o "dist/${ARTIFACT}/${BINARY}" \
+            ./cmd/data-proxy-agent
+          cp README.md "dist/${ARTIFACT}/README.md"
+          cp docs/data-proxy-agent-cli-design.md "dist/${ARTIFACT}/data-proxy-agent-cli-design.md"
+
+      - name: Package
+        shell: bash
+        env:
+          ARTIFACT: ${{ steps.meta.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          cd dist
+          if [[ "${ARTIFACT}" == *windows* ]]; then
+            zip -qr "${ARTIFACT}.zip" "${ARTIFACT}"
+            sha256sum "${ARTIFACT}.zip" > "${ARTIFACT}.zip.sha256"
+          else
+            tar -czf "${ARTIFACT}.tar.gz" "${ARTIFACT}"
+            sha256sum "${ARTIFACT}.tar.gz" > "${ARTIFACT}.tar.gz.sha256"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact }}
+          path: dist/${{ steps.meta.outputs.artifact }}.*
+          retention-days: 14

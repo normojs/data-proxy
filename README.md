@@ -220,6 +220,8 @@ go run ./cmd/data-proxy-agent tunnel route add http local-web --url http://127.0
 go run ./cmd/data-proxy-agent tunnel route list
 ```
 
+GitHub Actions 中的 `Data Proxy Agent` workflow 会对 agent 包执行测试，并构建 Linux/macOS/Windows 的 amd64/arm64 二进制压缩包和 sha256 校验文件。
+
 ## 文档索引
 
 | 文档 | 用途 |

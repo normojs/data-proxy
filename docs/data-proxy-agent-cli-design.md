@@ -398,13 +398,14 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已实现敏感 token 脱敏、私有权限配置文件写入和基础配置校验。
 - 已实现 `http_tunnel.request` 普通/流式/SSE/WebSocket 转发：目标校验、loopback 默认限制、header 过滤、body base64、流式上传/下载、WebSocket frame 转发、响应截断和服务端兼容的 `http_response` metadata。
 - 已实现 MCP bridge 基础能力：`mcp_proxy.test`、`mcp_proxy.tools_list`、`mcp_proxy.tools_call` 和 `mcp_proxy.rpc`，支持 Streamable HTTP 目标、`Mcp-Session-Id` 会话复用、SSE `data:` 响应解析和 loopback 默认限制。
+- 已新增 GitHub Actions `Data Proxy Agent` workflow，对 agent 运行测试并构建 Linux/macOS/Windows 的 amd64/arm64 二进制包与 sha256 校验文件。
 - 当前 Go agent 对尚未移植的 `tool_call` 明确返回 `TOOL_NOT_SUPPORTED`，避免服务端请求悬空。
 
 尚未从 Node 原型迁移到 Go CLI：
 
 - 本地文件工具 `remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_write`、`remote_edit`。
 - `enroll`、`service install`、`report`、`update`。
-- 生产安装包和自动更新。
+- install script、系统服务安装和自动更新。
 
 ## 开发顺序
 
