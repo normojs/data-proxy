@@ -37,6 +37,23 @@ type mcpProxyArgs struct {
 	Server    map[string]any `json:"server"`
 }
 
+type mcpProxyEndpoint struct {
+	Key         string
+	Transport   string
+	Target      string
+	StdioServer MCPServer
+}
+
+func (e mcpProxyEndpoint) DisplayTarget() string {
+	if strings.TrimSpace(e.Target) != "" {
+		return e.Target
+	}
+	if e.Transport == "stdio" {
+		return "stdio:" + e.StdioServer.Name
+	}
+	return e.Key
+}
+
 func (c BridgeClient) handleMCPProxy(ctx context.Context, toolName string, args map[string]any) (dto.BridgeToolCallResult, error) {
 	switch toolName {
 	case BridgeToolMCPProxyTest:
@@ -57,15 +74,15 @@ func (c BridgeClient) handleMCPProxy(ctx context.Context, toolName string, args 
 
 func (c BridgeClient) handleMCPProxyTest(ctx context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
 	startedAt := time.Now()
-	target, err := c.mcpTarget(args)
+	endpoint, err := c.mcpEndpoint(args)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
-	initialized, err := c.initializeMCP(ctx, target, args, true)
+	initialized, err := c.initializeMCP(ctx, endpoint, args, true)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
-	_, _ = c.mcpRPC(ctx, target, initialized.SessionID, "ping", map[string]any{}, false)
+	_, _ = c.mcpRPC(ctx, endpoint, initialized.SessionID, "ping", map[string]any{}, false)
 
 	payload := map[string]any{
 		"protocol_version": stringFromMap(initialized.Result, "protocolVersion", dto.MCPProtocolVersion),
@@ -73,36 +90,38 @@ func (c BridgeClient) handleMCPProxyTest(ctx context.Context, args map[string]an
 		"capabilities":     mapFromAny(initialized.Result["capabilities"]),
 	}
 	return bridgeResult(payload, fmt.Sprintf("MCP %s ready", payload["server_name"]), time.Since(startedAt), map[string]any{
-		"result": payload,
-		"target": target,
+		"result":    payload,
+		"target":    endpoint.DisplayTarget(),
+		"transport": endpoint.Transport,
 	})
 }
 
 func (c BridgeClient) handleMCPProxyListTools(ctx context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
 	startedAt := time.Now()
-	target, err := c.mcpTarget(args)
+	endpoint, err := c.mcpEndpoint(args)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
-	initialized, err := c.ensureMCPInitialized(ctx, target, args)
+	initialized, err := c.ensureMCPInitialized(ctx, endpoint, args)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
-	response, err := c.mcpRPC(ctx, target, initialized.SessionID, "tools/list", map[string]any{}, false)
+	response, err := c.mcpRPC(ctx, endpoint, initialized.SessionID, "tools/list", map[string]any{}, false)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
 	tools, _ := response.Result["tools"].([]any)
 	payload := map[string]any{"tools": tools}
 	return bridgeResult(tools, fmt.Sprintf("%d tools discovered", len(tools)), time.Since(startedAt), map[string]any{
-		"result": payload,
-		"target": target,
+		"result":    payload,
+		"target":    endpoint.DisplayTarget(),
+		"transport": endpoint.Transport,
 	})
 }
 
 func (c BridgeClient) handleMCPProxyCallTool(ctx context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
 	startedAt := time.Now()
-	target, err := c.mcpTarget(args)
+	endpoint, err := c.mcpEndpoint(args)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
@@ -111,16 +130,16 @@ func (c BridgeClient) handleMCPProxyCallTool(ctx context.Context, args map[strin
 		return dto.BridgeToolCallResult{}, ToolError{Code: "MCP_PROXY_INVALID_TOOL_NAME", Message: "MCP proxy tool name is required"}
 	}
 	arguments := mapFromAny(args["arguments"])
-	initialized, err := c.ensureMCPInitialized(ctx, target, args)
+	initialized, err := c.ensureMCPInitialized(ctx, endpoint, args)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
-	response, err := c.mcpRPC(ctx, target, initialized.SessionID, "tools/call", map[string]any{
+	response, err := c.mcpRPC(ctx, endpoint, initialized.SessionID, "tools/call", map[string]any{
 		"name":      toolName,
 		"arguments": arguments,
 	}, false)
 	if err != nil {
-		defaultMCPProxySessions.Forget(target)
+		forgetMCPProxyEndpoint(endpoint)
 		return dto.BridgeToolCallResult{}, err
 	}
 	content := mcpContentBlocksFromAny(response.Result["content"])
@@ -135,7 +154,8 @@ func (c BridgeClient) handleMCPProxyCallTool(ctx context.Context, args map[strin
 	if metadata == nil {
 		metadata = map[string]any{}
 	}
-	metadata["target"] = target
+	metadata["target"] = endpoint.DisplayTarget()
+	metadata["transport"] = endpoint.Transport
 	metadata["tool_name"] = toolName
 	resultSize := jsonSize(response.RawResult)
 	if resultSize <= 0 {
@@ -152,7 +172,7 @@ func (c BridgeClient) handleMCPProxyCallTool(ctx context.Context, args map[strin
 
 func (c BridgeClient) handleMCPProxyRPC(ctx context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
 	startedAt := time.Now()
-	target, err := c.mcpTarget(args)
+	endpoint, err := c.mcpEndpoint(args)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
@@ -161,13 +181,13 @@ func (c BridgeClient) handleMCPProxyRPC(ctx context.Context, args map[string]any
 		return dto.BridgeToolCallResult{}, ToolError{Code: "MCP_PROXY_INVALID_METHOD", Message: "MCP proxy rpc method is required"}
 	}
 	params := mapFromAny(args["params"])
-	initialized, err := c.ensureMCPInitialized(ctx, target, args)
+	initialized, err := c.ensureMCPInitialized(ctx, endpoint, args)
 	if err != nil {
 		return dto.BridgeToolCallResult{}, err
 	}
-	response, err := c.mcpRPC(ctx, target, initialized.SessionID, method, params, false)
+	response, err := c.mcpRPC(ctx, endpoint, initialized.SessionID, method, params, false)
 	if err != nil {
-		defaultMCPProxySessions.Forget(target)
+		forgetMCPProxyEndpoint(endpoint)
 		return dto.BridgeToolCallResult{}, err
 	}
 	raw := response.RawResult
@@ -184,9 +204,10 @@ func (c BridgeClient) handleMCPProxyRPC(ctx context.Context, args map[string]any
 		DurationMS: int(time.Since(startedAt).Milliseconds()),
 		ResultSize: resultSize,
 		Metadata: map[string]any{
-			"result": raw,
-			"target": target,
-			"method": method,
+			"result":    raw,
+			"target":    endpoint.DisplayTarget(),
+			"transport": endpoint.Transport,
+			"method":    method,
 		},
 	}, nil
 }
@@ -229,20 +250,33 @@ func (c *mcpProxySessionCache) Forget(target string) {
 	delete(c.sessions, target)
 }
 
-func (c BridgeClient) ensureMCPInitialized(ctx context.Context, target string, args map[string]any) (mcpRPCResponse, error) {
-	if sessionID, ok := defaultMCPProxySessions.Get(target); ok {
+func (c BridgeClient) ensureMCPInitialized(ctx context.Context, endpoint mcpProxyEndpoint, args map[string]any) (mcpRPCResponse, error) {
+	if endpoint.Transport == "stdio" {
+		if defaultMCPStdioSessions.Initialized(endpoint.Key) {
+			return mcpRPCResponse{Result: map[string]any{}, SessionID: endpoint.Key}, nil
+		}
+		return c.initializeMCP(ctx, endpoint, args, false)
+	}
+	if sessionID, ok := defaultMCPProxySessions.Get(endpoint.Key); ok {
 		return mcpRPCResponse{Result: map[string]any{}, SessionID: sessionID}, nil
 	}
-	return c.initializeMCP(ctx, target, args, false)
+	return c.initializeMCP(ctx, endpoint, args, false)
 }
 
-func (c BridgeClient) initializeMCP(ctx context.Context, target string, args map[string]any, force bool) (mcpRPCResponse, error) {
+func (c BridgeClient) initializeMCP(ctx context.Context, endpoint mcpProxyEndpoint, args map[string]any, force bool) (mcpRPCResponse, error) {
+	if endpoint.Transport == "stdio" {
+		if force {
+			defaultMCPStdioSessions.Forget(endpoint.Key)
+		} else if defaultMCPStdioSessions.Initialized(endpoint.Key) {
+			return mcpRPCResponse{Result: map[string]any{}, SessionID: endpoint.Key}, nil
+		}
+	}
 	if !force {
-		if sessionID, ok := defaultMCPProxySessions.Get(target); ok {
+		if sessionID, ok := defaultMCPProxySessions.Get(endpoint.Key); ok {
 			return mcpRPCResponse{Result: map[string]any{}, SessionID: sessionID}, nil
 		}
 	}
-	response, err := c.mcpRPC(ctx, target, "", "initialize", map[string]any{
+	response, err := c.mcpRPC(ctx, endpoint, "", "initialize", map[string]any{
 		"protocolVersion": dto.MCPProtocolVersion,
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
@@ -253,12 +287,16 @@ func (c BridgeClient) initializeMCP(ctx context.Context, target string, args map
 	if err != nil {
 		return response, err
 	}
-	_, _ = c.mcpRPC(ctx, target, response.SessionID, "notifications/initialized", map[string]any{}, true)
-	defaultMCPProxySessions.Set(target, response.SessionID)
+	_, _ = c.mcpRPC(ctx, endpoint, response.SessionID, "notifications/initialized", map[string]any{}, true)
+	if endpoint.Transport == "stdio" {
+		defaultMCPStdioSessions.MarkInitialized(endpoint.Key)
+	} else {
+		defaultMCPProxySessions.Set(endpoint.Key, response.SessionID)
+	}
 	return response, nil
 }
 
-func (c BridgeClient) mcpRPC(ctx context.Context, target string, sessionID string, method string, params map[string]any, notification bool) (mcpRPCResponse, error) {
+func (c BridgeClient) mcpRPC(ctx context.Context, endpoint mcpProxyEndpoint, sessionID string, method string, params map[string]any, notification bool) (mcpRPCResponse, error) {
 	timeout := time.Duration(c.Config.Runtime.HTTPTimeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = DefaultHTTPTimeoutMS * time.Millisecond
@@ -278,6 +316,14 @@ func (c BridgeClient) mcpRPC(ctx context.Context, target string, sessionID strin
 	if err != nil {
 		return mcpRPCResponse{}, ToolError{Code: "MCP_PROXY_ENCODE_FAILED", Message: err.Error()}
 	}
+	if endpoint.Transport == "stdio" {
+		response, err := c.mcpStdioRPC(reqCtx, endpoint, bodyBytes, notification)
+		if err != nil {
+			defaultMCPStdioSessions.Forget(endpoint.Key)
+		}
+		return response, err
+	}
+	target := endpoint.Target
 	request, err := http.NewRequestWithContext(reqCtx, http.MethodPost, target, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return mcpRPCResponse{}, ToolError{Code: "MCP_PROXY_HTTP_ERROR", Message: err.Error()}
@@ -306,7 +352,7 @@ func (c BridgeClient) mcpRPC(ctx context.Context, target string, sessionID strin
 	text := strings.TrimSpace(string(textBytes))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		if response.StatusCode == http.StatusNotFound && sessionID != "" {
-			defaultMCPProxySessions.Forget(target)
+			defaultMCPProxySessions.Forget(endpoint.Key)
 		}
 		return mcpRPCResponse{}, ToolError{
 			Code:    "MCP_PROXY_HTTP_ERROR",
@@ -332,22 +378,78 @@ func (c BridgeClient) mcpRPC(ctx context.Context, target string, sessionID strin
 	return mcpRPCResponse{Result: result, RawResult: rawResult, SessionID: nextSessionID}, nil
 }
 
-func (c BridgeClient) mcpTarget(args map[string]any) (string, error) {
+func (c BridgeClient) mcpEndpoint(args map[string]any) (mcpProxyEndpoint, error) {
 	target := bridgeEndpointTarget(args)
+	if endpoint, ok, err := c.httpMCPEndpoint(target); ok || err != nil {
+		return endpoint, err
+	}
+	server, ok := c.localMCPServer(args, target)
+	if ok {
+		transport := normalizeMCPTransport(server.Transport, server.Endpoint, server.Command)
+		if transport == "stdio" {
+			if strings.TrimSpace(server.Command) == "" {
+				return mcpProxyEndpoint{}, ToolError{Code: "MCP_PROXY_STDIO_NOT_CONFIGURED", Message: fmt.Sprintf("local MCP server %q has no command", server.Name)}
+			}
+			return mcpProxyEndpoint{
+				Key:         "stdio:" + server.Name,
+				Transport:   "stdio",
+				StdioServer: server,
+			}, nil
+		}
+		if endpoint, ok, err := c.httpMCPEndpoint(server.Endpoint); ok || err != nil {
+			return endpoint, err
+		}
+	}
+	transport := strings.TrimSpace(strings.ToLower(stringFromMap(args, "transport", "")))
+	if transport == "stdio" || target != "" {
+		name := target
+		if name == "" {
+			name = stringFromMap(mapFromAny(args["server"]), "name", "")
+		}
+		return mcpProxyEndpoint{}, ToolError{Code: "MCP_PROXY_STDIO_NOT_CONFIGURED", Message: fmt.Sprintf("stdio MCP server %q is not configured locally", name)}
+	}
+	return mcpProxyEndpoint{}, ToolError{Code: "MCP_PROXY_INVALID_TARGET", Message: "MCP proxy target is required"}
+}
+
+func (c BridgeClient) httpMCPEndpoint(target string) (mcpProxyEndpoint, bool, error) {
 	parsed, err := url.Parse(strings.TrimSpace(target))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		if err == nil {
-			err = fmt.Errorf("missing scheme or host")
-		}
-		return "", ToolError{Code: "MCP_PROXY_INVALID_TARGET", Message: fmt.Sprintf("invalid MCP target: %s", err)}
+		return mcpProxyEndpoint{}, false, nil
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", ToolError{Code: "MCP_PROXY_INVALID_TARGET", Message: "only http/https MCP targets are supported by this agent"}
+		return mcpProxyEndpoint{}, false, ToolError{Code: "MCP_PROXY_INVALID_TARGET", Message: "only http/https MCP targets are supported by this agent"}
 	}
 	if c.Config.Policy.AllowNonLoopbackMCP || isLoopbackHost(parsed.Hostname()) {
-		return parsed.String(), nil
+		target := parsed.String()
+		return mcpProxyEndpoint{Key: "http:" + target, Transport: "http", Target: target}, true, nil
 	}
-	return "", ToolError{Code: "MCP_PROXY_FORBIDDEN_TARGET", Message: "MCP proxy target must be loopback unless allow_non_loopback_mcp is enabled"}
+	return mcpProxyEndpoint{}, true, ToolError{Code: "MCP_PROXY_FORBIDDEN_TARGET", Message: "MCP proxy target must be loopback unless allow_non_loopback_mcp is enabled"}
+}
+
+func (c BridgeClient) localMCPServer(args map[string]any, target string) (MCPServer, bool) {
+	serverArgs := mapFromAny(args["server"])
+	candidates := []string{
+		strings.TrimSpace(target),
+		stringFromMap(serverArgs, "name", ""),
+		stringFromMap(serverArgs, "namespace", ""),
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if server, ok := findMCPServer(c.Config.MCPServers, candidate); ok {
+			return server, true
+		}
+	}
+	return MCPServer{}, false
+}
+
+func forgetMCPProxyEndpoint(endpoint mcpProxyEndpoint) {
+	if endpoint.Transport == "stdio" {
+		defaultMCPStdioSessions.Forget(endpoint.Key)
+		return
+	}
+	defaultMCPProxySessions.Forget(endpoint.Key)
 }
 
 func bridgeEndpointTarget(args map[string]any) string {
@@ -371,6 +473,10 @@ func bridgeEndpointTarget(args map[string]any) string {
 	}
 	if parsed.Scheme == "http" || parsed.Scheme == "https" {
 		return parsed.String()
+	}
+	switch parsed.Scheme {
+	case "bridge", "qidian", "qidian_browser":
+		return ""
 	}
 	return endpoint
 }

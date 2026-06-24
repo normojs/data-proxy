@@ -317,14 +317,14 @@ func (c CLI) runMCPTest(args []string) int {
 		fmt.Fprintf(c.Err, "mcp server not found: %s\n", name)
 		return 1
 	}
-	if strings.TrimSpace(server.Endpoint) == "" {
-		fmt.Fprintf(c.Err, "mcp server %s has no HTTP endpoint; stdio test is not implemented yet\n", name)
-		return 1
+	bridgeArgs := map[string]any{
+		"transport": server.Transport,
+		"server":    map[string]any{"name": server.Name},
 	}
-	result, err := (BridgeClient{Config: cfg}).handleMCPProxyTest(context.Background(), map[string]any{
-		"target": server.Endpoint,
-		"server": map[string]any{"name": server.Name},
-	})
+	if strings.TrimSpace(server.Endpoint) != "" {
+		bridgeArgs["target"] = server.Endpoint
+	}
+	result, err := (BridgeClient{Config: cfg}).handleMCPProxyTest(context.Background(), bridgeArgs)
 	if err != nil {
 		fmt.Fprintln(c.Err, err)
 		return 1

@@ -122,15 +122,13 @@ data-proxy-agent tunnel route remove <name>
 ```bash
 data-proxy-agent mcp list
 data-proxy-agent mcp add coding --transport streamable-http --url http://127.0.0.1:30837/mcp
+data-proxy-agent mcp add filesystem --transport stdio --command "npx -y @modelcontextprotocol/server-filesystem /Users/me/project"
 data-proxy-agent mcp test coding
+data-proxy-agent mcp test filesystem
 data-proxy-agent mcp remove coding
 ```
 
-后续可以支持 `stdio`：
-
-```bash
-data-proxy-agent mcp add filesystem --transport stdio --command "npx -y @modelcontextprotocol/server-filesystem /Users/me/project"
-```
+`stdio` MCP 由本机 agent 配置的 command 启动和复用。Data Proxy 服务端只能通过 MCP Server 名称引用本地配置，不能在桥接请求里下发任意 command。
 
 ### 服务命令
 
@@ -426,7 +424,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已实现心跳 `ping` 和重连退避。
 - 已实现敏感 token 脱敏、私有权限配置文件写入和基础配置校验。
 - 已实现 `http_tunnel.request` 普通/流式/SSE/WebSocket 转发：目标校验、loopback 默认限制、header 过滤、body base64、流式上传/下载、WebSocket frame 转发、响应截断和服务端兼容的 `http_response` metadata。
-- 已实现 MCP bridge 基础能力：`mcp_proxy.test`、`mcp_proxy.tools_list`、`mcp_proxy.tools_call` 和 `mcp_proxy.rpc`，支持 Streamable HTTP 目标、`Mcp-Session-Id` 会话复用、SSE `data:` 响应解析和 loopback 默认限制。
+- 已实现 MCP bridge 基础能力：`mcp_proxy.test`、`mcp_proxy.tools_list`、`mcp_proxy.tools_call` 和 `mcp_proxy.rpc`，支持 Streamable HTTP 目标、`Mcp-Session-Id` 会话复用、SSE `data:` 响应解析、loopback 默认限制，以及本地 stdio MCP 子进程桥接。stdio command 仅从本机配置读取，远端请求只能按本地 MCP server 名称选择。
 - 已实现本地文件工具：只读 `remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_env_info` 默认启用；写入 `remote_write`、`remote_edit` 已实现但默认关闭，必须本机配置 `policy.allow_write=true` 才会上报和执行。所有路径默认限制在 `agent.workspace` 内，支持 `policy.allowed_workspaces`、`policy.denied_paths`、symlink 防逃逸、常见目录忽略、服务端 policy 限额收紧、本地结果截断和写入大小限制。
 - 已新增 GitHub Actions `Data Proxy Agent` workflow，对 agent 运行测试并构建 Linux/macOS/Windows 的 amd64/arm64 二进制包与 sha256 校验文件。
 - 当前 Go agent 对尚未移植的 `tool_call` 明确返回 `TOOL_NOT_SUPPORTED`，避免服务端请求悬空。
@@ -488,7 +486,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 控制台健康检查页面。
 - 多 Agent 管理。
 - 策略版本和配置下发。
-- 更完整的 MCP stdio 支持。
+- MCP stdio 的启动日志、自动重启策略和更细粒度进程健康检查。
 
 ## 第一版不做的事情
 

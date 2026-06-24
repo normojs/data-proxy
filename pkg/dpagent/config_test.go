@@ -149,6 +149,37 @@ func TestCLIMCPAddListRemove(t *testing.T) {
 	}
 }
 
+func TestCLIMCPTestSupportsStdio(t *testing.T) {
+	configPath := t.TempDir() + "/config.yaml"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	defer defaultMCPStdioSessions.Forget("stdio:filesystem")
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{
+		"mcp", "add", "filesystem",
+		"--transport", "stdio",
+		"--command", fakeStdioMCPCommand(),
+		"--config", configPath,
+	}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("mcp stdio add failed with code %d: %s", code, errOut.String())
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = RunCLI([]string{"mcp", "test", "filesystem", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("mcp stdio test failed with code %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "mcp server ok: filesystem (fake-stdio-mcp)") {
+		t.Fatalf("unexpected mcp stdio test output: %s", out.String())
+	}
+}
+
 func TestCLITunnelRouteAddListRemove(t *testing.T) {
 	configPath := t.TempDir() + "/config.yaml"
 	cfg := DefaultConfig()

@@ -1,10 +1,15 @@
 package dpagent
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -124,6 +129,86 @@ func TestHandleMCPProxyRejectsNonLoopbackByDefault(t *testing.T) {
 	}
 }
 
+func TestHandleMCPProxyStdioTestListAndCall(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Runtime.HTTPTimeoutMS = 5000
+	cfg.MCPServers = []MCPServer{{
+		Name:      "coding",
+		Transport: "stdio",
+		Command:   fakeStdioMCPCommand(),
+	}}
+	defer defaultMCPStdioSessions.Forget("stdio:coding")
+
+	client := BridgeClient{Config: cfg}
+	testResult, err := client.handleMCPProxy(context.Background(), BridgeToolMCPProxyTest, map[string]any{
+		"transport": "bridge",
+		"endpoint":  "bridge://client-1",
+		"server":    map[string]any{"name": "coding"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testPayload := mapFromAny(testResult.Metadata["result"])
+	if testPayload["server_name"] != "fake-stdio-mcp" {
+		t.Fatalf("unexpected stdio test payload: %#v", testPayload)
+	}
+
+	listResult, err := client.handleMCPProxy(context.Background(), BridgeToolMCPProxyListTools, map[string]any{
+		"transport": "bridge",
+		"endpoint":  "bridge://client-1",
+		"server":    map[string]any{"name": "coding"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listPayload := mapFromAny(listResult.Metadata["result"])
+	tools, ok := listPayload["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("unexpected stdio tools payload: %#v", listPayload)
+	}
+	if mapFromAny(tools[0])["name"] != "echo" {
+		t.Fatalf("unexpected stdio tool: %#v", tools[0])
+	}
+
+	callResult, err := client.handleMCPProxy(context.Background(), BridgeToolMCPProxyCallTool, map[string]any{
+		"transport": "bridge",
+		"endpoint":  "bridge://client-1",
+		"server":    map[string]any{"name": "coding"},
+		"name":      "echo",
+		"arguments": map[string]any{"message": "hello stdio"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(callResult.Content) != 1 || callResult.Content[0].Text != "stdio echo: hello stdio" {
+		t.Fatalf("unexpected stdio content: %#v", callResult.Content)
+	}
+	if callResult.Metadata["transport"] != "stdio" || callResult.Metadata["target"] != "stdio:coding" {
+		t.Fatalf("unexpected stdio metadata: %#v", callResult.Metadata)
+	}
+}
+
+func TestHandleMCPProxyStdioRejectsUnconfiguredCommand(t *testing.T) {
+	cfg := DefaultConfig()
+	client := BridgeClient{Config: cfg}
+	_, err := client.handleMCPProxy(context.Background(), BridgeToolMCPProxyListTools, map[string]any{
+		"transport": "stdio",
+		"endpoint":  "bridge://client-1",
+		"server":    map[string]any{"name": "remote-command"},
+		"command":   fakeStdioMCPCommand(),
+	})
+	if err == nil {
+		t.Fatal("expected unconfigured stdio MCP server to be rejected")
+	}
+	toolErr, ok := err.(ToolError)
+	if !ok {
+		t.Fatalf("expected ToolError, got %T", err)
+	}
+	if toolErr.Code != "MCP_PROXY_STDIO_NOT_CONFIGURED" {
+		t.Fatalf("unexpected error: %#v", toolErr)
+	}
+}
+
 func TestParseMCPSseResponse(t *testing.T) {
 	object, err := parseMCPResponseText("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n\n")
 	if err != nil {
@@ -141,6 +226,99 @@ func TestEffectiveCapabilitiesAddsMCPProxyForServers(t *testing.T) {
 	capabilities := strings.Join(EffectiveCapabilities(cfg), ",")
 	if !strings.Contains(capabilities, BridgeCapabilityMCPProxy) {
 		t.Fatalf("mcp_proxy capability missing: %s", capabilities)
+	}
+}
+
+func fakeStdioMCPCommand() string {
+	executable := os.Args[0]
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("set DPAGENT_FAKE_STDIO_MCP=1&& %s -test.run=TestFakeStdioMCP --", windowsCommandQuote(executable))
+	}
+	return fmt.Sprintf("DPAGENT_FAKE_STDIO_MCP=1 %s -test.run=TestFakeStdioMCP --", strconv.Quote(executable))
+}
+
+func windowsCommandQuote(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+}
+
+func TestFakeStdioMCP(t *testing.T) {
+	if os.Getenv("DPAGENT_FAKE_STDIO_MCP") != "1" {
+		return
+	}
+	reader := bufio.NewReader(os.Stdin)
+	writer := bufio.NewWriter(os.Stdout)
+	for {
+		body, err := readMCPStdioFrame(reader, DefaultMaxResultBytes)
+		if err != nil {
+			os.Exit(0)
+		}
+		var request map[string]any
+		if err := json.Unmarshal(body, &request); err != nil {
+			os.Exit(1)
+		}
+		id, hasID := request["id"]
+		if !hasID {
+			continue
+		}
+		response := fakeStdioMCPResponse(id, request)
+		responseBytes, err := json.Marshal(response)
+		if err != nil {
+			os.Exit(1)
+		}
+		if err := writeMCPStdioFrame(writer, responseBytes); err != nil {
+			os.Exit(1)
+		}
+	}
+}
+
+func fakeStdioMCPResponse(id any, request map[string]any) map[string]any {
+	switch request["method"] {
+	case "initialize":
+		return map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"result": map[string]any{
+				"protocolVersion": dto.MCPProtocolVersion,
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]any{"name": "fake-stdio-mcp", "version": "1.0.0"},
+			},
+		}
+	case "ping":
+		return map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{}}
+	case "tools/list":
+		return map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"result": map[string]any{
+				"tools": []map[string]any{{
+					"name":        "echo",
+					"description": "Echo input",
+					"inputSchema": map[string]any{"type": "object"},
+				}},
+			},
+		}
+	case "tools/call":
+		params := mapFromAny(request["params"])
+		arguments := mapFromAny(params["arguments"])
+		return map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"result": map[string]any{
+				"content": []map[string]any{{"type": "text", "text": "stdio echo: " + fmt.Sprint(arguments["message"])}},
+				"metadata": map[string]any{
+					"ok": true,
+				},
+			},
+		}
+	default:
+		return map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"error": map[string]any{
+				"code":    -32601,
+				"message": "method not found",
+			},
+		}
 	}
 }
 
