@@ -105,19 +105,25 @@ func localAuditMetadata(metadata map[string]any) map[string]any {
 		return nil
 	}
 	allowed := map[string]bool{
-		"target":      true,
-		"transport":   true,
-		"method":      true,
-		"tool_name":   true,
-		"status":      true,
-		"status_code": true,
-		"http_status": true,
-		"route":       true,
-		"route_name":  true,
-		"workdir":     true,
-		"exit_code":   true,
-		"timed_out":   true,
-		"truncated":   true,
+		"target":         true,
+		"transport":      true,
+		"method":         true,
+		"tool_name":      true,
+		"status":         true,
+		"status_code":    true,
+		"http_status":    true,
+		"route":          true,
+		"route_name":     true,
+		"event":          true,
+		"server_name":    true,
+		"session_key":    true,
+		"command_prefix": true,
+		"pid":            true,
+		"exit_error":     true,
+		"workdir":        true,
+		"exit_code":      true,
+		"timed_out":      true,
+		"truncated":      true,
 	}
 	result := map[string]any{}
 	for key, value := range metadata {

@@ -132,6 +132,7 @@ func TestHandleMCPProxyRejectsNonLoopbackByDefault(t *testing.T) {
 func TestHandleMCPProxyStdioTestListAndCall(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Runtime.HTTPTimeoutMS = 5000
+	cfg.Logging.LocalAuditJSONL = t.TempDir() + "/audit.jsonl"
 	cfg.MCPServers = []MCPServer{{
 		Name:      "coding",
 		Transport: "stdio",
@@ -185,6 +186,21 @@ func TestHandleMCPProxyStdioTestListAndCall(t *testing.T) {
 	}
 	if callResult.Metadata["transport"] != "stdio" || callResult.Metadata["target"] != "stdio:coding" {
 		t.Fatalf("unexpected stdio metadata: %#v", callResult.Metadata)
+	}
+	auditBytes, err := os.ReadFile(cfg.Logging.LocalAuditJSONL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auditText := string(auditBytes)
+	if !strings.Contains(auditText, `"tool_name":"mcp_stdio.start"`) || !strings.Contains(auditText, `"server_name":"coding"`) {
+		t.Fatalf("stdio start audit missing expected metadata: %s", auditText)
+	}
+	if strings.Contains(auditText, "hello stdio") {
+		t.Fatalf("stdio audit leaked tool arguments: %s", auditText)
+	}
+	checks := AgentLocalHealthChecks(cfg, 0)
+	if statusForHealthCheck(checks, "mcp_server.coding") != HealthStatusOK || !strings.Contains(fmt.Sprint(checks), "process running") {
+		t.Fatalf("stdio health did not include running process: %#v", checks)
 	}
 }
 

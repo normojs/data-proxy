@@ -181,7 +181,22 @@ func checkStdioMCPServer(name string, server MCPServer) AgentHealthCheck {
 	if _, err := exec.LookPath(prefix); err != nil {
 		return AgentHealthCheck{Name: name, Status: HealthStatusWarn, Detail: "shell ok; executable prefix not found in PATH: " + prefix}
 	}
-	return AgentHealthCheck{Name: name, Status: HealthStatusOK, Detail: "stdio command prefix found: " + prefix}
+	detail := "stdio command prefix found: " + prefix
+	status := defaultMCPStdioSessions.Status("stdio:" + server.Name)
+	if !status.Exists {
+		return AgentHealthCheck{Name: name, Status: HealthStatusOK, Detail: detail + "; process not started"}
+	}
+	if status.Alive {
+		initialized := "not initialized"
+		if status.Initialized {
+			initialized = "initialized"
+		}
+		return AgentHealthCheck{Name: name, Status: HealthStatusOK, Detail: fmt.Sprintf("%s; process running pid=%d %s", detail, status.PID, initialized)}
+	}
+	if status.ExitError != "" {
+		return AgentHealthCheck{Name: name, Status: HealthStatusWarn, Detail: detail + "; previous process exited: " + status.ExitError}
+	}
+	return AgentHealthCheck{Name: name, Status: HealthStatusWarn, Detail: detail + "; previous process exited; next call will restart"}
 }
 
 func checkStdioShell() error {

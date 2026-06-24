@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var defaultMCPStdioSessions = newMCPStdioSessionCache()
@@ -20,6 +21,14 @@ var defaultMCPStdioSessions = newMCPStdioSessionCache()
 type mcpStdioSessionCache struct {
 	mu       sync.Mutex
 	sessions map[string]*mcpStdioSession
+}
+
+type mcpStdioSessionStatus struct {
+	Exists      bool
+	Alive       bool
+	Initialized bool
+	PID         int
+	ExitError   string
 }
 
 func newMCPStdioSessionCache() *mcpStdioSessionCache {
@@ -33,6 +42,11 @@ func (c *mcpStdioSessionCache) GetOrStart(key string, server MCPServer, cfg Conf
 		if session.Alive() {
 			return session, nil
 		}
+		_ = auditMCPStdioEventAtPath(session.auditPath, session.server, "mcp_stdio.restart", true, nil, map[string]any{
+			"session_key": key,
+			"pid":         session.pid,
+			"exit_error":  session.waitErrorMessage(),
+		})
 		delete(c.sessions, key)
 	}
 	session, err := startMCPStdioSession(key, server, cfg)
@@ -41,6 +55,22 @@ func (c *mcpStdioSessionCache) GetOrStart(key string, server MCPServer, cfg Conf
 	}
 	c.sessions[key] = session
 	return session, nil
+}
+
+func (c *mcpStdioSessionCache) Status(key string) mcpStdioSessionStatus {
+	c.mu.Lock()
+	session := c.sessions[key]
+	c.mu.Unlock()
+	if session == nil {
+		return mcpStdioSessionStatus{}
+	}
+	return mcpStdioSessionStatus{
+		Exists:      true,
+		Alive:       session.Alive(),
+		Initialized: session.Initialized(),
+		PID:         session.pid,
+		ExitError:   session.waitErrorMessage(),
+	}
 }
 
 func (c *mcpStdioSessionCache) Initialized(key string) bool {
@@ -78,6 +108,8 @@ type mcpStdioSession struct {
 	stdout         *bufio.Reader
 	stderr         *limitedBuffer
 	maxResultBytes int64
+	auditPath      string
+	pid            int
 	mu             sync.Mutex
 	stateMu        sync.Mutex
 	initialized    bool
@@ -91,6 +123,7 @@ func startMCPStdioSession(key string, server MCPServer, cfg Config) (*mcpStdioSe
 	if command == "" {
 		return nil, ToolError{Code: "MCP_PROXY_STDIO_NOT_CONFIGURED", Message: fmt.Sprintf("local MCP server %q has no command", server.Name)}
 	}
+	auditPath := localAuditPath(cfg)
 	cmd := stdioShellCommand(command)
 	if workspace := strings.TrimSpace(expandPath(cfg.Agent.Workspace)); workspace != "" {
 		if info, err := os.Stat(workspace); err == nil && info.IsDir() {
@@ -99,17 +132,20 @@ func startMCPStdioSession(key string, server MCPServer, cfg Config) (*mcpStdioSe
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		_ = auditMCPStdioEventAtPath(auditPath, server, "mcp_stdio.start", false, err, map[string]any{"session_key": key, "workdir": cmd.Dir})
 		return nil, ToolError{Code: "MCP_PROXY_STDIO_START_FAILED", Message: err.Error()}
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
+		_ = auditMCPStdioEventAtPath(auditPath, server, "mcp_stdio.start", false, err, map[string]any{"session_key": key, "workdir": cmd.Dir})
 		return nil, ToolError{Code: "MCP_PROXY_STDIO_START_FAILED", Message: err.Error()}
 	}
 	stderr := &limitedBuffer{limit: 16 * 1024}
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
+		_ = auditMCPStdioEventAtPath(auditPath, server, "mcp_stdio.start", false, err, map[string]any{"session_key": key, "workdir": cmd.Dir})
 		return nil, ToolError{Code: "MCP_PROXY_STDIO_START_FAILED", Message: err.Error()}
 	}
 	maxResultBytes := cfg.Runtime.MaxResultBytes
@@ -126,10 +162,23 @@ func startMCPStdioSession(key string, server MCPServer, cfg Config) (*mcpStdioSe
 		stdout:         bufio.NewReader(stdout),
 		stderr:         stderr,
 		maxResultBytes: maxResultBytes,
+		auditPath:      auditPath,
+		pid:            cmd.Process.Pid,
 		done:           make(chan struct{}),
 	}
+	_ = auditMCPStdioEventAtPath(auditPath, server, "mcp_stdio.start", true, nil, map[string]any{
+		"session_key": key,
+		"pid":         session.pid,
+		"workdir":     cmd.Dir,
+	})
 	go func() {
-		session.waitErr = cmd.Wait()
+		waitErr := cmd.Wait()
+		session.setWaitErr(waitErr)
+		_ = auditMCPStdioEventAtPath(session.auditPath, session.server, "mcp_stdio.exit", waitErr == nil, waitErr, map[string]any{
+			"session_key": key,
+			"pid":         session.pid,
+			"exit_error":  session.waitErrorMessage(),
+		})
 		close(session.done)
 	}()
 	return session, nil
@@ -161,6 +210,21 @@ func (s *mcpStdioSession) MarkInitialized() {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	s.initialized = true
+}
+
+func (s *mcpStdioSession) setWaitErr(err error) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.waitErr = err
+}
+
+func (s *mcpStdioSession) waitErrorMessage() string {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if s.waitErr == nil {
+		return ""
+	}
+	return truncateString(s.waitErr.Error(), 256)
 }
 
 func (s *mcpStdioSession) Close() {
@@ -235,13 +299,39 @@ func (s *mcpStdioSession) call(ctx context.Context, bodyBytes []byte, notificati
 
 func (s *mcpStdioSession) exitMessage() string {
 	message := "MCP stdio process exited"
-	if s.waitErr != nil {
-		message += ": " + s.waitErr.Error()
+	if waitErr := s.waitErrorMessage(); waitErr != "" {
+		message += ": " + waitErr
 	}
 	if stderr := strings.TrimSpace(s.stderr.String()); stderr != "" {
 		message += ": " + truncateString(stderr, 512)
 	}
 	return message
+}
+
+func auditMCPStdioEventAtPath(path string, server MCPServer, event string, success bool, eventErr error, metadata map[string]any) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["event"] = event
+	metadata["transport"] = "stdio"
+	metadata["server_name"] = server.Name
+	if prefix, ok := stdioCommandPrefix(server.Command); ok {
+		metadata["command_prefix"] = prefix
+	}
+	entry := localAuditEntry{
+		Timestamp: time.Now().Format(time.RFC3339Nano),
+		ToolName:  event,
+		Success:   success,
+		Metadata:  localAuditMetadata(metadata),
+	}
+	if eventErr != nil {
+		entry.ErrorCode = strings.ToUpper(strings.ReplaceAll(event, ".", "_"))
+		entry.Error = truncateString(eventErr.Error(), 512)
+	}
+	return appendLocalAuditEntry(path, entry)
 }
 
 func writeMCPStdioFrame(writer *bufio.Writer, body []byte) error {
