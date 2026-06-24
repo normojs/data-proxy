@@ -174,7 +174,7 @@ data-proxy-agent self-test
 data-proxy-agent report --output ./agent-diagnostic.zip
 ```
 
-当前 `report` 会生成脱敏 zip，包含版本/平台、配置路径、脱敏配置、校验结果、状态摘要、可选网络检查结果，以及 `doctor` 同源的本地健康检查结果。
+当前 `report` 会生成脱敏 zip，包含版本/平台、配置路径、脱敏配置、校验结果、状态摘要、可选网络检查结果、远端 Bridge token 握手校验结果，以及 `doctor` 同源的本地健康检查结果。
 它不采集原始用户请求、响应、MCP 工具参数或本地文件内容。
 `logs path/tail` 读取 `logging.local_audit_jsonl`，`logs tail --follow` 可持续打印新增 JSONL 行。该本地审计只记录 bridge tool 调用的 request id、tool name、成功/失败、耗时、结果大小、错误码和少量 allowlist metadata，不写原始参数、响应正文或本地文件内容。
 
@@ -189,12 +189,12 @@ data-proxy-agent report --output ./agent-diagnostic.zip
 - 系统服务是否已安装并正在运行。
 - 当前版本是否过旧。
 
-当前 `doctor` 已覆盖配置校验、token 是否配置、Bridge DNS、Data Proxy
+当前 `doctor` 已覆盖配置校验、token 是否配置、`/bridge/ws` 远端 Bearer token 握手校验、Bridge DNS、Data Proxy
 `/api/status`、workspace、本地审计文件路径、HTTP route TCP 连通性、HTTP MCP
 endpoint TCP 连通性，以及 stdio MCP 的 shell/命令前缀检查。stdio 检查不会主动启动
 MCP 进程；真正的协议握手继续使用 `data-proxy-agent mcp test <name>`。
 
-其中系统服务安装/启停命令、版本更新命令、agent 在线健康上报和控制台健康摘要展示已具备基础能力；API token 远端有效性、系统服务运行状态和更细粒度的 MCP stdio 进程健康仍属于后续产品化阶段。
+其中系统服务安装/启停命令、版本更新命令、agent 在线健康上报和控制台健康摘要展示已具备基础能力；系统服务运行状态和更细粒度的 MCP stdio 进程健康仍属于后续产品化阶段。
 
 ## 配置文件
 
@@ -472,9 +472,9 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已新增 `cmd/data-proxy-agent` 入口。
 - 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
 - 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`update`、`run`。
-- `doctor` 已能检查本地 workspace、本地审计路径、HTTP route TCP 连通性、MCP HTTP endpoint 连通性和 stdio MCP shell/命令前缀。
+- `doctor` 已能检查本地 workspace、本地审计路径、远端 Bridge token 握手、HTTP route TCP 连通性、MCP HTTP endpoint 连通性和 stdio MCP shell/命令前缀。
 - 已实现 `enroll`，支持 `/api/bridge/agent-setup/consume` 一次性 setup token 绑定，也可兼容调用 `/api/bridge/agent-setup` 注册 Bridge Client，并把 agent token 写入本地私有配置。
-- 已实现 `report`，可生成脱敏诊断 zip。
+- 已实现 `report`，可生成脱敏诊断 zip，并记录远端 Bridge token 握手校验结果。
 - 已实现 `logs path/tail`，读取本地 `logging.local_audit_jsonl` 审计 JSONL。
 - 已实现 `service install/uninstall/start/stop/restart/status/print`，可生成并管理 Linux systemd、macOS launchd、Windows Service 配置。
 - 已实现 `mcp list/add/test/remove`，用于管理本地 Streamable HTTP MCP endpoint 配置。
@@ -544,7 +544,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 
 - 已实现自动更新命令，后续补签名和 Windows helper。
 - 已实现本地诊断包基础命令，后续可接控制台上传和版本建议。
-- 已实现控制台健康摘要展示，后续补远端 token 校验、系统服务状态和 stdio MCP 子进程健康。
+- 已实现控制台健康摘要展示和远端 token 校验，后续补系统服务状态和 stdio MCP 子进程健康。
 - 多 Agent 管理。
 - 策略版本和配置下发。
 - MCP stdio 的启动日志、自动重启策略和更细粒度进程健康检查。

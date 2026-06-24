@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestCLIDoctorPrintsLocalHealth(t *testing.T) {
@@ -15,10 +17,13 @@ func TestCLIDoctorPrintsLocalHealth(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer local.Close()
+	bridge := newAgentAuthWebSocketServer(t, "sk-doctor-test")
+	defer bridge.Close()
 
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := DefaultConfig()
 	cfg.Server.BaseURL = local.URL
+	cfg.Server.BridgeWSURL = "ws" + strings.TrimPrefix(bridge.URL, "http")
 	cfg.Agent.Token = "sk-doctor-test"
 	cfg.Agent.Workspace = t.TempDir()
 	cfg.Logging.LocalAuditJSONL = filepath.Join(t.TempDir(), "audit.jsonl")
@@ -36,6 +41,7 @@ func TestCLIDoctorPrintsLocalHealth(t *testing.T) {
 	for _, want := range []string{
 		"validation: ok",
 		"token: configured",
+		"bridge_auth: ok",
 		"workspace: ok:",
 		"local_audit: ok:",
 		"http_route.local-web: ok:",
@@ -44,6 +50,33 @@ func TestCLIDoctorPrintsLocalHealth(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestCheckBridgeWebSocketAuth(t *testing.T) {
+	bridge := newAgentAuthWebSocketServer(t, "sk-valid")
+	defer bridge.Close()
+	bridgeURL := "ws" + strings.TrimPrefix(bridge.URL, "http")
+
+	if err := checkBridgeWebSocketAuth(bridgeURL, "sk-valid", 2*time.Second); err != nil {
+		t.Fatalf("expected bridge auth to pass: %s", err)
+	}
+	err := checkBridgeWebSocketAuth(bridgeURL, "sk-invalid", 2*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 401") {
+		t.Fatalf("expected HTTP 401 error, got %v", err)
+	}
+}
+
+func TestBuildReportChecksIncludesBridgeAuth(t *testing.T) {
+	bridge := newAgentAuthWebSocketServer(t, "sk-report")
+	defer bridge.Close()
+
+	cfg := DefaultConfig()
+	cfg.Server.BridgeWSURL = "ws" + strings.TrimPrefix(bridge.URL, "http")
+	cfg.Agent.Token = "sk-report"
+	checks := buildReportChecks(cfg, ReportOptions{Timeout: 2 * time.Second})
+	if statusForReportCheck(checks, "bridge_auth") != "ok" {
+		t.Fatalf("expected bridge_auth ok: %#v", checks)
 	}
 }
 
@@ -103,4 +136,29 @@ func statusForHealthCheck(checks []AgentHealthCheck, name string) string {
 		}
 	}
 	return ""
+}
+
+func statusForReportCheck(checks []reportCheck, name string) string {
+	for _, check := range checks {
+		if check.Name == name {
+			return check.Status
+		}
+	}
+	return ""
+}
+
+func newAgentAuthWebSocketServer(t *testing.T, token string) *httptest.Server {
+	t.Helper()
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+token {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Close()
+	}))
 }

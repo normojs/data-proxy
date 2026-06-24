@@ -533,7 +533,11 @@ func (c CLI) runDoctor(args []string) int {
 	result := ValidateConfig(cfg, false)
 	printValidation(c.Out, result)
 	ok := result.OK()
-	if bridgeURL, err := EffectiveBridgeWSURL(cfg); err == nil {
+	bridgeURL := ""
+	bridgeURLValid := false
+	if resolvedBridgeURL, err := EffectiveBridgeWSURL(cfg); err == nil {
+		bridgeURL = resolvedBridgeURL
+		bridgeURLValid = true
 		if err := checkDNS(bridgeURL, *timeout); err != nil {
 			fmt.Fprintf(c.Out, "dns: fail: %s\n", err)
 			ok = false
@@ -551,11 +555,21 @@ func (c CLI) runDoctor(args []string) int {
 			fmt.Fprintln(c.Out, "base_url: ok")
 		}
 	}
-	if ResolveToken(cfg) == "" {
+	token := ResolveToken(cfg)
+	if token == "" {
 		fmt.Fprintln(c.Out, "token: missing")
+		fmt.Fprintln(c.Out, "bridge_auth: skipped: token missing")
 		ok = false
 	} else {
 		fmt.Fprintln(c.Out, "token: configured")
+		if bridgeURLValid {
+			if err := checkBridgeWebSocketAuth(bridgeURL, token, *timeout); err != nil {
+				fmt.Fprintf(c.Out, "bridge_auth: fail: %s\n", err)
+				ok = false
+			} else {
+				fmt.Fprintln(c.Out, "bridge_auth: ok")
+			}
+		}
 	}
 	for _, check := range AgentLocalHealthChecks(cfg, *timeout) {
 		printAgentHealthCheck(c.Out, check)

@@ -178,7 +178,8 @@ func buildReportChecks(cfg Config, opts ReportOptions) []reportCheck {
 	} else {
 		checks = append(checks, reportCheck{Name: "config", Status: "fail", Message: validation.Error().Error()})
 	}
-	if ResolveToken(cfg) == "" {
+	token := ResolveToken(cfg)
+	if token == "" {
 		checks = append(checks, reportCheck{Name: "token", Status: "missing"})
 	} else {
 		checks = append(checks, reportCheck{Name: "token", Status: "configured"})
@@ -186,12 +187,27 @@ func buildReportChecks(cfg Config, opts ReportOptions) []reportCheck {
 	if opts.SkipNetwork {
 		checks = append(checks, reportCheck{Name: "network", Status: "skipped"})
 	} else {
-		if bridgeURL, err := EffectiveBridgeWSURL(cfg); err != nil {
+		bridgeURL := ""
+		bridgeURLValid := false
+		if resolvedBridgeURL, err := EffectiveBridgeWSURL(cfg); err != nil {
 			checks = append(checks, reportCheck{Name: "bridge_url", Status: "fail", Message: err.Error()})
-		} else if err := checkDNS(bridgeURL, reportTimeout(opts)); err != nil {
+		} else if err := checkDNS(resolvedBridgeURL, reportTimeout(opts)); err != nil {
+			bridgeURL = resolvedBridgeURL
+			bridgeURLValid = true
 			checks = append(checks, reportCheck{Name: "dns", Status: "fail", Message: err.Error()})
 		} else {
+			bridgeURL = resolvedBridgeURL
+			bridgeURLValid = true
 			checks = append(checks, reportCheck{Name: "dns", Status: "ok"})
+		}
+		if token == "" {
+			checks = append(checks, reportCheck{Name: "bridge_auth", Status: "skipped", Message: "token missing"})
+		} else if bridgeURLValid {
+			if err := checkBridgeWebSocketAuth(bridgeURL, token, reportTimeout(opts)); err != nil {
+				checks = append(checks, reportCheck{Name: "bridge_auth", Status: "fail", Message: err.Error()})
+			} else {
+				checks = append(checks, reportCheck{Name: "bridge_auth", Status: "ok"})
+			}
 		}
 		if strings.TrimSpace(cfg.Server.BaseURL) != "" {
 			if err := checkBaseURL(cfg.Server.BaseURL, reportTimeout(opts)); err != nil {
