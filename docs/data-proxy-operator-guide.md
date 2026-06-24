@@ -21,6 +21,66 @@ http://localhost:3000
 On a fresh install, the first-run setup wizard asks you to prepare the runtime
 workspace before the first administrator account is created.
 
+## Production Compose Entry Point
+
+Production servers should use the provided scripts instead of calling
+`docker compose -f docker-compose.prod.yml ...` directly. The wrapper always
+loads both `docker-compose.prod.yml` and `docker-compose.wechat-pay.yml`, so
+the WeChat Pay merchant key mount stays present after every restart, deploy,
+and rollback:
+
+```bash
+scripts/prod-compose.sh ps
+scripts/prod-compose.sh logs -f data-proxy
+scripts/prod-compose.sh up -d data-proxy
+```
+
+The WeChat Pay override mounts:
+
+```text
+./secrets/wechatpay -> /run/secrets/data-proxy/wechatpay:ro
+```
+
+Deploy a new image with one of these forms:
+
+```bash
+scripts/prod-deploy.sh ./data-proxy-<tag>.tar
+scripts/prod-deploy.sh ghcr.io/normojs/data-proxy:<tag>
+```
+
+Before switching images, `prod-deploy.sh` saves the currently running
+`data-proxy` container image to:
+
+```text
+/root/workspace/dataproxy/image-archive
+```
+
+The default retention is the newest 10 archives. Override it only when the
+server has enough disk space:
+
+```bash
+DATA_PROXY_IMAGE_ARCHIVE_KEEP=20 scripts/prod-deploy.sh ./data-proxy-<tag>.tar
+```
+
+If a deployment is unhealthy, roll back to the newest archived image:
+
+```bash
+scripts/prod-rollback.sh
+```
+
+You can also roll back to a specific archive or registry image:
+
+```bash
+scripts/prod-rollback.sh /root/workspace/dataproxy/image-archive/<archive>.tar
+scripts/prod-rollback.sh ghcr.io/normojs/data-proxy:<previous-tag>
+```
+
+Both deploy and rollback run a default health check against
+`http://127.0.0.1:13002/api/status`. Override with
+`DATA_PROXY_HEALTH_URL` when the service binds a different local port. If the
+server needs another compose override, append it with
+`DATA_PROXY_EXTRA_COMPOSE_FILES`, separated by `:`.
+
 ## Database And Redis Choices
 
 Data Proxy supports two first-run dependency modes.

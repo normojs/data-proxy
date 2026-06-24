@@ -87,15 +87,37 @@ make snapless-connected-app-release-evidence
 
 ## 回滚
 
-优先回滚到上一个已验证镜像 digest，而不是仅依赖浮动 tag：
+如果服务器使用本地 tar 包部署，先使用生产脚本回滚到最新的本地镜像归档。这个脚本会继续带上
+`docker-compose.wechat-pay.yml`，避免回滚后微信支付证书挂载丢失：
+
+```bash
+scripts/prod-rollback.sh
+```
+
+也可以指定某个历史归档：
+
+```bash
+scripts/prod-rollback.sh /root/workspace/dataproxy/image-archive/<archive>.tar
+```
+
+发布新镜像时使用生产部署脚本，它会在切换前保存当前运行镜像，默认保留最近 10 份：
+
+```bash
+scripts/prod-deploy.sh ./data-proxy-<tag>.tar
+scripts/prod-deploy.sh ghcr.io/normojs/data-proxy:<tag>
+```
+
+如果使用镜像仓库，仍然优先记录并回滚到上一个已验证镜像 digest，而不是仅依赖浮动 tag：
 
 ```bash
 docker pull ghcr.io/normojs/data-proxy@sha256:<previous-digest>
+scripts/prod-rollback.sh ghcr.io/normojs/data-proxy@sha256:<previous-digest>
 ```
 
 回滚后需要验证：
 
 - 服务启动成功。
+- `scripts/prod-compose.sh config` 仍包含 `docker-compose.wechat-pay.yml` 中的 `/run/secrets/data-proxy/wechatpay:ro` 挂载。
 - 数据库迁移没有造成不可逆阻塞；如果有迁移风险，发布前必须准备回滚 SQL 或只读降级方案。
 - 企业治理开关可关闭外部 email/webhook 投递。
 - V1.3 站内通知仍可读取，审批/审计 deep link 不报错。

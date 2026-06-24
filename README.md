@@ -93,6 +93,21 @@ docker pull ghcr.io/normojs/data-proxy:v1.3.0
 
 发布、tag、镜像摘要和回滚流程见 [Data Proxy Release Runbook](./docs/data-proxy-release-runbook.md)。
 
+### 生产部署与回滚
+
+生产服务器建议使用 `scripts/prod-deploy.sh` 和 `scripts/prod-compose.sh`，不要直接手写 Compose 文件组合。脚本会固定加载 `docker-compose.prod.yml` 与 `docker-compose.wechat-pay.yml`，确保微信支付商户私钥目录始终挂载到 `/run/secrets/data-proxy/wechatpay:ro`。
+
+```bash
+scripts/prod-deploy.sh ./data-proxy-<tag>.tar
+scripts/prod-deploy.sh ghcr.io/normojs/data-proxy:<tag>
+```
+
+每次部署前会把当前运行镜像保存到 `/root/workspace/dataproxy/image-archive`，默认保留最近 10 份。新镜像异常时可直接回滚：
+
+```bash
+scripts/prod-rollback.sh
+```
+
 ## 常用配置
 
 首次安装推荐通过 Web 初始化向导写入 runtime config。高级场景可以使用 `.env.example` 中的环境变量覆盖。

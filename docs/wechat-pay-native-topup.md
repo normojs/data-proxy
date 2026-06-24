@@ -41,10 +41,18 @@ install -m 600 /path/to/apiclient_key.pem secrets/wechatpay/apiclient_key.pem
 chmod 700 secrets secrets/wechatpay
 ```
 
-Start or restart the service with the WeChat Pay compose override:
+Start or restart the service through the production wrapper. It always includes
+the WeChat Pay compose override:
 
 ```bash
-docker compose -f docker-compose.prod.yml -f docker-compose.wechat-pay.yml up -d
+scripts/prod-compose.sh up -d data-proxy
+```
+
+For image deployments, prefer `scripts/prod-deploy.sh`. It also includes the
+WeChat Pay override and archives the currently running image before switching:
+
+```bash
+scripts/prod-deploy.sh ./data-proxy-<tag>.tar
 ```
 
 Then configure these fields in the data-proxy admin payment gateway settings:
