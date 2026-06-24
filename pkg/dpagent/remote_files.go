@@ -18,13 +18,14 @@ import (
 )
 
 const (
-	BridgeToolRemoteRead    = "remote_read"
-	BridgeToolRemoteTree    = "remote_tree"
-	BridgeToolRemoteGlob    = "remote_glob"
-	BridgeToolRemoteGrep    = "remote_grep"
-	BridgeToolRemoteEnvInfo = "remote_env_info"
-	BridgeToolRemoteWrite   = "remote_write"
-	BridgeToolRemoteEdit    = "remote_edit"
+	BridgeToolRemoteRead     = "remote_read"
+	BridgeToolRemoteTree     = "remote_tree"
+	BridgeToolRemoteGlob     = "remote_glob"
+	BridgeToolRemoteGrep     = "remote_grep"
+	BridgeToolRemoteEnvInfo  = "remote_env_info"
+	BridgeToolRemoteWrite    = "remote_write"
+	BridgeToolRemoteEdit     = "remote_edit"
+	BridgeToolRemoteRunTests = "remote_run_tests"
 
 	DefaultRemoteMaxResults       = 200
 	DefaultRemoteTreeDepth        = 3

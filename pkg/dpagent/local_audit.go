@@ -114,6 +114,10 @@ func localAuditMetadata(metadata map[string]any) map[string]any {
 		"http_status": true,
 		"route":       true,
 		"route_name":  true,
+		"workdir":     true,
+		"exit_code":   true,
+		"timed_out":   true,
+		"truncated":   true,
 	}
 	result := map[string]any{}
 	for key, value := range metadata {

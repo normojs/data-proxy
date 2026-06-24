@@ -429,6 +429,9 @@ func EffectiveCapabilities(cfg Config) []string {
 			add(BridgeToolRemoteWrite)
 			add(BridgeToolRemoteEdit)
 		}
+		if cfg.Policy.Exec.Enabled && len(normalizedSafeCommands(cfg.Policy.Exec.SafeCommands)) > 0 {
+			add(BridgeToolRemoteRunTests)
+		}
 	}
 	if len(cfg.HTTPRoutes) > 0 {
 		add(BridgeCapabilityHTTPTunnel)

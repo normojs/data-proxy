@@ -163,6 +163,50 @@ func TestRemoteEnvInfoAndCapabilities(t *testing.T) {
 	}
 }
 
+func TestRemoteRunTestsRequiresLocalExecPolicy(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := remoteTestConfig(workspace)
+	client := BridgeClient{Config: cfg}
+	if containsString(EffectiveCapabilities(cfg), BridgeToolRemoteRunTests) {
+		t.Fatalf("remote_run_tests should not be advertised by default: %#v", EffectiveCapabilities(cfg))
+	}
+
+	_, err := client.handleToolCall(context.Background(), BridgeToolRemoteRunTests, map[string]any{"command": "go version"})
+	if err == nil {
+		t.Fatal("expected remote_run_tests to be disabled by default")
+	}
+	toolErr, ok := err.(ToolError)
+	if !ok || toolErr.Code != "REMOTE_RUN_TESTS_DISABLED" {
+		t.Fatalf("unexpected disabled error: %#v", err)
+	}
+
+	cfg.Policy.Exec.Enabled = true
+	cfg.Policy.Exec.SafeCommands = []string{"go version"}
+	client = BridgeClient{Config: cfg}
+	if !containsString(EffectiveCapabilities(cfg), BridgeToolRemoteRunTests) {
+		t.Fatalf("remote_run_tests capability missing when exec policy is enabled: %#v", EffectiveCapabilities(cfg))
+	}
+	result, err := client.handleToolCall(context.Background(), BridgeToolRemoteRunTests, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Content[0].Text, "go version") {
+		t.Fatalf("unexpected run_tests output: %q", result.Content[0].Text)
+	}
+	if result.Metadata["exit_code"] != 0 || result.Metadata["workdir"] != "." {
+		t.Fatalf("unexpected run_tests metadata: %#v", result.Metadata)
+	}
+
+	_, err = client.handleToolCall(context.Background(), BridgeToolRemoteRunTests, map[string]any{"command": "go env"})
+	if err == nil {
+		t.Fatal("expected non-allowlisted command to be rejected")
+	}
+	toolErr, ok = err.(ToolError)
+	if !ok || toolErr.Code != "REMOTE_RUN_TESTS_FORBIDDEN" {
+		t.Fatalf("unexpected forbidden command error: %#v", err)
+	}
+}
+
 func TestRemotePolicyLimitsAndDeniedPaths(t *testing.T) {
 	workspace := t.TempDir()
 	mustWriteFile(t, filepath.Join(workspace, "a.txt"), strings.Repeat("a", 64))

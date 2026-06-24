@@ -429,12 +429,13 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已实现 `http_tunnel.request` 普通/流式/SSE/WebSocket 转发：目标校验、loopback 默认限制、header 过滤、body base64、流式上传/下载、WebSocket frame 转发、响应截断和服务端兼容的 `http_response` metadata。
 - 已实现 MCP bridge 基础能力：`mcp_proxy.test`、`mcp_proxy.tools_list`、`mcp_proxy.tools_call` 和 `mcp_proxy.rpc`，支持 Streamable HTTP 目标、`Mcp-Session-Id` 会话复用、SSE `data:` 响应解析、loopback 默认限制，以及本地 stdio MCP 子进程桥接。stdio command 仅从本机配置读取，远端请求只能按本地 MCP server 名称选择。
 - 已实现本地文件工具：只读 `remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_env_info` 默认启用；写入 `remote_write`、`remote_edit` 已实现但默认关闭，必须本机配置 `policy.allow_write=true` 才会上报和执行。所有路径默认限制在 `agent.workspace` 内，支持 `policy.allowed_workspaces`、`policy.denied_paths`、symlink 防逃逸、常见目录忽略、服务端 policy 限额收紧、本地结果截断和写入大小限制。
+- 已实现 `remote_run_tests` 安全测试命令：默认关闭，必须本机配置 `policy.exec.enabled=true` 且命令精确命中 `policy.exec.safe_commands`；执行目录仍限制在 workspace 内，输出受 `max_result_bytes` 限制，非零退出会作为工具结果返回给调用方。
 - 已新增 GitHub Actions `Data Proxy Agent` workflow，对 agent 运行测试并构建 Linux/macOS/Windows 的 amd64/arm64 二进制包与 sha256 校验文件。
 - 当前 Go agent 对尚未移植的 `tool_call` 明确返回 `TOOL_NOT_SUPPORTED`，避免服务端请求悬空。
 
 尚未从 Node 原型迁移到 Go CLI：
 
-- 命令执行类工具和安全执行策略的本地落地。
+- 任意 `remote_exec`、交互 shell 和安装依赖类高危工具。
 - `update` 自动更新命令。
 - install script、包管理器安装和 release 签名。
 
