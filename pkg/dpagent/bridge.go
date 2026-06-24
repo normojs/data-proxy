@@ -91,7 +91,7 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			Version:      agentVersion(c.Config),
 			Platform:     agentPlatform(),
 			Workspace:    c.Config.Agent.Workspace,
-			Capabilities: append([]string(nil), c.Config.Agent.Capabilities...),
+			Capabilities: EffectiveCapabilities(c.Config),
 		},
 	}); err != nil {
 		return result, err
@@ -145,14 +145,23 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			go func(message dto.BridgeWSMessage) {
 				requestID := bridgeRequestID(message)
 				toolName := bridgeToolName(message.Data)
-				logf(c.Err, "WARN", "tool call rejected by early Go agent", "request_id", requestID, "tool_name", toolName)
+				args := bridgeToolArguments(message.Data)
+				logf(c.Err, "INFO", "tool call received", "request_id", requestID, "tool_name", toolName)
+				result, err := c.handleToolCall(ctx, toolName, args)
+				if err != nil {
+					toolErr := toolErrorFromError(err)
+					logf(c.Err, "ERROR", "tool call failed", "request_id", requestID, "tool_name", toolName, "code", toolErr.Code, "message", toolErr.Message)
+					_ = writeJSON(dto.BridgeWSMessage{
+						Type: "tool_error",
+						Id:   requestID,
+						Data: toolErr,
+					})
+					return
+				}
 				_ = writeJSON(dto.BridgeWSMessage{
-					Type: "tool_error",
+					Type: "tool_result",
 					Id:   requestID,
-					Data: dto.BridgeToolCallError{
-						Code:    "TOOL_NOT_SUPPORTED",
-						Message: fmt.Sprintf("data-proxy-agent Go CLI has not implemented tool %q yet", toolName),
-					},
+					Data: result,
 				})
 			}(msg)
 		default:
@@ -178,6 +187,25 @@ func bridgeToolName(data any) string {
 		return call.ToolName
 	}
 	return ""
+}
+
+func bridgeToolArguments(data any) map[string]any {
+	var call dto.BridgeToolCallRequest
+	if decodeBridgeData(data, &call) == nil && call.Arguments != nil {
+		return call.Arguments
+	}
+	return map[string]any{}
+}
+
+func toolErrorFromError(err error) dto.BridgeToolCallError {
+	if err == nil {
+		return dto.BridgeToolCallError{}
+	}
+	var toolErr ToolError
+	if errors.As(err, &toolErr) {
+		return dto.BridgeToolCallError{Code: toolErr.Code, Message: toolErr.Message}
+	}
+	return dto.BridgeToolCallError{Code: "TOOL_CALL_FAILED", Message: err.Error()}
 }
 
 func decodeBridgeData(data any, target any) error {

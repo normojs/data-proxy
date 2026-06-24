@@ -160,7 +160,7 @@ func (c CLI) runStatus(args []string) int {
 	fmt.Fprintf(c.Out, "workspace: %s\n", cfg.Agent.Workspace)
 	fmt.Fprintf(c.Out, "bridge_ws_url: %s\n", bridgeURL)
 	fmt.Fprintf(c.Out, "token_configured: %t\n", ResolveToken(cfg) != "")
-	fmt.Fprintf(c.Out, "capabilities: %s\n", strings.Join(cfg.Agent.Capabilities, ","))
+	fmt.Fprintf(c.Out, "capabilities: %s\n", strings.Join(EffectiveCapabilities(cfg), ","))
 	fmt.Fprintf(c.Out, "mcp_servers: %d\n", len(cfg.MCPServers))
 	fmt.Fprintf(c.Out, "http_routes: %d\n", len(cfg.HTTPRoutes))
 	return 0

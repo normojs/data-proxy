@@ -389,6 +389,26 @@ func RedactedConfig(cfg Config) Config {
 	return redacted
 }
 
+func EffectiveCapabilities(cfg Config) []string {
+	seen := map[string]bool{}
+	var result []string
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	for _, capability := range cfg.Agent.Capabilities {
+		add(capability)
+	}
+	if len(cfg.HTTPRoutes) > 0 {
+		add(BridgeCapabilityHTTPTunnel)
+	}
+	return result
+}
+
 func fillConfigDefaults(cfg *Config) {
 	if cfg.Agent.ClientID == "" {
 		cfg.Agent.ClientID = DefaultConfig().Agent.ClientID

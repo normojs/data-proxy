@@ -209,7 +209,7 @@ go run ./cmd/data-proxy-agent --help
 go run ./cmd/data-proxy-agent self-test
 ```
 
-当前 Go 版已具备配置、诊断和 `/bridge/ws` 注册/心跳骨架；MCP/HTTP 工具执行仍由 `tools/bridge_client_daemon.mjs` 原型提供，后续逐步迁移。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
+当前 Go 版已具备配置、诊断、`/bridge/ws` 注册/心跳，以及普通非流式 `http_tunnel.request` 执行；MCP proxy、HTTP 流式/SSE/WebSocket 和本地文件工具仍由 `tools/bridge_client_daemon.mjs` 原型提供，后续逐步迁移。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
 
 ## 文档索引
 
