@@ -71,6 +71,8 @@ func (c BridgeClient) handleToolCall(ctx context.Context, toolName string, args 
 		return c.handleRemoteRunTests(ctx, args)
 	case BridgeToolRemoteExec:
 		return c.handleRemoteExec(ctx, args)
+	case BridgeToolRemoteInstallPackage:
+		return c.handleRemoteInstallPackage(ctx, args)
 	default:
 		return dto.BridgeToolCallResult{}, ToolError{
 			Code:    "TOOL_NOT_SUPPORTED",

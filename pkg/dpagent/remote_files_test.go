@@ -339,6 +339,60 @@ func TestRemoteExecRequiresExplicitTrustedLocalPolicy(t *testing.T) {
 	}
 }
 
+func TestRemoteInstallPackageRequiresTrustedWritePolicy(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := remoteTestConfig(workspace)
+	cfg.Agent.Capabilities = []string{BridgeToolRemoteInstallPackage}
+	client := BridgeClient{Config: cfg}
+	if containsString(EffectiveCapabilities(cfg), BridgeToolRemoteInstallPackage) {
+		t.Fatalf("remote_install_package should not be advertised by default: %#v", EffectiveCapabilities(cfg))
+	}
+
+	_, err := client.handleToolCall(context.Background(), BridgeToolRemoteInstallPackage, map[string]any{
+		"manager": "npm",
+		"package": "left-pad",
+	})
+	if err == nil {
+		t.Fatal("expected remote_install_package to be disabled by default")
+	}
+	toolErr, ok := err.(ToolError)
+	if !ok || toolErr.Code != "REMOTE_INSTALL_PACKAGE_DISABLED" {
+		t.Fatalf("unexpected disabled error: %#v", err)
+	}
+
+	cfg.Policy.AllowWrite = true
+	cfg.Policy.Exec.Enabled = true
+	cfg.Policy.Exec.AllowArbitrary = true
+	if !containsString(EffectiveCapabilities(cfg), BridgeToolRemoteInstallPackage) {
+		t.Fatalf("remote_install_package capability missing when trusted write exec is enabled: %#v", EffectiveCapabilities(cfg))
+	}
+	command, err := allowedRemoteInstallPackageCommand(cfg, map[string]any{
+		"manager": "npm",
+		"package": "@scope/pkg@1.2.3",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.Name != "npm" || strings.Join(command.Args, " ") != "install @scope/pkg@1.2.3" {
+		t.Fatalf("unexpected install command: %#v", command)
+	}
+
+	_, err = allowedRemoteInstallPackageCommand(cfg, map[string]any{
+		"manager": "npm",
+		"package": "--save",
+	})
+	if err == nil {
+		t.Fatal("expected package option injection to be rejected")
+	}
+	_, err = allowedRemoteInstallPackageCommand(cfg, map[string]any{
+		"manager": "unknown",
+		"package": "left-pad",
+	})
+	if err == nil {
+		t.Fatal("expected unsupported package manager to be rejected")
+	}
+}
+
 func TestRemotePolicyLimitsAndDeniedPaths(t *testing.T) {
 	workspace := t.TempDir()
 	mustWriteFile(t, filepath.Join(workspace, "a.txt"), strings.Repeat("a", 64))

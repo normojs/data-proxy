@@ -443,6 +443,9 @@ func EffectiveCapabilities(cfg Config) []string {
 		}
 		if cfg.Policy.Exec.Enabled && cfg.Policy.Exec.AllowArbitrary {
 			add(BridgeToolRemoteExec)
+			if cfg.Policy.AllowWrite {
+				add(BridgeToolRemoteInstallPackage)
+			}
 		}
 	}
 	if len(cfg.HTTPRoutes) > 0 {
@@ -462,6 +465,8 @@ func capabilityAllowedByLocalPolicy(cfg Config, capability string) bool {
 		return cfg.Policy.Exec.Enabled && len(normalizedSafeCommands(cfg.Policy.Exec.SafeCommands)) > 0
 	case BridgeToolRemoteExec:
 		return cfg.Policy.Exec.Enabled && cfg.Policy.Exec.AllowArbitrary
+	case BridgeToolRemoteInstallPackage:
+		return cfg.Policy.AllowWrite && cfg.Policy.Exec.Enabled && cfg.Policy.Exec.AllowArbitrary
 	default:
 		return true
 	}

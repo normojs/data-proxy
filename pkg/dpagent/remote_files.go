@@ -26,6 +26,7 @@ const (
 	BridgeToolRemoteWrite           = "remote_write"
 	BridgeToolRemoteEdit            = "remote_edit"
 	BridgeToolRemoteExec            = "remote_exec"
+	BridgeToolRemoteInstallPackage  = "remote_install_package"
 	BridgeToolRemoteRunTests        = "remote_run_tests"
 	BridgeToolRemoteGitStatus       = "remote_git_status"
 	BridgeToolRemoteGitDiff         = "remote_git_diff"
