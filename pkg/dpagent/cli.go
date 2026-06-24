@@ -66,6 +66,8 @@ func (c CLI) Run(args []string) int {
 		return c.runLogs(args[1:])
 	case "service":
 		return c.runService(args[1:])
+	case "update":
+		return c.runUpdate(args[1:])
 	case "self-test":
 		return c.runSelfTest(args[1:])
 	case "run":
@@ -92,6 +94,7 @@ Usage:
   data-proxy-agent logs path|tail [--config <path>]
   data-proxy-agent report [--config <path>] [--output <zip>]
   data-proxy-agent service install|uninstall|start|stop|restart|status [--config <path>]
+  data-proxy-agent update [--version latest|vX.Y.Z] [--dry-run]
   data-proxy-agent self-test
   data-proxy-agent run [--config <path>] [--bridge-ws-url <url>] [--token <token>] [--client-id <id>]
 

@@ -19,6 +19,7 @@ on:
       - "go.sum"
       - "README.md"
       - "docs/data-proxy-agent-cli-design.md"
+      - "scripts/install-data-proxy-agent.sh"
   pull_request:
     paths:
       - ".github/workflows/data-proxy-agent.yml"
@@ -30,6 +31,7 @@ on:
       - "go.sum"
       - "README.md"
       - "docs/data-proxy-agent-cli-design.md"
+      - "scripts/install-data-proxy-agent.sh"
   workflow_dispatch:
 
 concurrency:
@@ -134,6 +136,7 @@ jobs:
             ./cmd/data-proxy-agent
           cp README.md "dist/${ARTIFACT}/README.md"
           cp docs/data-proxy-agent-cli-design.md "dist/${ARTIFACT}/data-proxy-agent-cli-design.md"
+          cp scripts/install-data-proxy-agent.sh "dist/${ARTIFACT}/install-data-proxy-agent.sh"
 
       - name: Package
         shell: bash
@@ -156,3 +159,34 @@ jobs:
           name: ${{ steps.meta.outputs.artifact }}
           path: dist/${{ steps.meta.outputs.artifact }}.*
           retention-days: 14
+
+  release:
+    name: Publish release assets
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: data-proxy-agent-*
+          merge-multiple: true
+
+      - name: Generate checksum index
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          cat ./*.sha256 > checksums.txt
+
+      - name: Upload GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+            dist/checksums.txt

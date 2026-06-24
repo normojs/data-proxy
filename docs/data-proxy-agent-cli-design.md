@@ -96,6 +96,15 @@ data-proxy-agent service install
 data-proxy-agent service start
 ```
 
+当前仓库已提供 GitHub Release 安装脚本，控制台 `/agent/install.sh`
+后续可以直接代理或渲染同等脚本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/normojs/data-proxy/main/scripts/install-data-proxy-agent.sh | sh
+data-proxy-agent update --dry-run
+data-proxy-agent update
+```
+
 ### 配置命令
 
 ```bash
@@ -371,25 +380,61 @@ Data Proxy 控制台需要提供：
 
 ## 打包与发布
 
-建议使用 GitHub Actions + GoReleaser：
+当前使用 GitHub Actions 打包：
 
-- `data-proxy-agent_linux_amd64.tar.gz`
-- `data-proxy-agent_linux_arm64.tar.gz`
-- `data-proxy-agent_darwin_amd64.tar.gz`
-- `data-proxy-agent_darwin_arm64.tar.gz`
-- `data-proxy-agent_windows_amd64.zip`
+- `data-proxy-agent-<version>-linux-amd64.tar.gz`
+- `data-proxy-agent-<version>-linux-arm64.tar.gz`
+- `data-proxy-agent-<version>-darwin-amd64.tar.gz`
+- `data-proxy-agent-<version>-darwin-arm64.tar.gz`
+- `data-proxy-agent-<version>-windows-amd64.zip`
+- `data-proxy-agent-<version>-windows-arm64.zip`
+- per-asset `.sha256`
 - checksums.txt
-- SBOM
-- Docker image: `normojs/data-proxy-agent:<version>`
+
+tag 以 `v*` push 时，`Data Proxy Agent` workflow 会把这些产物上传到 GitHub Release。
+
+`data-proxy-agent update` 支持两种来源：
+
+- 默认来源：GitHub Release API，仓库为 `normojs/data-proxy`，按当前 OS/ARCH 选择资产，并下载同名 `.sha256` 校验。
+- 自定义来源：`--manifest-url`，适合未来由 Data Proxy 控制台、企业内网镜像或对象存储下发。
+
+manifest 格式：
+
+```json
+{
+  "version": "v1.2.3",
+  "assets": [
+    {
+      "name": "data-proxy-agent-v1.2.3-linux-amd64.tar.gz",
+      "url": "https://dp.example.com/agent/data-proxy-agent-v1.2.3-linux-amd64.tar.gz",
+      "os": "linux",
+      "arch": "amd64",
+      "sha256": "<64 hex chars>"
+    }
+  ]
+}
+```
+
+升级流程：
+
+1. 解析 release 或 manifest，选择当前平台资产。
+2. 下载 archive 和 sha256。
+3. 解包并运行下载二进制的 `self-test`。
+4. 写入同目录 `.new` 文件。
+5. 替换当前 install path，并保留 `.bak` 回滚文件。
+
+Windows 正在运行中的 exe 不能由自身进程直接覆盖，当前实现会生成 `.new.exe`
+staged 文件，停止服务后再替换；后续可补 Windows helper 或 MSI。
 
 后续增强：
 
+- SBOM
+- Docker image: `normojs/data-proxy-agent:<version>`
 - Homebrew tap
 - deb/rpm 包
 - Windows MSI
 - macOS notarization
 - cosign 签名
-- 自动更新命令：`data-proxy-agent update`
 
 ## 与当前原型的关系
 
@@ -408,7 +453,7 @@ Data Proxy 控制台需要提供：
 2. 保持现有服务端 API 不变。
 3. 保持现有 Tunnel App、Connection、Audit、Billing event 不变。
 4. 先实现与 Node 原型等价的能力。
-5. 再增加安装脚本、自动更新、控制台健康检查等产品化能力。
+5. 再增加控制台健康检查等产品化能力。
 
 ## 当前实现状态
 
@@ -416,7 +461,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 
 - 已新增 `cmd/data-proxy-agent` 入口。
 - 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
-- 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`run`。
+- 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`update`、`run`。
 - 已实现 `enroll`，可调用 `/api/bridge/agent-setup` 注册 Bridge Client 并写入本地私有配置。
 - 已实现 `report`，可生成脱敏诊断 zip。
 - 已实现 `logs path/tail`，读取本地 `logging.local_audit_jsonl` 审计 JSONL。
@@ -430,14 +475,14 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已实现 MCP bridge 基础能力：`mcp_proxy.test`、`mcp_proxy.tools_list`、`mcp_proxy.tools_call` 和 `mcp_proxy.rpc`，支持 Streamable HTTP 目标、`Mcp-Session-Id` 会话复用、SSE `data:` 响应解析、loopback 默认限制，以及本地 stdio MCP 子进程桥接。stdio command 仅从本机配置读取，远端请求只能按本地 MCP server 名称选择。
 - 已实现本地文件工具：只读 `remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_env_info` 默认启用；写入 `remote_write`、`remote_edit` 已实现但默认关闭，必须本机配置 `policy.allow_write=true` 才会上报和执行。所有路径默认限制在 `agent.workspace` 内，支持 `policy.allowed_workspaces`、`policy.denied_paths`、symlink 防逃逸、常见目录忽略、服务端 policy 限额收紧、本地结果截断和写入大小限制。
 - 已实现 `remote_run_tests` 安全测试命令：默认关闭，必须本机配置 `policy.exec.enabled=true` 且命令精确命中 `policy.exec.safe_commands`；执行目录仍限制在 workspace 内，输出受 `max_result_bytes` 限制，非零退出会作为工具结果返回给调用方。
-- 已新增 GitHub Actions `Data Proxy Agent` workflow，对 agent 运行测试并构建 Linux/macOS/Windows 的 amd64/arm64 二进制包与 sha256 校验文件。
+- 已实现 `update` 自动升级命令：支持 GitHub Release 和自定义 manifest，下载后校验 sha256、运行 `self-test`、替换前生成 `.new`、成功后保留 `.bak`。Windows 自替换先 staging，停止服务后再覆盖。
+- 已新增 GitHub Actions `Data Proxy Agent` workflow，对 agent 运行测试，构建 Linux/macOS/Windows 的 amd64/arm64 二进制包与 sha256 校验文件，并在 `v*` tag 上传 GitHub Release 附件。
 - 当前 Go agent 对尚未移植的 `tool_call` 明确返回 `TOOL_NOT_SUPPORTED`，避免服务端请求悬空。
 
 尚未从 Node 原型迁移到 Go CLI：
 
 - 任意 `remote_exec`、交互 shell 和安装依赖类高危工具。
-- `update` 自动更新命令。
-- install script、包管理器安装和 release 签名。
+- 包管理器安装和 release 签名。
 
 ## 开发顺序
 
@@ -480,12 +525,12 @@ Go 版 `data-proxy-agent` 已开始落地：
 
 - 已实现 `service install/start/stop/status/uninstall` 基础命令。
 - GitHub Actions 跨平台构建。
-- 生成 install script。
+- 已生成 install script。
 - 支持 Docker 镜像。
 
 ### Phase 7: 产品化
 
-- 自动更新。
+- 已实现自动更新命令，后续补签名和 Windows helper。
 - 已实现本地诊断包基础命令，后续可接控制台上传和版本建议。
 - 控制台健康检查页面。
 - 多 Agent 管理。
