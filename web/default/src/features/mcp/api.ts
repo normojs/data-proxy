@@ -52,6 +52,8 @@ import type {
   BridgeAuditLogListParams,
   BridgeAgentSetupPayload,
   BridgeAgentSetupResponse,
+  BridgeAgentSetupTokenPayload,
+  BridgeAgentSetupTokenResponse,
   BridgeClient,
   BridgeClientDetail,
   BridgeClientHealth,
@@ -323,6 +325,13 @@ export async function ensureBridgeAgentSetup(
   payload: BridgeAgentSetupPayload
 ): Promise<ApiResponse<BridgeAgentSetupResponse>> {
   const res = await api.post('/api/bridge/agent-setup', payload)
+  return res.data
+}
+
+export async function createBridgeAgentSetupToken(
+  payload: BridgeAgentSetupTokenPayload
+): Promise<ApiResponse<BridgeAgentSetupTokenResponse>> {
+  const res = await api.post('/api/bridge/agent-setup-tokens', payload)
   return res.data
 }
 

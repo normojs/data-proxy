@@ -666,6 +666,26 @@ export type BridgeAgentSetupResponse = {
   config: Record<string, unknown>
 }
 
+export type BridgeAgentSetupTokenPayload = Partial<{
+  client_id: string
+  rotate: boolean
+  client_name: string
+  version: string
+  platform: string
+  workspace: string
+  ttl_seconds: number
+}>
+
+export type BridgeAgentSetupTokenResponse = {
+  setup_token: string
+  expires_at: number
+  expires_in_seconds: number
+  client_id?: string
+  enroll_command: string
+  install_command: string
+  full_command: string
+}
+
 export type TunnelApp = {
   id: number
   user_id: number
