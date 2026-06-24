@@ -10,6 +10,7 @@ on:
 
 jobs:
   build:
+    if: ${{ vars.BUILD_ELECTRON_APP == 'true' || github.event_name == 'workflow_dispatch' }}
     strategy:
       matrix:
         # os: [macos-latest, windows-latest]
@@ -124,7 +125,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: ${{ (vars.BUILD_ELECTRON_APP == 'true' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: write
 
