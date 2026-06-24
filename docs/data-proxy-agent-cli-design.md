@@ -1,0 +1,454 @@
+# Data Proxy Agent CLI Design
+
+## 目标
+
+`data-proxy-agent` 是 Data Proxy Tunnel 的本地客户端。它应该像 `cloudflared`
+一样作为跨平台命令行工具运行在用户自己的电脑、开发机、内网服务器或容器里，同时承担两类职责：
+
+- 通用隧道客户端：把本地 HTTP/WebSocket/SSE 服务通过 Data Proxy 暴露给外部访问方。
+- MCP 桥接客户端：把网页端 AI 的 MCP 请求转发给用户本机的 `user mcp`，并在本地执行最后一层安全策略。
+
+它不是模型服务，也不是 Data Proxy 服务端。它是一个主动连出公网 Data Proxy 的本地 daemon。
+
+## 参考 cloudflared 的产品形态
+
+Cloudflare Tunnel 的关键设计值得借鉴：
+
+- 单独安装一个轻量 daemon，负责从用户基础设施主动连接云端。
+- 控制台创建 tunnel 后，直接给用户一条安装/运行命令。
+- 支持 Linux、macOS、Windows 和 Docker。
+- 支持系统服务安装，机器重启后自动恢复连接。
+- 支持配置文件管理多个本地服务和 ingress 规则。
+- 启动时做连通性预检查，并给出可操作的错误说明。
+
+Data Proxy Agent 需要在这些能力上增加 MCP 场景特有的权限、审计和本地执行边界。
+
+## 定位
+
+```text
+Web AI / MCP Client
+        |
+        | Remote MCP / HTTP Tunnel endpoint
+        v
+Data Proxy Server
+        |
+        | outbound WebSocket bridge
+        v
+data-proxy-agent
+        |
+        +--> local HTTP service: http://127.0.0.1:3000
+        +--> local MCP server:  http://127.0.0.1:30837/mcp
+        +--> optional local file/code tools, guarded by local policy
+```
+
+组件职责：
+
+| 组件 | 职责 |
+| --- | --- |
+| Data Proxy Server | 公网入口、用户鉴权、Tunnel App 审批、连接 key、限流、审计、计费 |
+| data-proxy-agent | 主动连出、注册本地能力、转发 HTTP/MCP、执行本地策略、上报健康状态 |
+| user mcp | 真正操作用户本地文件、命令、浏览器或其他资源 |
+| Web AI / MCP Client | 使用 Data Proxy 暴露的 Remote MCP endpoint 或 HTTP endpoint |
+
+## 技术选型
+
+正式版本建议用 Go 开发单二进制 CLI：
+
+- 和 Data Proxy 主项目语言一致，能复用协议结构、签名、审计、策略代码。
+- 跨平台构建简单，适合发布 Linux/macOS/Windows 的 amd64/arm64 包。
+- 不要求用户安装 Node.js。
+- 可以稳定作为 systemd、launchd、Windows Service 运行。
+
+当前 `tools/bridge_client_daemon.mjs` 保留为原型和 smoke test 工具，后续逐步把能力迁移到 Go CLI。
+
+推荐 binary 名称：
+
+- 正式名称：`data-proxy-agent`
+- 短别名：`dp-agent`
+
+## 命令设计
+
+### 常用命令
+
+```bash
+data-proxy-agent version
+data-proxy-agent enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
+data-proxy-agent run
+data-proxy-agent status
+data-proxy-agent doctor
+```
+
+用户在控制台复制的一键命令应该接近：
+
+```bash
+curl -fsSL https://dp.app.mbu.ltd/agent/install.sh | sh
+data-proxy-agent enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
+data-proxy-agent service install
+data-proxy-agent service start
+```
+
+### 配置命令
+
+```bash
+data-proxy-agent config path
+data-proxy-agent config show
+data-proxy-agent config validate
+data-proxy-agent config export --redact
+```
+
+### 隧道命令
+
+```bash
+data-proxy-agent tunnel list
+data-proxy-agent tunnel run <name>
+data-proxy-agent tunnel route add http <name> --url http://127.0.0.1:3000
+data-proxy-agent tunnel route add tcp <name> --host 127.0.0.1 --port 5432
+data-proxy-agent tunnel route remove <name>
+```
+
+第一版只实现 HTTP/WebSocket/SSE。`tcp` 命令可以先保留设计，不暴露或标记 experimental。
+
+### MCP 命令
+
+```bash
+data-proxy-agent mcp list
+data-proxy-agent mcp add coding --transport streamable-http --url http://127.0.0.1:30837/mcp
+data-proxy-agent mcp test coding
+data-proxy-agent mcp remove coding
+```
+
+后续可以支持 `stdio`：
+
+```bash
+data-proxy-agent mcp add filesystem --transport stdio --command "npx -y @modelcontextprotocol/server-filesystem /Users/me/project"
+```
+
+### 服务命令
+
+```bash
+data-proxy-agent service install
+data-proxy-agent service uninstall
+data-proxy-agent service start
+data-proxy-agent service stop
+data-proxy-agent service restart
+data-proxy-agent service status
+```
+
+平台映射：
+
+| 平台 | 服务方式 |
+| --- | --- |
+| Linux | systemd |
+| macOS | launchd |
+| Windows | Windows Service |
+| Docker | foreground `run` |
+
+### 诊断命令
+
+```bash
+data-proxy-agent doctor
+data-proxy-agent logs
+data-proxy-agent self-test
+data-proxy-agent report --output ./agent-diagnostic.zip
+```
+
+`doctor` 需要检查：
+
+- 能否解析 Data Proxy 域名。
+- 能否连接 `wss://.../bridge/ws`。
+- API token 是否有效。
+- 本地 MCP endpoint 是否可访问。
+- 本地 HTTP tunnel target 是否可访问。
+- 本地策略是否允许目标 host、port、workspace 和 tool。
+- 系统服务是否已安装并正在运行。
+- 当前版本是否过旧。
+
+## 配置文件
+
+默认配置路径：
+
+| 平台 | 用户级配置 | 服务级配置 |
+| --- | --- | --- |
+| Linux | `~/.config/data-proxy-agent/config.yaml` | `/etc/data-proxy-agent/config.yaml` |
+| macOS | `~/Library/Application Support/DataProxyAgent/config.yaml` | `/Library/Application Support/DataProxyAgent/config.yaml` |
+| Windows | `%APPDATA%\DataProxyAgent\config.yaml` | `%ProgramData%\DataProxyAgent\config.yaml` |
+
+示例：
+
+```yaml
+server:
+  base_url: https://dp.app.mbu.ltd
+  bridge_ws_url: wss://dp.app.mbu.ltd/bridge/ws
+
+agent:
+  client_id: macbook-pro-dev
+  name: "MacBook Pro Dev"
+  version_channel: stable
+  token_ref: keychain://data-proxy-agent/macbook-pro-dev
+
+policy:
+  default_permission: read_only
+  allow_non_loopback_http: false
+  allow_non_loopback_mcp: false
+  allowed_workspaces:
+    - /Users/me/workspace
+  denied_paths:
+    - /Users/me/.ssh
+    - /Users/me/Library/Keychains
+  exec:
+    enabled: false
+    safe_commands:
+      - git status
+      - npm test
+
+mcp_servers:
+  - name: coding
+    transport: streamable_http
+    endpoint: http://127.0.0.1:30837/mcp
+    permission: read_only
+
+http_routes:
+  - name: local-web
+    target: http://127.0.0.1:3000
+    allow_websocket: true
+    allow_sse: true
+    max_request_bytes: 8388608
+    max_response_bytes: 2097152
+
+logging:
+  level: info
+  local_audit_jsonl: ~/.local/share/data-proxy-agent/audit.jsonl
+```
+
+配置原则：
+
+- API token 和 connection key 不明文写入普通配置文件，优先存 OS Keychain、Windows Credential Manager 或权限收紧的 secret 文件。
+- `config show` 默认打码敏感字段。
+- `config export --redact` 用于排障和客服支持。
+
+## 凭证模型
+
+建议分成三类凭证：
+
+| 凭证 | 使用方 | 作用 |
+| --- | --- | --- |
+| setup token | 用户控制台生成，一次性使用 | `enroll` 时换取 agent token 和 client id |
+| agent token | 本地 agent 保存 | 连接 `/bridge/ws` 并注册 Bridge client |
+| connection key | 外部访问方使用 | 访问 `/t/<connection_key>/tunnel/...` |
+
+这样可以做到：
+
+- 用户可以撤销某条外部连接，不影响本地 agent 继续在线。
+- 用户可以轮换 agent token，使本地 agent 重新注册。
+- setup token 泄露窗口短，适合控制台复制命令。
+
+## 安全策略
+
+Data Proxy Agent 必须坚持“双层授权”：
+
+- 服务端策略：Data Proxy 根据 Tunnel App、connection、管理员审批和计费状态做第一层限制。
+- 本地策略：Agent 根据本机配置做最后一层限制。
+
+默认策略：
+
+- HTTP tunnel 默认只允许 loopback 目标。
+- MCP target 默认只允许 loopback。
+- 文件工具默认只读。
+- 写文件、编辑文件、执行命令默认关闭。
+- 非 loopback、写入和执行都必须显式开启。
+
+MCP 权限建议分级：
+
+| 模式 | 含义 |
+| --- | --- |
+| `read_only` | 只允许读文件、搜索、列目录、只读 MCP tool |
+| `write_limited` | 允许写入指定 workspace，拒绝敏感路径 |
+| `exec_safe` | 只允许 allowlist 内命令，例如测试、格式化、git status |
+| `full_trust` | 高风险模式，只给用户自己的可信环境使用 |
+
+本地 Agent 的审计日志至少记录：
+
+- request id
+- tunnel app id / connection id / session id
+- MCP method / tool name
+- HTTP method / target URL
+- bytes in / bytes out
+- decision: allow / deny
+- deny reason
+- duration
+- local policy version
+
+## 数据面协议
+
+第一版继续兼容现有 `/bridge/ws` 协议：
+
+- `register`
+- `heartbeat`
+- `tool_call`
+- `tool_result`
+- `stream_chunk`
+- `stream_end`
+- `stream_error`
+
+HTTP Tunnel 能力：
+
+- 普通 HTTP 方法转发
+- 流式 request body
+- 流式 response body
+- SSE flush
+- WebSocket frame 代理
+- 请求/响应大小限制
+- 本地 target allow/deny
+
+MCP Bridge 能力：
+
+- `initialize`
+- `tools/list`
+- `tools/call`
+- `resources/list`
+- `resources/read`
+- `prompts/list`
+- `prompts/get`
+- `notifications/*`
+- 上游 MCP 错误原样包装
+
+后续可以增加 wire protocol v2：
+
+- 二进制 frame，减少 base64 开销。
+- 多路复用，避免大文件传输阻塞 MCP 小请求。
+- 更明确的 backpressure 和 cancellation。
+- 本地缓存 capability snapshot，减少反复 `tools/list`。
+
+## 控制台配合
+
+Data Proxy 控制台需要提供：
+
+- 创建 Local Agent。
+- 显示一键安装命令。
+- 轮换 agent token。
+- 查看在线状态、版本、平台、IP、最近心跳。
+- 查看本地暴露能力：HTTP routes、MCP servers、权限模式。
+- 查看 Agent 健康检查结果。
+- 从 Tunnel Connection 行复制外部 endpoint。
+- 允许管理员按用户、Agent、Tunnel App 禁用。
+
+推荐用户流程：
+
+1. 用户在控制台点击“创建本地 Agent”。
+2. 控制台生成一次性 setup token 和安装命令。
+3. 用户本机执行安装命令。
+4. Agent `enroll` 成功后自动注册为 Bridge Client。
+5. 用户在控制台申请 MCP Code Tunnel 或 HTTP Tunnel。
+6. 管理员审批。
+7. 用户创建 connection key。
+8. 外部网页 AI 或 HTTP 调用方使用 connection endpoint。
+
+## 打包与发布
+
+建议使用 GitHub Actions + GoReleaser：
+
+- `data-proxy-agent_linux_amd64.tar.gz`
+- `data-proxy-agent_linux_arm64.tar.gz`
+- `data-proxy-agent_darwin_amd64.tar.gz`
+- `data-proxy-agent_darwin_arm64.tar.gz`
+- `data-proxy-agent_windows_amd64.zip`
+- checksums.txt
+- SBOM
+- Docker image: `normojs/data-proxy-agent:<version>`
+
+后续增强：
+
+- Homebrew tap
+- deb/rpm 包
+- Windows MSI
+- macOS notarization
+- cosign 签名
+- 自动更新命令：`data-proxy-agent update`
+
+## 与当前原型的关系
+
+当前原型：
+
+- `tools/bridge_client_daemon.mjs`
+- 支持 `/bridge/ws`
+- 支持本地文件只读/可选写入
+- 支持 MCP proxy
+- 支持 HTTP Tunnel、流式响应、流式上传、WebSocket
+- 支持 self-test
+
+正式 CLI 的第一阶段目标不是重写服务端，而是替换这个 Node 原型：
+
+1. Go CLI 使用同样的 Bridge WebSocket 协议。
+2. 保持现有服务端 API 不变。
+3. 保持现有 Tunnel App、Connection、Audit、Billing event 不变。
+4. 先实现与 Node 原型等价的能力。
+5. 再增加 service install、doctor、config、update 等产品化能力。
+
+## 开发顺序
+
+### Phase 1: CLI 骨架
+
+- 新增 `cmd/data-proxy-agent`。
+- 实现 `version`、`help`、`config path`、`config validate`。
+- 实现跨平台配置路径。
+- 实现日志、错误码和敏感信息打码。
+
+### Phase 2: Enroll 与凭证
+
+- 服务端新增/复用一次性 setup token。
+- CLI 实现 `enroll --server --setup-token`。
+- 保存 agent token 到本地 secret store 或权限收紧的 token file。
+- 控制台显示一键安装命令。
+
+### Phase 3: Bridge 连接
+
+- CLI 实现 `/bridge/ws` 注册、心跳、重连。
+- 兼容现有 `tool_call` / `tool_result` 协议。
+- 上报 version、platform、hostname、capabilities。
+- 实现 `status` 和 `doctor`。
+
+### Phase 4: MCP Bridge
+
+- 支持 streamable HTTP MCP target。
+- 实现 `mcp add/list/test/remove`。
+- 转发 `tools/list`、`tools/call`、`resources/*`、`prompts/*`。
+- 实现本地 MCP target allowlist 和 loopback 默认限制。
+
+### Phase 5: HTTP Tunnel
+
+- 支持普通 HTTP、流式 body、SSE、WebSocket。
+- 实现 target allow/deny、host/port 限制和超时。
+- 实现大文件 backpressure 和取消。
+- 与现有服务端 HTTP Tunnel 测试对齐。
+
+### Phase 6: 系统服务和安装包
+
+- 实现 `service install/start/stop/status/uninstall`。
+- GitHub Actions 跨平台构建。
+- 生成 install script。
+- 支持 Docker 镜像。
+
+### Phase 7: 产品化
+
+- 自动更新。
+- 本地诊断包。
+- 控制台健康检查页面。
+- 多 Agent 管理。
+- 策略版本和配置下发。
+- 更完整的 MCP stdio 支持。
+
+## 第一版不做的事情
+
+- 不在 Agent 内直接训练或保存用户模型数据。
+- 不默认开启写文件和命令执行。
+- 不把所有 MCP Server 内置进 Agent。
+- 不要求用户必须使用 `coding-tools-mcp`，只要符合 MCP 协议即可。
+- 不在第一版实现 TCP Tunnel，先把 HTTP/MCP 做稳定。
+
+## 参考资料
+
+- Cloudflare Tunnel downloads: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/
+- Cloudflare Tunnel setup: https://developers.cloudflare.com/tunnel/setup/
+- Cloudflare Tunnel configuration file: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/
+- Cloudflare Tunnel run parameters: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/run-parameters/
+- Cloudflare Tunnel useful commands: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/tunnel-useful-commands/

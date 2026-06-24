@@ -211,6 +211,7 @@ https://<data-proxy-host>/t/<connection_key>/tunnel/mcp/<public_slug>
 | [Request Capture, Diagnostics, and Training Data Architecture](./docs/request-capture-diagnostics-architecture.md) | SeaweedFS 私密数据包、诊断模块和训练数据湖架构。 |
 | [Request Capture and Diagnostics Implementation Plan](./docs/request-capture-diagnostics-implementation-plan.md) | 请求捕获、诊断和训练数据湖的分阶段开发顺序与当前状态。 |
 | [Tunnel Apps Architecture](./docs/tunnel-apps-architecture.md) | MCP 代码隧道、HTTP/TCP 通用流量隧道、Cloudflare Remote MCP 对标和实施顺序。 |
+| [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md) | 跨平台本地 Agent CLI 设计，覆盖 cloudflared 类隧道、MCP bridge、配置、服务安装和发布计划。 |
 | [Enterprise Governance Admin Guide](./docs/enterprise-governance-admin-guide.md) | 企业治理管理员操作手册。 |
 | [Post V1.3 TODO](./docs/data-proxy-post-v1.3-todo.md) | V1.3 之后的开发顺序和剩余任务。 |
 | [Branding and Release Policy](./docs/branding-and-release-policy.md) | Data Proxy 品牌边界和 new-api attribution 规则。 |
