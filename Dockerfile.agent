@@ -1,0 +1,57 @@
+FROM golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039 AS builder
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=0.1.0-dev
+ARG GOPROXY=https://proxy.golang.org,direct
+
+ENV CGO_ENABLED=0 \
+    GOOS=${TARGETOS} \
+    GOARCH=${TARGETARCH} \
+    GOPROXY=${GOPROXY}
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY VERSION ./
+COPY cmd/data-proxy-agent ./cmd/data-proxy-agent
+COPY common ./common
+COPY constant ./constant
+COPY dto ./dto
+COPY logger ./logger
+COPY pkg/bridgepolicy ./pkg/bridgepolicy
+COPY pkg/dpagent ./pkg/dpagent
+COPY setting ./setting
+COPY types ./types
+
+RUN go build \
+    -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION}" \
+    -o /out/data-proxy-agent \
+    ./cmd/data-proxy-agent
+
+RUN mkdir -p /out/rootfs/config /out/rootfs/workspace /out/rootfs/tmp \
+    && chown -R 65532:65532 /out/rootfs/config /out/rootfs/workspace /out/rootfs/tmp \
+    && chmod 755 /out/rootfs/config /out/rootfs/workspace \
+    && chmod 1777 /out/rootfs/tmp
+
+FROM scratch
+
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder /out/data-proxy-agent /usr/local/bin/data-proxy-agent
+COPY --from=builder --chown=65532:65532 /out/rootfs/config /config
+COPY --from=builder --chown=65532:65532 /out/rootfs/workspace /workspace
+COPY --from=builder --chown=65532:65532 --chmod=1777 /out/rootfs/tmp /tmp
+COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
+
+ENV DATA_PROXY_AGENT_CONFIG=/config/config.yaml \
+    TMPDIR=/tmp
+
+WORKDIR /workspace
+VOLUME ["/config", "/workspace"]
+
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/data-proxy-agent"]
+CMD ["run", "--config", "/config/config.yaml"]

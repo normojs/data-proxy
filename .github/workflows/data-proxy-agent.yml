@@ -11,28 +11,47 @@ on:
       - "v*"
     paths:
       - ".github/workflows/data-proxy-agent.yml"
+      - "Dockerfile.agent"
       - "cmd/data-proxy-agent/**"
       - "pkg/dpagent/**"
       - "dto/bridge.go"
       - "dto/mcp.go"
       - "go.mod"
       - "go.sum"
+      - "LICENSE"
+      - "NOTICE"
+      - "THIRD-PARTY-LICENSES.md"
       - "README.md"
       - "docs/data-proxy-agent-cli-design.md"
       - "scripts/install-data-proxy-agent.sh"
   pull_request:
     paths:
       - ".github/workflows/data-proxy-agent.yml"
+      - "Dockerfile.agent"
       - "cmd/data-proxy-agent/**"
       - "pkg/dpagent/**"
       - "dto/bridge.go"
       - "dto/mcp.go"
       - "go.mod"
       - "go.sum"
+      - "LICENSE"
+      - "NOTICE"
+      - "THIRD-PARTY-LICENSES.md"
       - "README.md"
       - "docs/data-proxy-agent-cli-design.md"
       - "scripts/install-data-proxy-agent.sh"
   workflow_dispatch:
+    inputs:
+      publish_agent_image:
+        description: "Publish the data-proxy-agent Docker image to GHCR"
+        required: false
+        default: true
+        type: boolean
+      publish_latest:
+        description: "Also publish ghcr.io/<owner>/data-proxy-agent:latest"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: data-proxy-agent-${{ github.workflow }}-${{ github.ref }}
@@ -190,3 +209,97 @@ jobs:
             dist/*.zip
             dist/*.sha256
             dist/checksums.txt
+
+  image:
+    name: Publish Docker image
+    runs-on: ubuntu-latest
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_agent_image != 'false')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve image tags
+        id: image
+        shell: bash
+        env:
+          INPUT_PUBLISH_LATEST: ${{ github.event.inputs.publish_latest }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+            DEFAULT_PUBLISH_LATEST="true"
+          else
+            VERSION="sha-${GITHUB_SHA::8}"
+            DEFAULT_PUBLISH_LATEST="false"
+          fi
+
+          PUBLISH_LATEST="${INPUT_PUBLISH_LATEST:-$DEFAULT_PUBLISH_LATEST}"
+          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/data-proxy-agent"
+          SHORT_SHA="${GITHUB_SHA::12}"
+
+          {
+            echo "version=${VERSION}"
+            echo "image=${IMAGE_NAME}"
+            echo "tags<<EOF"
+            echo "${IMAGE_NAME}:${VERSION}"
+            echo "${IMAGE_NAME}:sha-${SHORT_SHA}"
+            if [ "${PUBLISH_LATEST}" = "true" ]; then
+              echo "${IMAGE_NAME}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.agent
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.image.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=Data Proxy Agent
+            org.opencontainers.image.description=Data Proxy tunnel and MCP bridge agent, based on new-api/Data Proxy
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.version=${{ steps.image.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Image summary
+        run: |
+          echo "### Data Proxy Agent image" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`${{ steps.image.outputs.image }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: \`${{ steps.image.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published tags:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.image.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

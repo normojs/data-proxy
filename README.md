@@ -232,13 +232,27 @@ go run ./cmd/data-proxy-agent update --dry-run
 
 控制台可通过 `POST /api/bridge/agent-setup-tokens` 生成一次性 setup token 和复制命令；本地 agent 使用 `POST /api/bridge/agent-setup/consume` 换取专属 bridge client 与 agent API key。setup token 只保存 hash，默认 10 分钟过期且只能消费一次。
 
-GitHub Actions 中的 `Data Proxy Agent` workflow 会对 agent 包执行测试，并构建 Linux/macOS/Windows 的 amd64/arm64 二进制压缩包和 sha256 校验文件；tag 以 `v*` 发布时会上传 Release 附件。安装脚本可直接使用 GitHub Release：
+GitHub Actions 中的 `Data Proxy Agent` workflow 会对 agent 包执行测试，并构建 Linux/macOS/Windows 的 amd64/arm64 二进制压缩包和 sha256 校验文件；tag 以 `v*` 发布时会上传 Release 附件，并发布多架构 Docker 镜像到 GHCR。安装脚本可直接使用 GitHub Release：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/normojs/data-proxy/main/scripts/install-data-proxy-agent.sh | sh
 data-proxy-agent update --dry-run
 data-proxy-agent update
 ```
+
+Docker 镜像适合服务器或 NAS 上长期运行本地 bridge agent；生产部署建议使用固定版本或 sha 标签，便于回滚：
+
+```bash
+docker pull ghcr.io/normojs/data-proxy-agent:v1.3.0
+docker run -d --name data-proxy-agent --restart unless-stopped \
+  -v "$PWD/agent-config:/config" \
+  -v "$PWD/workspace:/workspace" \
+  ghcr.io/normojs/data-proxy-agent:v1.3.0
+```
+
+默认容器命令为 `data-proxy-agent run --config /config/config.yaml`。镜像内置 `/licenses/LICENSE`、`/licenses/NOTICE` 和 `/licenses/THIRD-PARTY-LICENSES.md`，用于保留 new-api/Data Proxy 的 AGPL 与第三方许可信息。
+
+本地构建时如果 Go module 下载网络不稳定，可使用 `docker build -f Dockerfile.agent --build-arg GOPROXY=https://goproxy.cn,direct -t data-proxy-agent:test .`。
 
 `update` 默认从 `normojs/data-proxy` 的 GitHub Release 选择当前平台资产，也支持 `--manifest-url` 接入 Data Proxy 控制台或内网镜像源。Windows 正在运行中的可执行文件无法被自身进程直接替换，命令会先生成 `.new.exe` staged 文件，停止服务后再替换。
 
