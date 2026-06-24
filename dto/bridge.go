@@ -81,6 +81,36 @@ type BridgeAgentSetupRequest struct {
 	Workspace  string `json:"workspace"`
 }
 
+type BridgeAgentSetupTokenRequest struct {
+	ClientId   string `json:"client_id,omitempty"`
+	ClientName string `json:"client_name"`
+	Version    string `json:"version"`
+	Platform   string `json:"platform"`
+	Workspace  string `json:"workspace"`
+	Rotate     bool   `json:"rotate"`
+	TTLSeconds int    `json:"ttl_seconds,omitempty"`
+}
+
+type BridgeAgentSetupTokenResponse struct {
+	SetupToken       string `json:"setup_token"`
+	ExpiresAt        int64  `json:"expires_at"`
+	ExpiresInSeconds int    `json:"expires_in_seconds"`
+	ClientId         string `json:"client_id,omitempty"`
+	EnrollCommand    string `json:"enroll_command"`
+	InstallCommand   string `json:"install_command"`
+	FullCommand      string `json:"full_command"`
+}
+
+type BridgeAgentSetupTokenConsumeRequest struct {
+	SetupToken string `json:"setup_token"`
+	ClientId   string `json:"client_id,omitempty"`
+	Rotate     bool   `json:"rotate"`
+	ClientName string `json:"client_name"`
+	Version    string `json:"version"`
+	Platform   string `json:"platform"`
+	Workspace  string `json:"workspace"`
+}
+
 type BridgeAgentSetupResponse struct {
 	Client         BridgeClientItem  `json:"client"`
 	BaseURL        string            `json:"base_url"`

@@ -85,6 +85,7 @@ It runs like cloudflared: a local outbound daemon for HTTP tunnels, MCP bridge, 
 
 Usage:
   data-proxy-agent version
+  data-proxy-agent enroll --server <url> --setup-token <one-time-token>
   data-proxy-agent enroll --server <url> --access-token <token> --user-id <id>
   data-proxy-agent config path|show|validate|export [--config <path>]
   data-proxy-agent mcp list|add|test|remove [--config <path>]

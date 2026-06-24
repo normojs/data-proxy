@@ -672,10 +672,13 @@ func SetApiRouter(router *gin.Engine) {
 			billingEventsRoute.POST("/backfill", middleware.AdminAuth(), controller.BackfillBillingEvents)
 		}
 
+		apiRouter.POST("/bridge/agent-setup/consume", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, middleware.DisableCache(), controller.ConsumeBridgeAgentSetupToken)
+
 		bridgeRoute := apiRouter.Group("/bridge")
 		bridgeRoute.Use(middleware.UserAuth())
 		{
 			bridgeRoute.POST("/agent-setup", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.EnsureBridgeAgentSetup)
+			bridgeRoute.POST("/agent-setup-tokens", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.CreateBridgeAgentSetupToken)
 			bridgeRoute.GET("/clients", controller.GetBridgeClients)
 			bridgeRoute.GET("/clients/:client_id/health", controller.GetBridgeClientHealth)
 			bridgeRoute.GET("/clients/:client_id", controller.GetBridgeClient)

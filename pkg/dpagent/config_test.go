@@ -409,6 +409,69 @@ func TestCLIEnrollWritesPrivateConfig(t *testing.T) {
 	}
 }
 
+func TestCLIEnrollWithSetupTokenWritesPrivateConfig(t *testing.T) {
+	configPath := t.TempDir() + "/config.yaml"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/bridge/agent-setup/consume" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("unexpected authorization header: %s", got)
+		}
+		if got := r.Header.Get("New-Api-User"); got != "" {
+			t.Fatalf("unexpected user id header: %s", got)
+		}
+		var req dto.BridgeAgentSetupTokenConsumeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.SetupToken != "setup-token-123" || req.ClientName != "Laptop Agent" || req.Version != "test-version" {
+			t.Fatalf("unexpected setup token request: %#v", req)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(apiEnvelope[dto.BridgeAgentSetupResponse]{
+			Success: true,
+			Data: dto.BridgeAgentSetupResponse{
+				BaseURL:        serverURLFromRequest(r),
+				BridgeWSURL:    "ws" + strings.TrimPrefix(serverURLFromRequest(r), "http") + "/bridge/ws",
+				ClientId:       "client-setup-token",
+				APIKey:         "sk-agent-token-secret",
+				APIKeyOnce:     true,
+				TokenMaskedKey: "sk-age...cret",
+				Client: dto.BridgeClientItem{
+					ClientId:  "client-setup-token",
+					Name:      "Laptop Agent",
+					Workspace: "/workspace/project",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{
+		"enroll",
+		"--server", server.URL,
+		"--setup-token", "setup-token-123",
+		"--name", "Laptop Agent",
+		"--workspace", "/workspace/project",
+		"--config", configPath,
+	}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("enroll failed with code %d: %s", code, errOut.String())
+	}
+	if strings.Contains(out.String(), "sk-agent-token-secret") {
+		t.Fatalf("enroll leaked agent token: %s", out.String())
+	}
+	loaded, _, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Agent.ClientID != "client-setup-token" || loaded.Agent.Token != "sk-agent-token-secret" {
+		t.Fatalf("unexpected enrolled config: %#v", loaded.Agent)
+	}
+}
+
 func TestCLIReportWritesRedactedDiagnosticZip(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := tmp + "/config.yaml"

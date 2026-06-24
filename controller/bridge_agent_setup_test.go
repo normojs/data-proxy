@@ -24,6 +24,7 @@ func setupBridgeAgentSetupControllerDB(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		&model.Token{},
 		&model.BridgeClient{},
+		&model.BridgeAgentSetupToken{},
 	))
 
 	previousDB := model.DB
@@ -81,4 +82,56 @@ func TestEnsureBridgeAgentSetupControllerCreatesAgentConfig(t *testing.T) {
 	require.NoError(t, model.DB.First(&client, "client_id = ?", response.Data.ClientId).Error)
 	require.Equal(t, 100, client.UserId)
 	require.Equal(t, response.Data.TokenId, client.TokenId)
+}
+
+func TestBridgeAgentSetupTokenControllerCreateAndConsume(t *testing.T) {
+	setupBridgeAgentSetupControllerDB(t)
+	gin.SetMode(gin.TestMode)
+
+	createBody, err := common.Marshal(dto.BridgeAgentSetupTokenRequest{
+		ClientName: "Desktop Bridge Agent",
+		Workspace:  "/workspace/project",
+	})
+	require.NoError(t, err)
+	createRecorder := httptest.NewRecorder()
+	createCtx, _ := gin.CreateTestContext(createRecorder)
+	createCtx.Request = httptest.NewRequest(http.MethodPost, "/api/bridge/agent-setup-tokens", bytes.NewReader(createBody))
+	createCtx.Request.Header.Set("Content-Type", "application/json")
+	createCtx.Set("id", 100)
+
+	CreateBridgeAgentSetupToken(createCtx)
+
+	require.Equal(t, http.StatusOK, createRecorder.Code)
+	var createResponse struct {
+		Success bool                              `json:"success"`
+		Data    dto.BridgeAgentSetupTokenResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(createRecorder.Body.Bytes(), &createResponse))
+	require.True(t, createResponse.Success)
+	require.NotEmpty(t, createResponse.Data.SetupToken)
+	require.Contains(t, createResponse.Data.FullCommand, "data-proxy-agent enroll")
+
+	consumeBody, err := common.Marshal(dto.BridgeAgentSetupTokenConsumeRequest{
+		SetupToken: createResponse.Data.SetupToken,
+		Version:    "1.0.0",
+		Platform:   "darwin",
+	})
+	require.NoError(t, err)
+	consumeRecorder := httptest.NewRecorder()
+	consumeCtx, _ := gin.CreateTestContext(consumeRecorder)
+	consumeCtx.Request = httptest.NewRequest(http.MethodPost, "/api/bridge/agent-setup/consume", bytes.NewReader(consumeBody))
+	consumeCtx.Request.Header.Set("Content-Type", "application/json")
+
+	ConsumeBridgeAgentSetupToken(consumeCtx)
+
+	require.Equal(t, http.StatusOK, consumeRecorder.Code)
+	var consumeResponse struct {
+		Success bool                         `json:"success"`
+		Data    dto.BridgeAgentSetupResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(consumeRecorder.Body.Bytes(), &consumeResponse))
+	require.True(t, consumeResponse.Success)
+	require.Equal(t, "Desktop Bridge Agent", consumeResponse.Data.Client.Name)
+	require.Equal(t, "darwin", consumeResponse.Data.Client.Platform)
+	require.NotEmpty(t, consumeResponse.Data.APIKey)
 }

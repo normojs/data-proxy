@@ -22,6 +22,7 @@ func setupTunnelTestDB(t *testing.T) *gorm.DB {
 		&model.Token{},
 		&model.BridgeClient{},
 		&model.BridgeAuditLog{},
+		&model.BridgeAgentSetupToken{},
 		&model.TunnelApp{},
 		&model.TunnelConnection{},
 		&model.TunnelSession{},
@@ -437,6 +438,70 @@ func TestEnsureBridgeAgentSetupCreatesReservedClientReusesAndRotates(t *testing.
 	oldToken, err := model.GetTokenByIds(setup.TokenId, 100)
 	require.NoError(t, err)
 	require.Equal(t, common.TokenStatusDisabled, oldToken.Status)
+}
+
+func TestBridgeAgentSetupTokenCreateConsumeOnce(t *testing.T) {
+	_ = setupTunnelTestDB(t)
+
+	created, err := CreateBridgeAgentSetupToken(BridgeAgentSetupTokenCreateParams{
+		UserId:  100,
+		BaseURL: "https://dp.example",
+		Request: dto.BridgeAgentSetupTokenRequest{
+			ClientName: "Desktop Bridge Agent",
+			Workspace:  "/workspace/project",
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, created.SetupToken)
+	require.Contains(t, created.EnrollCommand, "--setup-token "+created.SetupToken)
+	require.Equal(t, defaultBridgeAgentSetupTokenTTLSeconds, created.ExpiresInSeconds)
+
+	consumed, err := ConsumeBridgeAgentSetupToken(BridgeAgentSetupTokenConsumeParams{
+		BaseURL: "https://dp.example",
+		Request: dto.BridgeAgentSetupTokenConsumeRequest{
+			SetupToken: created.SetupToken,
+			Version:    "1.0.0",
+			Platform:   "darwin",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, consumed.Created)
+	require.True(t, consumed.APIKeyOnce)
+	require.NotEmpty(t, consumed.APIKey)
+	require.Equal(t, "Desktop Bridge Agent", consumed.Client.Name)
+	require.Equal(t, "darwin", consumed.Client.Platform)
+	require.Equal(t, "/workspace/project", consumed.Client.Workspace)
+
+	_, err = ConsumeBridgeAgentSetupToken(BridgeAgentSetupTokenConsumeParams{
+		BaseURL: "https://dp.example",
+		Request: dto.BridgeAgentSetupTokenConsumeRequest{
+			SetupToken: created.SetupToken,
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid, expired, or already used")
+}
+
+func TestBridgeAgentSetupTokenExpired(t *testing.T) {
+	_ = setupTunnelTestDB(t)
+
+	created, err := CreateBridgeAgentSetupToken(BridgeAgentSetupTokenCreateParams{
+		UserId:  100,
+		BaseURL: "https://dp.example",
+	})
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Model(&model.BridgeAgentSetupToken{}).
+		Where("token_hash = ?", bridgeAgentSetupTokenHash(created.SetupToken)).
+		Update("expires_at", common.GetTimestamp()-1).Error)
+
+	_, err = ConsumeBridgeAgentSetupToken(BridgeAgentSetupTokenConsumeParams{
+		BaseURL: "https://dp.example",
+		Request: dto.BridgeAgentSetupTokenConsumeRequest{
+			SetupToken: created.SetupToken,
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid, expired, or already used")
 }
 
 func TestTunnelConnectionRequiresApprovedApp(t *testing.T) {

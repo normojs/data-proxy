@@ -24,6 +24,7 @@ type EnrollOptions struct {
 	ConfigPath  string
 	BaseURL     string
 	AccessToken string
+	SetupToken  string
 	UserID      int
 	ClientID    string
 	Name        string
@@ -55,6 +56,7 @@ func (c CLI) runEnroll(args []string) int {
 	server := fs.String("server", "", "Data Proxy base URL")
 	baseURL := fs.String("base-url", "", "Data Proxy base URL")
 	accessToken := fs.String("access-token", "", "dashboard access token")
+	setupToken := fs.String("setup-token", "", "one-time setup token generated in Data Proxy")
 	userID := fs.Int("user-id", 0, "dashboard user id")
 	clientID := fs.String("client-id", "", "bridge client id")
 	name := fs.String("name", "", "client display name")
@@ -79,6 +81,7 @@ func (c CLI) runEnroll(args []string) int {
 		ConfigPath:  *configPath,
 		BaseURL:     *baseURL,
 		AccessToken: *accessToken,
+		SetupToken:  *setupToken,
 		UserID:      *userID,
 		ClientID:    *clientID,
 		Name:        *name,
@@ -139,11 +142,14 @@ func EnrollBridgeAgent(ctx context.Context, opts EnrollOptions) (EnrollResult, e
 		return EnrollResult{}, fmt.Errorf("server URL is invalid: %w", err)
 	}
 	accessToken := strings.TrimSpace(opts.AccessToken)
-	if accessToken == "" {
-		return EnrollResult{}, errors.New("dashboard access token is required; pass --access-token or set DATA_PROXY_ACCESS_TOKEN")
-	}
-	if opts.UserID <= 0 {
-		return EnrollResult{}, errors.New("dashboard user id is required; pass --user-id or set DATA_PROXY_USER_ID")
+	setupToken := strings.TrimSpace(opts.SetupToken)
+	if setupToken == "" {
+		if accessToken == "" {
+			return EnrollResult{}, errors.New("dashboard access token is required; pass --access-token or set DATA_PROXY_ACCESS_TOKEN, or pass --setup-token")
+		}
+		if opts.UserID <= 0 {
+			return EnrollResult{}, errors.New("dashboard user id is required; pass --user-id or set DATA_PROXY_USER_ID, or pass --setup-token")
+		}
 	}
 	if strings.TrimSpace(opts.Version) == "" {
 		opts.Version = DefaultAgentVersion
@@ -162,7 +168,12 @@ func EnrollBridgeAgent(ctx context.Context, opts EnrollOptions) (EnrollResult, e
 		Platform:   agentPlatform(),
 		Workspace:  strings.TrimSpace(opts.Workspace),
 	}
-	setup, err := requestBridgeAgentSetup(ctx, baseURL, accessToken, opts.UserID, request, opts)
+	var setup dto.BridgeAgentSetupResponse
+	if setupToken != "" {
+		setup, err = requestBridgeAgentSetupTokenConsume(ctx, baseURL, setupToken, request, opts)
+	} else {
+		setup, err = requestBridgeAgentSetup(ctx, baseURL, accessToken, opts.UserID, request, opts)
+	}
 	if err != nil {
 		return EnrollResult{}, err
 	}
@@ -226,6 +237,70 @@ func requestBridgeAgentSetup(ctx context.Context, baseURL string, accessToken st
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", accessToken)
 	req.Header.Set("New-Api-User", strconv.Itoa(userID))
+	req.Header.Set("User-Agent", "data-proxy-agent/"+strings.TrimSpace(opts.Version))
+
+	client := opts.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return dto.BridgeAgentSetupResponse{}, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	if err != nil {
+		return dto.BridgeAgentSetupResponse{}, err
+	}
+	var envelope apiEnvelope[dto.BridgeAgentSetupResponse]
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return dto.BridgeAgentSetupResponse{}, fmt.Errorf("failed to decode enroll response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if envelope.Message != "" {
+			return dto.BridgeAgentSetupResponse{}, fmt.Errorf("enroll failed: HTTP %d: %s", resp.StatusCode, envelope.Message)
+		}
+		return dto.BridgeAgentSetupResponse{}, fmt.Errorf("enroll failed: HTTP %d", resp.StatusCode)
+	}
+	if !envelope.Success {
+		if envelope.Message == "" {
+			envelope.Message = "server returned success=false"
+		}
+		return dto.BridgeAgentSetupResponse{}, errors.New("enroll failed: " + envelope.Message)
+	}
+	if strings.TrimSpace(envelope.Data.ClientId) == "" || strings.TrimSpace(envelope.Data.BridgeWSURL) == "" {
+		return dto.BridgeAgentSetupResponse{}, errors.New("enroll response is missing client_id or bridge_ws_url")
+	}
+	return envelope.Data, nil
+}
+
+func requestBridgeAgentSetupTokenConsume(ctx context.Context, baseURL string, setupToken string, payload dto.BridgeAgentSetupRequest, opts EnrollOptions) (dto.BridgeAgentSetupResponse, error) {
+	consumePayload := dto.BridgeAgentSetupTokenConsumeRequest{
+		SetupToken: strings.TrimSpace(setupToken),
+		ClientId:   strings.TrimSpace(payload.ClientId),
+		Rotate:     payload.Rotate,
+		ClientName: strings.TrimSpace(payload.ClientName),
+		Version:    strings.TrimSpace(payload.Version),
+		Platform:   strings.TrimSpace(payload.Platform),
+		Workspace:  strings.TrimSpace(payload.Workspace),
+	}
+	bytesPayload, err := json.Marshal(consumePayload)
+	if err != nil {
+		return dto.BridgeAgentSetupResponse{}, err
+	}
+	endpoint := strings.TrimRight(baseURL, "/") + "/api/bridge/agent-setup/consume"
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = DefaultEnrollTimeout
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(bytesPayload))
+	if err != nil {
+		return dto.BridgeAgentSetupResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "data-proxy-agent/"+strings.TrimSpace(opts.Version))
 
 	client := opts.HTTPClient

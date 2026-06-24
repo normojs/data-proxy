@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -163,6 +165,23 @@ type BridgeAgentSetupParams struct {
 	Request dto.BridgeAgentSetupRequest
 }
 
+type BridgeAgentSetupTokenCreateParams struct {
+	UserId  int
+	BaseURL string
+	Request dto.BridgeAgentSetupTokenRequest
+}
+
+type BridgeAgentSetupTokenConsumeParams struct {
+	BaseURL string
+	Request dto.BridgeAgentSetupTokenConsumeRequest
+}
+
+const (
+	defaultBridgeAgentSetupTokenTTLSeconds = 10 * 60
+	minBridgeAgentSetupTokenTTLSeconds     = 60
+	maxBridgeAgentSetupTokenTTLSeconds     = 60 * 60
+)
+
 func EnsureBridgeAgentSetup(params BridgeAgentSetupParams) (dto.BridgeAgentSetupResponse, error) {
 	if params.UserId <= 0 {
 		return dto.BridgeAgentSetupResponse{}, errors.New("invalid bridge user")
@@ -288,6 +307,86 @@ func EnsureBridgeAgentSetup(params BridgeAgentSetupParams) (dto.BridgeAgentSetup
 		Environment:    environment,
 		Config:         config,
 	}, nil
+}
+
+func CreateBridgeAgentSetupToken(params BridgeAgentSetupTokenCreateParams) (dto.BridgeAgentSetupTokenResponse, error) {
+	if params.UserId <= 0 {
+		return dto.BridgeAgentSetupTokenResponse{}, errors.New("invalid bridge user")
+	}
+	clientId := strings.TrimSpace(params.Request.ClientId)
+	if len(clientId) > 128 {
+		return dto.BridgeAgentSetupTokenResponse{}, errors.New("client_id is too long")
+	}
+	setupToken, err := common.GenerateRandomCharsKey(48)
+	if err != nil {
+		return dto.BridgeAgentSetupTokenResponse{}, err
+	}
+	setupToken = "dpat_" + setupToken
+	ttlSeconds := params.Request.TTLSeconds
+	if ttlSeconds <= 0 {
+		ttlSeconds = defaultBridgeAgentSetupTokenTTLSeconds
+	}
+	if ttlSeconds < minBridgeAgentSetupTokenTTLSeconds {
+		ttlSeconds = minBridgeAgentSetupTokenTTLSeconds
+	}
+	if ttlSeconds > maxBridgeAgentSetupTokenTTLSeconds {
+		ttlSeconds = maxBridgeAgentSetupTokenTTLSeconds
+	}
+	now := common.GetTimestamp()
+	expiresAt := now + int64(ttlSeconds)
+	token := &model.BridgeAgentSetupToken{
+		TokenHash:  bridgeAgentSetupTokenHash(setupToken),
+		UserId:     params.UserId,
+		ClientId:   truncateBridgeString(clientId, 128),
+		ClientName: truncateBridgeString(params.Request.ClientName, 128),
+		Version:    truncateBridgeString(params.Request.Version, 64),
+		Platform:   truncateBridgeString(params.Request.Platform, 64),
+		Workspace:  truncateBridgeString(params.Request.Workspace, 512),
+		Rotate:     params.Request.Rotate,
+		ExpiresAt:  expiresAt,
+	}
+	if err := model.CreateBridgeAgentSetupToken(token); err != nil {
+		return dto.BridgeAgentSetupTokenResponse{}, err
+	}
+	baseURL := normalizeTunnelSetupBaseURL(params.BaseURL)
+	enrollCommand := fmt.Sprintf("data-proxy-agent enroll --server %s --setup-token %s", bridgeAgentShellQuote(baseURL), bridgeAgentShellQuote(setupToken))
+	installCommand := "curl -fsSL https://raw.githubusercontent.com/normojs/data-proxy/main/scripts/install-data-proxy-agent.sh | sh"
+	return dto.BridgeAgentSetupTokenResponse{
+		SetupToken:       setupToken,
+		ExpiresAt:        expiresAt,
+		ExpiresInSeconds: ttlSeconds,
+		ClientId:         clientId,
+		EnrollCommand:    enrollCommand,
+		InstallCommand:   installCommand,
+		FullCommand:      installCommand + "\n" + enrollCommand,
+	}, nil
+}
+
+func ConsumeBridgeAgentSetupToken(params BridgeAgentSetupTokenConsumeParams) (dto.BridgeAgentSetupResponse, error) {
+	setupToken := strings.TrimSpace(params.Request.SetupToken)
+	if setupToken == "" {
+		return dto.BridgeAgentSetupResponse{}, errors.New("setup_token is required")
+	}
+	token, err := model.ConsumeBridgeAgentSetupToken(bridgeAgentSetupTokenHash(setupToken), common.GetTimestamp())
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.BridgeAgentSetupResponse{}, errors.New("setup token is invalid, expired, or already used")
+		}
+		return dto.BridgeAgentSetupResponse{}, err
+	}
+	request := dto.BridgeAgentSetupRequest{
+		ClientId:   bridgeAgentSetupClientId(params.Request.ClientId, token.ClientId),
+		Rotate:     params.Request.Rotate || token.Rotate,
+		ClientName: firstNonEmptyBridgeString(params.Request.ClientName, token.ClientName),
+		Version:    firstNonEmptyBridgeString(params.Request.Version, token.Version),
+		Platform:   firstNonEmptyBridgeString(params.Request.Platform, token.Platform),
+		Workspace:  firstNonEmptyBridgeString(params.Request.Workspace, token.Workspace),
+	}
+	return EnsureBridgeAgentSetup(BridgeAgentSetupParams{
+		UserId:  token.UserId,
+		BaseURL: params.BaseURL,
+		Request: request,
+	})
 }
 
 func ListBridgeClients(params BridgeClientListParams) ([]dto.BridgeClientItem, int64, error) {
@@ -575,6 +674,42 @@ func generateBridgeAgentClientId() (string, error) {
 		}
 	}
 	return "", errors.New("failed to allocate bridge client_id")
+}
+
+func bridgeAgentSetupTokenHash(token string) string {
+	sum := sha256.Sum256([]byte("bridge_agent_setup_token:v1:" + strings.TrimSpace(token)))
+	return hex.EncodeToString(sum[:])
+}
+
+func bridgeAgentSetupClientId(requestClientId string, tokenClientId string) string {
+	if strings.TrimSpace(tokenClientId) != "" {
+		return strings.TrimSpace(tokenClientId)
+	}
+	return strings.TrimSpace(requestClientId)
+}
+
+func firstNonEmptyBridgeString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func bridgeAgentShellQuote(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "''"
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '_' || r == '-' || r == '.' || r == '/' || r == ':' {
+			continue
+		}
+		return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+	}
+	return value
 }
 
 func bridgeAgentClientName(req dto.BridgeAgentSetupRequest, existing *model.BridgeClient, clientId string) string {

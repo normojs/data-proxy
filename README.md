@@ -209,11 +209,12 @@ go run ./cmd/data-proxy-agent --help
 go run ./cmd/data-proxy-agent self-test
 ```
 
-当前 Go 版已具备 `enroll` 注册写配置、`report` 脱敏诊断包、`logs path/tail` 本地审计查看、`service install/start/stop/status/uninstall`、`update` 升级、配置管理、`doctor` 本地健康检查、`/bridge/ws` 注册/心跳、本地文件工具 `remote_read` / `remote_tree` / `remote_glob` / `remote_grep` / `remote_env_info` / `remote_write` / `remote_edit`、安全测试命令 `remote_run_tests`、`http_tunnel.request` 普通/流式/SSE/WebSocket 转发，以及 MCP bridge 的 `mcp_proxy.test` / `mcp_proxy.tools_list` / `mcp_proxy.tools_call` / `mcp_proxy.rpc`；MCP bridge 支持本地 Streamable HTTP 和 stdio MCP。stdio 命令只从本机 agent 配置读取，服务端不能动态下发任意 command。其中写入工具默认关闭，需要本机配置 `policy.allow_write=true`；`remote_run_tests` 默认关闭，需要本机配置 `policy.exec.enabled=true` 和 `policy.exec.safe_commands`。任意命令执行、交互 shell、包管理器安装和 release 签名仍由后续版本提供。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
+当前 Go 版已具备 `enroll` 注册写配置、控制台一次性 setup token 绑定、`report` 脱敏诊断包、`logs path/tail` 本地审计查看、`service install/start/stop/status/uninstall`、`update` 升级、配置管理、`doctor` 本地健康检查、`/bridge/ws` 注册/心跳、本地文件工具 `remote_read` / `remote_tree` / `remote_glob` / `remote_grep` / `remote_env_info` / `remote_write` / `remote_edit`、安全测试命令 `remote_run_tests`、`http_tunnel.request` 普通/流式/SSE/WebSocket 转发，以及 MCP bridge 的 `mcp_proxy.test` / `mcp_proxy.tools_list` / `mcp_proxy.tools_call` / `mcp_proxy.rpc`；MCP bridge 支持本地 Streamable HTTP 和 stdio MCP。stdio 命令只从本机 agent 配置读取，服务端不能动态下发任意 command。其中写入工具默认关闭，需要本机配置 `policy.allow_write=true`；`remote_run_tests` 默认关闭，需要本机配置 `policy.exec.enabled=true` 和 `policy.exec.safe_commands`。任意命令执行、交互 shell、包管理器安装和 release 签名仍由后续版本提供。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
 
 常用本地配置命令：
 
 ```bash
+go run ./cmd/data-proxy-agent enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
 go run ./cmd/data-proxy-agent enroll --server https://dp.app.mbu.ltd --access-token <dashboard-access-token> --user-id <id>
 go run ./cmd/data-proxy-agent mcp add coding --url http://127.0.0.1:30837/mcp
 go run ./cmd/data-proxy-agent mcp add filesystem --transport stdio --command "npx -y @modelcontextprotocol/server-filesystem /Users/me/project"
@@ -228,6 +229,8 @@ go run ./cmd/data-proxy-agent report --output ./agent-diagnostic.zip
 go run ./cmd/data-proxy-agent service install --dry-run
 go run ./cmd/data-proxy-agent update --dry-run
 ```
+
+控制台可通过 `POST /api/bridge/agent-setup-tokens` 生成一次性 setup token 和复制命令；本地 agent 使用 `POST /api/bridge/agent-setup/consume` 换取专属 bridge client 与 agent API key。setup token 只保存 hash，默认 10 分钟过期且只能消费一次。
 
 GitHub Actions 中的 `Data Proxy Agent` workflow 会对 agent 包执行测试，并构建 Linux/macOS/Windows 的 amd64/arm64 二进制压缩包和 sha256 校验文件；tag 以 `v*` 发布时会上传 Release 附件。安装脚本可直接使用 GitHub Release：
 

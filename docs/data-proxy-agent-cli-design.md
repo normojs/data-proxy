@@ -72,6 +72,7 @@ data-proxy-agent
 
 ```bash
 data-proxy-agent version
+data-proxy-agent enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
 data-proxy-agent enroll --server https://dp.app.mbu.ltd --access-token <dashboard-access-token> --user-id <id>
 data-proxy-agent run
 data-proxy-agent status
@@ -79,9 +80,12 @@ data-proxy-agent doctor
 data-proxy-agent report --output ./agent-diagnostic.zip
 ```
 
-当前 `enroll` 已接入服务端现有的 `/api/bridge/agent-setup`，使用控制台 access token 和 `New-Api-User`
-对应的 user id 完成注册，并把返回的 agent token 写入本机私有配置文件。后续控制台可以再增加一次性 setup token，
-把命令收敛为：
+当前 `enroll` 支持两种绑定方式：
+
+- 推荐：控制台调用 `POST /api/bridge/agent-setup-tokens` 生成一次性 setup token，本地 agent 调用匿名接口 `POST /api/bridge/agent-setup/consume` 换取 bridge client 和 agent token。
+- 兼容：本地 agent 直接调用 `/api/bridge/agent-setup`，使用控制台 access token 和 `New-Api-User` 对应的 user id 完成注册。
+
+setup token 只保存 hash，默认 10 分钟过期，只能消费一次。控制台的一键命令可以收敛为：
 
 ```bash
 data-proxy-agent enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
@@ -469,7 +473,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
 - 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`update`、`run`。
 - `doctor` 已能检查本地 workspace、本地审计路径、HTTP route TCP 连通性、MCP HTTP endpoint 连通性和 stdio MCP shell/命令前缀。
-- 已实现 `enroll`，可调用 `/api/bridge/agent-setup` 注册 Bridge Client 并写入本地私有配置。
+- 已实现 `enroll`，支持 `/api/bridge/agent-setup/consume` 一次性 setup token 绑定，也可兼容调用 `/api/bridge/agent-setup` 注册 Bridge Client，并把 agent token 写入本地私有配置。
 - 已实现 `report`，可生成脱敏诊断 zip。
 - 已实现 `logs path/tail`，读取本地 `logging.local_audit_jsonl` 审计 JSONL。
 - 已实现 `service install/uninstall/start/stop/restart/status/print`，可生成并管理 Linux systemd、macOS launchd、Windows Service 配置。
@@ -502,8 +506,8 @@ Go 版 `data-proxy-agent` 已开始落地：
 
 ### Phase 2: Enroll 与凭证
 
-- 服务端新增/复用一次性 setup token。
-- CLI 实现 `enroll --server --setup-token`。
+- 服务端已新增一次性 setup token 创建/消费接口。
+- CLI 已实现 `enroll --server --setup-token`。
 - 保存 agent token 到本地 secret store 或权限收紧的 token file。
 - 控制台显示一键安装命令。
 

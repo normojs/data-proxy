@@ -135,6 +135,38 @@ func (log *BridgeAuditLog) BeforeUpdate(tx *gorm.DB) error {
 	return nil
 }
 
+type BridgeAgentSetupToken struct {
+	Id         int64  `json:"id"`
+	TokenHash  string `json:"-" gorm:"type:varchar(64);not null;uniqueIndex"`
+	UserId     int    `json:"user_id" gorm:"not null;index"`
+	ClientId   string `json:"client_id" gorm:"type:varchar(128);not null;default:'';index"`
+	ClientName string `json:"client_name" gorm:"type:varchar(128);not null;default:''"`
+	Version    string `json:"version" gorm:"type:varchar(64);not null;default:''"`
+	Platform   string `json:"platform" gorm:"type:varchar(64);not null;default:''"`
+	Workspace  string `json:"workspace" gorm:"type:varchar(512);not null;default:''"`
+	Rotate     bool   `json:"rotate" gorm:"not null;default:false"`
+	ExpiresAt  int64  `json:"expires_at" gorm:"bigint;index"`
+	UsedAt     int64  `json:"used_at" gorm:"bigint;index"`
+	CreatedAt  int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt  int64  `json:"updated_at" gorm:"bigint"`
+}
+
+func (BridgeAgentSetupToken) TableName() string {
+	return "bridge_agent_setup_tokens"
+}
+
+func (token *BridgeAgentSetupToken) BeforeCreate(tx *gorm.DB) error {
+	now := common.GetTimestamp()
+	token.CreatedAt = now
+	token.UpdatedAt = now
+	return nil
+}
+
+func (token *BridgeAgentSetupToken) BeforeUpdate(tx *gorm.DB) error {
+	token.UpdatedAt = common.GetTimestamp()
+	return nil
+}
+
 type BridgeClientFilter struct {
 	UserId  int
 	Status  *int
@@ -308,6 +340,41 @@ func CloseBridgeSession(sessionId string, status string, reason string) error {
 
 func CreateBridgeAuditLog(log *BridgeAuditLog) error {
 	return DB.Create(log).Error
+}
+
+func CreateBridgeAgentSetupToken(token *BridgeAgentSetupToken) error {
+	if token == nil || strings.TrimSpace(token.TokenHash) == "" {
+		return nil
+	}
+	token.TokenHash = strings.TrimSpace(strings.ToLower(token.TokenHash))
+	return DB.Create(token).Error
+}
+
+func ConsumeBridgeAgentSetupToken(tokenHash string, now int64) (*BridgeAgentSetupToken, error) {
+	tokenHash = strings.TrimSpace(strings.ToLower(tokenHash))
+	if tokenHash == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var token BridgeAgentSetupToken
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&BridgeAgentSetupToken{}).
+			Where("token_hash = ? AND used_at = 0 AND expires_at > ?", tokenHash, now).
+			Updates(map[string]any{
+				"used_at":    now,
+				"updated_at": now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return tx.Where("token_hash = ?", tokenHash).First(&token).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &token, nil
 }
 
 func UpdateBridgeAuditLogStatus(id int64, status string, updates map[string]any) error {
