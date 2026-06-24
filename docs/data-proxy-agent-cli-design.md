@@ -490,7 +490,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 
 - 已新增 `cmd/data-proxy-agent` 入口。
 - 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
-- 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`update`、`run`。
+- 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`update`、`run`，并补齐 `config`、`mcp`、`tunnel`、`logs`、`service` 命令组的 `--help` 输出。
 - `doctor` 已能检查本地 workspace、本地审计路径、远端 Bridge token 握手、系统服务状态、HTTP route TCP 连通性、MCP HTTP endpoint 连通性、stdio MCP shell/命令前缀和已启动进程状态。
 - 已实现 `enroll`，支持 `/api/bridge/agent-setup/consume` 一次性 setup token 绑定，也可兼容调用 `/api/bridge/agent-setup` 注册 Bridge Client，并把 agent token 写入本地私有配置。
 - 已实现 `report`，可生成脱敏诊断 zip，并记录远端 Bridge token 握手校验结果和系统服务状态。
@@ -504,12 +504,12 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已实现敏感 token 脱敏、私有权限配置文件写入和基础配置校验。
 - 已实现 `http_tunnel.request` 普通/流式/SSE/WebSocket 转发：目标校验、loopback 默认限制、header 过滤、body base64、流式上传/下载、WebSocket frame 转发、响应截断和服务端兼容的 `http_response` metadata。
 - 已实现 MCP bridge 基础能力：`mcp_proxy.test`、`mcp_proxy.tools_list`、`mcp_proxy.tools_call` 和 `mcp_proxy.rpc`，支持 Streamable HTTP 目标、`Mcp-Session-Id` 会话复用、SSE `data:` 响应解析、loopback 默认限制，以及本地 stdio MCP 子进程桥接。stdio command 仅从本机配置读取，远端请求只能按本地 MCP server 名称选择；stdio 子进程启动、退出和退出后下次调用自动重启会写入本地审计 JSONL。
-- 已实现本地文件工具：只读 `remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_env_info` 默认启用；写入 `remote_write`、`remote_edit` 已实现但默认关闭，必须本机配置 `policy.allow_write=true` 才会上报和执行。所有路径默认限制在 `agent.workspace` 内，支持 `policy.allowed_workspaces`、`policy.denied_paths`、symlink 防逃逸、常见目录忽略、服务端 policy 限额收紧、本地结果截断和写入大小限制。
+- 已实现本地文件和项目只读工具：`remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_env_info`、`remote_project_info`、`remote_get_related_files`、`remote_git_status`、`remote_git_diff`、`remote_git_log` 默认启用；Git 工具只运行固定只读 argv，并关闭外部 diff、pager 和交互提示。写入 `remote_write`、`remote_edit` 已实现但默认关闭，必须本机配置 `policy.allow_write=true` 才会上报和执行。所有路径默认限制在 `agent.workspace` 内，支持 `policy.allowed_workspaces`、`policy.denied_paths`、symlink 防逃逸、常见目录忽略、服务端 policy 限额收紧、本地结果截断和写入大小限制。
 - 已实现 `remote_run_tests` 安全测试命令：默认关闭，必须本机配置 `policy.exec.enabled=true` 且命令精确命中 `policy.exec.safe_commands`；执行目录仍限制在 workspace 内，输出受 `max_result_bytes` 限制，非零退出会作为工具结果返回给调用方。
 - 已实现 `update` 自动升级命令：支持 GitHub Release 和自定义 manifest，下载后校验 sha256、运行 `self-test`、替换前生成 `.new`、成功后保留 `.bak`。Windows 自替换先 staging，停止服务后再覆盖。
 - 已新增 GitHub Actions `Data Proxy Agent` workflow，对 agent 运行测试，构建 Linux/macOS/Windows 的 amd64/arm64 二进制包与 sha256 校验文件，并在 `v*` tag 上传 GitHub Release 附件。
 - 已新增 `Dockerfile.agent` 和 GHCR 发布任务，发布 linux/amd64、linux/arm64 多架构镜像 `ghcr.io/normojs/data-proxy-agent:<version>`，镜像内保留 AGPL/NOTICE/第三方许可文件。
-- 当前 Go agent 对尚未移植的 `tool_call` 明确返回 `TOOL_NOT_SUPPORTED`，避免服务端请求悬空。
+- 当前 Go agent 对尚未移植的高危 `remote_exec`、`remote_shell_open`、`remote_shell_eval`、`remote_install_package` 等 `tool_call` 明确返回 `TOOL_NOT_SUPPORTED`，避免服务端请求悬空。
 
 尚未从 Node 原型迁移到 Go CLI：
 

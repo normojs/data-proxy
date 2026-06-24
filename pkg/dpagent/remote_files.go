@@ -18,14 +18,19 @@ import (
 )
 
 const (
-	BridgeToolRemoteRead     = "remote_read"
-	BridgeToolRemoteTree     = "remote_tree"
-	BridgeToolRemoteGlob     = "remote_glob"
-	BridgeToolRemoteGrep     = "remote_grep"
-	BridgeToolRemoteEnvInfo  = "remote_env_info"
-	BridgeToolRemoteWrite    = "remote_write"
-	BridgeToolRemoteEdit     = "remote_edit"
-	BridgeToolRemoteRunTests = "remote_run_tests"
+	BridgeToolRemoteRead            = "remote_read"
+	BridgeToolRemoteTree            = "remote_tree"
+	BridgeToolRemoteGlob            = "remote_glob"
+	BridgeToolRemoteGrep            = "remote_grep"
+	BridgeToolRemoteEnvInfo         = "remote_env_info"
+	BridgeToolRemoteWrite           = "remote_write"
+	BridgeToolRemoteEdit            = "remote_edit"
+	BridgeToolRemoteRunTests        = "remote_run_tests"
+	BridgeToolRemoteGitStatus       = "remote_git_status"
+	BridgeToolRemoteGitDiff         = "remote_git_diff"
+	BridgeToolRemoteGitLog          = "remote_git_log"
+	BridgeToolRemoteProjectInfo     = "remote_project_info"
+	BridgeToolRemoteGetRelatedFiles = "remote_get_related_files"
 
 	DefaultRemoteMaxResults       = 200
 	DefaultRemoteTreeDepth        = 3
@@ -100,6 +105,16 @@ func (c BridgeClient) handleRemoteFileTool(ctx context.Context, toolName string,
 		return c.handleRemoteGrep(ctx, args)
 	case BridgeToolRemoteEnvInfo:
 		return c.handleRemoteEnvInfo(ctx, args)
+	case BridgeToolRemoteGitStatus:
+		return c.handleRemoteGitStatus(ctx, args)
+	case BridgeToolRemoteGitDiff:
+		return c.handleRemoteGitDiff(ctx, args)
+	case BridgeToolRemoteGitLog:
+		return c.handleRemoteGitLog(ctx, args)
+	case BridgeToolRemoteProjectInfo:
+		return c.handleRemoteProjectInfo(ctx, args)
+	case BridgeToolRemoteGetRelatedFiles:
+		return c.handleRemoteGetRelatedFiles(ctx, args)
 	case BridgeToolRemoteWrite:
 		return c.handleRemoteWrite(ctx, args)
 	case BridgeToolRemoteEdit:

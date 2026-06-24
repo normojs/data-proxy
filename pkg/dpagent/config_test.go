@@ -105,6 +105,27 @@ func TestCLIConfigShowRedactsToken(t *testing.T) {
 	}
 }
 
+func TestCLISubcommandHelp(t *testing.T) {
+	cases := [][]string{
+		{"config", "--help"},
+		{"mcp", "--help"},
+		{"tunnel", "--help"},
+		{"tunnel", "route", "--help"},
+		{"logs", "--help"},
+		{"service", "--help"},
+	}
+	for _, args := range cases {
+		var out, errOut bytes.Buffer
+		code := RunCLI(args, &out, &errOut, "test-version")
+		if code != 0 {
+			t.Fatalf("%v help failed with code %d: %s", args, code, errOut.String())
+		}
+		if !strings.Contains(out.String(), "Usage:") {
+			t.Fatalf("%v help missing usage: %s", args, out.String())
+		}
+	}
+}
+
 func TestCLIMCPAddListRemove(t *testing.T) {
 	configPath := t.TempDir() + "/config.yaml"
 	cfg := DefaultConfig()

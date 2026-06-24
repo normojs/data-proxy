@@ -110,10 +110,63 @@ Environment:
 `)
 }
 
+func (c CLI) printConfigHelp() {
+	fmt.Fprint(c.Out, `Usage:
+  data-proxy-agent config path [--config <path>]
+  data-proxy-agent config show [--config <path>] [--json]
+  data-proxy-agent config validate [--config <path>]
+  data-proxy-agent config export [--config <path>] [--json]
+
+Config commands print, validate, or export the local agent config. Secret values are redacted.
+`)
+}
+
+func (c CLI) printMCPHelp() {
+	fmt.Fprint(c.Out, `Usage:
+  data-proxy-agent mcp list [--config <path>] [--json]
+  data-proxy-agent mcp add <name> --url <endpoint> [--transport streamable-http] [--config <path>]
+  data-proxy-agent mcp add <name> --transport stdio --command <command> [--config <path>]
+  data-proxy-agent mcp test <name> [--config <path>]
+  data-proxy-agent mcp remove <name> [--config <path>]
+
+MCP servers are local targets. Stdio commands are read from local config only; the server cannot push arbitrary commands.
+`)
+}
+
+func (c CLI) printTunnelHelp() {
+	fmt.Fprint(c.Out, `Usage:
+  data-proxy-agent tunnel route list [--config <path>] [--json]
+  data-proxy-agent tunnel route add http <name> --url <local-url> [--allow-websocket] [--allow-sse] [--config <path>]
+  data-proxy-agent tunnel route remove <name> [--config <path>]
+
+Tunnel routes expose local HTTP/SSE/WebSocket services through an approved Data Proxy tunnel connection.
+`)
+}
+
+func (c CLI) printTunnelRouteHelp() {
+	fmt.Fprint(c.Out, `Usage:
+  data-proxy-agent tunnel route list [--config <path>] [--json]
+  data-proxy-agent tunnel route add http <name> --url <local-url> [--allow-websocket] [--allow-sse]
+  data-proxy-agent tunnel route remove <name> [--config <path>]
+`)
+}
+
+func isHelpArg(value string) bool {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "help", "-h", "--help":
+		return true
+	default:
+		return false
+	}
+}
+
 func (c CLI) runConfig(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(c.Err, "config subcommand is required")
-		return 2
+	if len(args) == 0 || isHelpArg(args[0]) {
+		c.printConfigHelp()
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
 	}
 	subcommand := args[0]
 	fs := flag.NewFlagSet("config "+subcommand, flag.ContinueOnError)
@@ -161,14 +214,18 @@ func (c CLI) runConfig(args []string) int {
 		return 0
 	default:
 		fmt.Fprintf(c.Err, "unknown config subcommand: %s\n", subcommand)
+		c.printConfigHelp()
 		return 2
 	}
 }
 
 func (c CLI) runMCP(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(c.Err, "mcp subcommand is required")
-		return 2
+	if len(args) == 0 || isHelpArg(args[0]) {
+		c.printMCPHelp()
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
 	}
 	switch args[0] {
 	case "list":
@@ -181,6 +238,7 @@ func (c CLI) runMCP(args []string) int {
 		return c.runMCPRemove(args[1:])
 	default:
 		fmt.Fprintf(c.Err, "unknown mcp subcommand: %s\n", args[0])
+		c.printMCPHelp()
 		return 2
 	}
 }
@@ -342,9 +400,12 @@ func (c CLI) runMCPTest(args []string) int {
 }
 
 func (c CLI) runTunnel(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(c.Err, "tunnel subcommand is required")
-		return 2
+	if len(args) == 0 || isHelpArg(args[0]) {
+		c.printTunnelHelp()
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
 	}
 	switch args[0] {
 	case "list":
@@ -353,14 +414,18 @@ func (c CLI) runTunnel(args []string) int {
 		return c.runTunnelRoute(args[1:])
 	default:
 		fmt.Fprintf(c.Err, "unknown tunnel subcommand: %s\n", args[0])
+		c.printTunnelHelp()
 		return 2
 	}
 }
 
 func (c CLI) runTunnelRoute(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(c.Err, "tunnel route subcommand is required")
-		return 2
+	if len(args) == 0 || isHelpArg(args[0]) {
+		c.printTunnelRouteHelp()
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
 	}
 	switch args[0] {
 	case "list":
@@ -371,6 +436,7 @@ func (c CLI) runTunnelRoute(args []string) int {
 		return c.runTunnelRouteRemove(args[1:])
 	default:
 		fmt.Fprintf(c.Err, "unknown tunnel route subcommand: %s\n", args[0])
+		c.printTunnelRouteHelp()
 		return 2
 	}
 }

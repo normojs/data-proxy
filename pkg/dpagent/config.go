@@ -428,6 +428,11 @@ func EffectiveCapabilities(cfg Config) []string {
 		add(BridgeToolRemoteGlob)
 		add(BridgeToolRemoteGrep)
 		add(BridgeToolRemoteEnvInfo)
+		add(BridgeToolRemoteProjectInfo)
+		add(BridgeToolRemoteGetRelatedFiles)
+		add(BridgeToolRemoteGitStatus)
+		add(BridgeToolRemoteGitDiff)
+		add(BridgeToolRemoteGitLog)
 		if cfg.Policy.AllowWrite {
 			add(BridgeToolRemoteWrite)
 			add(BridgeToolRemoteEdit)

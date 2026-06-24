@@ -54,7 +54,18 @@ func (c BridgeClient) handleToolCall(ctx context.Context, toolName string, args 
 		return c.handleHTTPTunnelRequest(ctx, args)
 	case BridgeToolMCPProxyTest, BridgeToolMCPProxyListTools, BridgeToolMCPProxyCallTool, BridgeToolMCPProxyRPC:
 		return c.handleMCPProxy(ctx, toolName, args)
-	case BridgeToolRemoteRead, BridgeToolRemoteTree, BridgeToolRemoteGlob, BridgeToolRemoteGrep, BridgeToolRemoteEnvInfo, BridgeToolRemoteWrite, BridgeToolRemoteEdit:
+	case BridgeToolRemoteRead,
+		BridgeToolRemoteTree,
+		BridgeToolRemoteGlob,
+		BridgeToolRemoteGrep,
+		BridgeToolRemoteEnvInfo,
+		BridgeToolRemoteGitStatus,
+		BridgeToolRemoteGitDiff,
+		BridgeToolRemoteGitLog,
+		BridgeToolRemoteProjectInfo,
+		BridgeToolRemoteGetRelatedFiles,
+		BridgeToolRemoteWrite,
+		BridgeToolRemoteEdit:
 		return c.handleRemoteFileTool(ctx, toolName, args)
 	case BridgeToolRemoteRunTests:
 		return c.handleRemoteRunTests(ctx, args)

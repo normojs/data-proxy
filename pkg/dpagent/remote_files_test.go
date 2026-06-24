@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -138,6 +139,11 @@ func TestRemoteEnvInfoAndCapabilities(t *testing.T) {
 		BridgeToolRemoteGlob,
 		BridgeToolRemoteGrep,
 		BridgeToolRemoteEnvInfo,
+		BridgeToolRemoteProjectInfo,
+		BridgeToolRemoteGetRelatedFiles,
+		BridgeToolRemoteGitStatus,
+		BridgeToolRemoteGitDiff,
+		BridgeToolRemoteGitLog,
 		BridgeCapabilityHTTPTunnel,
 		BridgeCapabilityMCPProxy,
 	} {
@@ -160,6 +166,86 @@ func TestRemoteEnvInfoAndCapabilities(t *testing.T) {
 	limits := payload["limits"].(map[string]any)
 	if int(limits["max_results"].(float64)) != DefaultRemoteMaxResults {
 		t.Fatalf("unexpected limits: %#v", limits)
+	}
+}
+
+func TestRemoteProjectInfoAndRelatedFiles(t *testing.T) {
+	workspace := t.TempDir()
+	mustWriteFile(t, filepath.Join(workspace, "go.mod"), "module example.com/agent\n")
+	mustWriteFile(t, filepath.Join(workspace, "pkg", "agent.go"), "package pkg\nconst AgentName = \"Data Proxy\"\n")
+	mustWriteFile(t, filepath.Join(workspace, "pkg", "agent_test.go"), "package pkg\n")
+	mustWriteFile(t, filepath.Join(workspace, "README.md"), "# Agent\n")
+	mustWriteFile(t, filepath.Join(workspace, "node_modules", "ignored.js"), "ignored\n")
+
+	client := BridgeClient{Config: remoteTestConfig(workspace)}
+	info, err := client.handleToolCall(context.Background(), BridgeToolRemoteProjectInfo, map[string]any{"path": "."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var project map[string]any
+	if err := json.Unmarshal([]byte(info.Content[0].Text), &project); err != nil {
+		t.Fatal(err)
+	}
+	if !containsAnyString(project["manifests"], "go.mod") {
+		t.Fatalf("project info missing go.mod: %#v", project)
+	}
+	languages := project["languages"].(map[string]any)
+	if int(languages["go"].(float64)) != 2 {
+		t.Fatalf("unexpected language counts: %#v", languages)
+	}
+
+	related, err := client.handleToolCall(context.Background(), BridgeToolRemoteGetRelatedFiles, map[string]any{"file_path": "pkg/agent.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(related.Content[0].Text), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !relatedContainsPath(payload["related"], "pkg/agent_test.go") {
+		t.Fatalf("related files missing test companion: %s", related.Content[0].Text)
+	}
+	if strings.Contains(related.Content[0].Text, "node_modules") {
+		t.Fatalf("related files should ignore node_modules: %s", related.Content[0].Text)
+	}
+}
+
+func TestRemoteGitReadOnlyTools(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not available")
+	}
+	workspace := t.TempDir()
+	mustWriteFile(t, filepath.Join(workspace, "main.go"), "package main\nfunc main() {}\n")
+	runGitForTest(t, workspace, "init")
+	runGitForTest(t, workspace, "config", "user.email", "agent@example.test")
+	runGitForTest(t, workspace, "config", "user.name", "Agent Test")
+	runGitForTest(t, workspace, "add", "main.go")
+	runGitForTest(t, workspace, "commit", "-m", "initial commit")
+	mustWriteFile(t, filepath.Join(workspace, "main.go"), "package main\nconst AgentName = \"Data Proxy\"\nfunc main() {}\n")
+
+	client := BridgeClient{Config: remoteTestConfig(workspace)}
+	status, err := client.handleToolCall(context.Background(), BridgeToolRemoteGitStatus, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(status.Content[0].Text, "main.go") {
+		t.Fatalf("git status missing changed file: %s", status.Content[0].Text)
+	}
+
+	diff, err := client.handleToolCall(context.Background(), BridgeToolRemoteGitDiff, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff.Content[0].Text, "+const AgentName") {
+		t.Fatalf("git diff missing change: %s", diff.Content[0].Text)
+	}
+
+	log, err := client.handleToolCall(context.Background(), BridgeToolRemoteGitLog, map[string]any{"limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.Content[0].Text, "initial commit") {
+		t.Fatalf("git log missing commit: %s", log.Content[0].Text)
 	}
 }
 
@@ -412,4 +498,42 @@ func containsString(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func containsAnyString(value any, expected string) bool {
+	items, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		if item == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func relatedContainsPath(value any, expected string) bool {
+	items, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		object, ok := item.(map[string]any)
+		if ok && object["path"] == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func runGitForTest(t *testing.T, workdir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = workdir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
+	}
 }

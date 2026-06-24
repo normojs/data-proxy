@@ -342,7 +342,16 @@ func isWriteTool(toolName string) bool {
 
 func isDefaultAllowedTool(toolName string) bool {
 	switch toolName {
-	case "remote_read", "remote_tree", "remote_glob", "remote_grep", "remote_env_info":
+	case "remote_read",
+		"remote_tree",
+		"remote_glob",
+		"remote_grep",
+		"remote_env_info",
+		"remote_project_info",
+		"remote_get_related_files",
+		"remote_git_status",
+		"remote_git_diff",
+		"remote_git_log":
 		return true
 	default:
 		return strings.HasPrefix(toolName, "mcp_proxy.") || strings.HasPrefix(toolName, "http_tunnel.")

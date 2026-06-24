@@ -61,15 +61,19 @@ type ServiceDefinition struct {
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 func (c CLI) runService(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(c.Err, "service subcommand is required")
-		return 2
+	if len(args) == 0 || isHelpArg(args[0]) {
+		c.printServiceHelp()
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
 	}
 	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
 	switch subcommand {
 	case "install", "uninstall", "start", "stop", "restart", "status", "print":
 	default:
 		fmt.Fprintf(c.Err, "unknown service subcommand: %s\n", subcommand)
+		c.printServiceHelp()
 		return 2
 	}
 	fs := flag.NewFlagSet("service "+subcommand, flag.ContinueOnError)
@@ -116,6 +120,17 @@ func (c CLI) runService(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func (c CLI) printServiceHelp() {
+	fmt.Fprint(c.Out, `Usage:
+  data-proxy-agent service install [--config <path>] [--user|--system] [--dry-run]
+  data-proxy-agent service uninstall [--config <path>] [--user|--system] [--dry-run]
+  data-proxy-agent service start|stop|restart|status [--config <path>] [--user|--system]
+  data-proxy-agent service print [--config <path>] [--platform linux|darwin|windows]
+
+Service commands manage systemd, launchd, or Windows Service definitions for the local agent.
+`)
 }
 
 func RunServiceCommand(ctx context.Context, opts ServiceOptions) error {

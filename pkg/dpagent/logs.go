@@ -13,9 +13,12 @@ import (
 )
 
 func (c CLI) runLogs(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(c.Err, "logs subcommand is required: path or tail")
-		return 2
+	if len(args) == 0 || isHelpArg(args[0]) {
+		c.printLogsHelp()
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
 	}
 	subcommand := strings.ToLower(strings.TrimSpace(args[0]))
 	fs := flag.NewFlagSet("logs "+subcommand, flag.ContinueOnError)
@@ -65,8 +68,18 @@ func (c CLI) runLogs(args []string) int {
 		return 0
 	default:
 		fmt.Fprintf(c.Err, "unknown logs subcommand: %s\n", subcommand)
+		c.printLogsHelp()
 		return 2
 	}
+}
+
+func (c CLI) printLogsHelp() {
+	fmt.Fprint(c.Out, `Usage:
+  data-proxy-agent logs path [--config <path>]
+  data-proxy-agent logs tail [--lines <n>] [--follow] [--config <path>]
+
+Logs commands read the local metadata-only audit JSONL configured by logging.local_audit_jsonl.
+`)
 }
 
 func tailLocalAudit(path string, lines int) ([]string, error) {

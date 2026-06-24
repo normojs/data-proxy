@@ -5,8 +5,17 @@ import (
 )
 
 func TestValidateToolDefaultsDenyWrite(t *testing.T) {
-	if err := ValidateTool(Policy{}, "remote_read"); err != nil {
-		t.Fatalf("remote_read should be allowed by default: %v", err)
+	for _, tool := range []string{
+		"remote_read",
+		"remote_project_info",
+		"remote_get_related_files",
+		"remote_git_status",
+		"remote_git_diff",
+		"remote_git_log",
+	} {
+		if err := ValidateTool(Policy{}, tool); err != nil {
+			t.Fatalf("%s should be allowed by default: %v", tool, err)
+		}
 	}
 	err := ValidateTool(Policy{}, "remote_write")
 	if ErrorCode(err) != ErrorCodeWriteDisabled {
