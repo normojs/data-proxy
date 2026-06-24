@@ -68,12 +68,12 @@ Data Proxy 的 Tunnel Apps 分为两类：
 - `mcp_code` 网关已支持 `initialize`、`ping`、`notifications/*`、`tools/list`、`tools/call`、`resources/list`、`resources/read`、`prompts/list`、`prompts/get`：通过 Bridge 调 user mcp，按 app owner 做 user-scoped session 选择，按 app 与 connection 中更保守的权限模式过滤工具，调用前授权，写入带 connection id 的 Tunnel audit log。`resources/*` 和 `prompts/*` 走只读原样 JSON-RPC 透传，Bridge agent 使用 `mcp_proxy.rpc` 转给本机 user mcp。
 - `mcp_code` 网关已支持面向客户端的最小 Streamable HTTP/SSE 兼容：`initialize` 返回 `Mcp-Session-Id`，后续请求可携带该 header；`Accept: text/event-stream` 的 POST 会返回单次 SSE `message` 事件；旧 SSE transport 可用 GET endpoint 取得 `endpoint` event，再向 `message?session_id=...` POST JSON-RPC；客户端可用 DELETE 主动关闭 session。网关 session 元信息同步写入 `tunnel_sessions`，节点重启或普通 Streamable HTTP 请求落到其他节点时可从 DB 重建运行态；旧 SSE transport 的实时 channel 仍绑定在持有长连接的节点，开启 Redis 后 `message` 请求可通过 `tunnel:mcp:sse:<session_id>` pub/sub 投递到持有 SSE channel 的节点。未配置 Redis 时保持单节点行为，多节点部署需配置连接粘性。
 - `tunnel_audit_logs.session_id` 记录的是 Data Proxy MCP gateway session id；本地 Bridge session id 保存在 audit `metadata.bridge_session_id`。这样同一个网页 AI 连接的 `initialize`、`tools/list`、`tools/call` 和关闭事件可以按 gateway session 聚合，同时仍能追溯实际转发到哪个 Bridge session。
-- `http_tunnel` MVP 已支持普通 HTTP 方法通过 Bridge 转发到本地 `target_host:target_port/target_path`，返回状态码、响应头和响应体，记录 `proxy_request` 审计。请求体默认最大 8MB，响应体默认最大 2MB 或受 Bridge policy `max_result_bytes` 限制。数据面会读取 `route.auth_mode`、`route.auth_token`、`route.host`、`route.path_prefix`、`route.max_request_bytes`、`route.max_response_bytes`，支持 connection key 私有访问、额外 bearer token、Host/Path 前缀限制、单 app 请求/响应大小限制和公开只读模式。当前版本不支持 WebSocket、TCP、CONNECT、大文件流式和长 SSE 下载。
+- `http_tunnel` MVP 已支持普通 HTTP 方法通过 Bridge 转发到本地 `target_host:target_port/target_path`，返回状态码、响应头和响应体，记录 `proxy_request` 审计。请求体默认最大 8MB，响应体默认最大 2MB 或受 Bridge policy `max_result_bytes` 限制。数据面会读取 `route.auth_mode`、`route.auth_token`、`route.host`、`route.path_prefix`、`route.max_request_bytes`、`route.max_response_bytes`，支持 connection key 私有访问、额外 bearer token、Host/Path 前缀限制、单 app 请求/响应大小限制和公开只读模式。当前版本已支持流式请求体、流式响应/SSE flush、WebSocket 代理和 WebSocket 请求/响应限额；暂不支持 TCP、CONNECT、登录态访问和分布式共享带宽限速。
 
 尚未完成的数据面增强：
 
-- `mcp_code` 的长连接集群粘性、tool/prompt/resource 级别的细粒度展示过滤，以及 Redis 级共享限流状态。
-- HTTP Tunnel 的登录态访问、WebSocket/SSE/大文件流式转发和真正流式带宽限速。
+- `mcp_code` 的旧 SSE 长连接在未配置 Redis 时仍需要集群粘性、tool/prompt/resource 级别的细粒度展示过滤，以及 Redis 级共享限流状态。
+- HTTP Tunnel 的登录态访问、CONNECT 支持、分布式共享带宽限速，以及更长时间的 WebSocket/SSE/大文件压力测试。
 - TCP 反向隧道连接复用、路由和公网入口。
 - Tunnel 计费结算 worker。
 - 本地 user mcp 安装包/agent 程序自动下载、自动注册和在线健康检查。
@@ -288,7 +288,8 @@ curl https://<data-proxy-host>/t/<connection_key>/tunnel/http/<public_slug>/heal
    - 已新增 connection key 公网入口：`/t/:connection_key/tunnel/http/:slug/*proxy_path`。
    - 已实现 HTTP reverse proxy over Bridge，记录字节数、状态码和耗时。
    - 已实现 host/path route resolver、bearer token、connection key 私有访问和公开只读 auth mode。
-   - 后续支持登录态访问、WebSocket/SSE/大文件流式转发。
+   - 已实现流式请求体、流式响应/SSE flush、WebSocket 代理和 WebSocket 请求/响应限额。
+   - 后续支持登录态访问、CONNECT、分布式共享带宽限速和更完整的长连接压测。
 
 4. **TCP Tunnel MVP**
    - 实现长连接转发、连接池、心跳、限速和断线清理。
