@@ -50,10 +50,10 @@ license and attribution sections instead of deleting them.
 
 ## Desktop Packaging
 
-The `electron/` wrapper remains upstream packaging material and is not part of
-the current Data Proxy release path. Do not promise Electron desktop releases
-until a separate packaging plan renames runtime paths, application names,
-icons, update metadata, and legal notices consistently.
+Electron desktop packaging has been removed from the Data Proxy repository.
+Keep `/electron/` ignored unless Data Proxy intentionally starts a new desktop
+packaging plan with renamed runtime paths, application names, icons, update
+metadata, and legal notices.
 
 ## Audit Rule
 

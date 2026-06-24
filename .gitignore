@@ -45,8 +45,7 @@ plans
 .claude
 .cursor
 
-electron/node_modules
-electron/dist
+/electron/
 data/
 .gomodcache/
 .gocache-temp
