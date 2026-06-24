@@ -1,11 +1,18 @@
 package dpagent
 
 import (
+	"archive/zip"
 	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/QuantumNous/new-api/dto"
 )
 
 func TestBridgeURLFromBaseURL(t *testing.T) {
@@ -192,6 +199,120 @@ func TestCLITunnelRouteAddListRemove(t *testing.T) {
 	}
 }
 
+func TestCLIEnrollWritesPrivateConfig(t *testing.T) {
+	configPath := t.TempDir() + "/config.yaml"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/bridge/agent-setup" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "access-token" {
+			t.Fatalf("unexpected authorization header: %s", got)
+		}
+		if got := r.Header.Get("New-Api-User"); got != "42" {
+			t.Fatalf("unexpected user id header: %s", got)
+		}
+		var req dto.BridgeAgentSetupRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.ClientName != "Laptop Agent" || req.Version != "test-version" {
+			t.Fatalf("unexpected setup request: %#v", req)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(apiEnvelope[dto.BridgeAgentSetupResponse]{
+			Success: true,
+			Data: dto.BridgeAgentSetupResponse{
+				BaseURL:        serverURLFromRequest(r),
+				BridgeWSURL:    "ws" + strings.TrimPrefix(serverURLFromRequest(r), "http") + "/bridge/ws",
+				ClientId:       "client-123",
+				APIKey:         "sk-agent-token-secret",
+				APIKeyOnce:     true,
+				TokenMaskedKey: "sk-age...cret",
+				Client: dto.BridgeClientItem{
+					ClientId:  "client-123",
+					Name:      "Laptop Agent",
+					Workspace: "/workspace/project",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{
+		"enroll",
+		"--server", server.URL,
+		"--access-token", "access-token",
+		"--user-id", "42",
+		"--name", "Laptop Agent",
+		"--workspace", "/workspace/project",
+		"--config", configPath,
+	}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("enroll failed with code %d: %s", code, errOut.String())
+	}
+	if strings.Contains(out.String(), "sk-agent-token-secret") {
+		t.Fatalf("enroll leaked agent token: %s", out.String())
+	}
+	loaded, _, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server.BaseURL != server.URL {
+		t.Fatalf("unexpected base url: %s", loaded.Server.BaseURL)
+	}
+	if loaded.Agent.ClientID != "client-123" || loaded.Agent.Token != "sk-agent-token-secret" {
+		t.Fatalf("unexpected enrolled config: %#v", loaded.Agent)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mode := info.Mode().Perm(); mode != DefaultConfigFileMode {
+			t.Fatalf("unexpected config mode: %o", mode)
+		}
+	}
+}
+
+func TestCLIReportWritesRedactedDiagnosticZip(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := tmp + "/config.yaml"
+	reportPath := tmp + "/report.zip"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	cfg.Agent.ClientID = "report-agent"
+	cfg.Agent.Token = "sk-report-token-secret"
+	cfg.MCPServers = []MCPServer{{Name: "coding", Transport: "streamable_http", Endpoint: "http://127.0.0.1:30837/mcp"}}
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{"report", "--config", configPath, "--output", reportPath, "--skip-network"}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("report failed with code %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "diagnostic report saved") {
+		t.Fatalf("unexpected report output: %s", out.String())
+	}
+	reader, err := zip.OpenReader(reportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	combined := readZipEntries(t, reader.File)
+	if !strings.Contains(combined, "config.redacted.yaml") {
+		t.Fatalf("report did not include config entry names: %s", combined)
+	}
+	if strings.Contains(combined, "sk-report-token-secret") {
+		t.Fatalf("report leaked token: %s", combined)
+	}
+	if !strings.Contains(combined, "sk-r...cret") {
+		t.Fatalf("report did not include redacted token: %s", combined)
+	}
+}
+
 func TestConfigPathEnvOverride(t *testing.T) {
 	t.Setenv("DATA_PROXY_AGENT_CONFIG", "/tmp/custom-agent.yaml")
 	got, err := ConfigPath()
@@ -201,6 +322,35 @@ func TestConfigPathEnvOverride(t *testing.T) {
 	if got != "/tmp/custom-agent.yaml" {
 		t.Fatalf("unexpected config path: %s", got)
 	}
+}
+
+func serverURLFromRequest(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
+}
+
+func readZipEntries(t *testing.T, files []*zip.File) string {
+	t.Helper()
+	var builder strings.Builder
+	for _, file := range files {
+		builder.WriteString(file.Name)
+		builder.WriteString("\n")
+		reader, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(reader)
+		_ = reader.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		builder.Write(body)
+		builder.WriteString("\n")
+	}
+	return builder.String()
 }
 
 func TestLoadConfigMissingAppliesEnvironment(t *testing.T) {

@@ -72,10 +72,19 @@ data-proxy-agent
 
 ```bash
 data-proxy-agent version
-data-proxy-agent enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
+data-proxy-agent enroll --server https://dp.app.mbu.ltd --access-token <dashboard-access-token> --user-id <id>
 data-proxy-agent run
 data-proxy-agent status
 data-proxy-agent doctor
+data-proxy-agent report --output ./agent-diagnostic.zip
+```
+
+当前 `enroll` 已接入服务端现有的 `/api/bridge/agent-setup`，使用控制台 access token 和 `New-Api-User`
+对应的 user id 完成注册，并把返回的 agent token 写入本机私有配置文件。后续控制台可以再增加一次性 setup token，
+把命令收敛为：
+
+```bash
+data-proxy-agent enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
 ```
 
 用户在控制台复制的一键命令应该接近：
@@ -152,7 +161,10 @@ data-proxy-agent self-test
 data-proxy-agent report --output ./agent-diagnostic.zip
 ```
 
-`doctor` 需要检查：
+当前 `report` 会生成脱敏 zip，包含版本/平台、配置路径、脱敏配置、校验结果、状态摘要和可选网络检查结果。
+它不采集原始用户请求、响应、MCP 工具参数或本地文件内容。
+
+`doctor` 和 `report` 需要检查：
 
 - 能否解析 Data Proxy 域名。
 - 能否连接 `wss://.../bridge/ws`。
@@ -162,6 +174,8 @@ data-proxy-agent report --output ./agent-diagnostic.zip
 - 本地策略是否允许目标 host、port、workspace 和 tool。
 - 系统服务是否已安装并正在运行。
 - 当前版本是否过旧。
+
+其中系统服务和版本更新检查仍属于后续产品化阶段。
 
 ## 配置文件
 
@@ -241,6 +255,9 @@ logging:
 - 用户可以撤销某条外部连接，不影响本地 agent 继续在线。
 - 用户可以轮换 agent token，使本地 agent 重新注册。
 - setup token 泄露窗口短，适合控制台复制命令。
+
+当前 MVP 先复用已有的 dashboard access token + user id 调用 setup API；agent token 只在 setup
+创建或轮换时返回一次。CLI 会把 agent token 写入权限收紧的配置文件，`config show` 和 `report` 默认脱敏。
 
 ## 安全策略
 

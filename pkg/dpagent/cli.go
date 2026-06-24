@@ -48,6 +48,8 @@ func (c CLI) Run(args []string) int {
 	case "version", "--version":
 		fmt.Fprintf(c.Out, "data-proxy-agent %s\n", c.Version)
 		return 0
+	case "enroll":
+		return c.runEnroll(args[1:])
 	case "config":
 		return c.runConfig(args[1:])
 	case "mcp":
@@ -58,6 +60,8 @@ func (c CLI) Run(args []string) int {
 		return c.runStatus(args[1:])
 	case "doctor":
 		return c.runDoctor(args[1:])
+	case "report":
+		return c.runReport(args[1:])
 	case "self-test":
 		return c.runSelfTest(args[1:])
 	case "run":
@@ -74,11 +78,13 @@ func (c CLI) printHelp() {
 
 Usage:
   data-proxy-agent version
+  data-proxy-agent enroll --server <url> --access-token <token> --user-id <id>
   data-proxy-agent config path|show|validate|export [--config <path>]
   data-proxy-agent mcp list|add|test|remove [--config <path>]
   data-proxy-agent tunnel route list|add|remove [--config <path>]
   data-proxy-agent status [--config <path>]
   data-proxy-agent doctor [--config <path>]
+  data-proxy-agent report [--config <path>] [--output <zip>]
   data-proxy-agent self-test
   data-proxy-agent run [--config <path>] [--bridge-ws-url <url>] [--token <token>] [--client-id <id>]
 
@@ -87,6 +93,8 @@ Environment:
   DATA_PROXY_BASE_URL          Data Proxy base URL, for example https://dp.app.mbu.ltd.
   DATA_PROXY_BRIDGE_WS_URL     Bridge WebSocket URL.
   DATA_PROXY_API_KEY           Agent API key used for /bridge/ws.
+  DATA_PROXY_ACCESS_TOKEN      Dashboard access token used by enroll.
+  DATA_PROXY_USER_ID           Dashboard user id used by enroll.
   DATA_PROXY_BRIDGE_CLIENT_ID  Bridge client id.
 `)
 }
