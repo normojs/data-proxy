@@ -406,6 +406,9 @@ func EffectiveCapabilities(cfg Config) []string {
 	if len(cfg.HTTPRoutes) > 0 {
 		add(BridgeCapabilityHTTPTunnel)
 	}
+	if len(cfg.MCPServers) > 0 {
+		add(BridgeCapabilityMCPProxy)
+	}
 	return result
 }
 

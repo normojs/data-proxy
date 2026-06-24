@@ -62,7 +62,7 @@ func TestBridgeRunOnceRejectsUnknownToolCall(t *testing.T) {
 			Id:   "req-1",
 			Data: dto.BridgeToolCallRequest{
 				RequestId: "req-1",
-				ToolName:  "mcp_proxy.tools_list",
+				ToolName:  "unknown.tool",
 			},
 		}); err != nil {
 			t.Fatal(err)
