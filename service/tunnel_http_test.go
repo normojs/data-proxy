@@ -578,6 +578,195 @@ func TestForwardTunnelHTTPWebSocketProxiesFrames(t *testing.T) {
 	require.Equal(t, int64(len("echo: hello")), audit.BytesOut)
 }
 
+func TestForwardTunnelHTTPWebSocketRejectsRequestTooLarge(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{
+		RouteJson: `{"max_request_bytes":4}`,
+	}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 4)
+	hub.Register(bridge.Session{
+		SessionId:    "http-ws-request-limit-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+	peer := newFakeTunnelWebSocketPeer()
+	peer.reads <- fakeTunnelWebSocketRead{
+		frame: TunnelHTTPWebSocketFrame{FrameType: TunnelWebSocketFrameText, Data: []byte("12345")},
+	}
+	done := make(chan struct{})
+	var input dto.BridgeToolStreamInput
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		require.Equal(t, BridgeToolHTTPTunnelRequest, msg.Data.(dto.BridgeToolCallRequest).ToolName)
+		inputMsg := <-outbound
+		require.Equal(t, bridge.MessageTypeToolStreamInput, inputMsg.Type)
+		input = inputMsg.Data.(dto.BridgeToolStreamInput)
+	}()
+
+	_, err := ForwardTunnelHTTPWebSocket(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodGet,
+		ProxyPath:     "/socket",
+		RequestId:     "http-ws-too-large-in",
+		ClientIP:      "127.0.0.1",
+	}, peer)
+	require.ErrorIs(t, err, ErrTunnelHTTPRequestTooLarge)
+	<-done
+	require.Equal(t, TunnelWebSocketFrameClose, input.FrameType)
+	require.Equal(t, "HTTP_TUNNEL_REQUEST_TOO_LARGE", input.ErrorCode)
+
+	closeFrame := <-peer.writes
+	require.Equal(t, TunnelWebSocketFrameClose, closeFrame.FrameType)
+	require.Equal(t, tunnelWebSocketCloseMessageTooLarge, closeFrame.CloseCode)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-ws-too-large-in").Error)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, "request_too_large", audit.Reason)
+	require.Equal(t, int64(5), audit.BytesIn)
+	require.Contains(t, audit.MetadataJson, `"websocket":true`)
+	require.Contains(t, audit.MetadataJson, `"max_request_bytes":4`)
+}
+
+func TestForwardTunnelHTTPWebSocketRejectsResponseTooLarge(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{
+		RouteJson: `{"max_response_bytes":4}`,
+	}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 4)
+	hub.Register(bridge.Session{
+		SessionId:    "http-ws-response-limit-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+	peer := newFakeTunnelWebSocketPeer()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{StatusCode: http.StatusSwitchingProtocols}))
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			FrameType:  TunnelWebSocketFrameText,
+			BodyBase64: base64.StdEncoding.EncodeToString([]byte("12345")),
+			Bytes:      len("12345"),
+		}))
+	}()
+
+	_, err := ForwardTunnelHTTPWebSocket(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodGet,
+		ProxyPath:     "/socket",
+		RequestId:     "http-ws-too-large-out",
+		ClientIP:      "127.0.0.1",
+	}, peer)
+	require.ErrorIs(t, err, ErrTunnelHTTPResponseTooLarge)
+	<-done
+
+	closeFrame := <-peer.writes
+	require.Equal(t, TunnelWebSocketFrameClose, closeFrame.FrameType)
+	require.Equal(t, tunnelWebSocketCloseMessageTooLarge, closeFrame.CloseCode)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-ws-too-large-out").Error)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, "response_too_large", audit.Reason)
+	require.Equal(t, int64(0), audit.BytesOut)
+	require.Contains(t, audit.MetadataJson, `"websocket":true`)
+	require.Contains(t, audit.MetadataJson, `"max_response_bytes":4`)
+}
+
+func TestForwardTunnelHTTPWebSocketRejectsResponseRateLimit(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	connection := seedTunnelHTTPConnection(t, app, "")
+	require.NoError(t, db.Model(&model.TunnelConnection{}).Where("id = ?", connection.Id).Update("config_json", `{"rate_limit":{"max_bytes_out_per_minute":4}}`).Error)
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 4)
+	hub.Register(bridge.Session{
+		SessionId:    "http-ws-response-rate-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+	peer := newFakeTunnelWebSocketPeer()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			FrameType:  TunnelWebSocketFrameText,
+			BodyBase64: base64.StdEncoding.EncodeToString([]byte("12345")),
+			Bytes:      len("12345"),
+		}))
+	}()
+
+	_, err := ForwardTunnelHTTPWebSocket(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodGet,
+		ProxyPath:     "/socket",
+		RequestId:     "http-ws-rate-out",
+		ClientIP:      "127.0.0.1",
+	}, peer)
+	require.ErrorIs(t, err, ErrTunnelRateLimited)
+	<-done
+
+	closeFrame := <-peer.writes
+	require.Equal(t, TunnelWebSocketFrameClose, closeFrame.FrameType)
+	require.Equal(t, tunnelWebSocketClosePolicyViolation, closeFrame.CloseCode)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-ws-rate-out").Error)
+	require.Equal(t, model.TunnelAuditActionRateLimit, audit.Action)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, "rate_limited", audit.Reason)
+	require.Equal(t, int64(0), audit.BytesOut)
+	require.Contains(t, audit.MetadataJson, `"metric":"bytes_out_per_minute"`)
+	require.Contains(t, audit.MetadataJson, `"websocket":true`)
+}
+
 func TestForwardTunnelHTTPRequestRejectsRouteMaxRequestBytes(t *testing.T) {
 	db := setupTunnelTestDB(t)
 	app := seedTunnelHTTPApp(t, model.TunnelApp{

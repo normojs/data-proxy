@@ -41,6 +41,11 @@ const (
 	TunnelWebSocketFramePong   = "pong"
 )
 
+const (
+	tunnelWebSocketClosePolicyViolation = 1008
+	tunnelWebSocketCloseMessageTooLarge = 1009
+)
+
 var (
 	ErrTunnelHTTPAuthRequired       = errors.New("tunnel http auth token is required")
 	ErrTunnelHTTPAuthForbidden      = errors.New("tunnel http auth token is invalid")
@@ -575,6 +580,8 @@ func ForwardTunnelHTTPWebSocket(req TunnelHTTPForwardRequest, peer TunnelHTTPWeb
 	defer peer.Close()
 
 	var bytesIn int64 = prepared.BytesIn
+	maxRequestBytes := tunnelHTTPMaxRequestBytes(prepared.RouteConfig)
+	maxResponseBytes := tunnelHTTPMaxResponseBytes(prepared.Policy, prepared.RouteConfig)
 	clientDone := make(chan error, 1)
 	go func() {
 		for {
@@ -597,7 +604,32 @@ func ForwardTunnelHTTPWebSocket(req TunnelHTTPForwardRequest, peer TunnelHTTPWeb
 				return
 			}
 			if len(frame.Data) > 0 {
-				atomic.AddInt64(&bytesIn, int64(len(frame.Data)))
+				totalBytesIn := atomic.AddInt64(&bytesIn, int64(len(frame.Data)))
+				if maxRequestBytes > 0 && totalBytesIn > maxRequestBytes {
+					err := fmt.Errorf("%w: websocket request exceeded %d", ErrTunnelHTTPRequestTooLarge, maxRequestBytes)
+					_ = stream.SendInput(context.Background(), dto.BridgeToolStreamInput{
+						FrameType:    TunnelWebSocketFrameClose,
+						Done:         true,
+						CloseCode:    tunnelWebSocketCloseMessageTooLarge,
+						CloseReason:  "request too large",
+						ErrorCode:    "HTTP_TUNNEL_REQUEST_TOO_LARGE",
+						ErrorMessage: err.Error(),
+					})
+					clientDone <- err
+					return
+				}
+				if err := checkTunnelRequestBytesRateLimit(prepared.App, prepared.Connection, int64(len(frame.Data))); err != nil {
+					_ = stream.SendInput(context.Background(), dto.BridgeToolStreamInput{
+						FrameType:    TunnelWebSocketFrameClose,
+						Done:         true,
+						CloseCode:    tunnelWebSocketClosePolicyViolation,
+						CloseReason:  "rate limited",
+						ErrorCode:    "HTTP_TUNNEL_RATE_LIMITED",
+						ErrorMessage: err.Error(),
+					})
+					clientDone <- err
+					return
+				}
 			}
 			input := dto.BridgeToolStreamInput{
 				FrameType: frame.FrameType,
@@ -667,6 +699,44 @@ func ForwardTunnelHTTPWebSocket(req TunnelHTTPForwardRequest, peer TunnelHTTPWeb
 					})
 					return TunnelHTTPForwardResponse{}, err
 				}
+				if maxResponseBytes > 0 && bytesOut+int64(len(body)) > maxResponseBytes {
+					err := fmt.Errorf("%w: websocket response exceeded %d", ErrTunnelHTTPResponseTooLarge, maxResponseBytes)
+					stream.Cancel()
+					durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
+					updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
+					_ = peer.WriteFrame(TunnelHTTPWebSocketFrame{
+						FrameType:   TunnelWebSocketFrameClose,
+						CloseCode:   tunnelWebSocketCloseMessageTooLarge,
+						CloseReason: "response too large",
+					})
+					_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, atomic.LoadInt64(&bytesIn), bytesOut, durationMS, map[string]any{
+						"bridge_session_id":  stream.Session.SessionId,
+						"target_client":      stream.Session.ClientId,
+						"reason":             "response_too_large",
+						"error":              err.Error(),
+						"max_response_bytes": maxResponseBytes,
+						"websocket":          true,
+					})
+					return TunnelHTTPForwardResponse{}, err
+				}
+				if err := checkTunnelResponseRateLimit(prepared.App, prepared.Connection, int64(len(body))); err != nil {
+					stream.Cancel()
+					durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
+					updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
+					metadata := tunnelHTTPRateLimitMetadata(err)
+					metadata["phase"] = "response"
+					metadata["bridge_session_id"] = stream.Session.SessionId
+					metadata["target_client"] = stream.Session.ClientId
+					metadata["status_code"] = response.StatusCode
+					metadata["websocket"] = true
+					_ = peer.WriteFrame(TunnelHTTPWebSocketFrame{
+						FrameType:   TunnelWebSocketFrameClose,
+						CloseCode:   tunnelWebSocketClosePolicyViolation,
+						CloseReason: "rate limited",
+					})
+					_ = createTunnelHTTPAuditLogWithAction(model.TunnelAuditActionRateLimit, prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, atomic.LoadInt64(&bytesIn), bytesOut, durationMS, metadata)
+					return TunnelHTTPForwardResponse{}, err
+				}
 				bytesOut += int64(len(body))
 				if err := peer.WriteFrame(TunnelHTTPWebSocketFrame{
 					FrameType: tunnelWebSocketFrameType(chunk.FrameType),
@@ -709,6 +779,42 @@ func ForwardTunnelHTTPWebSocket(req TunnelHTTPForwardRequest, peer TunnelHTTPWeb
 			}
 		case err := <-clientDone:
 			if err != nil {
+				if errors.Is(err, ErrTunnelHTTPRequestTooLarge) {
+					stream.Cancel()
+					durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
+					updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
+					_ = peer.WriteFrame(TunnelHTTPWebSocketFrame{
+						FrameType:   TunnelWebSocketFrameClose,
+						CloseCode:   tunnelWebSocketCloseMessageTooLarge,
+						CloseReason: "request too large",
+					})
+					_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, atomic.LoadInt64(&bytesIn), bytesOut, durationMS, map[string]any{
+						"bridge_session_id": stream.Session.SessionId,
+						"target_client":     stream.Session.ClientId,
+						"reason":            "request_too_large",
+						"error":             err.Error(),
+						"max_request_bytes": maxRequestBytes,
+						"websocket":         true,
+					})
+					return TunnelHTTPForwardResponse{}, err
+				}
+				if errors.Is(err, ErrTunnelRateLimited) {
+					stream.Cancel()
+					durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
+					updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
+					metadata := tunnelHTTPRateLimitMetadata(err)
+					metadata["phase"] = "request"
+					metadata["bridge_session_id"] = stream.Session.SessionId
+					metadata["target_client"] = stream.Session.ClientId
+					metadata["websocket"] = true
+					_ = peer.WriteFrame(TunnelHTTPWebSocketFrame{
+						FrameType:   TunnelWebSocketFrameClose,
+						CloseCode:   tunnelWebSocketClosePolicyViolation,
+						CloseReason: "rate limited",
+					})
+					_ = createTunnelHTTPAuditLogWithAction(model.TunnelAuditActionRateLimit, prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, atomic.LoadInt64(&bytesIn), bytesOut, durationMS, metadata)
+					return TunnelHTTPForwardResponse{}, err
+				}
 				remoteDone = true
 			}
 		case <-ctx.Done():
