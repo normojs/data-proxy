@@ -238,11 +238,32 @@ jobs:
             -e "s|\${AGENT_PACKAGE_VERSION}|${AGENT_PACKAGE_VERSION}|g" \
             packaging/data-proxy-agent/nfpm.yaml > dist/nfpm.yaml
 
+      - name: Install nFPM
+        shell: bash
+        env:
+          NFPM_VERSION: v2.47.0
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          case "${MATRIX_ARCH}" in
+            amd64) NFPM_ARCH="x86_64" ;;
+            arm64) NFPM_ARCH="arm64" ;;
+            *)
+              echo "unsupported nFPM architecture: ${MATRIX_ARCH}" >&2
+              exit 1
+              ;;
+          esac
+          VERSION="${NFPM_VERSION#v}"
+          curl -fsSL \
+            "https://github.com/goreleaser/nfpm/releases/download/${NFPM_VERSION}/nfpm_${VERSION}_Linux_${NFPM_ARCH}.tar.gz" \
+            -o /tmp/nfpm.tar.gz
+          tar -xzf /tmp/nfpm.tar.gz -C /tmp nfpm
+          sudo install -m 0755 /tmp/nfpm /usr/local/bin/nfpm
+          nfpm --version
+
       - name: Build package
-        uses: goreleaser/nfpm-action@v2
-        with:
-          version: latest
-          args: pkg --config dist/nfpm.yaml --packager ${{ matrix.packager }} --target dist/data-proxy-agent-${{ github.ref_name }}-linux-${{ matrix.arch }}.${{ matrix.packager }}
+        shell: bash
+        run: nfpm pkg --config dist/nfpm.yaml --packager ${{ matrix.packager }} --target dist/data-proxy-agent-${{ github.ref_name }}-linux-${{ matrix.arch }}.${{ matrix.packager }}
 
       - name: Checksum package
         shell: bash
