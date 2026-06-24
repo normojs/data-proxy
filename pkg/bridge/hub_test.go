@@ -266,3 +266,73 @@ func TestHubForwardToolCallCompletesResult(t *testing.T) {
 		}
 	}
 }
+
+func TestHubForwardToolStreamChunksAndInputs(t *testing.T) {
+	hub := NewHub()
+	outbound := make(chan OutboundMessage, 2)
+	hub.Register(Session{
+		SessionId:    "session-stream",
+		ClientId:     "client-stream",
+		UserId:       1,
+		Capabilities: []string{"http_tunnel"},
+		Send:         outbound,
+	})
+
+	stream, err := hub.ForwardToolStream(context.Background(), "session-stream", ToolCallRequest{
+		Id:       "request-stream",
+		ToolName: "http_tunnel.request",
+		Arguments: map[string]any{
+			"target": "http://127.0.0.1:8080/events",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ForwardToolStream failed: %v", err)
+	}
+	msg := <-outbound
+	if msg.Type != MessageTypeToolCall || msg.Id != "request-stream" {
+		t.Fatalf("unexpected outbound stream call: %#v", msg)
+	}
+
+	if !hub.PushToolStreamChunk("request-stream", dto.BridgeToolStreamChunk{BodyBase64: "b2s="}) {
+		t.Fatal("expected stream chunk to be accepted")
+	}
+	select {
+	case chunk := <-stream.Chunks:
+		if chunk.BodyBase64 != "b2s=" {
+			t.Fatalf("chunk mismatch: %#v", chunk)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stream chunk")
+	}
+
+	if err := stream.SendInput(context.Background(), dto.BridgeToolStreamInput{
+		FrameType:  "text",
+		BodyBase64: "aGk=",
+	}); err != nil {
+		t.Fatalf("SendInput failed: %v", err)
+	}
+	inputMsg := <-outbound
+	if inputMsg.Type != MessageTypeToolStreamInput || inputMsg.Id != "request-stream" {
+		t.Fatalf("unexpected stream input message: %#v", inputMsg)
+	}
+	input, ok := inputMsg.Data.(dto.BridgeToolStreamInput)
+	if !ok || input.FrameType != "text" || input.BodyBase64 != "aGk=" {
+		t.Fatalf("input payload mismatch: %#v", inputMsg.Data)
+	}
+
+	if !hub.CompleteToolCall("request-stream", dto.BridgeToolCallResult{
+		Content: []dto.MCPContentBlock{{Type: "text", Text: "done"}},
+	}) {
+		t.Fatal("expected completion to find pending stream")
+	}
+	if _, ok := <-stream.Chunks; ok {
+		t.Fatal("stream chunks should close after completion")
+	}
+	response, err := stream.Wait()
+	if err != nil {
+		t.Fatalf("Wait failed: %v", err)
+	}
+	if len(response.Result.Content) != 1 || response.Result.Content[0].Text != "done" {
+		t.Fatalf("response mismatch: %#v", response)
+	}
+}

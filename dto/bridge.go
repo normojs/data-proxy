@@ -31,6 +31,30 @@ type BridgeToolCallResult struct {
 	ResultSize int               `json:"result_size,omitempty"`
 }
 
+type BridgeToolStreamChunk struct {
+	StatusCode   int            `json:"status_code,omitempty"`
+	Headers      map[string]any `json:"headers,omitempty"`
+	BodyBase64   string         `json:"body_base64,omitempty"`
+	FrameType    string         `json:"frame_type,omitempty"`
+	Done         bool           `json:"done,omitempty"`
+	Truncated    bool           `json:"truncated,omitempty"`
+	Bytes        int            `json:"bytes,omitempty"`
+	CloseCode    int            `json:"close_code,omitempty"`
+	CloseReason  string         `json:"close_reason,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	ErrorCode    string         `json:"error_code,omitempty"`
+	ErrorMessage string         `json:"error_message,omitempty"`
+}
+
+type BridgeToolStreamInput struct {
+	BodyBase64  string         `json:"body_base64,omitempty"`
+	FrameType   string         `json:"frame_type,omitempty"`
+	Done        bool           `json:"done,omitempty"`
+	CloseCode   int            `json:"close_code,omitempty"`
+	CloseReason string         `json:"close_reason,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
 type BridgeToolCallError struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message,omitempty"`

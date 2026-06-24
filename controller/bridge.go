@@ -121,6 +121,15 @@ func BridgeWebSocket(c *gin.Context) {
 			if !bridge.DefaultHub.FailToolCall(msg.Id, clientErr.Code, clientErr.Message) {
 				outbound <- bridge.OutboundMessage{Type: "error", Id: msg.Id, Data: gin.H{"message": "unknown bridge request"}}
 			}
+		case bridge.MessageTypeToolStreamChunk:
+			chunk, err := decodeBridgeToolStreamChunk(msg.Data)
+			if err != nil {
+				outbound <- bridge.OutboundMessage{Type: "error", Id: msg.Id, Data: gin.H{"message": err.Error()}}
+				continue
+			}
+			if !bridge.DefaultHub.PushToolStreamChunk(msg.Id, chunk) {
+				outbound <- bridge.OutboundMessage{Type: "error", Id: msg.Id, Data: gin.H{"message": "unknown bridge stream request"}}
+			}
 		default:
 			outbound <- bridge.OutboundMessage{Type: "error", Id: msg.Id, Data: gin.H{"message": "unsupported message type"}}
 		}
@@ -170,6 +179,15 @@ func decodeBridgeToolResult(data any) (dto.BridgeToolCallResult, error) {
 
 func decodeBridgeToolError(data any) (dto.BridgeToolCallError, error) {
 	var result dto.BridgeToolCallError
+	bytes, err := common.Marshal(data)
+	if err != nil {
+		return result, err
+	}
+	return result, common.Unmarshal(bytes, &result)
+}
+
+func decodeBridgeToolStreamChunk(data any) (dto.BridgeToolStreamChunk, error) {
+	var result dto.BridgeToolStreamChunk
 	bytes, err := common.Marshal(data)
 	if err != nil {
 		return result, err

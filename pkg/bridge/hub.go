@@ -10,7 +10,11 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 )
 
-const MessageTypeToolCall = "tool_call"
+const (
+	MessageTypeToolCall        = "tool_call"
+	MessageTypeToolStreamChunk = "tool_stream_chunk"
+	MessageTypeToolStreamInput = "tool_stream_input"
+)
 
 var (
 	ErrClientNotFound     = errors.New("bridge client is not online")
@@ -81,6 +85,51 @@ type ToolCallResponse struct {
 	Err     error
 }
 
+type ToolCallStream struct {
+	Session   SessionSnapshot
+	Chunks    <-chan dto.BridgeToolStreamChunk
+	response  <-chan ToolCallResponse
+	hub       *Hub
+	requestId string
+}
+
+func (s ToolCallStream) Wait() (ToolCallResponse, error) {
+	response := <-s.response
+	if response.Err != nil {
+		return response, response.Err
+	}
+	return response, nil
+}
+
+func (s ToolCallStream) WaitContext(ctx context.Context) (ToolCallResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case response := <-s.response:
+		if response.Err != nil {
+			return response, response.Err
+		}
+		return response, nil
+	case <-ctx.Done():
+		s.Cancel()
+		return ToolCallResponse{}, ctx.Err()
+	}
+}
+
+func (s ToolCallStream) SendInput(ctx context.Context, input dto.BridgeToolStreamInput) error {
+	if s.hub == nil {
+		return ErrClientNotFound
+	}
+	return s.hub.SendToolStreamInput(ctx, s.requestId, input)
+}
+
+func (s ToolCallStream) Cancel() {
+	if s.hub != nil && s.requestId != "" {
+		s.hub.removePending(s.requestId)
+	}
+}
+
 type ClientError struct {
 	Code    string
 	Message string
@@ -102,6 +151,7 @@ func (e *ClientError) Error() string {
 type pendingCall struct {
 	session  SessionSnapshot
 	response chan ToolCallResponse
+	stream   chan dto.BridgeToolStreamChunk
 }
 
 type CloseSessionOptions struct {
@@ -334,6 +384,117 @@ func (h *Hub) ForwardToolCall(ctx context.Context, sessionId string, req ToolCal
 	}
 }
 
+func (h *Hub) ForwardToolStream(ctx context.Context, sessionId string, req ToolCallRequest) (ToolCallStream, error) {
+	if h == nil || sessionId == "" || req.Id == "" {
+		return ToolCallStream{}, ErrClientNotFound
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	h.mu.Lock()
+	session, ok := h.sessions[sessionId]
+	if !ok || session == nil {
+		h.mu.Unlock()
+		return ToolCallStream{}, ErrClientNotFound
+	}
+	if session.Send == nil {
+		h.mu.Unlock()
+		return ToolCallStream{}, ErrClientUnavailable
+	}
+	if _, exists := h.pending[req.Id]; exists {
+		h.mu.Unlock()
+		return ToolCallStream{}, errors.New("bridge request id already exists")
+	}
+	responseCh := make(chan ToolCallResponse, 1)
+	streamCh := make(chan dto.BridgeToolStreamChunk, 256)
+	snapshot := snapshotSession(*session)
+	h.pending[req.Id] = pendingCall{
+		session:  snapshot,
+		response: responseCh,
+		stream:   streamCh,
+	}
+	send := session.Send
+	h.mu.Unlock()
+
+	message := OutboundMessage{
+		Type: MessageTypeToolCall,
+		Id:   req.Id,
+		Data: dto.BridgeToolCallRequest{
+			RequestId: req.Id,
+			ToolName:  req.ToolName,
+			Arguments: req.Arguments,
+		},
+	}
+	select {
+	case send <- message:
+		return ToolCallStream{
+			Session:   snapshot,
+			Chunks:    streamCh,
+			response:  responseCh,
+			hub:       h,
+			requestId: req.Id,
+		}, nil
+	case <-ctx.Done():
+		h.removePending(req.Id)
+		return ToolCallStream{}, ctx.Err()
+	}
+}
+
+func (h *Hub) PushToolStreamChunk(requestId string, chunk dto.BridgeToolStreamChunk) bool {
+	if h == nil || requestId == "" {
+		return false
+	}
+	h.mu.RLock()
+	pending, ok := h.pending[requestId]
+	stream := pending.stream
+	if !ok || stream == nil {
+		h.mu.RUnlock()
+		return false
+	}
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	select {
+	case stream <- chunk:
+		h.mu.RUnlock()
+		return true
+	case <-timer.C:
+		h.mu.RUnlock()
+		return false
+	}
+}
+
+func (h *Hub) SendToolStreamInput(ctx context.Context, requestId string, input dto.BridgeToolStreamInput) error {
+	if h == nil || requestId == "" {
+		return ErrRequestNotFound
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	h.mu.RLock()
+	pending, ok := h.pending[requestId]
+	if !ok {
+		h.mu.RUnlock()
+		return ErrRequestNotFound
+	}
+	session, ok := h.sessions[pending.session.SessionId]
+	if !ok || session == nil {
+		h.mu.RUnlock()
+		return ErrClientNotFound
+	}
+	send := session.Send
+	h.mu.RUnlock()
+	if send == nil {
+		return ErrClientUnavailable
+	}
+	select {
+	case send <- OutboundMessage{Type: MessageTypeToolStreamInput, Id: requestId, Data: input}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (h *Hub) CompleteToolCall(requestId string, result dto.BridgeToolCallResult) bool {
 	if h == nil || requestId == "" {
 		return false
@@ -346,6 +507,9 @@ func (h *Hub) CompleteToolCall(requestId string, result dto.BridgeToolCallResult
 	h.mu.Unlock()
 	if !ok {
 		return false
+	}
+	if pending.stream != nil {
+		close(pending.stream)
 	}
 	pending.response <- ToolCallResponse{
 		Session: pending.session,
@@ -366,6 +530,9 @@ func (h *Hub) FailToolCall(requestId string, code string, message string) bool {
 	h.mu.Unlock()
 	if !ok {
 		return false
+	}
+	if pending.stream != nil {
+		close(pending.stream)
 	}
 	pending.response <- ToolCallResponse{
 		Session: pending.session,
@@ -404,8 +571,20 @@ func (h *Hub) Count() int {
 
 func (h *Hub) removePending(requestId string) {
 	h.mu.Lock()
-	delete(h.pending, requestId)
+	pending, ok := h.pending[requestId]
+	if ok {
+		delete(h.pending, requestId)
+	}
 	h.mu.Unlock()
+	if ok && pending.stream != nil {
+		close(pending.stream)
+	}
+	if ok {
+		pending.response <- ToolCallResponse{
+			Session: pending.session,
+			Err:     ErrRequestNotFound,
+		}
+	}
 }
 
 func (h *Hub) failPendingForSessionLocked(sessionId string, err error) {
@@ -414,6 +593,9 @@ func (h *Hub) failPendingForSessionLocked(sessionId string, err error) {
 			continue
 		}
 		delete(h.pending, requestId)
+		if pending.stream != nil {
+			close(pending.stream)
+		}
 		pending.response <- ToolCallResponse{
 			Session: pending.session,
 			Err:     err,

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'crypto';
 import fs from 'fs/promises';
 import http from 'http';
 import os from 'os';
@@ -779,6 +780,16 @@ function normalizeTunnelRequestHeaders(value) {
   return result;
 }
 
+function normalizeTunnelWebSocketHeaders(value) {
+  const result = normalizeTunnelRequestHeaders(value);
+  for (const key of Object.keys(result)) {
+    if (key.toLowerCase().startsWith('sec-websocket-')) {
+      delete result[key];
+    }
+  }
+  return result;
+}
+
 function hopByHopHeader(name) {
   switch (String(name || '').trim().toLowerCase()) {
     case 'connection':
@@ -796,6 +807,59 @@ function hopByHopHeader(name) {
     default:
       return false;
   }
+}
+
+function httpTunnelWebSocketTarget(config, target) {
+  const allowed = assertAllowedHTTPTarget(config, target);
+  const parsed = new URL(allowed);
+  if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
+  if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+  return parsed.toString();
+}
+
+function createStreamInputQueue() {
+  const items = [];
+  const waiters = [];
+  let closed = false;
+  return {
+    push(item) {
+      if (closed) return false;
+      const waiter = waiters.shift();
+      if (waiter) {
+        waiter({ value: item, done: false });
+        return true;
+      }
+      items.push(item);
+      return true;
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      while (waiters.length > 0) {
+        waiters.shift()({ value: undefined, done: true });
+      }
+    },
+    next() {
+      if (items.length > 0) {
+        return Promise.resolve({ value: items.shift(), done: false });
+      }
+      if (closed) {
+        return Promise.resolve({ value: undefined, done: true });
+      }
+      return new Promise((resolve) => waiters.push(resolve));
+    },
+  };
+}
+
+async function webSocketMessageToBuffer(data) {
+  if (typeof data === 'string') return Buffer.from(data, 'utf8');
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  if (data && typeof data.arrayBuffer === 'function') {
+    return Buffer.from(await data.arrayBuffer());
+  }
+  return Buffer.from(String(data ?? ''), 'utf8');
 }
 
 async function handleHTTPTunnelRequest(config, args) {
@@ -850,6 +914,252 @@ async function handleHTTPTunnelRequest(config, args) {
     throw createToolError('HTTP_TUNNEL_REQUEST_FAILED', err?.message || 'HTTP tunnel request failed');
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function handleHTTPTunnelStreamRequest(config, args, emitChunk) {
+  const startedAt = Date.now();
+  const target = assertAllowedHTTPTarget(config, String(args?.target || ''));
+  const method = String(args?.method || 'GET').trim().toUpperCase();
+  const headers = normalizeTunnelRequestHeaders(args?.headers);
+  const maxResponseBytes = positiveInt(args?.max_response_bytes, config.maxResultBytes, 50 * 1024 * 1024);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.httpTunnelTimeoutMs);
+  let body;
+  if (!['GET', 'HEAD'].includes(method) && args?.body_base64) {
+    body = Buffer.from(String(args.body_base64), 'base64');
+  }
+  let bytes = 0;
+  let truncated = false;
+  try {
+    const response = await fetch(target, {
+      method,
+      headers,
+      body,
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+    const responseHeaders = httpHeaderObject(response.headers);
+    await emitChunk({
+      status_code: response.status,
+      headers: responseHeaders,
+      metadata: {
+        target,
+        method,
+      },
+    });
+    if (response.body) {
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        let chunk = Buffer.from(value);
+        if (bytes + chunk.length > maxResponseBytes) {
+          const remaining = Math.max(maxResponseBytes - bytes, 0);
+          chunk = chunk.subarray(0, remaining);
+          truncated = true;
+        }
+        if (chunk.length > 0) {
+          bytes += chunk.length;
+          await emitChunk({
+            body_base64: chunk.toString('base64'),
+            bytes: chunk.length,
+          });
+        }
+        if (truncated) {
+          try {
+            await reader.cancel();
+          } catch {
+            // Ignore cancellation races; the stream is already being truncated.
+          }
+          break;
+        }
+      }
+    }
+    await emitChunk({
+      done: true,
+      truncated,
+      bytes,
+    });
+    const payload = {
+      status_code: response.status,
+      headers: responseHeaders,
+      body_base64: '',
+      streamed: true,
+      truncated,
+      bytes,
+      target,
+    };
+    return {
+      content: [{ type: 'text', text: JSON.stringify(payload) }],
+      summary: `${method} ${new URL(target).pathname} -> ${response.status} streamed ${bytes} bytes`,
+      duration_ms: Date.now() - startedAt,
+      result_size: bytes,
+      metadata: {
+        http_response: payload,
+        target,
+        method,
+        streamed: true,
+      },
+    };
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw createToolError('HTTP_TUNNEL_TIMEOUT', `HTTP tunnel request timed out after ${config.httpTunnelTimeoutMs}ms`);
+    }
+    throw createToolError('HTTP_TUNNEL_REQUEST_FAILED', err?.message || 'HTTP tunnel request failed');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function handleHTTPTunnelWebSocketRequest(config, args, emitChunk, inputQueue) {
+  const startedAt = Date.now();
+  const target = httpTunnelWebSocketTarget(config, String(args?.target || ''));
+  const headers = normalizeTunnelWebSocketHeaders(args?.headers);
+  const queue = inputQueue || createStreamInputQueue();
+  let ws;
+  let bytesIn = 0;
+  let bytesOut = 0;
+  const pendingEmits = new Set();
+
+  function trackEmit(promise) {
+    pendingEmits.add(promise);
+    promise.catch(() => {}).finally(() => pendingEmits.delete(promise));
+    return promise;
+  }
+
+  try {
+    ws = await new Promise((resolve, reject) => {
+      let socket;
+      const timeout = setTimeout(() => {
+        try {
+          socket?.close(1013, 'connect timeout');
+        } catch {
+          // Ignore close races during connection timeout.
+        }
+        reject(createToolError('HTTP_TUNNEL_WEBSOCKET_TIMEOUT', `WebSocket tunnel connect timed out after ${config.httpTunnelTimeoutMs}ms`));
+      }, config.httpTunnelTimeoutMs);
+      try {
+        socket = new WebSocket(target, { headers });
+      } catch (err) {
+        clearTimeout(timeout);
+        reject(createToolError('HTTP_TUNNEL_WEBSOCKET_FAILED', err?.message || 'WebSocket tunnel failed'));
+        return;
+      }
+      socket.addEventListener('open', () => {
+        clearTimeout(timeout);
+        resolve(socket);
+      }, { once: true });
+      socket.addEventListener('error', (event) => {
+        clearTimeout(timeout);
+        reject(createToolError('HTTP_TUNNEL_WEBSOCKET_FAILED', event?.message || event?.error?.message || 'WebSocket tunnel failed'));
+      }, { once: true });
+    });
+
+    await emitChunk({
+      status_code: 101,
+      headers: {},
+      metadata: {
+        target,
+        websocket: true,
+      },
+    });
+
+    const closed = new Promise((resolve) => {
+      ws.addEventListener('message', (event) => {
+        const emit = (async () => {
+          const frameType = typeof event.data === 'string' ? 'text' : 'binary';
+          const buffer = await webSocketMessageToBuffer(event.data);
+          bytesOut += buffer.length;
+          await emitChunk({
+            frame_type: frameType,
+            body_base64: buffer.toString('base64'),
+            bytes: buffer.length,
+          });
+        })();
+        trackEmit(emit);
+      });
+      ws.addEventListener('close', (event) => {
+        resolve({
+          closeCode: event.code || 1000,
+          closeReason: event.reason || '',
+        });
+      }, { once: true });
+      ws.addEventListener('error', (event) => {
+        resolve({
+          closeCode: 1011,
+          closeReason: event?.message || event?.error?.message || 'websocket error',
+        });
+      }, { once: true });
+    });
+
+    const inputLoop = (async () => {
+      for (;;) {
+        const { value, done } = await queue.next();
+        if (done) return;
+        const input = value || {};
+        const frameType = String(input.frame_type || 'binary').toLowerCase();
+        if (input.done || frameType === 'close') {
+          const closeCode = Number.isInteger(Number(input.close_code)) && Number(input.close_code) > 0 ? Number(input.close_code) : 1000;
+          const closeReason = String(input.close_reason || '').slice(0, 120);
+          ws.close(closeCode, closeReason);
+          return;
+        }
+        const body = input.body_base64 ? Buffer.from(String(input.body_base64), 'base64') : Buffer.alloc(0);
+        bytesIn += body.length;
+        if (frameType === 'text') {
+          ws.send(body.toString('utf8'));
+        } else if (frameType === 'binary') {
+          ws.send(body);
+        }
+      }
+    })();
+
+    const closeInfo = await closed;
+    queue.close();
+    await Promise.allSettled([inputLoop, ...pendingEmits]);
+    await emitChunk({
+      frame_type: 'close',
+      done: true,
+      close_code: closeInfo.closeCode,
+      close_reason: closeInfo.closeReason,
+      bytes: bytesOut,
+    });
+    const payload = {
+      status_code: 101,
+      headers: {},
+      body_base64: '',
+      streamed: true,
+      websocket: true,
+      bytes_in: bytesIn,
+      bytes_out: bytesOut,
+      target,
+    };
+    return {
+      content: [{ type: 'text', text: JSON.stringify(payload) }],
+      summary: `WEBSOCKET ${new URL(target).pathname} streamed ${bytesOut} bytes`,
+      duration_ms: Date.now() - startedAt,
+      result_size: bytesOut,
+      metadata: {
+        http_response: payload,
+        target,
+        method: 'WEBSOCKET',
+        streamed: true,
+        websocket: true,
+      },
+    };
+  } catch (err) {
+    if (err?.code) throw err;
+    throw createToolError('HTTP_TUNNEL_WEBSOCKET_FAILED', err?.message || 'WebSocket tunnel failed');
+  } finally {
+    queue.close();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.close(1000, 'bridge finished');
+      } catch {
+        // Ignore close races on shutdown.
+      }
+    }
   }
 }
 
@@ -1151,6 +1461,16 @@ async function onMessage(ws, config, limit, raw, connectionState) {
     }
     return;
   }
+  if (message.type === 'tool_stream_input') {
+    const requestId = message?.id || message?.data?.request_id || '';
+    const queue = connectionState.streamInputs?.get(requestId);
+    if (!queue) {
+      log('WARN', 'ignored stream input for unknown request', { request_id: requestId });
+      return;
+    }
+    queue.push(message.data || {});
+    return;
+  }
   if (message.type !== 'tool_call') {
     log('WARN', `ignored bridge message type: ${message.type}`);
     return;
@@ -1163,7 +1483,25 @@ async function onMessage(ws, config, limit, raw, connectionState) {
     log('INFO', 'tool_call received', { request_id: requestId, tool_name: toolName });
     await audit(config, { type: 'tool_call', request_id: requestId, tool_name: toolName, arguments: message?.data?.arguments || {} });
     try {
-      const result = await handleToolCall(config, message);
+      let result;
+      if (toolName === 'http_tunnel.request' && message?.data?.arguments?.websocket === true) {
+        const inputQueue = createStreamInputQueue();
+        connectionState.streamInputs.set(requestId, inputQueue);
+        try {
+          result = await handleHTTPTunnelWebSocketRequest(config, message.data.arguments || {}, async (chunk) => {
+            send(ws, { type: 'tool_stream_chunk', id: requestId, data: chunk });
+          }, inputQueue);
+        } finally {
+          inputQueue.close();
+          connectionState.streamInputs.delete(requestId);
+        }
+      } else if (toolName === 'http_tunnel.request' && message?.data?.arguments?.stream_response === true) {
+        result = await handleHTTPTunnelStreamRequest(config, message.data.arguments || {}, async (chunk) => {
+          send(ws, { type: 'tool_stream_chunk', id: requestId, data: chunk });
+        });
+      } else {
+        result = await handleToolCall(config, message);
+      }
       send(ws, { type: 'tool_result', id: requestId, data: result });
       await audit(config, {
         type: 'tool_result',
@@ -1211,6 +1549,7 @@ async function runOnce(config, connectionAttempt) {
     const connectionState = {
       connectionAttempt,
       serverCloseReason: '',
+      streamInputs: new Map(),
     };
     let heartbeat = null;
     let opened = false;
@@ -1244,6 +1583,10 @@ async function runOnce(config, connectionAttempt) {
     });
     ws.addEventListener('close', (event) => {
       if (heartbeat) clearInterval(heartbeat);
+      for (const queue of connectionState.streamInputs.values()) {
+        queue.close();
+      }
+      connectionState.streamInputs.clear();
       const result = {
         opened,
         clean: event.wasClean,
@@ -1283,6 +1626,70 @@ async function expectToolError(label, expectedCode, fn) {
   throw new Error(`${label} unexpectedly succeeded; expected ${expectedCode}`);
 }
 
+async function waitForSelfTest(predicate, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return predicate();
+}
+
+function encodeSelfTestWebSocketFrame(opcode, payload) {
+  const body = Buffer.isBuffer(payload) ? payload : Buffer.from(payload || '');
+  if (body.length < 126) {
+    return Buffer.concat([Buffer.from([0x80 | opcode, body.length]), body]);
+  }
+  if (body.length <= 0xffff) {
+    const header = Buffer.alloc(4);
+    header[0] = 0x80 | opcode;
+    header[1] = 126;
+    header.writeUInt16BE(body.length, 2);
+    return Buffer.concat([header, body]);
+  }
+  const header = Buffer.alloc(10);
+  header[0] = 0x80 | opcode;
+  header[1] = 127;
+  header.writeBigUInt64BE(BigInt(body.length), 2);
+  return Buffer.concat([header, body]);
+}
+
+function decodeSelfTestWebSocketFrames(buffer) {
+  const frames = [];
+  let offset = 0;
+  while (buffer.length - offset >= 2) {
+    const first = buffer[offset];
+    const second = buffer[offset + 1];
+    const opcode = first & 0x0f;
+    const masked = (second & 0x80) !== 0;
+    let length = second & 0x7f;
+    let headerLength = 2;
+    if (length === 126) {
+      if (buffer.length - offset < 4) break;
+      length = buffer.readUInt16BE(offset + 2);
+      headerLength = 4;
+    } else if (length === 127) {
+      if (buffer.length - offset < 10) break;
+      length = Number(buffer.readBigUInt64BE(offset + 2));
+      headerLength = 10;
+    }
+    const maskLength = masked ? 4 : 0;
+    const frameLength = headerLength + maskLength + length;
+    if (buffer.length - offset < frameLength) break;
+    const mask = masked ? buffer.subarray(offset + headerLength, offset + headerLength + 4) : null;
+    const payloadStart = offset + headerLength + maskLength;
+    const payload = Buffer.from(buffer.subarray(payloadStart, payloadStart + length));
+    if (mask) {
+      for (let index = 0; index < payload.length; index += 1) {
+        payload[index] ^= mask[index % 4];
+      }
+    }
+    frames.push({ opcode, payload });
+    offset += frameLength;
+  }
+  return { frames, remaining: buffer.subarray(offset) };
+}
+
 async function startSelfTestHTTPServer() {
   const requests = [];
   const server = http.createServer((req, res) => {
@@ -1304,6 +1711,17 @@ async function startSelfTestHTTPServer() {
         res.end('abcdefghijklmnopqrstuvwxyz');
         return;
       }
+      if (req.url.startsWith('/events')) {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'X-Self-Test': 'events',
+        });
+        res.write('data: one\n\n');
+        setTimeout(() => {
+          res.end('data: two\n\n');
+        }, 5);
+        return;
+      }
       res.writeHead(202, {
         'Content-Type': 'application/json',
         'X-Self-Test': 'echo',
@@ -1314,6 +1732,46 @@ async function startSelfTestHTTPServer() {
         header: req.headers['x-self-test'] || '',
         body,
       }));
+    });
+  });
+  server.on('upgrade', (req, socket) => {
+    if (!req.url.startsWith('/ws')) {
+      socket.destroy();
+      return;
+    }
+    const key = req.headers['sec-websocket-key'];
+    if (!key) {
+      socket.destroy();
+      return;
+    }
+    const accept = createHash('sha1')
+      .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest('base64');
+    socket.write([
+      'HTTP/1.1 101 Switching Protocols',
+      'Upgrade: websocket',
+      'Connection: Upgrade',
+      `Sec-WebSocket-Accept: ${accept}`,
+      '',
+      '',
+    ].join('\r\n'));
+    let pending = Buffer.alloc(0);
+    socket.on('data', (chunk) => {
+      pending = Buffer.concat([pending, chunk]);
+      const decoded = decodeSelfTestWebSocketFrames(pending);
+      pending = decoded.remaining;
+      for (const frame of decoded.frames) {
+        if (frame.opcode === 0x8) {
+          socket.write(encodeSelfTestWebSocketFrame(0x8, frame.payload));
+          socket.end();
+          return;
+        }
+        if (frame.opcode === 0x1) {
+          socket.write(encodeSelfTestWebSocketFrame(0x1, Buffer.from(`echo:${frame.payload.toString('utf8')}`)));
+        } else if (frame.opcode === 0x2) {
+          socket.write(encodeSelfTestWebSocketFrame(0x2, frame.payload));
+        }
+      }
     });
   });
   await new Promise((resolve, reject) => {
@@ -1425,6 +1883,65 @@ async function runSelfTest(config) {
     ) {
       throw new Error(`self-test http_tunnel truncation mismatch: ${JSON.stringify(truncatedPayload)}`);
     }
+
+    const streamChunks = [];
+    const streamResult = await handleHTTPTunnelStreamRequest(readOnlyConfig, {
+      target: `${httpServer.baseURL}/events`,
+      method: 'GET',
+      max_response_bytes: 4096,
+    }, async (chunk) => {
+      streamChunks.push(chunk);
+    });
+    const streamStatus = streamChunks.find((chunk) => chunk.status_code);
+    const streamBody = streamChunks
+      .filter((chunk) => chunk.body_base64)
+      .map((chunk) => Buffer.from(chunk.body_base64, 'base64').toString('utf8'))
+      .join('');
+    const streamDone = streamChunks.find((chunk) => chunk.done);
+    if (
+      streamStatus?.status_code !== 200
+      || streamStatus?.headers?.['x-self-test']?.[0] !== 'events'
+      || streamBody !== 'data: one\n\ndata: two\n\n'
+      || streamDone?.done !== true
+      || streamResult.metadata?.websocket === true
+    ) {
+      throw new Error(`self-test http_tunnel stream mismatch: ${JSON.stringify({ streamChunks, metadata: streamResult.metadata })}`);
+    }
+
+    const wsQueue = createStreamInputQueue();
+    const wsChunks = [];
+    const wsResultPromise = handleHTTPTunnelWebSocketRequest(readOnlyConfig, {
+      target: `${httpServer.baseURL}/ws`,
+      method: 'GET',
+    }, async (chunk) => {
+      wsChunks.push(chunk);
+    }, wsQueue);
+    wsQueue.push({
+      frame_type: 'text',
+      body_base64: Buffer.from('hello', 'utf8').toString('base64'),
+    });
+    await waitForSelfTest(() => wsChunks.some((chunk) => chunk.frame_type === 'text' && chunk.body_base64), 1000);
+    wsQueue.push({
+      frame_type: 'close',
+      done: true,
+      close_code: 1000,
+      close_reason: 'self-test done',
+    });
+    const wsResult = await wsResultPromise;
+    const wsStatus = wsChunks.find((chunk) => chunk.status_code);
+    const wsText = wsChunks
+      .filter((chunk) => chunk.frame_type === 'text' && chunk.body_base64)
+      .map((chunk) => Buffer.from(chunk.body_base64, 'base64').toString('utf8'))
+      .join('');
+    const wsClose = wsChunks.find((chunk) => chunk.frame_type === 'close');
+    if (
+      wsStatus?.status_code !== 101
+      || wsText !== 'echo:hello'
+      || wsClose?.done !== true
+      || wsResult.metadata?.websocket !== true
+    ) {
+      throw new Error(`self-test http_tunnel websocket mismatch: ${JSON.stringify({ wsChunks, metadata: wsResult.metadata })}`);
+    }
   } finally {
     await httpServer.close();
   }
@@ -1439,6 +1956,8 @@ async function runSelfTest(config) {
       'remote_write_path_guard',
       'http_tunnel_loopback',
       'http_tunnel_response_limit',
+      'http_tunnel_stream',
+      'http_tunnel_websocket',
     ],
   }));
 }
