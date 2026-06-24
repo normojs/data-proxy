@@ -80,6 +80,22 @@ func checkTunnelRequestRateLimit(app model.TunnelApp, connection model.TunnelCon
 	return defaultTunnelRateLimiter.check(tunnelRateLimitKey(connection), config, true, bytesIn, 0)
 }
 
+func checkTunnelRequestCountRateLimit(app model.TunnelApp, connection model.TunnelConnection) error {
+	config := effectiveTunnelRateLimitConfig(app, connection)
+	if !config.enabled() {
+		return nil
+	}
+	return defaultTunnelRateLimiter.check(tunnelRateLimitKey(connection), config, true, 0, 0)
+}
+
+func checkTunnelRequestBytesRateLimit(app model.TunnelApp, connection model.TunnelConnection, bytesIn int64) error {
+	config := effectiveTunnelRateLimitConfig(app, connection)
+	if !config.enabled() {
+		return nil
+	}
+	return defaultTunnelRateLimiter.check(tunnelRateLimitKey(connection), config, false, bytesIn, 0)
+}
+
 func checkTunnelResponseRateLimit(app model.TunnelApp, connection model.TunnelConnection, bytesOut int64) error {
 	config := effectiveTunnelRateLimitConfig(app, connection)
 	if !config.enabled() {

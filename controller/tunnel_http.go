@@ -2,7 +2,6 @@ package controller
 
 import (
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -21,15 +20,6 @@ func TunnelHTTP(c *gin.Context) {
 		tunnelHTTPWebSocket(c)
 		return
 	}
-	body, err := readTunnelHTTPBody(c)
-	if err != nil {
-		if errors.Is(err, common.ErrRequestBodyTooLarge) {
-			c.String(http.StatusRequestEntityTooLarge, "tunnel http request body too large")
-			return
-		}
-		c.String(http.StatusBadRequest, err.Error())
-		return
-	}
 	req := service.TunnelHTTPForwardRequest{
 		Context:       c.Request.Context(),
 		ConnectionKey: c.Param("connection_key"),
@@ -39,7 +29,8 @@ func TunnelHTTP(c *gin.Context) {
 		ProxyPath:     c.Param("proxy_path"),
 		RawQuery:      c.Request.URL.RawQuery,
 		Headers:       c.Request.Header,
-		Body:          body,
+		BodyReader:    c.Request.Body,
+		ContentLength: c.Request.ContentLength,
 		RequestId:     c.GetString(common.RequestIdKey),
 		ClientIP:      c.ClientIP(),
 	}
@@ -97,21 +88,6 @@ func tunnelHTTPWebSocket(c *gin.Context) {
 			time.Now().Add(time.Second),
 		)
 	}
-}
-
-func readTunnelHTTPBody(c *gin.Context) ([]byte, error) {
-	if c == nil || c.Request == nil || c.Request.Body == nil {
-		return nil, nil
-	}
-	limit := int64(service.DefaultTunnelHTTPMaxRequestBytes) + 1
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, limit))
-	if err != nil {
-		return nil, err
-	}
-	if len(body) > service.DefaultTunnelHTTPMaxRequestBytes {
-		return nil, common.ErrRequestBodyTooLarge
-	}
-	return body, nil
 }
 
 type tunnelHTTPWebSocketPeer struct {

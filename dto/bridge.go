@@ -47,12 +47,14 @@ type BridgeToolStreamChunk struct {
 }
 
 type BridgeToolStreamInput struct {
-	BodyBase64  string         `json:"body_base64,omitempty"`
-	FrameType   string         `json:"frame_type,omitempty"`
-	Done        bool           `json:"done,omitempty"`
-	CloseCode   int            `json:"close_code,omitempty"`
-	CloseReason string         `json:"close_reason,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	BodyBase64   string         `json:"body_base64,omitempty"`
+	FrameType    string         `json:"frame_type,omitempty"`
+	Done         bool           `json:"done,omitempty"`
+	CloseCode    int            `json:"close_code,omitempty"`
+	CloseReason  string         `json:"close_reason,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	ErrorCode    string         `json:"error_code,omitempty"`
+	ErrorMessage string         `json:"error_message,omitempty"`
 }
 
 type BridgeToolCallError struct {

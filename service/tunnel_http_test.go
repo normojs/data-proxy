@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -287,6 +288,111 @@ func TestForwardTunnelHTTPStreamForwardsBridgeChunks(t *testing.T) {
 	require.Contains(t, audit.MetadataJson, `"streamed":true`)
 }
 
+func TestForwardTunnelHTTPStreamForwardsRequestBodyChunks(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{
+		RouteJson: `{"max_request_bytes":64,"max_response_bytes":64}`,
+	}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	connection := seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 8)
+	hub.Register(bridge.Session{
+		SessionId:    "http-stream-request-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+	requestBody := "hello streamed request"
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		call := msg.Data.(dto.BridgeToolCallRequest)
+		require.Equal(t, BridgeToolHTTPTunnelRequest, call.ToolName)
+		require.Equal(t, true, call.Arguments["stream_response"])
+		require.Equal(t, true, call.Arguments["stream_request"])
+		_, hasBufferedBody := call.Arguments["body_base64"]
+		require.False(t, hasBufferedBody)
+
+		var streamed bytes.Buffer
+		for {
+			inputMsg := <-outbound
+			require.Equal(t, bridge.MessageTypeToolStreamInput, inputMsg.Type)
+			input := inputMsg.Data.(dto.BridgeToolStreamInput)
+			require.Equal(t, "http_request_body", input.FrameType)
+			if input.BodyBase64 != "" {
+				chunk, err := base64.StdEncoding.DecodeString(input.BodyBase64)
+				require.NoError(t, err)
+				streamed.Write(chunk)
+			}
+			if input.Done {
+				break
+			}
+		}
+		require.Equal(t, requestBody, streamed.String())
+
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			StatusCode: http.StatusCreated,
+			Headers: map[string]any{
+				"Content-Type": []any{"text/plain"},
+			},
+			BodyBase64: base64.StdEncoding.EncodeToString([]byte("uploaded")),
+			Bytes:      len("uploaded"),
+		}))
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{Done: true, Bytes: len("uploaded")}))
+		require.True(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{
+			ResultSize: len("uploaded"),
+			Metadata: map[string]any{
+				"http_response": map[string]any{
+					"status_code":    http.StatusCreated,
+					"body_base64":    "",
+					"streamed":       true,
+					"stream_request": true,
+				},
+			},
+		}))
+	}()
+
+	var body bytes.Buffer
+	resp, err := ForwardTunnelHTTPStream(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodPost,
+		ProxyPath:     "/upload",
+		BodyReader:    strings.NewReader(requestBody),
+		ContentLength: int64(len(requestBody)),
+		RequestId:     "http-stream-upload",
+		ClientIP:      "127.0.0.1",
+	}, func(event TunnelHTTPStreamEvent) error {
+		_, _ = body.Write(event.Body)
+		return nil
+	})
+	require.NoError(t, err)
+	<-done
+	require.NotZero(t, resp.StatusCode)
+	require.Equal(t, "uploaded", body.String())
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-stream-upload").Error)
+	require.Equal(t, model.TunnelAuditActionProxyRequest, audit.Action)
+	require.Equal(t, "allow", audit.Decision)
+	require.Equal(t, connection.Id, audit.ConnectionId)
+	require.Equal(t, int64(len(requestBody)), audit.BytesIn)
+	require.Equal(t, int64(len("uploaded")), audit.BytesOut)
+	require.Contains(t, audit.MetadataJson, `"stream_request":true`)
+}
+
 func TestForwardTunnelHTTPStreamFallsBackToToolResult(t *testing.T) {
 	_ = setupTunnelTestDB(t)
 	app := seedTunnelHTTPApp(t, model.TunnelApp{}, bridgepolicy.Policy{
@@ -503,6 +609,37 @@ func TestForwardTunnelHTTPRequestRejectsRouteMaxRequestBytes(t *testing.T) {
 	require.NoError(t, db.First(&event, "source = ? AND request_id = ?", model.BillingEventSourceTunnelHTTP, "http-too-large-1").Error)
 	require.Equal(t, model.BillingEventTypeAudit, event.EventType)
 	require.Equal(t, "request_traffic", event.PriceUnit)
+}
+
+func TestForwardTunnelHTTPStreamRejectsKnownLargeRequestBody(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{
+		RouteJson: `{"max_request_bytes":4}`,
+	}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	seedTunnelHTTPConnection(t, app, "")
+
+	_, err := ForwardTunnelHTTPStream(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodPost,
+		ProxyPath:     "/upload",
+		BodyReader:    strings.NewReader("12345"),
+		ContentLength: 5,
+		RequestId:     "http-stream-too-large-known",
+	}, func(event TunnelHTTPStreamEvent) error {
+		return nil
+	})
+	require.ErrorIs(t, err, ErrTunnelHTTPRequestTooLarge)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-stream-too-large-known").Error)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, "request_too_large", audit.Reason)
+	require.Equal(t, int64(5), audit.BytesIn)
+	require.Contains(t, audit.MetadataJson, `"max_request_bytes":4`)
 }
 
 func TestForwardTunnelHTTPRequestRejectsConnectionRateLimit(t *testing.T) {

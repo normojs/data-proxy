@@ -917,7 +917,43 @@ async function handleHTTPTunnelRequest(config, args) {
   }
 }
 
-async function handleHTTPTunnelStreamRequest(config, args, emitChunk) {
+function httpTunnelMethodMayHaveBody(method) {
+  return !['GET', 'HEAD'].includes(String(method || '').trim().toUpperCase());
+}
+
+function createHTTPTunnelRequestBodyStream(inputQueue) {
+  const queue = inputQueue || createStreamInputQueue();
+  return new ReadableStream({
+    async pull(controller) {
+      const { value, done } = await queue.next();
+      if (done) {
+        controller.close();
+        return;
+      }
+      const input = value || {};
+      if (input.error_code || input.error_message) {
+        controller.error(createToolError(normalizeErrorCode(input.error_code), input.error_message || 'HTTP tunnel request body failed'));
+        return;
+      }
+      if (input.done) {
+        controller.close();
+        return;
+      }
+      if (String(input.frame_type || 'http_request_body') !== 'http_request_body') {
+        return;
+      }
+      const body = input.body_base64 ? Buffer.from(String(input.body_base64), 'base64') : Buffer.alloc(0);
+      if (body.length > 0) {
+        controller.enqueue(body);
+      }
+    },
+    cancel() {
+      queue.close();
+    },
+  });
+}
+
+async function handleHTTPTunnelStreamRequest(config, args, emitChunk, inputQueue) {
   const startedAt = Date.now();
   const target = assertAllowedHTTPTarget(config, String(args?.target || ''));
   const method = String(args?.method || 'GET').trim().toUpperCase();
@@ -926,19 +962,26 @@ async function handleHTTPTunnelStreamRequest(config, args, emitChunk) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.httpTunnelTimeoutMs);
   let body;
-  if (!['GET', 'HEAD'].includes(method) && args?.body_base64) {
+  const streamRequest = args?.stream_request === true && httpTunnelMethodMayHaveBody(method);
+  if (streamRequest) {
+    body = createHTTPTunnelRequestBodyStream(inputQueue);
+  } else if (httpTunnelMethodMayHaveBody(method) && args?.body_base64) {
     body = Buffer.from(String(args.body_base64), 'base64');
   }
   let bytes = 0;
   let truncated = false;
   try {
-    const response = await fetch(target, {
+    const fetchOptions = {
       method,
       headers,
       body,
       redirect: 'manual',
       signal: controller.signal,
-    });
+    };
+    if (streamRequest) {
+      fetchOptions.duplex = 'half';
+    }
+    const response = await fetch(target, fetchOptions);
     const responseHeaders = httpHeaderObject(response.headers);
     await emitChunk({
       status_code: response.status,
@@ -986,6 +1029,7 @@ async function handleHTTPTunnelStreamRequest(config, args, emitChunk) {
       headers: responseHeaders,
       body_base64: '',
       streamed: true,
+      stream_request: streamRequest,
       truncated,
       bytes,
       target,
@@ -1000,6 +1044,7 @@ async function handleHTTPTunnelStreamRequest(config, args, emitChunk) {
         target,
         method,
         streamed: true,
+        stream_request: streamRequest,
       },
     };
   } catch (err) {
@@ -1496,9 +1541,21 @@ async function onMessage(ws, config, limit, raw, connectionState) {
           connectionState.streamInputs.delete(requestId);
         }
       } else if (toolName === 'http_tunnel.request' && message?.data?.arguments?.stream_response === true) {
-        result = await handleHTTPTunnelStreamRequest(config, message.data.arguments || {}, async (chunk) => {
-          send(ws, { type: 'tool_stream_chunk', id: requestId, data: chunk });
-        });
+        let inputQueue;
+        if (message?.data?.arguments?.stream_request === true) {
+          inputQueue = createStreamInputQueue();
+          connectionState.streamInputs.set(requestId, inputQueue);
+        }
+        try {
+          result = await handleHTTPTunnelStreamRequest(config, message.data.arguments || {}, async (chunk) => {
+            send(ws, { type: 'tool_stream_chunk', id: requestId, data: chunk });
+          }, inputQueue);
+        } finally {
+          if (inputQueue) {
+            inputQueue.close();
+            connectionState.streamInputs.delete(requestId);
+          }
+        }
       } else {
         result = await handleToolCall(config, message);
       }
@@ -1908,6 +1965,49 @@ async function runSelfTest(config) {
       throw new Error(`self-test http_tunnel stream mismatch: ${JSON.stringify({ streamChunks, metadata: streamResult.metadata })}`);
     }
 
+    const streamUploadQueue = createStreamInputQueue();
+    const streamUploadChunks = [];
+    const streamUploadResultPromise = handleHTTPTunnelStreamRequest(readOnlyConfig, {
+      target: `${httpServer.baseURL}/echo?stream=1`,
+      method: 'POST',
+      headers: {
+        'X-Self-Test': 'bridge-daemon-stream',
+      },
+      stream_request: true,
+      max_response_bytes: 4096,
+    }, async (chunk) => {
+      streamUploadChunks.push(chunk);
+    }, streamUploadQueue);
+    streamUploadQueue.push({
+      frame_type: 'http_request_body',
+      body_base64: Buffer.from('hello ', 'utf8').toString('base64'),
+    });
+    streamUploadQueue.push({
+      frame_type: 'http_request_body',
+      body_base64: Buffer.from('stream upload', 'utf8').toString('base64'),
+    });
+    streamUploadQueue.push({
+      frame_type: 'http_request_body',
+      done: true,
+    });
+    const streamUploadResult = await streamUploadResultPromise;
+    const streamUploadStatus = streamUploadChunks.find((chunk) => chunk.status_code);
+    const streamUploadBody = streamUploadChunks
+      .filter((chunk) => chunk.body_base64)
+      .map((chunk) => Buffer.from(chunk.body_base64, 'base64').toString('utf8'))
+      .join('');
+    const streamUploadEcho = JSON.parse(streamUploadBody || '{}');
+    if (
+      streamUploadStatus?.status_code !== 202
+      || streamUploadEcho.method !== 'POST'
+      || streamUploadEcho.url !== '/echo?stream=1'
+      || streamUploadEcho.header !== 'bridge-daemon-stream'
+      || streamUploadEcho.body !== 'hello stream upload'
+      || streamUploadResult.metadata?.stream_request !== true
+    ) {
+      throw new Error(`self-test http_tunnel stream upload mismatch: ${JSON.stringify({ streamUploadChunks, metadata: streamUploadResult.metadata })}`);
+    }
+
     const wsQueue = createStreamInputQueue();
     const wsChunks = [];
     const wsResultPromise = handleHTTPTunnelWebSocketRequest(readOnlyConfig, {
@@ -1957,6 +2057,7 @@ async function runSelfTest(config) {
       'http_tunnel_loopback',
       'http_tunnel_response_limit',
       'http_tunnel_stream',
+      'http_tunnel_stream_upload',
       'http_tunnel_websocket',
     ],
   }));

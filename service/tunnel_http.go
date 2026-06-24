@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -29,6 +30,7 @@ const (
 
 	DefaultTunnelHTTPMaxRequestBytes  = 8 * 1024 * 1024
 	DefaultTunnelHTTPMaxResponseBytes = 2 * 1024 * 1024
+	tunnelHTTPStreamRequestChunkBytes = 64 * 1024
 )
 
 const (
@@ -58,6 +60,8 @@ type TunnelHTTPForwardRequest struct {
 	RawQuery      string
 	Headers       http.Header
 	Body          []byte
+	BodyReader    io.Reader
+	ContentLength int64
 	RequestId     string
 	ClientIP      string
 }
@@ -189,6 +193,11 @@ func ForwardTunnelHTTPStream(req TunnelHTTPForwardRequest, writer TunnelHTTPStre
 	}
 	arguments := copyTunnelHTTPBridgeArguments(prepared.Arguments)
 	arguments["stream_response"] = true
+	streamRequestBody := tunnelHTTPShouldStreamRequestBody(prepared.Request)
+	if streamRequestBody {
+		arguments["stream_request"] = true
+		delete(arguments, "body_base64")
+	}
 	audit := createTunnelHTTPBridgeAudit(prepared.Request.RequestId, prepared.Session, arguments, prepared.App.UserId, prepared.Connection.AgentTokenId)
 	stream, err := bridge.DefaultHub.ForwardToolStream(tunnelHTTPContext(prepared.Request.Context), prepared.Session.SessionId, bridge.ToolCallRequest{
 		Id:        prepared.Request.RequestId,
@@ -207,6 +216,18 @@ func ForwardTunnelHTTPStream(req TunnelHTTPForwardRequest, writer TunnelHTTPStre
 	}
 
 	ctx := tunnelHTTPContext(prepared.Request.Context)
+	var bytesIn int64 = prepared.BytesIn
+	currentBytesIn := func() int64 {
+		return atomic.LoadInt64(&bytesIn)
+	}
+	var uploadDone <-chan error
+	if streamRequestBody {
+		done := make(chan error, 1)
+		uploadDone = done
+		go func() {
+			done <- forwardTunnelHTTPRequestBodyStream(ctx, stream, prepared, &bytesIn)
+		}()
+	}
 	var response TunnelHTTPForwardResponse
 	var bytesOut int64
 	wroteHeader := false
@@ -225,18 +246,32 @@ readChunks:
 			stream.Cancel()
 			durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
 			updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, bytesOut, durationMS, map[string]any{
+			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
 				"bridge_session_id": stream.Session.SessionId,
 				"target_client":     stream.Session.ClientId,
 				"error":             err.Error(),
 			})
 			return TunnelHTTPForwardResponse{}, err
+		case uploadErr := <-uploadDone:
+			uploadDone = nil
+			if uploadErr != nil {
+				stream.Cancel()
+				durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
+				updateTunnelHTTPBridgeAuditError(audit, uploadErr, durationMS)
+				_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
+					"bridge_session_id": stream.Session.SessionId,
+					"target_client":     stream.Session.ClientId,
+					"error":             uploadErr.Error(),
+					"stream_request":    true,
+				})
+				return TunnelHTTPForwardResponse{}, uploadErr
+			}
 		}
 		if chunk.ErrorCode != "" || chunk.ErrorMessage != "" {
 			err := &bridge.ClientError{Code: chunk.ErrorCode, Message: chunk.ErrorMessage}
 			durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
 			updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, bytesOut, durationMS, map[string]any{
+			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
 				"bridge_session_id": prepared.Session.SessionId,
 				"target_client":     prepared.Session.ClientId,
 				"error":             err.Error(),
@@ -266,7 +301,7 @@ readChunks:
 			}); err != nil {
 				durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
 				updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-				_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, bytesOut, durationMS, map[string]any{
+				_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
 					"bridge_session_id": stream.Session.SessionId,
 					"target_client":     stream.Session.ClientId,
 					"error":             err.Error(),
@@ -280,7 +315,7 @@ readChunks:
 			if err != nil {
 				durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
 				updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-				_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, bytesOut, durationMS, map[string]any{
+				_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
 					"bridge_session_id": stream.Session.SessionId,
 					"target_client":     stream.Session.ClientId,
 					"error":             err.Error(),
@@ -292,7 +327,7 @@ readChunks:
 					err := fmt.Errorf("%w: streamed response exceeded %d", ErrTunnelHTTPResponseTooLarge, maxResponseBytes)
 					durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
 					updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-					_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, bytesOut, durationMS, map[string]any{
+					_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
 						"bridge_session_id":  stream.Session.SessionId,
 						"target_client":      stream.Session.ClientId,
 						"reason":             "response_too_large",
@@ -309,14 +344,14 @@ readChunks:
 					metadata["bridge_session_id"] = stream.Session.SessionId
 					metadata["target_client"] = stream.Session.ClientId
 					metadata["status_code"] = response.StatusCode
-					_ = createTunnelHTTPAuditLogWithAction(model.TunnelAuditActionRateLimit, prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, bytesOut, durationMS, metadata)
+					_ = createTunnelHTTPAuditLogWithAction(model.TunnelAuditActionRateLimit, prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, metadata)
 					return TunnelHTTPForwardResponse{}, err
 				}
 				bytesOut += int64(len(body))
 				if err := writer(TunnelHTTPStreamEvent{Body: body, Flush: true}); err != nil {
 					durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
 					updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-					_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, bytesOut, durationMS, map[string]any{
+					_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
 						"bridge_session_id": stream.Session.SessionId,
 						"target_client":     stream.Session.ClientId,
 						"error":             err.Error(),
@@ -334,18 +369,48 @@ readChunks:
 	durationMS := int(time.Since(prepared.StartedAt).Milliseconds())
 	if err != nil {
 		updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-		_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, bytesOut, durationMS, map[string]any{
+		_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
 			"bridge_session_id": stream.Session.SessionId,
 			"target_client":     stream.Session.ClientId,
 			"error":             err.Error(),
 		})
 		return TunnelHTTPForwardResponse{}, err
 	}
+	if uploadDone != nil {
+		select {
+		case uploadErr := <-uploadDone:
+			uploadDone = nil
+			if uploadErr != nil {
+				durationMS = int(time.Since(prepared.StartedAt).Milliseconds())
+				updateTunnelHTTPBridgeAuditError(audit, uploadErr, durationMS)
+				_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
+					"bridge_session_id": stream.Session.SessionId,
+					"target_client":     stream.Session.ClientId,
+					"error":             uploadErr.Error(),
+					"stream_request":    true,
+				})
+				return TunnelHTTPForwardResponse{}, uploadErr
+			}
+		case <-ctx.Done():
+			err := ctx.Err()
+			stream.Cancel()
+			durationMS = int(time.Since(prepared.StartedAt).Milliseconds())
+			updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
+			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), bytesOut, durationMS, map[string]any{
+				"bridge_session_id": stream.Session.SessionId,
+				"target_client":     stream.Session.ClientId,
+				"error":             err.Error(),
+				"stream_request":    true,
+			})
+			return TunnelHTTPForwardResponse{}, err
+		}
+		durationMS = int(time.Since(prepared.StartedAt).Milliseconds())
+	}
 	if !wroteHeader {
 		result, err := tunnelHTTPResponseFromBridge(bridgeResponse.Result)
 		if err != nil {
 			updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, 0, durationMS, map[string]any{
+			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), 0, durationMS, map[string]any{
 				"bridge_session_id": stream.Session.SessionId,
 				"target_client":     stream.Session.ClientId,
 				"error":             err.Error(),
@@ -355,7 +420,7 @@ readChunks:
 		if maxResponseBytes > 0 && int64(len(result.Body)) > maxResponseBytes {
 			err := fmt.Errorf("%w: %d > %d", ErrTunnelHTTPResponseTooLarge, len(result.Body), maxResponseBytes)
 			updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, int64(len(result.Body)), durationMS, map[string]any{
+			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), int64(len(result.Body)), durationMS, map[string]any{
 				"bridge_session_id":  stream.Session.SessionId,
 				"target_client":      stream.Session.ClientId,
 				"reason":             "response_too_large",
@@ -371,7 +436,7 @@ readChunks:
 			metadata["bridge_session_id"] = stream.Session.SessionId
 			metadata["target_client"] = stream.Session.ClientId
 			metadata["status_code"] = result.StatusCode
-			_ = createTunnelHTTPAuditLogWithAction(model.TunnelAuditActionRateLimit, prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, int64(len(result.Body)), durationMS, metadata)
+			_ = createTunnelHTTPAuditLogWithAction(model.TunnelAuditActionRateLimit, prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), int64(len(result.Body)), durationMS, metadata)
 			return TunnelHTTPForwardResponse{}, err
 		}
 		if err := writer(TunnelHTTPStreamEvent{
@@ -384,7 +449,7 @@ readChunks:
 			Flush:           true,
 		}); err != nil {
 			updateTunnelHTTPBridgeAuditError(audit, err, durationMS)
-			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, prepared.BytesIn, int64(len(result.Body)), durationMS, map[string]any{
+			_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionDeny, currentBytesIn(), int64(len(result.Body)), durationMS, map[string]any{
 				"bridge_session_id": stream.Session.SessionId,
 				"target_client":     stream.Session.ClientId,
 				"error":             err.Error(),
@@ -397,24 +462,83 @@ readChunks:
 		result.TargetClient = stream.Session.ClientId
 		result.TargetURL = prepared.TargetURL
 		updateTunnelHTTPBridgeAuditSuccess(audit, durationMS, len(result.Body))
-		_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionAllow, prepared.BytesIn, int64(len(result.Body)), durationMS, map[string]any{
+		_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionAllow, currentBytesIn(), int64(len(result.Body)), durationMS, map[string]any{
 			"bridge_session_id": result.BridgeSessionId,
 			"target_client":     result.TargetClient,
 			"status_code":       result.StatusCode,
 			"stream_fallback":   true,
+			"stream_request":    streamRequestBody,
 		})
 		return result, nil
 	}
 
 	response.DurationMS = durationMS
 	updateTunnelHTTPBridgeAuditSuccess(audit, durationMS, int(bytesOut))
-	_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionAllow, prepared.BytesIn, bytesOut, durationMS, map[string]any{
+	_ = createTunnelHTTPAuditLog(prepared.App, prepared.Connection, prepared.Request, prepared.TargetURL, mcpgateway.DecisionAllow, currentBytesIn(), bytesOut, durationMS, map[string]any{
 		"bridge_session_id": response.BridgeSessionId,
 		"target_client":     response.TargetClient,
 		"status_code":       response.StatusCode,
 		"streamed":          true,
+		"stream_request":    streamRequestBody,
 	})
 	return response, nil
+}
+
+func forwardTunnelHTTPRequestBodyStream(ctx context.Context, stream bridge.ToolCallStream, prepared tunnelHTTPForwardPrepared, bytesIn *int64) error {
+	reader := prepared.Request.BodyReader
+	if reader == nil {
+		return nil
+	}
+	maxRequestBytes := tunnelHTTPMaxRequestBytes(prepared.RouteConfig)
+	buffer := make([]byte, tunnelHTTPStreamRequestChunkBytes)
+	for {
+		n, readErr := reader.Read(buffer)
+		if n > 0 {
+			chunk := buffer[:n]
+			totalBytes := atomic.AddInt64(bytesIn, int64(n))
+			if maxRequestBytes > 0 && totalBytes > maxRequestBytes {
+				err := fmt.Errorf("%w: streamed request exceeded %d", ErrTunnelHTTPRequestTooLarge, maxRequestBytes)
+				_ = sendTunnelHTTPRequestBodyError(ctx, stream, "HTTP_TUNNEL_REQUEST_TOO_LARGE", err)
+				return err
+			}
+			if err := checkTunnelRequestBytesRateLimit(prepared.App, prepared.Connection, int64(n)); err != nil {
+				_ = sendTunnelHTTPRequestBodyError(ctx, stream, "HTTP_TUNNEL_RATE_LIMITED", err)
+				return err
+			}
+			if err := stream.SendInput(ctx, dto.BridgeToolStreamInput{
+				FrameType:  "http_request_body",
+				BodyBase64: base64.StdEncoding.EncodeToString(chunk),
+				Metadata: map[string]any{
+					"bytes": n,
+				},
+			}); err != nil {
+				return err
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return stream.SendInput(ctx, dto.BridgeToolStreamInput{
+				FrameType: "http_request_body",
+				Done:      true,
+			})
+		}
+		if readErr != nil {
+			_ = sendTunnelHTTPRequestBodyError(ctx, stream, "HTTP_TUNNEL_REQUEST_READ_FAILED", readErr)
+			return readErr
+		}
+	}
+}
+
+func sendTunnelHTTPRequestBodyError(ctx context.Context, stream bridge.ToolCallStream, code string, err error) error {
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+	return stream.SendInput(ctx, dto.BridgeToolStreamInput{
+		FrameType:    "http_request_body",
+		Done:         true,
+		ErrorCode:    code,
+		ErrorMessage: message,
+	})
 }
 
 func ForwardTunnelHTTPWebSocket(req TunnelHTTPForwardRequest, peer TunnelHTTPWebSocketPeer) (TunnelHTTPForwardResponse, error) {
@@ -639,7 +763,11 @@ func prepareTunnelHTTPForward(req TunnelHTTPForwardRequest) (tunnelHTTPForwardPr
 	if err != nil {
 		return tunnelHTTPForwardPrepared{}, err
 	}
+	streamRequestBody := tunnelHTTPShouldStreamRequestBody(req)
 	bytesIn := int64(len(req.Body))
+	if streamRequestBody {
+		bytesIn = 0
+	}
 	startedAt := time.Now()
 	routeConfig, err := tunnelHTTPRouteConfigFromApp(*app)
 	if err != nil {
@@ -652,18 +780,35 @@ func prepareTunnelHTTPForward(req TunnelHTTPForwardRequest) (tunnelHTTPForwardPr
 		_ = createTunnelHTTPAuditLog(*app, *connection, req, targetURL, mcpgateway.DecisionDeny, bytesIn, 0, durationMS, tunnelHTTPRouteAuditMetadata(routeConfig, tunnelHTTPRouteErrorReason(err), err, req))
 		return tunnelHTTPForwardPrepared{}, err
 	}
-	if routeConfig.MaxRequestBytes > 0 && bytesIn > routeConfig.MaxRequestBytes {
+	maxRequestBytes := tunnelHTTPMaxRequestBytes(routeConfig)
+	if streamRequestBody && req.ContentLength > maxRequestBytes {
 		durationMS := int(time.Since(startedAt).Milliseconds())
-		err := fmt.Errorf("%w: %d > %d", ErrTunnelHTTPRequestTooLarge, bytesIn, routeConfig.MaxRequestBytes)
+		err := fmt.Errorf("%w: %d > %d", ErrTunnelHTTPRequestTooLarge, req.ContentLength, maxRequestBytes)
+		_ = createTunnelHTTPAuditLog(*app, *connection, req, targetURL, mcpgateway.DecisionDeny, req.ContentLength, 0, durationMS, tunnelHTTPRouteAuditMetadata(routeConfig, "request_too_large", err, req))
+		return tunnelHTTPForwardPrepared{}, err
+	}
+	if maxRequestBytes > 0 && bytesIn > maxRequestBytes {
+		durationMS := int(time.Since(startedAt).Milliseconds())
+		err := fmt.Errorf("%w: %d > %d", ErrTunnelHTTPRequestTooLarge, bytesIn, maxRequestBytes)
 		_ = createTunnelHTTPAuditLog(*app, *connection, req, targetURL, mcpgateway.DecisionDeny, bytesIn, 0, durationMS, tunnelHTTPRouteAuditMetadata(routeConfig, "request_too_large", err, req))
 		return tunnelHTTPForwardPrepared{}, err
 	}
-	if err := checkTunnelRequestRateLimit(*app, *connection, bytesIn); err != nil {
-		durationMS := int(time.Since(startedAt).Milliseconds())
-		metadata := tunnelHTTPRateLimitMetadata(err)
-		metadata["phase"] = "request"
-		_ = createTunnelHTTPAuditLogWithAction(model.TunnelAuditActionRateLimit, *app, *connection, req, targetURL, mcpgateway.DecisionDeny, bytesIn, 0, durationMS, metadata)
-		return tunnelHTTPForwardPrepared{}, err
+	if streamRequestBody {
+		if err := checkTunnelRequestCountRateLimit(*app, *connection); err != nil {
+			durationMS := int(time.Since(startedAt).Milliseconds())
+			metadata := tunnelHTTPRateLimitMetadata(err)
+			metadata["phase"] = "request"
+			_ = createTunnelHTTPAuditLogWithAction(model.TunnelAuditActionRateLimit, *app, *connection, req, targetURL, mcpgateway.DecisionDeny, bytesIn, 0, durationMS, metadata)
+			return tunnelHTTPForwardPrepared{}, err
+		}
+	} else {
+		if err := checkTunnelRequestRateLimit(*app, *connection, bytesIn); err != nil {
+			durationMS := int(time.Since(startedAt).Milliseconds())
+			metadata := tunnelHTTPRateLimitMetadata(err)
+			metadata["phase"] = "request"
+			_ = createTunnelHTTPAuditLogWithAction(model.TunnelAuditActionRateLimit, *app, *connection, req, targetURL, mcpgateway.DecisionDeny, bytesIn, 0, durationMS, metadata)
+			return tunnelHTTPForwardPrepared{}, err
+		}
 	}
 	policy, err := model.GetBridgeClientPolicyByClientId(app.BridgeClientId)
 	if err != nil {
@@ -1048,6 +1193,29 @@ func tunnelHTTPMaxResponseBytes(policy bridgepolicy.Policy, route tunnelHTTPRout
 		maxResponseBytes = route.MaxResponseBytes
 	}
 	return maxResponseBytes
+}
+
+func tunnelHTTPMaxRequestBytes(route tunnelHTTPRouteConfig) int64 {
+	if route.MaxRequestBytes > 0 {
+		return route.MaxRequestBytes
+	}
+	return DefaultTunnelHTTPMaxRequestBytes
+}
+
+func tunnelHTTPShouldStreamRequestBody(req TunnelHTTPForwardRequest) bool {
+	if req.BodyReader == nil || len(req.Body) > 0 || !tunnelHTTPMethodMayHaveBody(req.Method) {
+		return false
+	}
+	return req.ContentLength != 0
+}
+
+func tunnelHTTPMethodMayHaveBody(method string) bool {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case http.MethodGet, http.MethodHead:
+		return false
+	default:
+		return true
+	}
 }
 
 func tunnelHTTPResponseFromBridge(result dto.BridgeToolCallResult) (TunnelHTTPForwardResponse, error) {
