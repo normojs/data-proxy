@@ -89,12 +89,17 @@ type LoggingConfig struct {
 }
 
 type RuntimeConfig struct {
-	PingIntervalMS  int  `json:"ping_interval_ms,omitempty" yaml:"ping_interval_ms,omitempty"`
-	Reconnect       bool `json:"reconnect" yaml:"reconnect"`
-	ReconnectBaseMS int  `json:"reconnect_base_ms,omitempty" yaml:"reconnect_base_ms,omitempty"`
-	ReconnectMaxMS  int  `json:"reconnect_max_ms,omitempty" yaml:"reconnect_max_ms,omitempty"`
-	MaxConcurrency  int  `json:"max_concurrency,omitempty" yaml:"max_concurrency,omitempty"`
-	HTTPTimeoutMS   int  `json:"http_timeout_ms,omitempty" yaml:"http_timeout_ms,omitempty"`
+	PingIntervalMS   int   `json:"ping_interval_ms,omitempty" yaml:"ping_interval_ms,omitempty"`
+	Reconnect        bool  `json:"reconnect" yaml:"reconnect"`
+	ReconnectBaseMS  int   `json:"reconnect_base_ms,omitempty" yaml:"reconnect_base_ms,omitempty"`
+	ReconnectMaxMS   int   `json:"reconnect_max_ms,omitempty" yaml:"reconnect_max_ms,omitempty"`
+	MaxConcurrency   int   `json:"max_concurrency,omitempty" yaml:"max_concurrency,omitempty"`
+	HTTPTimeoutMS    int   `json:"http_timeout_ms,omitempty" yaml:"http_timeout_ms,omitempty"`
+	MaxResults       int   `json:"max_results,omitempty" yaml:"max_results,omitempty"`
+	TreeDepth        int   `json:"tree_depth,omitempty" yaml:"tree_depth,omitempty"`
+	WalkDepth        int   `json:"walk_depth,omitempty" yaml:"walk_depth,omitempty"`
+	MaxResultBytes   int64 `json:"max_result_bytes,omitempty" yaml:"max_result_bytes,omitempty"`
+	MaxScanFileBytes int64 `json:"max_scan_file_bytes,omitempty" yaml:"max_scan_file_bytes,omitempty"`
 }
 
 type RuntimeOptions struct {
@@ -155,12 +160,17 @@ func DefaultConfig() Config {
 			Level: "info",
 		},
 		Runtime: RuntimeConfig{
-			PingIntervalMS:  DefaultPingIntervalMS,
-			Reconnect:       true,
-			ReconnectBaseMS: DefaultReconnectBaseMS,
-			ReconnectMaxMS:  DefaultReconnectMaxMS,
-			MaxConcurrency:  DefaultMaxConcurrency,
-			HTTPTimeoutMS:   DefaultHTTPTimeoutMS,
+			PingIntervalMS:   DefaultPingIntervalMS,
+			Reconnect:        true,
+			ReconnectBaseMS:  DefaultReconnectBaseMS,
+			ReconnectMaxMS:   DefaultReconnectMaxMS,
+			MaxConcurrency:   DefaultMaxConcurrency,
+			HTTPTimeoutMS:    DefaultHTTPTimeoutMS,
+			MaxResults:       DefaultRemoteMaxResults,
+			TreeDepth:        DefaultRemoteTreeDepth,
+			WalkDepth:        DefaultRemoteWalkDepth,
+			MaxResultBytes:   DefaultRemoteMaxResultBytes,
+			MaxScanFileBytes: DefaultRemoteMaxScanFileBytes,
 		},
 	}
 }
@@ -403,6 +413,13 @@ func EffectiveCapabilities(cfg Config) []string {
 	for _, capability := range cfg.Agent.Capabilities {
 		add(capability)
 	}
+	if strings.TrimSpace(cfg.Agent.Workspace) != "" {
+		add(BridgeToolRemoteRead)
+		add(BridgeToolRemoteTree)
+		add(BridgeToolRemoteGlob)
+		add(BridgeToolRemoteGrep)
+		add(BridgeToolRemoteEnvInfo)
+	}
 	if len(cfg.HTTPRoutes) > 0 {
 		add(BridgeCapabilityHTTPTunnel)
 	}
@@ -449,6 +466,21 @@ func fillConfigDefaults(cfg *Config) {
 	}
 	if cfg.Runtime.HTTPTimeoutMS <= 0 {
 		cfg.Runtime.HTTPTimeoutMS = DefaultHTTPTimeoutMS
+	}
+	if cfg.Runtime.MaxResults <= 0 {
+		cfg.Runtime.MaxResults = DefaultRemoteMaxResults
+	}
+	if cfg.Runtime.TreeDepth <= 0 {
+		cfg.Runtime.TreeDepth = DefaultRemoteTreeDepth
+	}
+	if cfg.Runtime.WalkDepth <= 0 {
+		cfg.Runtime.WalkDepth = DefaultRemoteWalkDepth
+	}
+	if cfg.Runtime.MaxResultBytes <= 0 {
+		cfg.Runtime.MaxResultBytes = DefaultRemoteMaxResultBytes
+	}
+	if cfg.Runtime.MaxScanFileBytes <= 0 {
+		cfg.Runtime.MaxScanFileBytes = DefaultRemoteMaxScanFileBytes
 	}
 }
 

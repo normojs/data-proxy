@@ -54,6 +54,8 @@ func (c BridgeClient) handleToolCall(ctx context.Context, toolName string, args 
 		return c.handleHTTPTunnelRequest(ctx, args)
 	case BridgeToolMCPProxyTest, BridgeToolMCPProxyListTools, BridgeToolMCPProxyCallTool, BridgeToolMCPProxyRPC:
 		return c.handleMCPProxy(ctx, toolName, args)
+	case BridgeToolRemoteRead, BridgeToolRemoteTree, BridgeToolRemoteGlob, BridgeToolRemoteGrep, BridgeToolRemoteEnvInfo:
+		return c.handleRemoteFileTool(ctx, toolName, args)
 	default:
 		return dto.BridgeToolCallResult{}, ToolError{
 			Code:    "TOOL_NOT_SUPPORTED",
