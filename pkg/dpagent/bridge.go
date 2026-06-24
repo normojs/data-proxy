@@ -16,6 +16,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	bridgeMessageTypeToolStreamChunk = "tool_stream_chunk"
+	bridgeMessageTypeToolStreamInput = "tool_stream_input"
+)
+
 type BridgeClient struct {
 	Config Config
 	Out    io.Writer
@@ -119,6 +124,7 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			}
 		}()
 	}
+	streamInputs := newBridgeStreamInputRegistry()
 
 	for {
 		var msg dto.BridgeWSMessage
@@ -141,13 +147,35 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			return result, nil
 		case "error":
 			logf(c.Err, "ERROR", "server returned bridge error", "data", fmt.Sprintf("%v", msg.Data))
+		case bridgeMessageTypeToolStreamInput:
+			input, err := bridgeToolStreamInput(msg.Data)
+			if err != nil {
+				logf(c.Err, "WARN", "ignored invalid stream input", "request_id", msg.Id, "error", err.Error())
+				continue
+			}
+			if !streamInputs.Push(msg.Id, input) {
+				logf(c.Err, "WARN", "ignored stream input for unknown request", "request_id", msg.Id)
+			}
 		case "tool_call":
+			requestID := bridgeRequestID(msg)
+			toolName := bridgeToolName(msg.Data)
+			args := bridgeToolArguments(msg.Data)
+			var inputQueue *bridgeStreamInputQueue
+			if toolName == BridgeToolHTTPTunnelRequest && httpTunnelRequiresStream(args) && (boolFromMap(args, "stream_request") || boolFromMap(args, "websocket")) {
+				inputQueue = streamInputs.Register(requestID)
+			}
 			go func(message dto.BridgeWSMessage) {
-				requestID := bridgeRequestID(message)
-				toolName := bridgeToolName(message.Data)
-				args := bridgeToolArguments(message.Data)
+				if inputQueue != nil {
+					defer streamInputs.Unregister(requestID)
+				}
 				logf(c.Err, "INFO", "tool call received", "request_id", requestID, "tool_name", toolName)
-				result, err := c.handleToolCall(ctx, toolName, args)
+				result, err := c.handleBridgeToolCall(ctx, toolName, args, inputQueue, func(chunk dto.BridgeToolStreamChunk) error {
+					return writeJSON(dto.BridgeWSMessage{
+						Type: bridgeMessageTypeToolStreamChunk,
+						Id:   requestID,
+						Data: chunk,
+					})
+				})
 				if err != nil {
 					toolErr := toolErrorFromError(err)
 					logf(c.Err, "ERROR", "tool call failed", "request_id", requestID, "tool_name", toolName, "code", toolErr.Code, "message", toolErr.Message)
@@ -168,6 +196,13 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			logf(c.Err, "WARN", "ignored bridge message", "type", msg.Type)
 		}
 	}
+}
+
+func (c BridgeClient) handleBridgeToolCall(ctx context.Context, toolName string, args map[string]any, inputQueue *bridgeStreamInputQueue, emit bridgeStreamChunkEmitter) (dto.BridgeToolCallResult, error) {
+	if toolName != BridgeToolHTTPTunnelRequest || !httpTunnelRequiresStream(args) {
+		return c.handleToolCall(ctx, toolName, args)
+	}
+	return c.handleHTTPTunnelStreamRequest(ctx, args, emit, inputQueue)
 }
 
 func bridgeRequestID(msg dto.BridgeWSMessage) string {
@@ -195,6 +230,11 @@ func bridgeToolArguments(data any) map[string]any {
 		return call.Arguments
 	}
 	return map[string]any{}
+}
+
+func bridgeToolStreamInput(data any) (dto.BridgeToolStreamInput, error) {
+	var input dto.BridgeToolStreamInput
+	return input, decodeBridgeData(data, &input)
 }
 
 func toolErrorFromError(err error) dto.BridgeToolCallError {
@@ -258,6 +298,85 @@ func agentVersion(cfg Config) string {
 
 func agentPlatform() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
+}
+
+type bridgeStreamInputRegistry struct {
+	mu     sync.Mutex
+	queues map[string]*bridgeStreamInputQueue
+}
+
+func newBridgeStreamInputRegistry() *bridgeStreamInputRegistry {
+	return &bridgeStreamInputRegistry{queues: map[string]*bridgeStreamInputQueue{}}
+}
+
+func (r *bridgeStreamInputRegistry) Register(requestID string) *bridgeStreamInputQueue {
+	queue := newBridgeStreamInputQueue()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.queues[requestID] = queue
+	return queue
+}
+
+func (r *bridgeStreamInputRegistry) Unregister(requestID string) {
+	r.mu.Lock()
+	queue := r.queues[requestID]
+	delete(r.queues, requestID)
+	r.mu.Unlock()
+	if queue != nil {
+		queue.Close()
+	}
+}
+
+func (r *bridgeStreamInputRegistry) Push(requestID string, input dto.BridgeToolStreamInput) bool {
+	r.mu.Lock()
+	queue := r.queues[requestID]
+	r.mu.Unlock()
+	if queue == nil {
+		return false
+	}
+	return queue.Push(input)
+}
+
+type bridgeStreamInputQueue struct {
+	ch   chan dto.BridgeToolStreamInput
+	done chan struct{}
+	once sync.Once
+}
+
+func newBridgeStreamInputQueue() *bridgeStreamInputQueue {
+	return &bridgeStreamInputQueue{
+		ch:   make(chan dto.BridgeToolStreamInput, 256),
+		done: make(chan struct{}),
+	}
+}
+
+func (q *bridgeStreamInputQueue) Push(input dto.BridgeToolStreamInput) bool {
+	select {
+	case <-q.done:
+		return false
+	case q.ch <- input:
+		return true
+	}
+}
+
+func (q *bridgeStreamInputQueue) Next(ctx context.Context) (dto.BridgeToolStreamInput, bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case input := <-q.ch:
+		return input, true
+	case <-q.done:
+		return dto.BridgeToolStreamInput{}, false
+	case <-ctx.Done():
+		return dto.BridgeToolStreamInput{}, false
+	}
+}
+
+func (q *bridgeStreamInputQueue) Close() {
+	q.once.Do(func() {
+		close(q.done)
+	})
 }
 
 func logf(w io.Writer, level string, message string, kv ...any) {

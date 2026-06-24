@@ -44,6 +44,7 @@ type httpTunnelArgs struct {
 	BodyBase64       string         `json:"body_base64"`
 	MaxResponseBytes int64          `json:"max_response_bytes"`
 	StreamResponse   bool           `json:"stream_response"`
+	StreamRequest    bool           `json:"stream_request"`
 	WebSocket        bool           `json:"websocket"`
 }
 
