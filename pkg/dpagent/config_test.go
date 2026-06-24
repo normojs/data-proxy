@@ -386,11 +386,18 @@ func TestCLIReportWritesRedactedDiagnosticZip(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := tmp + "/config.yaml"
 	reportPath := tmp + "/report.zip"
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer local.Close()
 	cfg := DefaultConfig()
 	cfg.Server.BaseURL = "https://dp.example.com"
 	cfg.Agent.ClientID = "report-agent"
 	cfg.Agent.Token = "sk-report-token-secret"
-	cfg.MCPServers = []MCPServer{{Name: "coding", Transport: "streamable_http", Endpoint: "http://127.0.0.1:30837/mcp"}}
+	cfg.Agent.Workspace = tmp
+	cfg.Logging.LocalAuditJSONL = tmp + "/audit.jsonl"
+	cfg.HTTPRoutes = []HTTPRoute{{Name: "local-web", Target: local.URL}}
+	cfg.MCPServers = []MCPServer{{Name: "coding", Transport: "streamable_http", Endpoint: local.URL + "/mcp"}}
 	if err := SaveConfig(configPath, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -417,6 +424,11 @@ func TestCLIReportWritesRedactedDiagnosticZip(t *testing.T) {
 	}
 	if !strings.Contains(combined, "sk-r...cret") {
 		t.Fatalf("report did not include redacted token: %s", combined)
+	}
+	for _, want := range []string{"workspace", "http_route.local-web", "mcp_server.coding"} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("report missing health check %q: %s", want, combined)
+		}
 	}
 }
 

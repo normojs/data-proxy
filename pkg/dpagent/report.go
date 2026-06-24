@@ -185,27 +185,33 @@ func buildReportChecks(cfg Config, opts ReportOptions) []reportCheck {
 	}
 	if opts.SkipNetwork {
 		checks = append(checks, reportCheck{Name: "network", Status: "skipped"})
-		return checks
-	}
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
-	if bridgeURL, err := EffectiveBridgeWSURL(cfg); err != nil {
-		checks = append(checks, reportCheck{Name: "bridge_url", Status: "fail", Message: err.Error()})
-	} else if err := checkDNS(bridgeURL, timeout); err != nil {
-		checks = append(checks, reportCheck{Name: "dns", Status: "fail", Message: err.Error()})
 	} else {
-		checks = append(checks, reportCheck{Name: "dns", Status: "ok"})
-	}
-	if strings.TrimSpace(cfg.Server.BaseURL) != "" {
-		if err := checkBaseURL(cfg.Server.BaseURL, timeout); err != nil {
-			checks = append(checks, reportCheck{Name: "base_url", Status: "warn", Message: err.Error()})
+		if bridgeURL, err := EffectiveBridgeWSURL(cfg); err != nil {
+			checks = append(checks, reportCheck{Name: "bridge_url", Status: "fail", Message: err.Error()})
+		} else if err := checkDNS(bridgeURL, reportTimeout(opts)); err != nil {
+			checks = append(checks, reportCheck{Name: "dns", Status: "fail", Message: err.Error()})
 		} else {
-			checks = append(checks, reportCheck{Name: "base_url", Status: "ok"})
+			checks = append(checks, reportCheck{Name: "dns", Status: "ok"})
+		}
+		if strings.TrimSpace(cfg.Server.BaseURL) != "" {
+			if err := checkBaseURL(cfg.Server.BaseURL, reportTimeout(opts)); err != nil {
+				checks = append(checks, reportCheck{Name: "base_url", Status: "warn", Message: err.Error()})
+			} else {
+				checks = append(checks, reportCheck{Name: "base_url", Status: "ok"})
+			}
 		}
 	}
+	for _, check := range AgentLocalHealthChecks(cfg, reportTimeout(opts)) {
+		checks = append(checks, reportCheck{Name: check.Name, Status: check.Status, Message: check.Detail})
+	}
 	return checks
+}
+
+func reportTimeout(opts ReportOptions) time.Duration {
+	if opts.Timeout > 0 {
+		return opts.Timeout
+	}
+	return 5 * time.Second
 }
 
 func defaultReportPath() string {
