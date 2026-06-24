@@ -184,7 +184,12 @@ data-proxy-agent report --output ./agent-diagnostic.zip
 - 系统服务是否已安装并正在运行。
 - 当前版本是否过旧。
 
-其中系统服务安装/启停命令已具备基础能力，版本更新检查仍属于后续产品化阶段。
+当前 `doctor` 已覆盖配置校验、token 是否配置、Bridge DNS、Data Proxy
+`/api/status`、workspace、本地审计文件路径、HTTP route TCP 连通性、HTTP MCP
+endpoint TCP 连通性，以及 stdio MCP 的 shell/命令前缀检查。stdio 检查不会主动启动
+MCP 进程；真正的协议握手继续使用 `data-proxy-agent mcp test <name>`。
+
+其中系统服务安装/启停命令和版本更新命令已具备基础能力；API token 远端有效性、系统服务运行状态和控制台健康页面仍属于后续产品化阶段。
 
 ## 配置文件
 
@@ -462,6 +467,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已新增 `cmd/data-proxy-agent` 入口。
 - 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
 - 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`update`、`run`。
+- `doctor` 已能检查本地 workspace、本地审计路径、HTTP route TCP 连通性、MCP HTTP endpoint 连通性和 stdio MCP shell/命令前缀。
 - 已实现 `enroll`，可调用 `/api/bridge/agent-setup` 注册 Bridge Client 并写入本地私有配置。
 - 已实现 `report`，可生成脱敏诊断 zip。
 - 已实现 `logs path/tail`，读取本地 `logging.local_audit_jsonl` 审计 JSONL。

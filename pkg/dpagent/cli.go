@@ -552,8 +552,15 @@ func (c CLI) runDoctor(args []string) int {
 	}
 	if ResolveToken(cfg) == "" {
 		fmt.Fprintln(c.Out, "token: missing")
+		ok = false
 	} else {
 		fmt.Fprintln(c.Out, "token: configured")
+	}
+	for _, check := range AgentLocalHealthChecks(cfg, *timeout) {
+		printAgentHealthCheck(c.Out, check)
+		if check.Status == HealthStatusFail {
+			ok = false
+		}
 	}
 	if ok {
 		fmt.Fprintln(c.Out, "doctor: ok")
@@ -654,6 +661,14 @@ func printValidation(w io.Writer, result ValidationResult) {
 	for _, item := range result.Errors {
 		fmt.Fprintf(w, "error: %s\n", item)
 	}
+}
+
+func printAgentHealthCheck(w io.Writer, check AgentHealthCheck) {
+	if strings.TrimSpace(check.Detail) == "" {
+		fmt.Fprintf(w, "%s: %s\n", check.Name, check.Status)
+		return
+	}
+	fmt.Fprintf(w, "%s: %s: %s\n", check.Name, check.Status, check.Detail)
 }
 
 func checkDNS(rawURL string, timeout time.Duration) error {
