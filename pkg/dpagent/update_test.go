@@ -176,26 +176,52 @@ func TestResolveAgentInstallPathAllowsDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != filepath.Join(dir, "data-proxy-agent") {
+	if got != filepath.Join(dir, "dpa") {
 		t.Fatalf("unexpected install path: %s", got)
 	}
 	got, err = resolveAgentInstallPath(dir+string(os.PathSeparator), "windows")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != filepath.Join(dir, "data-proxy-agent.exe") {
+	if got != filepath.Join(dir, "dpa.exe") {
 		t.Fatalf("unexpected windows install path: %s", got)
 	}
 }
 
+func TestExtractAgentBinaryAcceptsLegacyArchive(t *testing.T) {
+	archiveBytes := buildAgentTarGzWithBinaryName(t, "legacy agent bytes", "data-proxy-agent")
+	archivePath := filepath.Join(t.TempDir(), "data-proxy-agent-v1.2.3-linux-amd64.tar.gz")
+	if err := os.WriteFile(archivePath, archiveBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	extracted, err := extractAgentBinary(archivePath, filepath.Join(t.TempDir(), "extract"), "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(extracted) != "data-proxy-agent" {
+		t.Fatalf("unexpected extracted binary: %s", extracted)
+	}
+	body, err := os.ReadFile(extracted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "legacy agent bytes" {
+		t.Fatalf("unexpected extracted bytes: %q", string(body))
+	}
+}
+
 func buildAgentTarGz(t *testing.T, body string) []byte {
+	return buildAgentTarGzWithBinaryName(t, body, "dpa")
+}
+
+func buildAgentTarGzWithBinaryName(t *testing.T, body string, binaryName string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
 	gz := gzip.NewWriter(&buffer)
 	tw := tar.NewWriter(gz)
 	payload := []byte(body)
 	if err := tw.WriteHeader(&tar.Header{
-		Name: "data-proxy-agent-v1.2.3-linux-amd64/data-proxy-agent",
+		Name: "data-proxy-agent-v1.2.3-linux-amd64/" + binaryName,
 		Mode: 0o755,
 		Size: int64(len(payload)),
 	}); err != nil {

@@ -17,14 +17,34 @@ import (
 )
 
 type CLI struct {
+	Program string
 	Version string
 	Out     io.Writer
 	Err     io.Writer
 }
 
 func RunCLI(args []string, out io.Writer, errOut io.Writer, version string) int {
-	cli := CLI{Version: version, Out: out, Err: errOut}
+	return RunCLIWithProgram(DefaultAgentCommandName, args, out, errOut, version)
+}
+
+func RunCLIWithProgram(program string, args []string, out io.Writer, errOut io.Writer, version string) int {
+	cli := CLI{Program: normalizeProgramName(program), Version: version, Out: out, Err: errOut}
 	return cli.Run(args)
+}
+
+func normalizeProgramName(program string) string {
+	program = strings.TrimSpace(program)
+	if program == "" {
+		return DefaultAgentCommandName
+	}
+	if strings.HasSuffix(strings.ToLower(program), ".exe") {
+		program = program[:len(program)-len(".exe")]
+	}
+	return program
+}
+
+func (c CLI) programName() string {
+	return normalizeProgramName(c.Program)
 }
 
 func (c CLI) Run(args []string) int {
@@ -37,6 +57,9 @@ func (c CLI) Run(args []string) int {
 	if c.Version == "" {
 		c.Version = DefaultAgentVersion
 	}
+	if c.Program == "" {
+		c.Program = DefaultAgentCommandName
+	}
 	if len(args) == 0 {
 		c.printHelp()
 		return 0
@@ -46,7 +69,7 @@ func (c CLI) Run(args []string) int {
 		c.printHelp()
 		return 0
 	case "version", "--version":
-		fmt.Fprintf(c.Out, "data-proxy-agent %s\n", c.Version)
+		fmt.Fprintf(c.Out, "%s %s\n", c.programName(), c.Version)
 		return 0
 	case "enroll":
 		return c.runEnroll(args[1:])
@@ -80,25 +103,26 @@ func (c CLI) Run(args []string) int {
 }
 
 func (c CLI) printHelp() {
-	fmt.Fprint(c.Out, `data-proxy-agent connects local MCP and HTTP services to Data Proxy.
+	program := c.programName()
+	fmt.Fprintf(c.Out, `%s connects local MCP and HTTP services to Data Proxy.
 It runs like cloudflared: a local outbound daemon for HTTP tunnels, MCP bridge, and policy-guarded workspace tools.
 
 Usage:
-  data-proxy-agent version
-  data-proxy-agent enroll --server <url> --setup-token <one-time-token>
-  data-proxy-agent enroll --server <url> --access-token <token> --user-id <id>
-  data-proxy-agent config path|show|validate|export [--config <path>]
-  data-proxy-agent config token status|store|migrate|delete [--config <path>]
-  data-proxy-agent mcp list|add|test|remove [--config <path>]
-  data-proxy-agent tunnel route list|add|remove [--config <path>]
-  data-proxy-agent status [--config <path>]
-  data-proxy-agent doctor [--config <path>]
-  data-proxy-agent logs path|tail [--config <path>]
-  data-proxy-agent report [--config <path>] [--output <zip>]
-  data-proxy-agent service install|uninstall|start|stop|restart|status [--config <path>]
-  data-proxy-agent update [--version latest|vX.Y.Z] [--dry-run]
-  data-proxy-agent self-test
-  data-proxy-agent run [--config <path>] [--bridge-ws-url <url>] [--token <token>] [--client-id <id>]
+  %[1]s version
+  %[1]s enroll --server <url> --setup-token <one-time-token>
+  %[1]s enroll --server <url> --access-token <token> --user-id <id>
+  %[1]s config path|show|validate|export [--config <path>]
+  %[1]s config token status|store|migrate|delete [--config <path>]
+  %[1]s mcp list|add|test|remove [--config <path>]
+  %[1]s tunnel route list|add|remove [--config <path>]
+  %[1]s status [--config <path>]
+  %[1]s doctor [--config <path>]
+  %[1]s logs path|tail [--config <path>]
+  %[1]s report [--config <path>] [--output <zip>]
+  %[1]s service install|uninstall|start|stop|restart|status [--config <path>]
+  %[1]s update [--version latest|vX.Y.Z] [--dry-run]
+  %[1]s self-test
+  %[1]s run [--config <path>] [--bridge-ws-url <url>] [--token <token>] [--client-id <id>]
 
 Environment:
   DATA_PROXY_AGENT_CONFIG      Config path override.
@@ -108,49 +132,53 @@ Environment:
   DATA_PROXY_ACCESS_TOKEN      Dashboard access token used by enroll.
   DATA_PROXY_USER_ID           Dashboard user id used by enroll.
   DATA_PROXY_BRIDGE_CLIENT_ID  Bridge client id.
-`)
+`, program)
 }
 
 func (c CLI) printConfigHelp() {
-	fmt.Fprint(c.Out, `Usage:
-  data-proxy-agent config path [--config <path>]
-  data-proxy-agent config show [--config <path>] [--json]
-  data-proxy-agent config validate [--config <path>]
-  data-proxy-agent config export [--config <path>] [--json]
+	program := c.programName()
+	fmt.Fprintf(c.Out, `Usage:
+  %[1]s config path [--config <path>]
+  %[1]s config show [--config <path>] [--json]
+  %[1]s config validate [--config <path>]
+  %[1]s config export [--config <path>] [--json]
 
-	Config commands print, validate, or export the local agent config. Secret values are redacted.
-	Token commands manage agent.token_ref in system keyring or a private secret-file.
-`)
+Config commands print, validate, or export the local agent config. Secret values are redacted.
+Token commands manage agent.token_ref in system keyring or a private secret-file.
+`, program)
 }
 
 func (c CLI) printMCPHelp() {
-	fmt.Fprint(c.Out, `Usage:
-  data-proxy-agent mcp list [--config <path>] [--json]
-  data-proxy-agent mcp add <name> --url <endpoint> [--transport streamable-http] [--config <path>]
-  data-proxy-agent mcp add <name> --transport stdio --command <command> [--config <path>]
-  data-proxy-agent mcp test <name> [--config <path>]
-  data-proxy-agent mcp remove <name> [--config <path>]
+	program := c.programName()
+	fmt.Fprintf(c.Out, `Usage:
+  %[1]s mcp list [--config <path>] [--json]
+  %[1]s mcp add <name> --url <endpoint> [--transport streamable-http] [--config <path>]
+  %[1]s mcp add <name> --transport stdio --command <command> [--config <path>]
+  %[1]s mcp test <name> [--config <path>]
+  %[1]s mcp remove <name> [--config <path>]
 
 MCP servers are local targets. Stdio commands are read from local config only; the server cannot push arbitrary commands.
-`)
+`, program)
 }
 
 func (c CLI) printTunnelHelp() {
-	fmt.Fprint(c.Out, `Usage:
-  data-proxy-agent tunnel route list [--config <path>] [--json]
-  data-proxy-agent tunnel route add http <name> --url <local-url> [--allow-websocket] [--allow-sse] [--config <path>]
-  data-proxy-agent tunnel route remove <name> [--config <path>]
+	program := c.programName()
+	fmt.Fprintf(c.Out, `Usage:
+  %[1]s tunnel route list [--config <path>] [--json]
+  %[1]s tunnel route add http <name> --url <local-url> [--allow-websocket] [--allow-sse] [--config <path>]
+  %[1]s tunnel route remove <name> [--config <path>]
 
 Tunnel routes expose local HTTP/SSE/WebSocket services through an approved Data Proxy tunnel connection.
-`)
+`, program)
 }
 
 func (c CLI) printTunnelRouteHelp() {
-	fmt.Fprint(c.Out, `Usage:
-  data-proxy-agent tunnel route list [--config <path>] [--json]
-  data-proxy-agent tunnel route add http <name> --url <local-url> [--allow-websocket] [--allow-sse]
-  data-proxy-agent tunnel route remove <name> [--config <path>]
-`)
+	program := c.programName()
+	fmt.Fprintf(c.Out, `Usage:
+  %[1]s tunnel route list [--config <path>] [--json]
+  %[1]s tunnel route add http <name> --url <local-url> [--allow-websocket] [--allow-sse]
+  %[1]s tunnel route remove <name> [--config <path>]
+`, program)
 }
 
 func isHelpArg(value string) bool {
@@ -226,20 +254,21 @@ func (c CLI) runConfig(args []string) int {
 
 func (c CLI) runConfigToken(args []string) int {
 	if len(args) == 0 || isHelpArg(args[0]) {
-		fmt.Fprint(c.Out, `Usage:
-  data-proxy-agent config token status [--config <path>]
-  data-proxy-agent config token store --value <token> [--store auto|native|secret-file|config] [--config <path>]
-  data-proxy-agent config token store --value-env DATA_PROXY_API_KEY [--store auto|native|secret-file|config]
-  data-proxy-agent config token store --stdin [--store auto|native|secret-file|config]
-  data-proxy-agent config token migrate [--store auto|native|secret-file|config] [--config <path>]
-  data-proxy-agent config token delete [--config <path>]
+		program := c.programName()
+		fmt.Fprintf(c.Out, `Usage:
+  %[1]s config token status [--config <path>]
+  %[1]s config token store --value <token> [--store auto|native|secret-file|config] [--config <path>]
+  %[1]s config token store --value-env DATA_PROXY_API_KEY [--store auto|native|secret-file|config]
+  %[1]s config token store --stdin [--store auto|native|secret-file|config]
+  %[1]s config token migrate [--store auto|native|secret-file|config] [--config <path>]
+  %[1]s config token delete [--config <path>]
 
 Token store modes:
   auto        Try system keyring first, then fall back to a private secret-file.
   native      Store in the OS keyring/Keychain/Credential Manager/Secret Service.
   secret-file Store beside the config with 0600 file mode.
   config      Store in agent.token for compatibility.
-`)
+`, program)
 		if len(args) == 0 {
 			return 2
 		}

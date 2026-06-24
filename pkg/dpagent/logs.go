@@ -74,12 +74,13 @@ func (c CLI) runLogs(args []string) int {
 }
 
 func (c CLI) printLogsHelp() {
-	fmt.Fprint(c.Out, `Usage:
-  data-proxy-agent logs path [--config <path>]
-  data-proxy-agent logs tail [--lines <n>] [--follow] [--config <path>]
+	program := c.programName()
+	fmt.Fprintf(c.Out, `Usage:
+  %[1]s logs path [--config <path>]
+  %[1]s logs tail [--lines <n>] [--follow] [--config <path>]
 
 Logs commands read the local metadata-only audit JSONL configured by logging.local_audit_jsonl.
-`)
+`, program)
 }
 
 func tailLocalAudit(path string, lines int) ([]string, error) {

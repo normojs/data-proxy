@@ -79,7 +79,7 @@ func (c CLI) runService(args []string) int {
 	fs := flag.NewFlagSet("service "+subcommand, flag.ContinueOnError)
 	fs.SetOutput(c.Err)
 	configPath := fs.String("config", "", "config path")
-	binaryPath := fs.String("binary", "", "data-proxy-agent binary path")
+	binaryPath := fs.String("binary", "", "agent binary path")
 	name := fs.String("name", DefaultServiceName, "service name")
 	scope := fs.String("scope", "", "service scope: user or system")
 	platform := fs.String("platform", "", "target platform override for dry-run/print")
@@ -123,14 +123,15 @@ func (c CLI) runService(args []string) int {
 }
 
 func (c CLI) printServiceHelp() {
-	fmt.Fprint(c.Out, `Usage:
-  data-proxy-agent service install [--config <path>] [--user|--system] [--dry-run]
-  data-proxy-agent service uninstall [--config <path>] [--user|--system] [--dry-run]
-  data-proxy-agent service start|stop|restart|status [--config <path>] [--user|--system]
-  data-proxy-agent service print [--config <path>] [--platform linux|darwin|windows]
+	program := c.programName()
+	fmt.Fprintf(c.Out, `Usage:
+  %[1]s service install [--config <path>] [--user|--system] [--dry-run]
+  %[1]s service uninstall [--config <path>] [--user|--system] [--dry-run]
+  %[1]s service start|stop|restart|status [--config <path>] [--user|--system]
+  %[1]s service print [--config <path>] [--platform linux|darwin|windows]
 
 Service commands manage systemd, launchd, or Windows Service definitions for the local agent.
-`)
+`, program)
 }
 
 func RunServiceCommand(ctx context.Context, opts ServiceOptions) error {

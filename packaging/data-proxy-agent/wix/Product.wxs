@@ -21,7 +21,10 @@
   <Fragment>
     <ComponentGroup Id="DataProxyAgentComponents" Directory="INSTALLFOLDER">
       <Component Id="AgentBinary" Guid="*">
-        <File Id="DataProxyAgentExe" Source="$(var.AgentBinary)" Name="data-proxy-agent.exe" KeyPath="yes" />
+        <File Id="DpaExe" Source="$(var.AgentBinary)" Name="dpa.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="LegacyAgentBinary" Guid="*">
+        <File Id="DataProxyAgentExe" Source="$(var.AgentLegacyBinary)" Name="data-proxy-agent.exe" KeyPath="yes" />
       </Component>
       <Component Id="LicenseFile" Guid="*">
         <File Id="LicenseTxt" Source="$(var.LicenseFile)" Name="LICENSE.txt" KeyPath="yes" />

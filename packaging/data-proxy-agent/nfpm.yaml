@@ -11,6 +11,10 @@ homepage: https://github.com/normojs/data-proxy
 license: AGPL-3.0-or-later
 contents:
   - src: ${AGENT_PACKAGE_BINARY}
+    dst: /usr/bin/dpa
+    file_info:
+      mode: 0755
+  - src: ${AGENT_PACKAGE_LEGACY_BINARY}
     dst: /usr/bin/data-proxy-agent
     file_info:
       mode: 0755

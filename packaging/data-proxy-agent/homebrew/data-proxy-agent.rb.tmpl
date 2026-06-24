@@ -25,17 +25,19 @@ class DataProxyAgent < Formula
   end
 
   def install
-    bin.install Dir["data-proxy-agent-*/data-proxy-agent"].first
+    bin.install Dir["data-proxy-agent-*/dpa"].first
+    legacy = Dir["data-proxy-agent-*/data-proxy-agent"].first
+    bin.install legacy if legacy
   end
 
   service do
-    run [opt_bin/"data-proxy-agent", "run"]
+    run [opt_bin/"dpa", "run"]
     keep_alive true
     log_path var/"log/data-proxy-agent.log"
     error_log_path var/"log/data-proxy-agent.err.log"
   end
 
   test do
-    system "#{bin}/data-proxy-agent", "self-test"
+    system "#{bin}/dpa", "self-test"
   end
 end

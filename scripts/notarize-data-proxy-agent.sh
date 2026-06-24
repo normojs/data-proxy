@@ -33,9 +33,11 @@ trap 'security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true; rm -rf "$WOR
 
 mkdir -p "$OUTPUT_DIR" "$WORKDIR/extract"
 tar -xzf "$ARCHIVE" -C "$WORKDIR/extract"
-AGENT_BIN="$(find "$WORKDIR/extract" -type f -name data-proxy-agent | head -n 1)"
+DPA_BIN="$(find "$WORKDIR/extract" -type f -name dpa | head -n 1)"
+LEGACY_AGENT_BIN="$(find "$WORKDIR/extract" -type f -name data-proxy-agent | head -n 1)"
+AGENT_BIN="${DPA_BIN:-$LEGACY_AGENT_BIN}"
 if [ -z "$AGENT_BIN" ]; then
-  echo "data-proxy-agent binary not found in $ARCHIVE" >&2
+  echo "dpa or data-proxy-agent binary not found in $ARCHIVE" >&2
   exit 1
 fi
 
@@ -47,19 +49,27 @@ security import "$WORKDIR/cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWO
 security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
 security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
 
-codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$AGENT_BIN"
-codesign --verify --strict --verbose=2 "$AGENT_BIN"
+for bin in "$DPA_BIN" "$LEGACY_AGENT_BIN"; do
+  if [ -n "$bin" ]; then
+    codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$bin"
+    codesign --verify --strict --verbose=2 "$bin"
+  fi
+done
 
 NOTARY_ZIP="$WORKDIR/data-proxy-agent-${VERSION}-darwin-${ARCH}-notary.zip"
-ditto -c -k --keepParent "$AGENT_BIN" "$NOTARY_ZIP"
+ditto -c -k "$WORKDIR/extract" "$NOTARY_ZIP"
 xcrun notarytool submit "$NOTARY_ZIP" \
   --apple-id "$APPLE_ID" \
   --team-id "$APPLE_TEAM_ID" \
   --password "$APPLE_APP_SPECIFIC_PASSWORD" \
   --wait
 
-xcrun stapler staple "$AGENT_BIN" || true
-codesign --verify --strict --verbose=2 "$AGENT_BIN"
+for bin in "$DPA_BIN" "$LEGACY_AGENT_BIN"; do
+  if [ -n "$bin" ]; then
+    xcrun stapler staple "$bin" || true
+    codesign --verify --strict --verbose=2 "$bin"
+  fi
+done
 
 OUT_ARCHIVE="$OUTPUT_DIR/data-proxy-agent-${VERSION}-darwin-${ARCH}-notarized.tar.gz"
 tar -czf "$OUT_ARCHIVE" -C "$WORKDIR/extract" .

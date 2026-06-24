@@ -13,6 +13,8 @@ import (
 )
 
 const (
+	DefaultAgentCommandName = "dpa"
+	LegacyAgentCommandName  = "data-proxy-agent"
 	DefaultBridgePath       = "/bridge/ws"
 	DefaultAgentVersion     = "0.1.0-dev"
 	DefaultPingIntervalMS   = 30000

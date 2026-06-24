@@ -16,6 +16,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY VERSION ./
+COPY cmd/dpa ./cmd/dpa
 COPY cmd/data-proxy-agent ./cmd/data-proxy-agent
 COPY common ./common
 COPY constant ./constant
@@ -29,8 +30,9 @@ COPY types ./types
 RUN go build \
     -trimpath \
     -ldflags "-s -w -X main.version=${VERSION}" \
-    -o /out/data-proxy-agent \
-    ./cmd/data-proxy-agent
+    -o /out/dpa \
+    ./cmd/dpa \
+    && cp /out/dpa /out/data-proxy-agent
 
 RUN mkdir -p /out/rootfs/config /out/rootfs/workspace /out/rootfs/tmp \
     && chown -R 65532:65532 /out/rootfs/config /out/rootfs/workspace /out/rootfs/tmp \
@@ -40,6 +42,7 @@ RUN mkdir -p /out/rootfs/config /out/rootfs/workspace /out/rootfs/tmp \
 FROM scratch
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder /out/dpa /usr/local/bin/dpa
 COPY --from=builder /out/data-proxy-agent /usr/local/bin/data-proxy-agent
 COPY --from=builder --chown=65532:65532 /out/rootfs/config /config
 COPY --from=builder --chown=65532:65532 /out/rootfs/workspace /workspace
@@ -53,5 +56,5 @@ WORKDIR /workspace
 VOLUME ["/config", "/workspace"]
 
 USER 65532:65532
-ENTRYPOINT ["/usr/local/bin/data-proxy-agent"]
+ENTRYPOINT ["/usr/local/bin/dpa"]
 CMD ["run", "--config", "/config/config.yaml"]

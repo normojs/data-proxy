@@ -125,10 +125,10 @@ func (c CLI) runUpdate(args []string) int {
 	}
 	if result.StagedPath != "" {
 		fmt.Fprintf(c.Out, "update staged: %s\n", result.StagedPath)
-		fmt.Fprintf(c.Out, "replace %s after stopping data-proxy-agent\n", result.InstallPath)
+		fmt.Fprintf(c.Out, "replace %s after stopping %s\n", result.InstallPath, c.programName())
 		return 0
 	}
-	fmt.Fprintf(c.Out, "updated data-proxy-agent to %s\n", result.Version)
+	fmt.Fprintf(c.Out, "updated %s to %s\n", c.programName(), result.Version)
 	if result.BackupPath != "" {
 		fmt.Fprintf(c.Out, "backup: %s\n", result.BackupPath)
 	}
@@ -252,7 +252,7 @@ func resolveAgentUpdateAssetFromManifest(ctx context.Context, opts AgentUpdateOp
 	}
 	asset, ok := selectAgentUpdateAsset(manifest.Assets, opts.Platform, opts.Arch)
 	if !ok {
-		return agentUpdateAsset{}, manifest.Version, fmt.Errorf("no data-proxy-agent asset found for %s/%s", opts.Platform, opts.Arch)
+		return agentUpdateAsset{}, manifest.Version, fmt.Errorf("no dpa/data-proxy-agent asset found for %s/%s", opts.Platform, opts.Arch)
 	}
 	return asset, manifest.Version, nil
 }
@@ -280,7 +280,7 @@ func resolveAgentUpdateAssetFromGitHub(ctx context.Context, opts AgentUpdateOpti
 	}
 	asset, ok := selectAgentUpdateAsset(assets, opts.Platform, opts.Arch)
 	if !ok {
-		return agentUpdateAsset{}, release.TagName, fmt.Errorf("no data-proxy-agent release asset found for %s/%s in %s", opts.Platform, opts.Arch, release.TagName)
+		return agentUpdateAsset{}, release.TagName, fmt.Errorf("no dpa/data-proxy-agent release asset found for %s/%s in %s", opts.Platform, opts.Arch, release.TagName)
 	}
 	asset.SHA256URL = checksums[asset.Name]
 	return asset, release.TagName, nil
@@ -328,7 +328,7 @@ func assetMatchesPlatform(asset agentUpdateAsset, platform string, arch string) 
 	if strings.HasSuffix(name, ".sha256") || strings.Contains(name, "checksums") {
 		return false
 	}
-	if !strings.Contains(name, "data-proxy-agent") {
+	if !assetNameMatchesAgent(name) {
 		return false
 	}
 	if !strings.Contains(name, platform) || !strings.Contains(name, arch) {
@@ -338,6 +338,19 @@ func assetMatchesPlatform(asset agentUpdateAsset, platform string, arch string) 
 		return strings.HasSuffix(name, ".zip")
 	}
 	return strings.HasSuffix(name, ".tar.gz")
+}
+
+func assetNameMatchesAgent(name string) bool {
+	name = strings.ToLower(name)
+	if strings.Contains(name, LegacyAgentCommandName) {
+		return true
+	}
+	for _, marker := range []string{DefaultAgentCommandName + "-", DefaultAgentCommandName + "_", DefaultAgentCommandName + "."} {
+		if strings.Contains(name, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveAgentInstallPath(path string, platform string) (string, error) {
@@ -497,6 +510,8 @@ func extractAgentBinaryFromTarGz(archivePath string, destDir string, platform st
 	defer gz.Close()
 	tr := tar.NewReader(gz)
 	expected := agentBinaryName(platform)
+	fallback := ""
+	allowed := agentBinaryNameSet(platform)
 	for {
 		header, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -505,12 +520,23 @@ func extractAgentBinaryFromTarGz(archivePath string, destDir string, platform st
 		if err != nil {
 			return "", err
 		}
-		if header.Typeflag != tar.TypeReg || filepath.Base(header.Name) != expected {
+		base := filepath.Base(header.Name)
+		if header.Typeflag != tar.TypeReg || !allowed[base] {
 			continue
 		}
-		return writeExtractedAgentBinary(tr, destDir, expected, header.FileInfo().Mode().Perm())
+		path, err := writeExtractedAgentBinary(tr, destDir, base, header.FileInfo().Mode().Perm())
+		if err != nil {
+			return "", err
+		}
+		if base == expected {
+			return path, nil
+		}
+		fallback = path
 	}
-	return "", fmt.Errorf("%s not found in %s", expected, filepath.Base(archivePath))
+	if fallback != "" {
+		return fallback, nil
+	}
+	return "", fmt.Errorf("%s not found in %s", strings.Join(agentBinaryNames(platform), " or "), filepath.Base(archivePath))
 }
 
 func extractAgentBinaryFromZip(archivePath string, destDir string, platform string) (string, error) {
@@ -519,26 +545,27 @@ func extractAgentBinaryFromZip(archivePath string, destDir string, platform stri
 		return "", err
 	}
 	defer reader.Close()
-	expected := agentBinaryName(platform)
-	for _, file := range reader.File {
-		if file.FileInfo().IsDir() || filepath.Base(file.Name) != expected {
-			continue
+	for _, expected := range agentBinaryNames(platform) {
+		for _, file := range reader.File {
+			if file.FileInfo().IsDir() || filepath.Base(file.Name) != expected {
+				continue
+			}
+			rc, err := file.Open()
+			if err != nil {
+				return "", err
+			}
+			path, writeErr := writeExtractedAgentBinary(rc, destDir, expected, file.FileInfo().Mode().Perm())
+			closeErr := rc.Close()
+			if writeErr != nil {
+				return "", writeErr
+			}
+			if closeErr != nil {
+				return "", closeErr
+			}
+			return path, nil
 		}
-		rc, err := file.Open()
-		if err != nil {
-			return "", err
-		}
-		path, writeErr := writeExtractedAgentBinary(rc, destDir, expected, file.FileInfo().Mode().Perm())
-		closeErr := rc.Close()
-		if writeErr != nil {
-			return "", writeErr
-		}
-		if closeErr != nil {
-			return "", closeErr
-		}
-		return path, nil
 	}
-	return "", fmt.Errorf("%s not found in %s", expected, filepath.Base(archivePath))
+	return "", fmt.Errorf("%s not found in %s", strings.Join(agentBinaryNames(platform), " or "), filepath.Base(archivePath))
 }
 
 func writeExtractedAgentBinary(reader io.Reader, destDir string, binaryName string, mode os.FileMode) (string, error) {
@@ -564,10 +591,38 @@ func writeExtractedAgentBinary(reader io.Reader, destDir string, binaryName stri
 }
 
 func agentBinaryName(platform string) string {
-	if platform == "windows" {
-		return "data-proxy-agent.exe"
+	return agentPrimaryBinaryName(platform)
+}
+
+func agentBinaryNames(platform string) []string {
+	primary := agentPrimaryBinaryName(platform)
+	legacy := agentLegacyBinaryName(platform)
+	if primary == legacy {
+		return []string{primary}
 	}
-	return "data-proxy-agent"
+	return []string{primary, legacy}
+}
+
+func agentBinaryNameSet(platform string) map[string]bool {
+	result := map[string]bool{}
+	for _, name := range agentBinaryNames(platform) {
+		result[name] = true
+	}
+	return result
+}
+
+func agentPrimaryBinaryName(platform string) string {
+	if platform == "windows" {
+		return DefaultAgentCommandName + ".exe"
+	}
+	return DefaultAgentCommandName
+}
+
+func agentLegacyBinaryName(platform string) string {
+	if platform == "windows" {
+		return LegacyAgentCommandName + ".exe"
+	}
+	return LegacyAgentCommandName
 }
 
 func runAgentSelfTest(ctx context.Context, binaryPath string) error {

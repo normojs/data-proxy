@@ -13,6 +13,7 @@ on:
       - ".github/workflows/data-proxy-agent.yml"
       - "Dockerfile.agent"
       - "cmd/data-proxy-agent/**"
+      - "cmd/dpa/**"
       - "pkg/dpagent/**"
       - "dto/bridge.go"
       - "dto/mcp.go"
@@ -31,6 +32,7 @@ on:
       - ".github/workflows/data-proxy-agent.yml"
       - "Dockerfile.agent"
       - "cmd/data-proxy-agent/**"
+      - "cmd/dpa/**"
       - "pkg/dpagent/**"
       - "dto/bridge.go"
       - "dto/mcp.go"
@@ -79,13 +81,13 @@ jobs:
         run: go mod download
 
       - name: Run agent tests
-        run: go test ./cmd/data-proxy-agent ./pkg/dpagent ./pkg/bridgepolicy ./pkg/mcpgateway -count=1
+        run: go test ./cmd/dpa ./cmd/data-proxy-agent ./pkg/dpagent ./pkg/bridgepolicy ./pkg/mcpgateway -count=1
 
       - name: Build smoke
         run: |
-          go build -trimpath -o /tmp/data-proxy-agent ./cmd/data-proxy-agent
-          /tmp/data-proxy-agent self-test
-          /tmp/data-proxy-agent version
+          go build -trimpath -o /tmp/dpa ./cmd/dpa
+          /tmp/dpa self-test
+          /tmp/dpa version
 
       - name: Check whitespace
         run: git diff --check
@@ -148,15 +150,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "dist/${ARTIFACT}"
-          BINARY="data-proxy-agent"
+          BINARY="dpa"
+          LEGACY_BINARY="data-proxy-agent"
           if [ "${GOOS}" = "windows" ]; then
             BINARY="${BINARY}.exe"
+            LEGACY_BINARY="${LEGACY_BINARY}.exe"
           fi
           go build \
             -trimpath \
             -ldflags "-s -w -X main.version=${VERSION}" \
             -o "dist/${ARTIFACT}/${BINARY}" \
-            ./cmd/data-proxy-agent
+            ./cmd/dpa
+          cp "dist/${ARTIFACT}/${BINARY}" "dist/${ARTIFACT}/${LEGACY_BINARY}"
           cp README.md "dist/${ARTIFACT}/README.md"
           cp docs/data-proxy-agent-cli-design.md "dist/${ARTIFACT}/data-proxy-agent-cli-design.md"
           cp scripts/install-data-proxy-agent.sh "dist/${ARTIFACT}/install-data-proxy-agent.sh"
@@ -212,16 +217,23 @@ jobs:
           set -euo pipefail
           mkdir -p dist/extract
           tar -xzf "dist/data-proxy-agent-${VERSION}-linux-${ARCH}.tar.gz" -C dist/extract
-          AGENT_PACKAGE_BINARY="$(find "$PWD/dist/extract" -type f -name data-proxy-agent | head -n 1)"
+          AGENT_PACKAGE_BINARY="$(find "$PWD/dist/extract" -type f -name dpa | head -n 1)"
           if [ -z "${AGENT_PACKAGE_BINARY}" ]; then
-            echo "agent binary not found" >&2
+            echo "dpa binary not found" >&2
+            exit 1
+          fi
+          AGENT_PACKAGE_LEGACY_BINARY="$(find "$PWD/dist/extract" -type f -name data-proxy-agent | head -n 1)"
+          if [ -z "${AGENT_PACKAGE_LEGACY_BINARY}" ]; then
+            echo "data-proxy-agent compatibility binary not found" >&2
             exit 1
           fi
           export AGENT_PACKAGE_BINARY
+          export AGENT_PACKAGE_LEGACY_BINARY
           export AGENT_PACKAGE_ARCH="${ARCH}"
           export AGENT_PACKAGE_VERSION="${VERSION#v}"
           sed \
             -e "s|\${AGENT_PACKAGE_BINARY}|${AGENT_PACKAGE_BINARY}|g" \
+            -e "s|\${AGENT_PACKAGE_LEGACY_BINARY}|${AGENT_PACKAGE_LEGACY_BINARY}|g" \
             -e "s|\${AGENT_PACKAGE_ARCH}|${AGENT_PACKAGE_ARCH}|g" \
             -e "s|\${AGENT_PACKAGE_VERSION}|${AGENT_PACKAGE_VERSION}|g" \
             packaging/data-proxy-agent/nfpm.yaml > dist/nfpm.yaml
@@ -321,8 +333,10 @@ jobs:
           $version = $env:TAG.TrimStart("v")
           $zip = "dist\data-proxy-agent-$env:TAG-windows-$env:ARCH.zip"
           Expand-Archive -Force -Path $zip -DestinationPath dist\extract
-          $agent = Get-ChildItem -Path dist\extract -Filter data-proxy-agent.exe -Recurse | Select-Object -First 1
-          if (-not $agent) { throw "data-proxy-agent.exe not found" }
+          $agent = Get-ChildItem -Path dist\extract -Filter dpa.exe -Recurse | Select-Object -First 1
+          if (-not $agent) { throw "dpa.exe not found" }
+          $legacyAgent = Get-ChildItem -Path dist\extract -Filter data-proxy-agent.exe -Recurse | Select-Object -First 1
+          if (-not $legacyAgent) { throw "data-proxy-agent.exe not found" }
           dotnet tool install --global wix --version 5.0.2
           $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
           wix --version
@@ -330,6 +344,7 @@ jobs:
             -arch $env:WIX_ARCH `
             -define ProductVersion=$version `
             -define AgentBinary="$($agent.FullName)" `
+            -define AgentLegacyBinary="$($legacyAgent.FullName)" `
             -define LicenseFile="$((Resolve-Path LICENSE).Path)" `
             -define NoticeFile="$((Resolve-Path NOTICE).Path)" `
             -out "dist\data-proxy-agent-$env:TAG-windows-$env:ARCH.msi"

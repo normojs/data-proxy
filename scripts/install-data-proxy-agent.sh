@@ -91,10 +91,12 @@ fi
 
 if [ "$OS" = "windows" ]; then
   EXT="zip"
-  BINARY="data-proxy-agent.exe"
+  BINARY="dpa.exe"
+  LEGACY_BINARY="data-proxy-agent.exe"
 else
   EXT="tar.gz"
-  BINARY="data-proxy-agent"
+  BINARY="dpa"
+  LEGACY_BINARY="data-proxy-agent"
 fi
 
 ASSET="data-proxy-agent-${VERSION}-${OS}-${ARCH}.${EXT}"
@@ -122,8 +124,11 @@ esac
 
 FOUND="$(find "$EXTRACT_DIR" -type f -name "$BINARY" | head -n 1)"
 if [ -z "$FOUND" ]; then
-  echo "$BINARY not found in $ASSET" >&2
-  exit 1
+  FOUND="$(find "$EXTRACT_DIR" -type f -name "$LEGACY_BINARY" | head -n 1)"
+  if [ -z "$FOUND" ]; then
+    echo "$BINARY or $LEGACY_BINARY not found in $ASSET" >&2
+    exit 1
+  fi
 fi
 
 if [ -z "$INSTALL_DIR" ]; then
@@ -137,7 +142,16 @@ mkdir -p "$INSTALL_DIR"
 TARGET="$INSTALL_DIR/$BINARY"
 cp "$FOUND" "$TARGET"
 chmod 755 "$TARGET"
+LEGACY_TARGET="$INSTALL_DIR/$LEGACY_BINARY"
+if [ "$OS" = "windows" ]; then
+  cp "$TARGET" "$LEGACY_TARGET"
+  chmod 755 "$LEGACY_TARGET"
+else
+  rm -f "$LEGACY_TARGET"
+  ln -s "$BINARY" "$LEGACY_TARGET"
+fi
 
 "$TARGET" self-test
-echo "data-proxy-agent installed: $TARGET"
+echo "dpa installed: $TARGET"
+echo "compatibility command installed: $LEGACY_TARGET"
 echo "version: $VERSION"
