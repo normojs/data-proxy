@@ -200,6 +200,17 @@ https://<data-proxy-host>/t/<connection_key>/tunnel/mcp/<public_slug>
 
 每条连接都绑定当前用户和 Tunnel App，可单独撤销，并会写入 Tunnel audit log。控制台在 `MCP -> Tunnel Connections` 的连接行提供审计入口，可按 connection 查看 `tools/list`、`tools/call`、策略拒绝和撤销事件。完整架构见 [Tunnel Apps Architecture](./docs/tunnel-apps-architecture.md)。
 
+### Data Proxy Agent
+
+跨平台本地 Agent 已开始开发，入口为：
+
+```bash
+go run ./cmd/data-proxy-agent --help
+go run ./cmd/data-proxy-agent self-test
+```
+
+当前 Go 版已具备配置、诊断和 `/bridge/ws` 注册/心跳骨架；MCP/HTTP 工具执行仍由 `tools/bridge_client_daemon.mjs` 原型提供，后续逐步迁移。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
+
 ## 文档索引
 
 | 文档 | 用途 |

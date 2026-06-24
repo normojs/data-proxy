@@ -384,6 +384,26 @@ Data Proxy 控制台需要提供：
 4. 先实现与 Node 原型等价的能力。
 5. 再增加 service install、doctor、config、update 等产品化能力。
 
+## 当前实现状态
+
+Go 版 `data-proxy-agent` 已开始落地：
+
+- 已新增 `cmd/data-proxy-agent` 入口。
+- 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
+- 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`run`。
+- `run` 已能读取配置和环境变量，连接 `/bridge/ws`，携带 Bearer token，发送 `register`，处理 `registered`、`pong`、`close` 和服务端 `error`。
+- 已实现心跳 `ping` 和重连退避。
+- 已实现敏感 token 脱敏、私有权限配置文件写入和基础配置校验。
+- 当前 Go agent 对尚未移植的 `tool_call` 明确返回 `TOOL_NOT_SUPPORTED`，避免服务端请求悬空。
+
+尚未从 Node 原型迁移到 Go CLI：
+
+- `mcp_proxy.*` 工具执行。
+- `http_tunnel.request` 普通转发、流式上传/下载、SSE 和 WebSocket。
+- 本地文件工具 `remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_write`、`remote_edit`。
+- `enroll`、`mcp add/test`、`tunnel route add`、`service install`、`report`、`update`。
+- 生产安装包和自动更新。
+
 ## 开发顺序
 
 ### Phase 1: CLI 骨架
