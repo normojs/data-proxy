@@ -165,13 +165,14 @@ data-proxy-agent service status
 data-proxy-agent doctor
 data-proxy-agent logs path
 data-proxy-agent logs tail --lines 100
+data-proxy-agent logs tail --follow
 data-proxy-agent self-test
 data-proxy-agent report --output ./agent-diagnostic.zip
 ```
 
 当前 `report` 会生成脱敏 zip，包含版本/平台、配置路径、脱敏配置、校验结果、状态摘要、可选网络检查结果，以及 `doctor` 同源的本地健康检查结果。
 它不采集原始用户请求、响应、MCP 工具参数或本地文件内容。
-`logs path/tail` 读取 `logging.local_audit_jsonl`。该本地审计只记录 bridge tool 调用的 request id、tool name、成功/失败、耗时、结果大小、错误码和少量 allowlist metadata，不写原始参数、响应正文或本地文件内容。
+`logs path/tail` 读取 `logging.local_audit_jsonl`，`logs tail --follow` 可持续打印新增 JSONL 行。该本地审计只记录 bridge tool 调用的 request id、tool name、成功/失败、耗时、结果大小、错误码和少量 allowlist metadata，不写原始参数、响应正文或本地文件内容。
 
 `doctor` 和 `report` 需要检查：
 

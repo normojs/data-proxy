@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -303,6 +304,32 @@ func TestCLILogsPathAndTail(t *testing.T) {
 	}
 	if out.String() != "two\nthree\n" {
 		t.Fatalf("unexpected logs tail output: %q", out.String())
+	}
+}
+
+func TestFollowLocalAuditPrintsAppendedLines(t *testing.T) {
+	auditPath := t.TempDir() + "/audit.jsonl"
+	if err := os.WriteFile(auditPath, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		file, err := os.OpenFile(auditPath, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return
+		}
+		_, _ = file.WriteString("new\n")
+		_ = file.Close()
+	}()
+	var out bytes.Buffer
+	err := followLocalAudit(ctx, auditPath, &out, 10*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline from test follow loop, got %v", err)
+	}
+	if out.String() != "new\n" {
+		t.Fatalf("unexpected follow output: %q", out.String())
 	}
 }
 

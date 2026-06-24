@@ -2,10 +2,14 @@ package dpagent
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"time"
 )
 
 func (c CLI) runLogs(args []string) int {
@@ -18,6 +22,8 @@ func (c CLI) runLogs(args []string) int {
 	fs.SetOutput(c.Err)
 	configPath := fs.String("config", "", "config path")
 	lines := fs.Int("lines", 100, "number of lines to print")
+	follow := fs.Bool("follow", false, "keep printing new log lines")
+	followShort := fs.Bool("f", false, "keep printing new log lines")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -49,6 +55,12 @@ func (c CLI) runLogs(args []string) int {
 		}
 		for _, item := range items {
 			fmt.Fprintln(c.Out, item)
+		}
+		if *follow || *followShort {
+			if err := followLocalAudit(context.Background(), path, c.Out, 500*time.Millisecond); err != nil {
+				fmt.Fprintln(c.Err, err)
+				return 1
+			}
 		}
 		return 0
 	default:
@@ -87,4 +99,57 @@ func tailLocalAudit(path string, lines int) ([]string, error) {
 		result = append(result, ring[(start+i)%lines])
 	}
 	return result, nil
+}
+
+func followLocalAudit(ctx context.Context, path string, w io.Writer, pollInterval time.Duration) error {
+	if pollInterval <= 0 {
+		pollInterval = 500 * time.Millisecond
+	}
+	file, err := os.Open(expandPath(path))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if _, err := file.Seek(0, io.SeekEnd); err != nil {
+		return err
+	}
+	reader := bufio.NewReader(file)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		for {
+			line, err := reader.ReadString('\n')
+			if len(line) > 0 {
+				if _, writeErr := io.WriteString(w, line); writeErr != nil {
+					return writeErr
+				}
+			}
+			if err == nil {
+				continue
+			}
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			offset, err := file.Seek(0, io.SeekCurrent)
+			if err != nil {
+				return err
+			}
+			info, err := file.Stat()
+			if err != nil {
+				return err
+			}
+			if info.Size() < offset {
+				if _, err := file.Seek(0, io.SeekStart); err != nil {
+					return err
+				}
+				reader.Reset(file)
+			}
+		}
+	}
 }

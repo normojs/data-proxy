@@ -223,6 +223,7 @@ go run ./cmd/data-proxy-agent tunnel route list
 go run ./cmd/data-proxy-agent doctor
 go run ./cmd/data-proxy-agent logs path
 go run ./cmd/data-proxy-agent logs tail --lines 100
+go run ./cmd/data-proxy-agent logs tail --follow
 go run ./cmd/data-proxy-agent report --output ./agent-diagnostic.zip
 go run ./cmd/data-proxy-agent service install --dry-run
 go run ./cmd/data-proxy-agent update --dry-run
