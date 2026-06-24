@@ -37,6 +37,16 @@ type ServiceOptions struct {
 	Out         io.Writer
 }
 
+type ServiceHealthOptions struct {
+	ConfigPath  string
+	BinaryPath  string
+	Name        string
+	Scope       string
+	Platform    string
+	Timeout     time.Duration
+	CommandExec commandRunner
+}
+
 type ServiceDefinition struct {
 	Platform    string
 	Scope       string
@@ -152,6 +162,28 @@ func RunServiceCommand(ctx context.Context, opts ServiceOptions) error {
 	}
 }
 
+func CheckServiceStatus(ctx context.Context, opts ServiceHealthOptions) AgentHealthCheck {
+	def, err := BuildServiceDefinition(ServiceOptions{
+		ConfigPath: opts.ConfigPath,
+		BinaryPath: opts.BinaryPath,
+		Name:       opts.Name,
+		Scope:      opts.Scope,
+		Platform:   opts.Platform,
+	})
+	if err != nil {
+		return AgentHealthCheck{Name: "service_status", Status: HealthStatusWarn, Detail: "service definition unavailable: " + err.Error()}
+	}
+	if def.Platform == "linux" || def.Platform == "darwin" {
+		if _, err := os.Stat(def.InstallPath); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return AgentHealthCheck{Name: "service_status", Status: HealthStatusWarn, Detail: "not installed: " + def.InstallPath}
+			}
+			return AgentHealthCheck{Name: "service_status", Status: HealthStatusWarn, Detail: "cannot inspect service file: " + err.Error()}
+		}
+	}
+	return queryServiceStatus(ctx, opts, def)
+}
+
 func BuildServiceDefinition(opts ServiceOptions) (ServiceDefinition, error) {
 	platform := strings.ToLower(strings.TrimSpace(opts.Platform))
 	if platform == "" {
@@ -253,6 +285,106 @@ func runServiceAction(ctx context.Context, opts ServiceOptions, def ServiceDefin
 	default:
 		return fmt.Errorf("service command is not supported on %s", def.Platform)
 	}
+}
+
+func queryServiceStatus(ctx context.Context, opts ServiceHealthOptions, def ServiceDefinition) AgentHealthCheck {
+	name, args := serviceStatusCommand(def)
+	output, err := runServiceStatusCommand(ctx, opts, name, args...)
+	switch def.Platform {
+	case "linux":
+		return parseLinuxServiceStatus(def, output, err)
+	case "darwin":
+		return parseDarwinServiceStatus(def, output, err)
+	case "windows":
+		return parseWindowsServiceStatus(def, output, err)
+	default:
+		return AgentHealthCheck{Name: "service_status", Status: HealthStatusWarn, Detail: "unsupported platform: " + def.Platform}
+	}
+}
+
+func serviceStatusCommand(def ServiceDefinition) (string, []string) {
+	switch def.Platform {
+	case "linux":
+		args := []string{"is-active", filepath.Base(def.InstallPath)}
+		if def.Scope == "user" {
+			args = append([]string{"--user"}, args...)
+		}
+		return "systemctl", args
+	case "darwin":
+		return "launchctl", []string{"print", darwinLaunchdDomain(def) + "/" + def.Label}
+	case "windows":
+		return "sc.exe", []string{"query", windowsServiceName(def.Name)}
+	default:
+		return "", nil
+	}
+}
+
+func runServiceStatusCommand(ctx context.Context, opts ServiceHealthOptions, name string, args ...string) ([]byte, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("missing service status command")
+	}
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	runner := opts.CommandExec
+	if runner == nil {
+		runner = defaultCommandRunner
+	}
+	return runner(cmdCtx, name, args...)
+}
+
+func parseLinuxServiceStatus(def ServiceDefinition, output []byte, err error) AgentHealthCheck {
+	state := strings.TrimSpace(string(output))
+	if err == nil && strings.EqualFold(state, "active") {
+		return AgentHealthCheck{Name: "service_status", Status: HealthStatusOK, Detail: "active: " + filepath.Base(def.InstallPath)}
+	}
+	return AgentHealthCheck{Name: "service_status", Status: HealthStatusWarn, Detail: "not active: " + serviceStatusDetail(output, err)}
+}
+
+func parseDarwinServiceStatus(def ServiceDefinition, output []byte, err error) AgentHealthCheck {
+	if err != nil {
+		return AgentHealthCheck{Name: "service_status", Status: HealthStatusWarn, Detail: "not loaded or inaccessible: " + serviceStatusDetail(output, err)}
+	}
+	lower := strings.ToLower(string(output))
+	if strings.Contains(lower, "state = running") || strings.Contains(lower, "\npid =") {
+		return AgentHealthCheck{Name: "service_status", Status: HealthStatusOK, Detail: "running: " + def.Label}
+	}
+	return AgentHealthCheck{Name: "service_status", Status: HealthStatusWarn, Detail: "loaded but not running: " + def.Label}
+}
+
+func parseWindowsServiceStatus(def ServiceDefinition, output []byte, err error) AgentHealthCheck {
+	upper := strings.ToUpper(string(output))
+	if err == nil && strings.Contains(upper, "RUNNING") {
+		return AgentHealthCheck{Name: "service_status", Status: HealthStatusOK, Detail: "running: " + windowsServiceName(def.Name)}
+	}
+	if strings.Contains(upper, "STOPPED") {
+		return AgentHealthCheck{Name: "service_status", Status: HealthStatusWarn, Detail: "stopped: " + windowsServiceName(def.Name)}
+	}
+	return AgentHealthCheck{Name: "service_status", Status: HealthStatusWarn, Detail: "not running: " + serviceStatusDetail(output, err)}
+}
+
+func serviceStatusDetail(output []byte, err error) string {
+	text := strings.TrimSpace(string(output))
+	if text != "" {
+		return firstServiceStatusLine(text)
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return "unknown"
+}
+
+func firstServiceStatusLine(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return "unknown"
 }
 
 func runLinuxServiceAction(ctx context.Context, opts ServiceOptions, def ServiceDefinition, action string) error {

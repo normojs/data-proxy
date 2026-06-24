@@ -577,6 +577,14 @@ func (c CLI) runDoctor(args []string) int {
 			ok = false
 		}
 	}
+	serviceCheck := CheckServiceStatus(context.Background(), ServiceHealthOptions{
+		ConfigPath: *configPath,
+		Timeout:    *timeout,
+	})
+	printAgentHealthCheck(c.Out, serviceCheck)
+	if serviceCheck.Status == HealthStatusFail {
+		ok = false
+	}
 	if ok {
 		fmt.Fprintln(c.Out, "doctor: ok")
 		return 0

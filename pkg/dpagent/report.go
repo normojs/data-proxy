@@ -3,6 +3,7 @@ package dpagent
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -220,6 +221,11 @@ func buildReportChecks(cfg Config, opts ReportOptions) []reportCheck {
 	for _, check := range AgentLocalHealthChecks(cfg, reportTimeout(opts)) {
 		checks = append(checks, reportCheck{Name: check.Name, Status: check.Status, Message: check.Detail})
 	}
+	serviceCheck := CheckServiceStatus(context.Background(), ServiceHealthOptions{
+		ConfigPath: opts.ConfigPath,
+		Timeout:    reportTimeout(opts),
+	})
+	checks = append(checks, reportCheck{Name: serviceCheck.Name, Status: serviceCheck.Status, Message: serviceCheck.Detail})
 	return checks
 }
 
