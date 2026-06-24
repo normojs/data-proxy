@@ -169,6 +169,7 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 					defer streamInputs.Unregister(requestID)
 				}
 				logf(c.Err, "INFO", "tool call received", "request_id", requestID, "tool_name", toolName)
+				startedAt := time.Now()
 				result, err := c.handleBridgeToolCall(ctx, toolName, args, inputQueue, func(chunk dto.BridgeToolStreamChunk) error {
 					return writeJSON(dto.BridgeWSMessage{
 						Type: bridgeMessageTypeToolStreamChunk,
@@ -176,6 +177,9 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 						Data: chunk,
 					})
 				})
+				if auditErr := c.auditBridgeToolCall(requestID, toolName, result, err, time.Since(startedAt)); auditErr != nil {
+					logf(c.Err, "WARN", "local audit write failed", "request_id", requestID, "error", auditErr.Error())
+				}
 				if err != nil {
 					toolErr := toolErrorFromError(err)
 					logf(c.Err, "ERROR", "tool call failed", "request_id", requestID, "tool_name", toolName, "code", toolErr.Code, "message", toolErr.Message)

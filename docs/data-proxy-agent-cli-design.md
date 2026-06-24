@@ -154,13 +154,15 @@ data-proxy-agent service status
 
 ```bash
 data-proxy-agent doctor
-data-proxy-agent logs
+data-proxy-agent logs path
+data-proxy-agent logs tail --lines 100
 data-proxy-agent self-test
 data-proxy-agent report --output ./agent-diagnostic.zip
 ```
 
 当前 `report` 会生成脱敏 zip，包含版本/平台、配置路径、脱敏配置、校验结果、状态摘要和可选网络检查结果。
 它不采集原始用户请求、响应、MCP 工具参数或本地文件内容。
+`logs path/tail` 读取 `logging.local_audit_jsonl`。该本地审计只记录 bridge tool 调用的 request id、tool name、成功/失败、耗时、结果大小、错误码和少量 allowlist metadata，不写原始参数、响应正文或本地文件内容。
 
 `doctor` 和 `report` 需要检查：
 
@@ -417,6 +419,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`run`。
 - 已实现 `enroll`，可调用 `/api/bridge/agent-setup` 注册 Bridge Client 并写入本地私有配置。
 - 已实现 `report`，可生成脱敏诊断 zip。
+- 已实现 `logs path/tail`，读取本地 `logging.local_audit_jsonl` 审计 JSONL。
 - 已实现 `service install/uninstall/start/stop/restart/status/print`，可生成并管理 Linux systemd、macOS launchd、Windows Service 配置。
 - 已实现 `mcp list/add/test/remove`，用于管理本地 Streamable HTTP MCP endpoint 配置。
 - 已实现 `tunnel route list/add/remove`，用于管理本地 HTTP/WebSocket/SSE route 配置。

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/dto"
 )
@@ -228,6 +229,80 @@ func TestCLITunnelRouteAddListRemove(t *testing.T) {
 	}
 	if len(loaded.HTTPRoutes) != 0 {
 		t.Fatalf("route was not removed: %#v", loaded.HTTPRoutes)
+	}
+}
+
+func TestLocalAuditWritesMetadataOnly(t *testing.T) {
+	auditPath := t.TempDir() + "/audit.jsonl"
+	cfg := DefaultConfig()
+	cfg.Logging.LocalAuditJSONL = auditPath
+	result := dto.BridgeToolCallResult{
+		ResultSize: 123,
+		Metadata: map[string]any{
+			"target":    "stdio:coding",
+			"transport": "stdio",
+			"result":    map[string]any{"secret": true},
+			"custom":    "should not be copied",
+		},
+	}
+	err := (BridgeClient{Config: cfg}).auditBridgeToolCall("req-1", BridgeToolMCPProxyCallTool, result, nil, 15*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry map[string]any
+	if err := json.Unmarshal(bytes, &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["request_id"] != "req-1" || entry["tool_name"] != BridgeToolMCPProxyCallTool || entry["success"] != true {
+		t.Fatalf("unexpected audit entry: %#v", entry)
+	}
+	metadata := mapFromAny(entry["metadata"])
+	if metadata["target"] != "stdio:coding" || metadata["transport"] != "stdio" {
+		t.Fatalf("unexpected audit metadata: %#v", metadata)
+	}
+	if _, ok := metadata["result"]; ok {
+		t.Fatalf("audit metadata leaked result: %#v", metadata)
+	}
+	if _, ok := metadata["custom"]; ok {
+		t.Fatalf("audit metadata copied custom field: %#v", metadata)
+	}
+}
+
+func TestCLILogsPathAndTail(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := tmp + "/config.yaml"
+	auditPath := tmp + "/audit.jsonl"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	cfg.Logging.LocalAuditJSONL = auditPath
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(auditPath, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{"logs", "path", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("logs path failed with code %d: %s", code, errOut.String())
+	}
+	if strings.TrimSpace(out.String()) != auditPath {
+		t.Fatalf("unexpected logs path output: %q", out.String())
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = RunCLI([]string{"logs", "tail", "--lines", "2", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("logs tail failed with code %d: %s", code, errOut.String())
+	}
+	if out.String() != "two\nthree\n" {
+		t.Fatalf("unexpected logs tail output: %q", out.String())
 	}
 }
 
