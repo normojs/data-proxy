@@ -510,11 +510,10 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已实现 `update` 自动升级命令：支持 GitHub Release 和自定义 manifest，下载后校验 sha256、运行 `self-test`、替换前生成 `.new`、成功后保留 `.bak`。Windows 自替换先 staging，停止服务后再覆盖。
 - 已新增 GitHub Actions `Data Proxy Agent` workflow，对 agent 运行测试，构建 Linux/macOS/Windows 的 amd64/arm64 二进制包与 sha256 校验文件，并在 `v*` tag 上传 GitHub Release 附件。
 - 已新增 `Dockerfile.agent` 和 GHCR 发布任务，发布 linux/amd64、linux/arm64 多架构镜像 `ghcr.io/normojs/data-proxy-agent:<version>`，镜像内保留 AGPL/NOTICE/第三方许可文件。
-- 已实现 `remote_exec` 一次性命令执行，但默认关闭；必须本机配置 `policy.exec.enabled=true` 且 `policy.exec.allow_arbitrary=true` 才会上报和执行。`remote_exec` 调用本机 shell，不提供进程级沙盒，只适合用户明确授权的可信工作区。已实现 `remote_install_package`，通过固定包管理器 argv 执行单包安装，除 trusted exec 外还要求 `policy.allow_write=true`。交互 shell 类高危工具仍明确返回 `TOOL_NOT_SUPPORTED`，避免服务端请求悬空。
+- 已实现 `remote_exec` 一次性命令执行和基础持久 shell `remote_shell_open` / `remote_shell_eval`，但默认关闭；必须本机配置 `policy.exec.enabled=true` 且 `policy.exec.allow_arbitrary=true` 才会上报和执行。`remote_exec` 调用本机 shell，持久 shell 使用 stdin/stdout 而非 PTY，不提供进程级沙盒，只适合用户明确授权的可信工作区。已实现 `remote_install_package`，通过固定包管理器 argv 执行单包安装，除 trusted exec 外还要求 `policy.allow_write=true`。
 
 尚未从 Node 原型迁移到 Go CLI：
 
-- 交互 shell 类高危工具。
 - release 签名。
 
 ## 开发顺序

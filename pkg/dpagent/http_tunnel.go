@@ -71,6 +71,10 @@ func (c BridgeClient) handleToolCall(ctx context.Context, toolName string, args 
 		return c.handleRemoteRunTests(ctx, args)
 	case BridgeToolRemoteExec:
 		return c.handleRemoteExec(ctx, args)
+	case BridgeToolRemoteShellOpen:
+		return c.handleRemoteShellOpen(ctx, args)
+	case BridgeToolRemoteShellEval:
+		return c.handleRemoteShellEval(ctx, args)
 	case BridgeToolRemoteInstallPackage:
 		return c.handleRemoteInstallPackage(ctx, args)
 	default:

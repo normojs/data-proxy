@@ -2,9 +2,13 @@ package dpagent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -18,15 +22,56 @@ const (
 	remoteHardRunTestsTimeoutMS    = 600000
 	defaultRemoteExecTimeoutMS     = 30000
 	remoteHardExecTimeoutMS        = 600000
+	defaultRemoteShellEvalWaitMS   = 1000
+	remoteHardShellEvalWaitMS      = 30000
+	defaultRemoteShellMaxSessions  = 8
 	defaultRemoteInstallTimeoutMS  = 300000
 	remoteHardInstallTimeoutMS     = 900000
 )
+
+var defaultRemoteShellSessions = newRemoteShellSessionRegistry(defaultRemoteShellMaxSessions)
 
 type remoteInstallPackageCommand struct {
 	Manager string
 	Package string
 	Name    string
 	Args    []string
+}
+
+type remoteShellSpec struct {
+	Name    string
+	Args    []string
+	Display string
+}
+
+type remoteShellSessionRegistry struct {
+	mu       sync.Mutex
+	max      int
+	sessions map[string]*remoteShellSession
+}
+
+type remoteShellSession struct {
+	id      string
+	shell   string
+	workdir string
+	rel     string
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	output  *remoteShellOutputBuffer
+	cancel  context.CancelFunc
+
+	mu        sync.Mutex
+	closed    bool
+	exitError error
+	createdAt time.Time
+	lastUsed  time.Time
+}
+
+type remoteShellOutputBuffer struct {
+	mu        sync.Mutex
+	limit     int64
+	data      []byte
+	truncated bool
 }
 
 func (c BridgeClient) handleRemoteExec(ctx context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
@@ -105,6 +150,329 @@ func allowedRemoteExecCommand(cfg Config, requested string) (string, error) {
 		return "", ToolError{Code: "REMOTE_EXEC_INVALID_ARGUMENTS", Message: "command is required"}
 	}
 	return command, nil
+}
+
+func (c BridgeClient) handleRemoteShellOpen(ctx context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
+	startedAt := time.Now()
+	if err := requireRemoteTrustedExec(c.Config, "remote_shell_open"); err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	spec, err := remoteShellSpecFromArg(stringFromMap(args, "shell", ""))
+	if err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	info, err := resolveExistingRemotePath(c.Config, stringFromMap(args, "workdir", ""), ".", "REMOTE_SHELL_OPEN")
+	if err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	stat, err := os.Stat(info.Path)
+	if err != nil {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_OPEN_NOT_FOUND", Message: err.Error()}
+	}
+	if !stat.IsDir() {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_OPEN_NOT_DIRECTORY", Message: "workdir is not a directory: " + info.Rel}
+	}
+	session, err := defaultRemoteShellSessions.Open(ctx, spec, info, remoteLimitsFromConfig(c.Config, args).MaxResultBytes)
+	if err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	time.Sleep(50 * time.Millisecond)
+	initial, initialTruncated := session.output.Drain()
+	payload := map[string]any{
+		"session_id":     session.id,
+		"shell":          session.shell,
+		"workdir":        session.rel,
+		"initial_output": initial,
+	}
+	text, truncated, err := encodeLimitedRemoteJSON(payload, remoteLimitsFromConfig(c.Config, args).MaxResultBytes)
+	if err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	return dto.BridgeToolCallResult{
+		Content:    []dto.MCPContentBlock{{Type: "text", Text: text}},
+		Summary:    "remote shell opened " + session.id,
+		DurationMS: int(time.Since(startedAt).Milliseconds()),
+		ResultSize: len([]byte(text)),
+		Metadata: map[string]any{
+			"session_id": session.id,
+			"shell":      session.shell,
+			"workdir":    session.rel,
+			"truncated":  truncated || initialTruncated,
+		},
+	}, nil
+}
+
+func (c BridgeClient) handleRemoteShellEval(ctx context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {
+	startedAt := time.Now()
+	if err := requireRemoteTrustedExec(c.Config, "remote_shell_eval"); err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	sessionID := stringFromMap(args, "session_id", "")
+	input, hasInput := remoteStringArg(args, "input")
+	if sessionID == "" || !hasInput || input == "" {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_EVAL_INVALID_ARGUMENTS", Message: "session_id and input are required"}
+	}
+	limits := remoteLimitsFromConfig(c.Config, args)
+	if int64(len([]byte(input))) > limits.MaxWriteBytes {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_EVAL_TOO_LARGE", Message: fmt.Sprintf("input exceeds max_write_bytes %d", limits.MaxWriteBytes)}
+	}
+	session, ok := defaultRemoteShellSessions.Get(sessionID)
+	if !ok {
+		return dto.BridgeToolCallResult{}, ToolError{Code: "REMOTE_SHELL_EVAL_NOT_FOUND", Message: "shell session not found: " + sessionID}
+	}
+	if err := session.Write(input); err != nil {
+		return dto.BridgeToolCallResult{}, err
+	}
+	waitMS := remotePositiveInt(args["timeout_ms"], defaultRemoteShellEvalWaitMS, remoteHardShellEvalWaitMS)
+	select {
+	case <-time.After(time.Duration(waitMS) * time.Millisecond):
+	case <-ctx.Done():
+		return dto.BridgeToolCallResult{}, ctx.Err()
+	}
+	text, truncated := session.output.Drain()
+	closed, exitMessage := session.Status()
+	if text == "" {
+		if closed && exitMessage != "" {
+			text = exitMessage
+		} else {
+			text = "no output"
+		}
+	}
+	if truncated {
+		text += remoteTruncatedMarker
+	}
+	return dto.BridgeToolCallResult{
+		Content:    []dto.MCPContentBlock{{Type: "text", Text: text}},
+		Summary:    "remote shell eval " + session.id,
+		DurationMS: int(time.Since(startedAt).Milliseconds()),
+		ResultSize: len([]byte(text)),
+		Metadata: map[string]any{
+			"session_id": session.id,
+			"shell":      session.shell,
+			"workdir":    session.rel,
+			"closed":     closed,
+			"truncated":  truncated,
+		},
+	}, nil
+}
+
+func requireRemoteTrustedExec(cfg Config, toolName string) error {
+	if !cfg.Policy.Exec.Enabled {
+		return ToolError{Code: "REMOTE_TRUSTED_EXEC_DISABLED", Message: toolName + " requires policy.exec.enabled=true in data-proxy-agent config"}
+	}
+	if !cfg.Policy.Exec.AllowArbitrary {
+		return ToolError{Code: "REMOTE_TRUSTED_EXEC_DISABLED", Message: toolName + " requires policy.exec.allow_arbitrary=true in data-proxy-agent config"}
+	}
+	return nil
+}
+
+func newRemoteShellSessionRegistry(max int) *remoteShellSessionRegistry {
+	if max <= 0 {
+		max = defaultRemoteShellMaxSessions
+	}
+	return &remoteShellSessionRegistry{max: max, sessions: map[string]*remoteShellSession{}}
+}
+
+func (r *remoteShellSessionRegistry) Open(ctx context.Context, spec remoteShellSpec, info remotePathInfo, maxOutputBytes int64) (*remoteShellSession, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	cmd := exec.CommandContext(runCtx, spec.Name, spec.Args...)
+	cmd.Dir = info.Path
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		cancel()
+		return nil, ToolError{Code: "REMOTE_SHELL_OPEN_FAILED", Message: err.Error()}
+	}
+	session := &remoteShellSession{
+		id:        newRemoteShellSessionID(),
+		shell:     spec.Display,
+		workdir:   info.Path,
+		rel:       info.Rel,
+		cmd:       cmd,
+		stdin:     stdin,
+		output:    &remoteShellOutputBuffer{limit: maxOutputBytes},
+		cancel:    cancel,
+		createdAt: time.Now(),
+		lastUsed:  time.Now(),
+	}
+	cmd.Stdout = session.output
+	cmd.Stderr = session.output
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return nil, ToolError{Code: "REMOTE_SHELL_OPEN_FAILED", Message: err.Error()}
+	}
+	r.mu.Lock()
+	for len(r.sessions) >= r.max {
+		r.closeOldestLocked()
+	}
+	r.sessions[session.id] = session
+	r.mu.Unlock()
+	go func() {
+		err := cmd.Wait()
+		session.MarkClosed(err)
+		r.mu.Lock()
+		delete(r.sessions, session.id)
+		r.mu.Unlock()
+	}()
+	return session, nil
+}
+
+func (r *remoteShellSessionRegistry) Get(id string) (*remoteShellSession, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	session, ok := r.sessions[strings.TrimSpace(id)]
+	return session, ok
+}
+
+func (r *remoteShellSessionRegistry) CloseAll() {
+	r.mu.Lock()
+	sessions := make([]*remoteShellSession, 0, len(r.sessions))
+	for _, session := range r.sessions {
+		sessions = append(sessions, session)
+	}
+	r.sessions = map[string]*remoteShellSession{}
+	r.mu.Unlock()
+	for _, session := range sessions {
+		session.Close()
+	}
+}
+
+func (r *remoteShellSessionRegistry) closeOldestLocked() {
+	var oldest *remoteShellSession
+	for _, session := range r.sessions {
+		if oldest == nil || session.lastUsed.Before(oldest.lastUsed) {
+			oldest = session
+		}
+	}
+	if oldest != nil {
+		oldest.Close()
+		delete(r.sessions, oldest.id)
+	}
+}
+
+func (s *remoteShellSession) Write(input string) error {
+	s.mu.Lock()
+	if s.closed {
+		exitMessage := s.exitMessageLocked()
+		s.mu.Unlock()
+		return ToolError{Code: "REMOTE_SHELL_EVAL_CLOSED", Message: exitMessage}
+	}
+	s.lastUsed = time.Now()
+	s.mu.Unlock()
+	if !strings.HasSuffix(input, "\n") && !strings.HasSuffix(input, "\r") {
+		input += "\n"
+	}
+	if _, err := io.WriteString(s.stdin, input); err != nil {
+		return ToolError{Code: "REMOTE_SHELL_EVAL_FAILED", Message: err.Error()}
+	}
+	return nil
+}
+
+func (s *remoteShellSession) MarkClosed(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	s.exitError = err
+}
+
+func (s *remoteShellSession) Status() (bool, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.closed {
+		return false, ""
+	}
+	return true, s.exitMessageLocked()
+}
+
+func (s *remoteShellSession) Close() {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.closed = true
+	s.mu.Unlock()
+	_ = s.stdin.Close()
+	s.cancel()
+}
+
+func (s *remoteShellSession) exitMessageLocked() string {
+	if s.exitError == nil {
+		return "shell session closed"
+	}
+	return "shell session closed: " + s.exitError.Error()
+}
+
+func (b *remoteShellOutputBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.limit <= 0 {
+		b.data = append(b.data, p...)
+		return len(p), nil
+	}
+	remaining := b.limit - int64(len(b.data))
+	if remaining <= 0 {
+		b.truncated = true
+		return len(p), nil
+	}
+	if int64(len(p)) <= remaining {
+		b.data = append(b.data, p...)
+		return len(p), nil
+	}
+	b.data = append(b.data, p[:remaining]...)
+	b.truncated = true
+	return len(p), nil
+}
+
+func (b *remoteShellOutputBuffer) Drain() (string, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	text := strings.TrimRight(string(b.data), "\r\n")
+	truncated := b.truncated
+	b.data = nil
+	b.truncated = false
+	return text, truncated
+}
+
+func remoteShellSpecFromArg(shell string) (remoteShellSpec, error) {
+	shell = strings.TrimSpace(shell)
+	if shell == "" {
+		if runtime.GOOS == "windows" {
+			return remoteShellSpec{Name: "cmd", Display: "cmd"}, nil
+		}
+		shell = strings.TrimSpace(os.Getenv("SHELL"))
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+	}
+	if strings.ContainsAny(shell, "\x00\r\n\t ") {
+		return remoteShellSpec{}, ToolError{Code: "REMOTE_SHELL_OPEN_INVALID_SHELL", Message: "shell must be a single executable path or name"}
+	}
+	base := strings.ToLower(filepath.Base(shell))
+	switch runtime.GOOS {
+	case "windows":
+		switch base {
+		case "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe":
+			return remoteShellSpec{Name: shell, Display: shell}, nil
+		default:
+			return remoteShellSpec{}, ToolError{Code: "REMOTE_SHELL_OPEN_INVALID_SHELL", Message: "unsupported shell: " + shell}
+		}
+	default:
+		switch base {
+		case "sh", "bash", "zsh", "fish", "dash", "ksh":
+			return remoteShellSpec{Name: shell, Display: shell}, nil
+		default:
+			return remoteShellSpec{}, ToolError{Code: "REMOTE_SHELL_OPEN_INVALID_SHELL", Message: "unsupported shell: " + shell}
+		}
+	}
+}
+
+func newRemoteShellSessionID() string {
+	var bytes [8]byte
+	if _, err := rand.Read(bytes[:]); err == nil {
+		return "sh_" + hex.EncodeToString(bytes[:])
+	}
+	return fmt.Sprintf("sh_%d", time.Now().UnixNano())
 }
 
 func (c BridgeClient) handleRemoteInstallPackage(ctx context.Context, args map[string]any) (dto.BridgeToolCallResult, error) {

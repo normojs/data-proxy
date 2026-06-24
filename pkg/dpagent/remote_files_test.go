@@ -339,6 +339,66 @@ func TestRemoteExecRequiresExplicitTrustedLocalPolicy(t *testing.T) {
 	}
 }
 
+func TestRemoteShellOpenEvalRequiresTrustedLocalPolicy(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell session test uses POSIX sh")
+	}
+	previousRegistry := defaultRemoteShellSessions
+	defaultRemoteShellSessions = newRemoteShellSessionRegistry(2)
+	t.Cleanup(func() {
+		defaultRemoteShellSessions.CloseAll()
+		defaultRemoteShellSessions = previousRegistry
+	})
+
+	workspace := t.TempDir()
+	cfg := remoteTestConfig(workspace)
+	cfg.Agent.Capabilities = []string{BridgeToolRemoteShellOpen, BridgeToolRemoteShellEval}
+	client := BridgeClient{Config: cfg}
+	capabilities := EffectiveCapabilities(cfg)
+	if containsString(capabilities, BridgeToolRemoteShellOpen) || containsString(capabilities, BridgeToolRemoteShellEval) {
+		t.Fatalf("remote shell should not be advertised by default: %#v", capabilities)
+	}
+	_, err := client.handleToolCall(context.Background(), BridgeToolRemoteShellOpen, map[string]any{"shell": "sh"})
+	if err == nil {
+		t.Fatal("expected remote_shell_open to be disabled by default")
+	}
+	toolErr, ok := err.(ToolError)
+	if !ok || toolErr.Code != "REMOTE_TRUSTED_EXEC_DISABLED" {
+		t.Fatalf("unexpected disabled error: %#v", err)
+	}
+
+	cfg.Policy.Exec.Enabled = true
+	cfg.Policy.Exec.AllowArbitrary = true
+	client = BridgeClient{Config: cfg}
+	capabilities = EffectiveCapabilities(cfg)
+	if !containsString(capabilities, BridgeToolRemoteShellOpen) || !containsString(capabilities, BridgeToolRemoteShellEval) {
+		t.Fatalf("remote shell capabilities missing when trusted exec is enabled: %#v", capabilities)
+	}
+	opened, err := client.handleToolCall(context.Background(), BridgeToolRemoteShellOpen, map[string]any{"shell": "sh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(opened.Content[0].Text), &payload); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, _ := payload["session_id"].(string)
+	if sessionID == "" {
+		t.Fatalf("missing session id: %s", opened.Content[0].Text)
+	}
+	eval, err := client.handleToolCall(context.Background(), BridgeToolRemoteShellEval, map[string]any{
+		"session_id": sessionID,
+		"input":      "echo shell-ok",
+		"timeout_ms": 200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(eval.Content[0].Text, "shell-ok") {
+		t.Fatalf("unexpected shell eval output: %s", eval.Content[0].Text)
+	}
+}
+
 func TestRemoteInstallPackageRequiresTrustedWritePolicy(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := remoteTestConfig(workspace)
