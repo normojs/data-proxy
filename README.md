@@ -211,6 +211,15 @@ go run ./cmd/data-proxy-agent self-test
 
 当前 Go 版已具备配置、诊断、`/bridge/ws` 注册/心跳、`http_tunnel.request` 普通/流式/SSE/WebSocket 转发，以及 MCP bridge 的 `mcp_proxy.test` / `mcp_proxy.tools_list` / `mcp_proxy.tools_call` / `mcp_proxy.rpc`；本地文件工具和安装/更新等产品化命令仍由 `tools/bridge_client_daemon.mjs` 原型或后续版本提供。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
 
+常用本地配置命令：
+
+```bash
+go run ./cmd/data-proxy-agent mcp add coding --url http://127.0.0.1:30837/mcp
+go run ./cmd/data-proxy-agent mcp list
+go run ./cmd/data-proxy-agent tunnel route add http local-web --url http://127.0.0.1:3000 --allow-websocket
+go run ./cmd/data-proxy-agent tunnel route list
+```
+
 ## 文档索引
 
 | 文档 | 用途 |

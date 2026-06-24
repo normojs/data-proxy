@@ -95,6 +95,103 @@ func TestCLIConfigShowRedactsToken(t *testing.T) {
 	}
 }
 
+func TestCLIMCPAddListRemove(t *testing.T) {
+	configPath := t.TempDir() + "/config.yaml"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{"mcp", "add", "coding", "--url", "http://127.0.0.1:30837/mcp", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("mcp add failed with code %d: %s", code, errOut.String())
+	}
+	loaded, _, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.MCPServers) != 1 || loaded.MCPServers[0].Name != "coding" || loaded.MCPServers[0].Transport != "streamable_http" {
+		t.Fatalf("unexpected mcp servers: %#v", loaded.MCPServers)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = RunCLI([]string{"mcp", "list", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("mcp list failed with code %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "coding") {
+		t.Fatalf("mcp list did not include server: %s", out.String())
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = RunCLI([]string{"mcp", "remove", "coding", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("mcp remove failed with code %d: %s", code, errOut.String())
+	}
+	loaded, _, err = LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.MCPServers) != 0 {
+		t.Fatalf("mcp server was not removed: %#v", loaded.MCPServers)
+	}
+}
+
+func TestCLITunnelRouteAddListRemove(t *testing.T) {
+	configPath := t.TempDir() + "/config.yaml"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{
+		"tunnel", "route", "add", "http", "local-web",
+		"--url", "http://127.0.0.1:3000",
+		"--allow-websocket",
+		"--config", configPath,
+	}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("tunnel route add failed with code %d: %s", code, errOut.String())
+	}
+	loaded, _, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.HTTPRoutes) != 1 || loaded.HTTPRoutes[0].Name != "local-web" || !loaded.HTTPRoutes[0].AllowWebSocket {
+		t.Fatalf("unexpected routes: %#v", loaded.HTTPRoutes)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = RunCLI([]string{"tunnel", "route", "list", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("tunnel route list failed with code %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "local-web") {
+		t.Fatalf("tunnel route list did not include route: %s", out.String())
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = RunCLI([]string{"tunnel", "route", "remove", "local-web", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("tunnel route remove failed with code %d: %s", code, errOut.String())
+	}
+	loaded, _, err = LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.HTTPRoutes) != 0 {
+		t.Fatalf("route was not removed: %#v", loaded.HTTPRoutes)
+	}
+}
+
 func TestConfigPathEnvOverride(t *testing.T) {
 	t.Setenv("DATA_PROXY_AGENT_CONFIG", "/tmp/custom-agent.yaml")
 	got, err := ConfigPath()

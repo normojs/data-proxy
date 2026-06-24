@@ -391,6 +391,8 @@ Go 版 `data-proxy-agent` 已开始落地：
 - 已新增 `cmd/data-proxy-agent` 入口。
 - 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
 - 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`run`。
+- 已实现 `mcp list/add/test/remove`，用于管理本地 Streamable HTTP MCP endpoint 配置。
+- 已实现 `tunnel route list/add/remove`，用于管理本地 HTTP/WebSocket/SSE route 配置。
 - `run` 已能读取配置和环境变量，连接 `/bridge/ws`，携带 Bearer token，发送 `register`，处理 `registered`、`pong`、`close` 和服务端 `error`。
 - 已实现心跳 `ping` 和重连退避。
 - 已实现敏感 token 脱敏、私有权限配置文件写入和基础配置校验。
@@ -401,7 +403,7 @@ Go 版 `data-proxy-agent` 已开始落地：
 尚未从 Node 原型迁移到 Go CLI：
 
 - 本地文件工具 `remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_write`、`remote_edit`。
-- `enroll`、`mcp add/test`、`tunnel route add`、`service install`、`report`、`update`。
+- `enroll`、`service install`、`report`、`update`。
 - 生产安装包和自动更新。
 
 ## 开发顺序

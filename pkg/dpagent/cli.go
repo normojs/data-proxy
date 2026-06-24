@@ -50,6 +50,10 @@ func (c CLI) Run(args []string) int {
 		return 0
 	case "config":
 		return c.runConfig(args[1:])
+	case "mcp":
+		return c.runMCP(args[1:])
+	case "tunnel":
+		return c.runTunnel(args[1:])
 	case "status":
 		return c.runStatus(args[1:])
 	case "doctor":
@@ -71,6 +75,8 @@ func (c CLI) printHelp() {
 Usage:
   data-proxy-agent version
   data-proxy-agent config path|show|validate|export [--config <path>]
+  data-proxy-agent mcp list|add|test|remove [--config <path>]
+  data-proxy-agent tunnel route list|add|remove [--config <path>]
   data-proxy-agent status [--config <path>]
   data-proxy-agent doctor [--config <path>]
   data-proxy-agent self-test
@@ -138,6 +144,331 @@ func (c CLI) runConfig(args []string) int {
 		fmt.Fprintf(c.Err, "unknown config subcommand: %s\n", subcommand)
 		return 2
 	}
+}
+
+func (c CLI) runMCP(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.Err, "mcp subcommand is required")
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		return c.runMCPList(args[1:])
+	case "add":
+		return c.runMCPAdd(args[1:])
+	case "test":
+		return c.runMCPTest(args[1:])
+	case "remove", "rm":
+		return c.runMCPRemove(args[1:])
+	default:
+		fmt.Fprintf(c.Err, "unknown mcp subcommand: %s\n", args[0])
+		return 2
+	}
+}
+
+func (c CLI) runMCPList(args []string) int {
+	fs := flag.NewFlagSet("mcp list", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	jsonOutput := fs.Bool("json", false, "print JSON")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	if *jsonOutput {
+		bytes, err := json.MarshalIndent(cfg.MCPServers, "", "  ")
+		if err != nil {
+			fmt.Fprintln(c.Err, err)
+			return 1
+		}
+		fmt.Fprintln(c.Out, string(bytes))
+		return 0
+	}
+	if len(cfg.MCPServers) == 0 {
+		fmt.Fprintln(c.Out, "no mcp servers configured")
+		return 0
+	}
+	for _, server := range cfg.MCPServers {
+		target := server.Endpoint
+		if strings.TrimSpace(target) == "" {
+			target = server.Command
+		}
+		fmt.Fprintf(c.Out, "%s\t%s\t%s\n", server.Name, server.Transport, target)
+	}
+	return 0
+}
+
+func (c CLI) runMCPAdd(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.Err, "mcp add requires a name")
+		return 2
+	}
+	name := strings.TrimSpace(args[0])
+	fs := flag.NewFlagSet("mcp add", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	transport := fs.String("transport", "", "transport: streamable-http, http, sse, or stdio")
+	endpoint := fs.String("url", "", "MCP HTTP endpoint")
+	endpointAlias := fs.String("endpoint", "", "MCP HTTP endpoint")
+	command := fs.String("command", "", "stdio command")
+	permission := fs.String("permission", "read_only", "permission label")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if *endpoint == "" {
+		*endpoint = *endpointAlias
+	}
+	if name == "" {
+		fmt.Fprintln(c.Err, "mcp add name is required")
+		return 2
+	}
+	selectedTransport := normalizeMCPTransport(*transport, *endpoint, *command)
+	server := MCPServer{
+		Name:       name,
+		Transport:  selectedTransport,
+		Endpoint:   strings.TrimSpace(*endpoint),
+		Command:    strings.TrimSpace(*command),
+		Permission: strings.TrimSpace(*permission),
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	cfg.MCPServers = upsertMCPServer(cfg.MCPServers, server)
+	if result := ValidateConfig(cfg, false); !result.OK() {
+		printValidation(c.Err, result)
+		return 1
+	}
+	if err := SaveConfig(*configPath, cfg); err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	fmt.Fprintf(c.Out, "mcp server saved: %s\n", name)
+	return 0
+}
+
+func (c CLI) runMCPRemove(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.Err, "mcp remove requires a name")
+		return 2
+	}
+	name := strings.TrimSpace(args[0])
+	fs := flag.NewFlagSet("mcp remove", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	next, removed := removeMCPServer(cfg.MCPServers, name)
+	if !removed {
+		fmt.Fprintf(c.Err, "mcp server not found: %s\n", name)
+		return 1
+	}
+	cfg.MCPServers = next
+	if err := SaveConfig(*configPath, cfg); err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	fmt.Fprintf(c.Out, "mcp server removed: %s\n", name)
+	return 0
+}
+
+func (c CLI) runMCPTest(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.Err, "mcp test requires a name")
+		return 2
+	}
+	name := strings.TrimSpace(args[0])
+	fs := flag.NewFlagSet("mcp test", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	server, ok := findMCPServer(cfg.MCPServers, name)
+	if !ok {
+		fmt.Fprintf(c.Err, "mcp server not found: %s\n", name)
+		return 1
+	}
+	if strings.TrimSpace(server.Endpoint) == "" {
+		fmt.Fprintf(c.Err, "mcp server %s has no HTTP endpoint; stdio test is not implemented yet\n", name)
+		return 1
+	}
+	result, err := (BridgeClient{Config: cfg}).handleMCPProxyTest(context.Background(), map[string]any{
+		"target": server.Endpoint,
+		"server": map[string]any{"name": server.Name},
+	})
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	payload := mapFromAny(result.Metadata["result"])
+	fmt.Fprintf(c.Out, "mcp server ok: %s (%s)\n", name, stringFromMap(payload, "server_name", server.Name))
+	return 0
+}
+
+func (c CLI) runTunnel(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.Err, "tunnel subcommand is required")
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		return c.runTunnelRouteList(args[1:])
+	case "route":
+		return c.runTunnelRoute(args[1:])
+	default:
+		fmt.Fprintf(c.Err, "unknown tunnel subcommand: %s\n", args[0])
+		return 2
+	}
+}
+
+func (c CLI) runTunnelRoute(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.Err, "tunnel route subcommand is required")
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		return c.runTunnelRouteList(args[1:])
+	case "add":
+		return c.runTunnelRouteAdd(args[1:])
+	case "remove", "rm":
+		return c.runTunnelRouteRemove(args[1:])
+	default:
+		fmt.Fprintf(c.Err, "unknown tunnel route subcommand: %s\n", args[0])
+		return 2
+	}
+}
+
+func (c CLI) runTunnelRouteList(args []string) int {
+	fs := flag.NewFlagSet("tunnel route list", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	jsonOutput := fs.Bool("json", false, "print JSON")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	if *jsonOutput {
+		bytes, err := json.MarshalIndent(cfg.HTTPRoutes, "", "  ")
+		if err != nil {
+			fmt.Fprintln(c.Err, err)
+			return 1
+		}
+		fmt.Fprintln(c.Out, string(bytes))
+		return 0
+	}
+	if len(cfg.HTTPRoutes) == 0 {
+		fmt.Fprintln(c.Out, "no tunnel routes configured")
+		return 0
+	}
+	for _, route := range cfg.HTTPRoutes {
+		fmt.Fprintf(c.Out, "%s\thttp\t%s\twebsocket=%t\tsse=%t\n", route.Name, route.Target, route.AllowWebSocket, route.AllowSSE)
+	}
+	return 0
+}
+
+func (c CLI) runTunnelRouteAdd(args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(c.Err, "tunnel route add requires type and name, for example: tunnel route add http local --url http://127.0.0.1:3000")
+		return 2
+	}
+	routeType := strings.TrimSpace(strings.ToLower(args[0]))
+	name := strings.TrimSpace(args[1])
+	if routeType != "http" {
+		fmt.Fprintf(c.Err, "unsupported tunnel route type: %s\n", routeType)
+		return 2
+	}
+	fs := flag.NewFlagSet("tunnel route add", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	target := fs.String("url", "", "local HTTP target URL")
+	targetAlias := fs.String("target", "", "local HTTP target URL")
+	allowWebSocket := fs.Bool("allow-websocket", false, "allow WebSocket upgrade")
+	allowSSE := fs.Bool("allow-sse", true, "allow SSE responses")
+	maxRequestBytes := fs.Int64("max-request-bytes", 0, "max request bytes")
+	maxResponseBytes := fs.Int64("max-response-bytes", 0, "max response bytes")
+	if err := fs.Parse(args[2:]); err != nil {
+		return 2
+	}
+	if *target == "" {
+		*target = *targetAlias
+	}
+	route := HTTPRoute{
+		Name:             name,
+		Target:           strings.TrimSpace(*target),
+		AllowWebSocket:   *allowWebSocket,
+		AllowSSE:         *allowSSE,
+		MaxRequestBytes:  *maxRequestBytes,
+		MaxResponseBytes: *maxResponseBytes,
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	cfg.HTTPRoutes = upsertHTTPRoute(cfg.HTTPRoutes, route)
+	if result := ValidateConfig(cfg, false); !result.OK() {
+		printValidation(c.Err, result)
+		return 1
+	}
+	if err := SaveConfig(*configPath, cfg); err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	fmt.Fprintf(c.Out, "tunnel route saved: %s\n", name)
+	return 0
+}
+
+func (c CLI) runTunnelRouteRemove(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.Err, "tunnel route remove requires a name")
+		return 2
+	}
+	name := strings.TrimSpace(args[0])
+	fs := flag.NewFlagSet("tunnel route remove", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	next, removed := removeHTTPRoute(cfg.HTTPRoutes, name)
+	if !removed {
+		fmt.Fprintf(c.Err, "tunnel route not found: %s\n", name)
+		return 1
+	}
+	cfg.HTTPRoutes = next
+	if err := SaveConfig(*configPath, cfg); err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	fmt.Fprintf(c.Out, "tunnel route removed: %s\n", name)
+	return 0
 }
 
 func (c CLI) runStatus(args []string) int {
@@ -344,4 +675,78 @@ func checkBaseURL(rawURL string, timeout time.Duration) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func normalizeMCPTransport(transport string, endpoint string, command string) string {
+	value := strings.ToLower(strings.TrimSpace(transport))
+	switch value {
+	case "streamable-http", "streamable_http":
+		return "streamable_http"
+	case "http", "sse", "stdio":
+		return value
+	}
+	if strings.TrimSpace(command) != "" {
+		return "stdio"
+	}
+	if strings.TrimSpace(endpoint) != "" {
+		return "streamable_http"
+	}
+	return value
+}
+
+func upsertMCPServer(items []MCPServer, server MCPServer) []MCPServer {
+	for index, item := range items {
+		if item.Name == server.Name {
+			next := append([]MCPServer(nil), items...)
+			next[index] = server
+			return next
+		}
+	}
+	return append(append([]MCPServer(nil), items...), server)
+}
+
+func removeMCPServer(items []MCPServer, name string) ([]MCPServer, bool) {
+	next := make([]MCPServer, 0, len(items))
+	removed := false
+	for _, item := range items {
+		if item.Name == name {
+			removed = true
+			continue
+		}
+		next = append(next, item)
+	}
+	return next, removed
+}
+
+func findMCPServer(items []MCPServer, name string) (MCPServer, bool) {
+	for _, item := range items {
+		if item.Name == name {
+			return item, true
+		}
+	}
+	return MCPServer{}, false
+}
+
+func upsertHTTPRoute(items []HTTPRoute, route HTTPRoute) []HTTPRoute {
+	for index, item := range items {
+		if item.Name == route.Name {
+			next := append([]HTTPRoute(nil), items...)
+			next[index] = route
+			return next
+		}
+	}
+	return append(append([]HTTPRoute(nil), items...), route)
+}
+
+func removeHTTPRoute(items []HTTPRoute, name string) ([]HTTPRoute, bool) {
+	next := make([]HTTPRoute, 0, len(items))
+	removed := false
+	for _, item := range items {
+		if item.Name == name {
+			removed = true
+			continue
+		}
+		next = append(next, item)
+	}
+	return next, removed
 }
