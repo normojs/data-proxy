@@ -12,21 +12,25 @@ import (
 )
 
 const (
-	ErrorCodeToolNotAllowed     = "BRIDGE_POLICY_TOOL_NOT_ALLOWED"
-	ErrorCodeWriteDisabled      = "BRIDGE_POLICY_WRITE_DISABLED"
-	ErrorCodeMCPTargetForbidden = "BRIDGE_POLICY_MCP_TARGET_FORBIDDEN"
-	ErrorCodeResultTooLarge     = "BRIDGE_POLICY_RESULT_TOO_LARGE"
+	ErrorCodeToolNotAllowed      = "BRIDGE_POLICY_TOOL_NOT_ALLOWED"
+	ErrorCodeWriteDisabled       = "BRIDGE_POLICY_WRITE_DISABLED"
+	ErrorCodeMCPTargetForbidden  = "BRIDGE_POLICY_MCP_TARGET_FORBIDDEN"
+	ErrorCodeHTTPTargetForbidden = "BRIDGE_POLICY_HTTP_TARGET_FORBIDDEN"
+	ErrorCodeResultTooLarge      = "BRIDGE_POLICY_RESULT_TOO_LARGE"
 )
 
 type Policy struct {
-	AllowedTools      []string `json:"allowed_tools,omitempty"`
-	AllowWrite        bool     `json:"allow_write"`
-	MaxResultBytes    int      `json:"max_result_bytes,omitempty"`
-	MaxScanFileBytes  int      `json:"max_scan_file_bytes,omitempty"`
-	MaxResults        int      `json:"max_results,omitempty"`
-	TreeDepth         int      `json:"tree_depth,omitempty"`
-	WalkDepth         int      `json:"walk_depth,omitempty"`
-	MCPAllowedTargets []string `json:"mcp_allowed_targets,omitempty"`
+	AllowedTools       []string `json:"allowed_tools,omitempty"`
+	AllowWrite         bool     `json:"allow_write"`
+	MaxResultBytes     int      `json:"max_result_bytes,omitempty"`
+	MaxScanFileBytes   int      `json:"max_scan_file_bytes,omitempty"`
+	MaxResults         int      `json:"max_results,omitempty"`
+	TreeDepth          int      `json:"tree_depth,omitempty"`
+	WalkDepth          int      `json:"walk_depth,omitempty"`
+	MCPAllowedTargets  []string `json:"mcp_allowed_targets,omitempty"`
+	HTTPAllowedTargets []string `json:"http_allowed_targets,omitempty"`
+	HTTPDeniedTargets  []string `json:"http_denied_targets,omitempty"`
+	HTTPDeniedPorts    []int    `json:"http_denied_ports,omitempty"`
 }
 
 type Error struct {
@@ -82,6 +86,9 @@ func Marshal(policy Policy) (string, error) {
 func Normalize(policy Policy) Policy {
 	policy.AllowedTools = normalizeList(policy.AllowedTools, 128)
 	policy.MCPAllowedTargets = normalizeList(policy.MCPAllowedTargets, 512)
+	policy.HTTPAllowedTargets = normalizeList(policy.HTTPAllowedTargets, 512)
+	policy.HTTPDeniedTargets = normalizeList(policy.HTTPDeniedTargets, 512)
+	policy.HTTPDeniedPorts = normalizePositiveInts(policy.HTTPDeniedPorts)
 	policy.MaxResultBytes = nonNegative(policy.MaxResultBytes)
 	policy.MaxScanFileBytes = nonNegative(policy.MaxScanFileBytes)
 	policy.MaxResults = nonNegative(policy.MaxResults)
@@ -112,6 +119,9 @@ func ValidateTool(policy Policy, toolName string) error {
 			return nil
 		}
 		if allowed == "mcp_proxy" && strings.HasPrefix(toolName, "mcp_proxy.") {
+			return nil
+		}
+		if allowed == "http_tunnel" && strings.HasPrefix(toolName, "http_tunnel.") {
 			return nil
 		}
 		if strings.HasSuffix(allowed, ".*") && strings.HasPrefix(toolName, strings.TrimSuffix(allowed, "*")) {
@@ -166,29 +176,40 @@ func ValidateResultSize(policy Policy, resultSize int) error {
 }
 
 func ValidateMCPTarget(policy Policy, rawTarget string) error {
+	return validateURLTarget(policy.MCPAllowedTargets, nil, nil, rawTarget, ErrorCodeMCPTargetForbidden, "MCP")
+}
+
+func ValidateHTTPTarget(policy Policy, rawTarget string) error {
+	return validateURLTarget(policy.HTTPAllowedTargets, policy.HTTPDeniedTargets, policy.HTTPDeniedPorts, rawTarget, ErrorCodeHTTPTargetForbidden, "HTTP")
+}
+
+func validateURLTarget(allowedTargets []string, deniedTargets []string, deniedPorts []int, rawTarget string, errorCode string, label string) error {
 	rawTarget = strings.TrimSpace(rawTarget)
 	if rawTarget == "" {
 		return nil
 	}
 	parsed, err := url.Parse(rawTarget)
 	if err != nil || parsed.Hostname() == "" {
-		return &Error{Code: ErrorCodeMCPTargetForbidden, Message: "invalid MCP target URL"}
+		return &Error{Code: errorCode, Message: "invalid " + label + " target URL"}
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return &Error{Code: ErrorCodeMCPTargetForbidden, Message: "MCP target must use http or https"}
+		return &Error{Code: errorCode, Message: label + " target must use http or https"}
 	}
-	if len(policy.MCPAllowedTargets) == 0 {
+	if targetMatchesDenied(parsed, deniedTargets, deniedPorts) {
+		return &Error{Code: errorCode, Message: label + " target is denied by server policy"}
+	}
+	if len(allowedTargets) == 0 {
 		if isDefaultLoopbackHost(parsed.Hostname()) {
 			return nil
 		}
-		return &Error{Code: ErrorCodeMCPTargetForbidden, Message: "MCP target must be loopback unless allowed by server policy"}
+		return &Error{Code: errorCode, Message: label + " target must be loopback unless allowed by server policy"}
 	}
-	for _, allowed := range policy.MCPAllowedTargets {
+	for _, allowed := range allowedTargets {
 		if targetMatchesAllowed(parsed, allowed) {
 			return nil
 		}
 	}
-	return &Error{Code: ErrorCodeMCPTargetForbidden, Message: "MCP target is not allowed by server policy"}
+	return &Error{Code: errorCode, Message: label + " target is not allowed by server policy"}
 }
 
 func copyArgs(args map[string]any) map[string]any {
@@ -274,6 +295,20 @@ func targetMatchesAllowed(target *url.URL, allowed string) bool {
 	return allowedPort == "" || allowedPort == target.Port()
 }
 
+func targetMatchesDenied(target *url.URL, deniedTargets []string, deniedPorts []int) bool {
+	for _, port := range deniedPorts {
+		if port > 0 && strconv.Itoa(port) == target.Port() {
+			return true
+		}
+	}
+	for _, denied := range deniedTargets {
+		if targetMatchesAllowed(target, denied) {
+			return true
+		}
+	}
+	return false
+}
+
 func splitAllowedHostPort(value string) (string, string) {
 	value = strings.TrimSpace(value)
 	if host, port, err := net.SplitHostPort(value); err == nil {
@@ -310,7 +345,7 @@ func isDefaultAllowedTool(toolName string) bool {
 	case "remote_read", "remote_tree", "remote_glob", "remote_grep", "remote_env_info":
 		return true
 	default:
-		return strings.HasPrefix(toolName, "mcp_proxy.")
+		return strings.HasPrefix(toolName, "mcp_proxy.") || strings.HasPrefix(toolName, "http_tunnel.")
 	}
 }
 
@@ -326,6 +361,19 @@ func normalizeList(values []string, maxLen int) []string {
 			value = value[:maxLen]
 		}
 		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
+func normalizePositiveInts(values []int) []int {
+	seen := map[int]bool{}
+	result := make([]int, 0, len(values))
+	for _, value := range values {
+		if value <= 0 || seen[value] {
 			continue
 		}
 		seen[value] = true

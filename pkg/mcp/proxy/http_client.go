@@ -246,6 +246,19 @@ func (c *HTTPClient) CallTool(ctx context.Context, server model.MCPProxyServer, 
 	}, nil
 }
 
+func (c *HTTPClient) CallRaw(ctx context.Context, server model.MCPProxyServer, req RawRequest) (RawResult, error) {
+	startedAt := time.Now()
+	var result json.RawMessage
+	if err := c.rpcRaw(ctx, server, req.Method, req.Params, &result); err != nil {
+		return RawResult{DurationMS: int(time.Since(startedAt).Milliseconds())}, err
+	}
+	return RawResult{
+		Result:     result,
+		DurationMS: int(time.Since(startedAt).Milliseconds()),
+		ResultSize: len(result),
+	}, nil
+}
+
 func (c *HTTPClient) rpc(ctx context.Context, server model.MCPProxyServer, method string, params any, out any) error {
 	if c == nil {
 		return ErrClientNotConfigured
@@ -261,6 +274,48 @@ func (c *HTTPClient) rpc(ctx context.Context, server model.MCPProxyServer, metho
 		ctx = context.Background()
 	}
 	requestBody, id, err := c.buildJSONRPCRequest(method, params)
+	if err != nil {
+		return err
+	}
+	if server.Transport == model.MCPProxyTransportSSE {
+		if method != "initialize" {
+			if err := c.ensureSSEInitialized(ctx, server); err != nil {
+				return err
+			}
+		}
+		return c.rpcSSE(ctx, server, method, requestBody, id, out)
+	}
+	if server.Transport == model.MCPProxyTransportStreamableHTTP && method != "initialize" {
+		if err := c.ensureStreamableInitialized(ctx, server); err != nil {
+			return err
+		}
+		err := c.rpcHTTPPost(ctx, server, method, requestBody, id, out)
+		if !errors.Is(err, errStreamableSessionExpired) {
+			return err
+		}
+		if err := c.ensureStreamableInitialized(ctx, server); err != nil {
+			return err
+		}
+		return c.rpcHTTPPost(ctx, server, method, requestBody, id, out)
+	}
+	return c.rpcHTTPPost(ctx, server, method, requestBody, id, out)
+}
+
+func (c *HTTPClient) rpcRaw(ctx context.Context, server model.MCPProxyServer, method string, params json.RawMessage, out *json.RawMessage) error {
+	if c == nil {
+		return ErrClientNotConfigured
+	}
+	if c.Client == nil {
+		c.Client = &http.Client{Timeout: defaultHTTPTimeout}
+	}
+	endpoint := strings.TrimSpace(server.Endpoint)
+	if endpoint == "" {
+		return errors.New("mcp proxy endpoint is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	requestBody, id, err := c.buildRawJSONRPCRequest(method, params)
 	if err != nil {
 		return err
 	}
@@ -364,6 +419,25 @@ func (c *HTTPClient) buildJSONRPCRequest(method string, params any) ([]byte, jso
 		return nil, nil, err
 	}
 	return requestBody, json.RawMessage(fmt.Sprintf("%d", id)), nil
+}
+
+func (c *HTTPClient) buildRawJSONRPCRequest(method string, params json.RawMessage) ([]byte, json.RawMessage, error) {
+	id := c.nextId.Add(1)
+	request := dto.MCPRequest{
+		JSONRPC: dto.MCPJSONRPCVersion,
+		ID:      json.RawMessage(fmt.Sprintf("%d", id)),
+		Method:  strings.TrimSpace(method),
+	}
+	if len(bytes.TrimSpace(params)) > 0 {
+		request.Params = params
+	} else {
+		request.Params = json.RawMessage(`{}`)
+	}
+	requestBody, err := common.Marshal(request)
+	if err != nil {
+		return nil, nil, err
+	}
+	return requestBody, request.ID, nil
 }
 
 func (c *HTTPClient) buildJSONRPCNotification(method string, params any) ([]byte, error) {

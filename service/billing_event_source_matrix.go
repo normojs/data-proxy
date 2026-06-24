@@ -36,6 +36,30 @@ func GetBillingEventSourceMatrix() dto.BillingEventSourceMatrixResponse {
 			},
 		},
 		{
+			Source:            model.BillingEventSourceTunnelMCP,
+			EventSource:       model.BillingEventSourceTunnelMCP,
+			Label:             "Tunnel MCP",
+			Status:            BillingEventSourceCapabilityRecordOnly,
+			SupportsRecording: true,
+			Notes: []string{
+				"Tunnel MCP gateway audit logs are mirrored into billing_events as audit-only records.",
+				"Successful tools/call records use per_call as price unit so future quota settlement can stay count-based.",
+				"Quota deduction, backfill, and reconciliation are intentionally pending until Tunnel billing policy is finalized.",
+			},
+		},
+		{
+			Source:            model.BillingEventSourceTunnelHTTP,
+			EventSource:       model.BillingEventSourceTunnelHTTP,
+			Label:             "HTTP Tunnel",
+			Status:            BillingEventSourceCapabilityRecordOnly,
+			SupportsRecording: true,
+			Notes: []string{
+				"HTTP Tunnel proxy_request audit logs are mirrored into billing_events as audit-only records.",
+				"Events include bytes, duration, status metadata, and request id for later traffic billing analysis.",
+				"Quota deduction, backfill, and reconciliation are intentionally pending until Tunnel traffic pricing is configured.",
+			},
+		},
+		{
 			Source:                  model.BillingEventSourceModelRequest,
 			EventSource:             model.BillingEventSourceModelRequest,
 			Label:                   "Model Request",

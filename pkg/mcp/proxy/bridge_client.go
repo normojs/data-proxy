@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -22,6 +23,7 @@ const (
 	BridgeToolMCPProxyTest      = "mcp_proxy.test"
 	BridgeToolMCPProxyListTools = "mcp_proxy.tools_list"
 	BridgeToolMCPProxyCallTool  = "mcp_proxy.tools_call"
+	BridgeToolMCPProxyRPC       = "mcp_proxy.rpc"
 )
 
 type BridgeEndpoint struct {
@@ -117,7 +119,11 @@ func (c *BridgeClient) Test(ctx context.Context, server model.MCPProxyServer) (T
 }
 
 func (c *BridgeClient) ListTools(ctx context.Context, server model.MCPProxyServer) ([]ToolDefinition, error) {
-	endpoint, candidates, err := c.candidateSessions(server, 0)
+	return c.ListToolsForUser(ctx, server, 0)
+}
+
+func (c *BridgeClient) ListToolsForUser(ctx context.Context, server model.MCPProxyServer, userId int) ([]ToolDefinition, error) {
+	endpoint, candidates, err := c.candidateSessions(server, userId)
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +149,30 @@ func (c *BridgeClient) CallTool(ctx context.Context, server model.MCPProxyServer
 	args["arguments"] = req.Arguments
 	response, err := c.forwardCandidates(ctx, candidates, BridgeToolMCPProxyCallTool, args, req.RequestId, req.UserId, req.TokenId)
 	result := bridgeCallResultFromResponse(response)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (c *BridgeClient) CallRaw(ctx context.Context, server model.MCPProxyServer, req RawRequest) (RawResult, error) {
+	endpoint, candidates, err := c.candidateSessions(server, req.UserId)
+	if err != nil {
+		return RawResult{}, err
+	}
+	args := bridgeProxyBaseArguments(server, endpoint)
+	args["method"] = strings.TrimSpace(req.Method)
+	if len(bytes.TrimSpace(req.Params)) > 0 {
+		var params any
+		if err := common.Unmarshal(req.Params, &params); err != nil {
+			return RawResult{}, err
+		}
+		args["params"] = params
+	} else {
+		args["params"] = map[string]any{}
+	}
+	response, err := c.forwardCandidates(ctx, candidates, BridgeToolMCPProxyRPC, args, req.RequestId, req.UserId, req.TokenId)
+	result := bridgeRawResultFromResponse(response)
 	if err != nil {
 		return result, err
 	}
@@ -315,6 +345,40 @@ func bridgeCallResultFromResponse(response bridge.ToolCallResponse) CallResult {
 		Metadata:        result.Metadata,
 		Summary:         result.Summary,
 		DurationMS:      durationMS,
+		ResultSize:      resultSize,
+		BridgeSessionId: response.Session.SessionId,
+		TargetClient:    response.Session.ClientId,
+	}
+}
+
+func bridgeRawResultFromResponse(response bridge.ToolCallResponse) RawResult {
+	result := response.Result
+	value := firstNonNil(result.Metadata["result"], result.Metadata["structuredContent"])
+	if value == nil {
+		for _, block := range result.Content {
+			text := bytes.TrimSpace(common.StringToByteSlice(block.Text))
+			if len(text) == 0 {
+				continue
+			}
+			if json.Valid(text) {
+				value = json.RawMessage(text)
+				break
+			}
+		}
+	}
+	raw := json.RawMessage(`{}`)
+	if value != nil {
+		if body, err := common.Marshal(value); err == nil && len(bytes.TrimSpace(body)) > 0 {
+			raw = body
+		}
+	}
+	resultSize := result.ResultSize
+	if resultSize <= 0 {
+		resultSize = len(raw)
+	}
+	return RawResult{
+		Result:          raw,
+		DurationMS:      result.DurationMS,
 		ResultSize:      resultSize,
 		BridgeSessionId: response.Session.SessionId,
 		TargetClient:    response.Session.ClientId,

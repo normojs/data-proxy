@@ -91,6 +91,16 @@ export interface ChannelSettings {
 export interface ChannelOtherSettings {
   azure_responses_version?: string
   responses_protocol?: 'auto' | 'native' | 'chat_completions' | 'disabled'
+  responses_reasoning_adapter?:
+    | 'default'
+    | 'auto'
+    | 'off'
+    | 'openai'
+    | 'deepseek'
+    | 'openrouter'
+    | 'qwen_enable_thinking'
+    | 'minimax_reasoning_split'
+    | 'low_high'
   vertex_key_type?: 'json' | 'api_key'
   openrouter_enterprise?: boolean
   aws_key_type?: 'ak_sk' | 'api_key'

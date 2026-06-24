@@ -33,6 +33,12 @@ import {
 } from './section-registry'
 
 const route = getRouteApi('/_authenticated/mcp/$section')
+const USER_MCP_SECTIONS = new Set<MCPSectionId>([
+  'market',
+  'my-tunnel-apps',
+  'tunnel-connections',
+  'tunnel-sessions',
+])
 
 export function MCPDashboard() {
   const { t } = useTranslation()
@@ -47,12 +53,12 @@ export function MCPDashboard() {
 
   const tabs = useMemo(
     () =>
-      MCP_SECTION_IDS.filter((section) => isAdmin || section === 'market').map(
-        (section) => ({
-          id: section,
-          titleKey: getMCPSectionMeta(section).titleKey,
-        })
-      ),
+      MCP_SECTION_IDS.filter(
+        (section) => isAdmin || USER_MCP_SECTIONS.has(section)
+      ).map((section) => ({
+        id: section,
+        titleKey: getMCPSectionMeta(section).titleKey,
+      })),
     [isAdmin]
   )
 

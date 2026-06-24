@@ -24,6 +24,8 @@ import type {
   GetLogStatsParams,
   GetLogStatsResponse,
   GetMidjourneyLogsParams,
+  GetRequestDiagnosticReportResponse,
+  GetRequestLogTraceResponse,
   GetTaskLogsParams,
   UserInfo,
 } from './types'
@@ -82,6 +84,37 @@ export const getLogStats = (params: GetLogStatsParams = {}) =>
 export const getUserLogStats = (
   params: Omit<GetLogStatsParams, 'username' | 'channel'> = {}
 ) => fetchLogStats('/api/log', params, false)
+
+export async function getRequestLogTrace(
+  requestId: string,
+  isAdmin: boolean
+): Promise<GetRequestLogTraceResponse> {
+  const path = isAdmin ? '/api/log/request' : '/api/log/self/request'
+  const res = await api.get(path, {
+    params: {
+      request_id: requestId,
+    },
+  })
+  return res.data
+}
+
+export async function getRequestDiagnosticReport(
+  requestId: string
+): Promise<GetRequestDiagnosticReportResponse> {
+  const res = await api.get(
+    `/api/log/request/${encodeURIComponent(requestId)}/diagnostic`
+  )
+  return res.data
+}
+
+export async function generateRequestDiagnosticReport(
+  requestId: string
+): Promise<GetRequestDiagnosticReportResponse> {
+  const res = await api.post(
+    `/api/log/request/${encodeURIComponent(requestId)}/diagnostic`
+  )
+  return res.data
+}
 
 export async function getUserInfo(
   userId: number

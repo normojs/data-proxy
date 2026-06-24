@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -70,4 +71,45 @@ func TestChatCompletionsStreamToResponsesEmitsToolCallLifecycle(t *testing.T) {
 	require.Contains(t, out, "event: response.completed")
 	require.Contains(t, out, `"name":"lookup"`)
 	require.Contains(t, out, `"arguments":"{\"query\":\"usd cny\"}"`)
+}
+
+func TestCompactTextAndUsageFromChatBody(t *testing.T) {
+	body := []byte(`{
+		"id":"chatcmpl-compact",
+		"object":"chat.completion",
+		"created":123,
+		"model":"deepseek-chat",
+		"choices":[
+			{"index":0,"message":{"role":"assistant","content":"compact summary"},"finish_reason":"stop"}
+		],
+		"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}
+	}`)
+
+	text, usage, newAPIError := compactTextAndUsageFromChatBody(body, &dto.OpenAIResponsesRequest{Model: "deepseek-chat"}, nil, http.StatusOK)
+
+	require.Nil(t, newAPIError)
+	require.Equal(t, "compact summary", text)
+	require.NotNil(t, usage)
+	require.Equal(t, 7, usage.InputTokens)
+	require.Equal(t, 3, usage.OutputTokens)
+	require.Equal(t, 10, usage.TotalTokens)
+}
+
+func TestCompactOutputMessage(t *testing.T) {
+	raw := compactOutputMessage("compact summary")
+
+	var output []map[string]any
+	require.NoError(t, json.Unmarshal(raw, &output))
+	require.Len(t, output, 1)
+	require.Equal(t, "message", output[0]["type"])
+	require.Equal(t, "assistant", output[0]["role"])
+	require.Equal(t, "completed", output[0]["status"])
+
+	content, ok := output[0]["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	part, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "output_text", part["type"])
+	require.Equal(t, "compact summary", part["text"])
 }

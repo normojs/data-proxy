@@ -157,6 +157,139 @@ type BridgeSessionCloseParams struct {
 	Reason    string
 }
 
+type BridgeAgentSetupParams struct {
+	UserId  int
+	BaseURL string
+	Request dto.BridgeAgentSetupRequest
+}
+
+func EnsureBridgeAgentSetup(params BridgeAgentSetupParams) (dto.BridgeAgentSetupResponse, error) {
+	if params.UserId <= 0 {
+		return dto.BridgeAgentSetupResponse{}, errors.New("invalid bridge user")
+	}
+	clientId := strings.TrimSpace(params.Request.ClientId)
+	var existing *model.BridgeClient
+	var err error
+	if clientId == "" {
+		clientId, err = generateBridgeAgentClientId()
+		if err != nil {
+			return dto.BridgeAgentSetupResponse{}, err
+		}
+	} else {
+		if len(clientId) > 128 {
+			return dto.BridgeAgentSetupResponse{}, errors.New("client_id is too long")
+		}
+		existing, err = model.GetBridgeClientByClientIdUnscoped(clientId)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.BridgeAgentSetupResponse{}, err
+		}
+		if err == nil && existing.UserId != params.UserId {
+			return dto.BridgeAgentSetupResponse{}, errors.New("bridge client not found")
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			existing = nil
+		}
+	}
+
+	tokenName := bridgeAgentTokenName(params.Request, clientId, existing)
+	token, key, created, rotated, err := ensureBridgeAgentToken(params.UserId, existing, tokenName, params.Request.Rotate)
+	if err != nil {
+		return dto.BridgeAgentSetupResponse{}, err
+	}
+	capabilities := bridgeAgentCapabilities()
+	capabilitiesJSON, err := common.Marshal(capabilities)
+	if err != nil {
+		return dto.BridgeAgentSetupResponse{}, err
+	}
+	client := &model.BridgeClient{
+		ClientId:     clientId,
+		UserId:       params.UserId,
+		TokenId:      token.Id,
+		Name:         bridgeAgentClientName(params.Request, existing, clientId),
+		Version:      truncateBridgeString(params.Request.Version, 64),
+		Platform:     truncateBridgeString(params.Request.Platform, 64),
+		Workspace:    truncateBridgeString(params.Request.Workspace, 512),
+		Capabilities: string(capabilitiesJSON),
+		Status:       model.BridgeClientStatusOffline,
+	}
+	if existing != nil {
+		if client.Version == "" {
+			client.Version = existing.Version
+		}
+		if client.Platform == "" {
+			client.Platform = existing.Platform
+		}
+		if client.Workspace == "" {
+			client.Workspace = existing.Workspace
+		}
+	}
+	if err := model.UpsertBridgeClient(client); err != nil {
+		return dto.BridgeAgentSetupResponse{}, err
+	}
+	stored, err := model.GetBridgeClientByClientId(clientId)
+	if err != nil {
+		return dto.BridgeAgentSetupResponse{}, err
+	}
+
+	baseURL := normalizeTunnelSetupBaseURL(params.BaseURL)
+	bridgeWSURL := tunnelBridgeWebSocketURL(baseURL)
+	apiKey := tunnelAPIKey(key)
+	headers := map[string]string{
+		"Authorization": "Bearer sk-<api_key>",
+	}
+	if apiKey != "" {
+		headers["Authorization"] = "Bearer " + apiKey
+	}
+	register := map[string]any{
+		"type": "register",
+		"data": map[string]any{
+			"client_id":    clientId,
+			"name":         stored.Name,
+			"version":      stored.Version,
+			"platform":     stored.Platform,
+			"workspace":    stored.Workspace,
+			"capabilities": capabilities,
+		},
+	}
+	environment := map[string]string{
+		"DATA_PROXY_BASE_URL":         baseURL,
+		"DATA_PROXY_BRIDGE_WS_URL":    bridgeWSURL,
+		"DATA_PROXY_BRIDGE_CLIENT_ID": clientId,
+	}
+	if apiKey != "" {
+		environment["DATA_PROXY_API_KEY"] = apiKey
+	}
+	config := map[string]any{
+		"base_url":      baseURL,
+		"bridge_ws_url": bridgeWSURL,
+		"client_id":     clientId,
+		"api_key_env":   "DATA_PROXY_API_KEY",
+		"headers":       headers,
+		"register":      register,
+	}
+	if apiKey != "" {
+		config["api_key"] = apiKey
+	}
+
+	return dto.BridgeAgentSetupResponse{
+		Client:         bridgeClientToDTO(*stored),
+		BaseURL:        baseURL,
+		BridgeWSURL:    bridgeWSURL,
+		ClientId:       clientId,
+		APIKey:         apiKey,
+		APIKeyOnce:     apiKey != "",
+		TokenId:        token.Id,
+		TokenName:      token.Name,
+		TokenMaskedKey: "sk-" + token.GetMaskedKey(),
+		Created:        created,
+		Rotated:        rotated,
+		Headers:        headers,
+		Register:       register,
+		Environment:    environment,
+		Config:         config,
+	}, nil
+}
+
 func ListBridgeClients(params BridgeClientListParams) ([]dto.BridgeClientItem, int64, error) {
 	clients, total, err := model.ListBridgeClients(model.BridgeClientFilter{
 		UserId:  params.UserId,
@@ -389,6 +522,81 @@ func bridgeClientUpdateFields(req dto.BridgeClientUpdateRequest) (map[string]any
 		updates["policy"] = rawPolicy
 	}
 	return updates, nil
+}
+
+func ensureBridgeAgentToken(userId int, existing *model.BridgeClient, tokenName string, rotate bool) (*model.Token, string, bool, bool, error) {
+	now := common.GetTimestamp()
+	if existing != nil && existing.TokenId > 0 {
+		token, err := model.GetTokenByIds(existing.TokenId, userId)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, "", false, false, err
+		}
+		if err == nil && !rotate && tunnelAgentTokenReusable(token, now) {
+			return token, "", false, false, nil
+		}
+		if err == nil {
+			if err := model.DisableTokenWithTx(model.DB, token.Id, userId); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, "", false, false, err
+			}
+		}
+	}
+	key, err := common.GenerateKey()
+	if err != nil {
+		return nil, "", false, false, err
+	}
+	token := &model.Token{
+		UserId:                userId,
+		Name:                  tokenName,
+		Key:                   key,
+		Status:                common.TokenStatusEnabled,
+		CreatedTime:           now,
+		AccessedTime:          now,
+		ExpiredTime:           -1,
+		RemainQuota:           0,
+		UnlimitedQuota:        true,
+		QuotaHardLimitEnabled: false,
+		ModelLimitsEnabled:    false,
+	}
+	if err := token.Insert(); err != nil {
+		return nil, "", false, false, err
+	}
+	return token, key, true, rotate && existing != nil && existing.TokenId > 0, nil
+}
+
+func generateBridgeAgentClientId() (string, error) {
+	for range 8 {
+		clientId := "bridge-" + strings.ToLower(common.GetRandomString(24))
+		_, err := model.GetBridgeClientByClientIdUnscoped(clientId)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return clientId, nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return "", errors.New("failed to allocate bridge client_id")
+}
+
+func bridgeAgentClientName(req dto.BridgeAgentSetupRequest, existing *model.BridgeClient, clientId string) string {
+	name := truncateBridgeString(req.ClientName, 128)
+	if name != "" {
+		return name
+	}
+	if existing != nil && strings.TrimSpace(existing.Name) != "" {
+		return existing.Name
+	}
+	if strings.TrimSpace(req.Workspace) != "" {
+		return limitTunnelString("Bridge Agent - "+req.Workspace, 128)
+	}
+	return limitTunnelString("Bridge Agent - "+clientId, 128)
+}
+
+func bridgeAgentTokenName(req dto.BridgeAgentSetupRequest, clientId string, existing *model.BridgeClient) string {
+	return limitTunnelString("Bridge Agent - "+bridgeAgentClientName(req, existing, clientId), 50)
+}
+
+func bridgeAgentCapabilities() []string {
+	return []string{"mcp", "tunnel", "local_agent"}
 }
 
 func normalizeBridgeCapabilities(capabilities []string) []string {

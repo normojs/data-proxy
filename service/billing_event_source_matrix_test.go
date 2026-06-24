@@ -11,11 +11,13 @@ import (
 func TestBillingEventSourceMatrixCoversAllLedgerSources(t *testing.T) {
 	matrix := GetBillingEventSourceMatrix()
 	require.NotZero(t, matrix.CheckedAt)
-	require.Len(t, matrix.Items, 8)
+	require.Len(t, matrix.Items, 10)
 	require.Equal(t, matrix.TotalSources, len(matrix.Items))
 
 	expectedSources := []string{
 		model.BillingEventSourceMCPToolCall,
+		model.BillingEventSourceTunnelMCP,
+		model.BillingEventSourceTunnelHTTP,
 		model.BillingEventSourceModelRequest,
 		model.BillingEventSourceAsyncTask,
 		model.BillingEventSourceViolationFee,
@@ -38,7 +40,7 @@ func TestBillingEventSourceMatrixCoversAllLedgerSources(t *testing.T) {
 		require.True(t, bySource[source], "missing billing source matrix entry for %s", source)
 	}
 	require.Equal(t, 7, matrix.ReadySources)
-	require.Equal(t, 0, matrix.RecordOnlySources)
+	require.Equal(t, 2, matrix.RecordOnlySources)
 	require.Equal(t, 0, matrix.PlannedSources)
 	require.Equal(t, 1, matrix.AuditOnlySources)
 }

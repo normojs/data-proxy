@@ -1,0 +1,41 @@
+{
+  "request": {
+    "model": "deepseek-chat",
+    "input": [
+      {
+        "type": "tool_search_output",
+        "call_id": "call_discover",
+        "tools": [
+          {
+            "type": "namespace",
+            "name": "browser",
+            "tools": [
+              {
+                "type": "function",
+                "name": "search",
+                "description": "Search web pages.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["query"]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "tool_choice": "auto"
+  },
+  "want": {
+    "tool_names": ["browser__search"],
+    "context_meta": {
+      "input_provided_tools_count": 1,
+      "namespace_tools_flattened": 1
+    }
+  }
+}

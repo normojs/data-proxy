@@ -43,6 +43,8 @@ type testResult struct {
 	newAPIError *types.NewAPIError
 }
 
+const defaultOpenAIChannelTestModel = "gpt-4o-mini"
+
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {
@@ -74,6 +76,43 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 	return rootUser.Id, nil
 }
 
+func shouldUseDefaultOpenAIChannelTestModel(channel *model.Channel) bool {
+	if channel == nil || channel.Type != constant.ChannelTypeOpenAI {
+		return false
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(channel.GetBaseURL()), "/")
+	defaultBaseURL := strings.TrimRight(constant.ChannelBaseURLs[constant.ChannelTypeOpenAI], "/")
+	return baseURL == "" || baseURL == defaultBaseURL
+}
+
+func resolveChannelTestModel(channel *model.Channel, requestedModel string) (string, error) {
+	testModel := strings.TrimSpace(requestedModel)
+	if testModel != "" {
+		return testModel, nil
+	}
+
+	if channel != nil && channel.TestModel != nil {
+		testModel = strings.TrimSpace(*channel.TestModel)
+		if testModel != "" {
+			return testModel, nil
+		}
+	}
+
+	if channel != nil {
+		for _, candidate := range channel.GetModels() {
+			testModel = strings.TrimSpace(candidate)
+			if testModel != "" {
+				return testModel, nil
+			}
+		}
+		if shouldUseDefaultOpenAIChannelTestModel(channel) {
+			return defaultOpenAIChannelTestModel, nil
+		}
+	}
+
+	return "", errors.New("test model is empty; configure Test Model or channel Models before testing")
+}
+
 func testChannel(channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
@@ -94,18 +133,12 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	testModel = strings.TrimSpace(testModel)
-	if testModel == "" {
-		if channel.TestModel != nil && *channel.TestModel != "" {
-			testModel = strings.TrimSpace(*channel.TestModel)
-		} else {
-			models := channel.GetModels()
-			if len(models) > 0 {
-				testModel = strings.TrimSpace(models[0])
-			}
-			if testModel == "" {
-				testModel = "gpt-4o-mini"
-			}
+	var resolveErr error
+	testModel, resolveErr = resolveChannelTestModel(channel, testModel)
+	if resolveErr != nil {
+		return testResult{
+			context:  c,
+			localErr: resolveErr,
 		}
 	}
 

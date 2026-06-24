@@ -1,0 +1,26 @@
+{
+  "request": {
+    "model": "openrouter/moonshotai/kimi-k2-thinking",
+    "input": "Summarize the last tool result and explain any uncertainty.",
+    "stream": true,
+    "reasoning": {
+      "effort": "max"
+    }
+  },
+  "options": {
+    "ReasoningAdapter": "openrouter"
+  },
+  "want": {
+    "message_roles": ["user"],
+    "reasoning": {
+      "effort": "xhigh"
+    },
+    "context_meta": {
+      "responses_reasoning_adapter": "openrouter",
+      "responses_reasoning_adapter_source": "configured",
+      "reasoning_forwarded": true,
+      "reasoning_params": ["reasoning.effort"],
+      "reasoning_effort_mapped": "xhigh"
+    }
+  }
+}

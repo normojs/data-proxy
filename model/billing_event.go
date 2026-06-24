@@ -11,6 +11,8 @@ import (
 
 const (
 	BillingEventSourceMCPToolCall  = "mcp_tool_call"
+	BillingEventSourceTunnelMCP    = "tunnel_mcp"
+	BillingEventSourceTunnelHTTP   = "tunnel_http"
 	BillingEventSourceModelRequest = "model_request"
 	BillingEventSourceAsyncTask    = "async_task"
 	BillingEventSourceViolationFee = "violation_fee"
@@ -29,6 +31,7 @@ const (
 	BillingEventUsageKindAudio      = "audio"
 	BillingEventUsageKindRealtime   = "realtime"
 	BillingEventUsageKindMidjourney = "midjourney"
+	BillingEventUsageKindTunnel     = "tunnel"
 )
 
 type BillingEvent struct {

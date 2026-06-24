@@ -29,8 +29,27 @@ func (c *CompositeClient) ListTools(ctx context.Context, server model.MCPProxySe
 	return c.clientForTransport(server.Transport).ListTools(ctx, server)
 }
 
+func (c *CompositeClient) ListToolsForUser(ctx context.Context, server model.MCPProxyServer, userId int) ([]ToolDefinition, error) {
+	client := c.clientForTransport(server.Transport)
+	if scoped, ok := client.(UserScopedListToolsClient); ok {
+		return scoped.ListToolsForUser(ctx, server, userId)
+	}
+	if userId > 0 {
+		return nil, ErrClientNotConfigured
+	}
+	return client.ListTools(ctx, server)
+}
+
 func (c *CompositeClient) CallTool(ctx context.Context, server model.MCPProxyServer, req CallRequest) (CallResult, error) {
 	return c.clientForTransport(server.Transport).CallTool(ctx, server, req)
+}
+
+func (c *CompositeClient) CallRaw(ctx context.Context, server model.MCPProxyServer, req RawRequest) (RawResult, error) {
+	client := c.clientForTransport(server.Transport)
+	if rawCaller, ok := client.(RawCaller); ok {
+		return rawCaller.CallRaw(ctx, server, req)
+	}
+	return RawResult{}, ErrClientNotConfigured
 }
 
 func (c *CompositeClient) SessionSnapshot(server model.MCPProxyServer) SessionSnapshot {

@@ -261,6 +261,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
 
+		requestCapture := service.StartRelayRequestCapture(c, relayInfo)
+		originalWriter := c.Writer
+		if requestCapture != nil {
+			c.Writer = service.NewRelayRequestCaptureResponseWriter(c.Writer, requestCapture)
+		}
 		switch relayFormat {
 		case types.RelayFormatOpenAIRealtime:
 			newAPIError = relay.WssHelper(c, relayInfo)
@@ -271,14 +276,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		default:
 			newAPIError = relayHandler(c, relayInfo)
 		}
+		c.Writer = originalWriter
 
 		if newAPIError == nil {
+			service.FinishRelayRequestCapture(requestCapture, nil)
 			relayInfo.LastError = nil
 			return
 		}
 
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
+		service.FinishRelayRequestCapture(requestCapture, service.RelayRequestCaptureError(newAPIError))
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 

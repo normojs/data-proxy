@@ -1,0 +1,32 @@
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: data-proxy-seaweedfs
+    restart: unless-stopped
+    command: >
+      server
+      -master
+      -volume
+      -filer
+      -s3
+      -s3.port=8333
+      -dir=/data
+    volumes:
+      - /root/workspace/dataproxy/storage/seaweedfs:/data
+    networks:
+      - data-proxy-internal
+
+  data-proxy:
+    depends_on:
+      - seaweedfs
+    volumes:
+      - /root/workspace/dataproxy/storage/capture/spool:/data/dataproxy-capture/spool
+      - /root/workspace/dataproxy/storage/capture/tmp:/data/dataproxy-capture/tmp
+    networks:
+      - data-proxy-public
+      - data-proxy-internal
+
+networks:
+  data-proxy-public:
+  data-proxy-internal:
+    internal: true

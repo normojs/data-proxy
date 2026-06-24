@@ -116,6 +116,7 @@ import {
 } from '../../api'
 import {
   ADD_MODE_OPTIONS,
+  CHANNEL_TYPES,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
   ERROR_MESSAGES,
@@ -197,6 +198,80 @@ const MODEL_MAPPING_PREVIEW_FALLBACK: Array<{
 
 const ADVANCED_SETTINGS_EXPANDED_KEY = 'channel-advanced-settings-expanded'
 const UPSTREAM_DETECTED_MODEL_PREVIEW_LIMIT = 8
+const RESPONSES_NATIVE_CHANNEL_TYPES = new Set([
+  1, 3, 17, 27, 39, 45, 48, 53, 57,
+])
+const RESPONSES_CHAT_COMPAT_CHANNEL_TYPES = new Set([
+  4, 20, 23, 25, 26, 35, 40, 42, 43, 46,
+])
+
+function getResponsesProtocolHint(
+  channelType: number,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): { badge: string; description: string } {
+  const channelName = t(
+    CHANNEL_TYPES[channelType as keyof typeof CHANNEL_TYPES] || 'Unknown'
+  )
+  if (RESPONSES_CHAT_COMPAT_CHANNEL_TYPES.has(channelType)) {
+    return {
+      badge: t('建议自动转换'),
+      description: t(
+        '{{channel}} 通常走 /v1/chat/completions；保持 Auto 会自动转换 /v1/responses。',
+        { channel: channelName }
+      ),
+    }
+  }
+  if (RESPONSES_NATIVE_CHANNEL_TYPES.has(channelType)) {
+    return {
+      badge: t('建议原生'),
+      description: t(
+        '{{channel}} 可优先走原生 /v1/responses；除非上游不兼容，否则保持 Auto。',
+        { channel: channelName }
+      ),
+    }
+  }
+  return {
+    badge: t('能力未知'),
+    description: t(
+      '无法确认该渠道是否支持 /v1/responses；如果上游报 404 或空响应，请改为转换到 Chat Completions。'
+    ),
+  }
+}
+
+function getResponsesReasoningHint(
+  channelType: number,
+  t: (key: string) => string
+): { badge: string; description: string } {
+  switch (channelType) {
+    case 17:
+      return {
+        badge: t('Qwen'),
+        description: t('推荐 Auto 或 Qwen enable_thinking。'),
+      }
+    case 20:
+      return {
+        badge: t('OpenRouter'),
+        description: t('推荐 Auto 或 OpenRouter reasoning.effort。'),
+      }
+    case 35:
+      return {
+        badge: t('MiniMax'),
+        description: t('推荐 Auto 或 MiniMax reasoning_split。'),
+      }
+    case 43:
+      return {
+        badge: t('DeepSeek'),
+        description: t(
+          '推荐 Auto 或 DeepSeek，转换 thinking 与 reasoning_effort。'
+        ),
+      }
+    default:
+      return {
+        badge: t('默认'),
+        description: t('不确定上游推理参数时，保持默认兼容或关闭推理参数。'),
+      }
+  }
+}
 
 function readAdvancedSettingsPreference(): boolean {
   if (typeof window === 'undefined') return false
@@ -369,6 +444,8 @@ export function ChannelMutateDrawer({
   const keyMode = form.watch('key_mode')
   const currentGroups = form.watch('group')
   const currentType = form.watch('type')
+  const responsesProtocolHint = getResponsesProtocolHint(currentType, t)
+  const responsesReasoningHint = getResponsesReasoningHint(currentType, t)
   const currentBaseUrl = form.watch('base_url')
   const currentModels = form.watch('models')
   const currentName = form.watch('name')
@@ -3176,14 +3253,23 @@ export function ChannelMutateDrawer({
                           render={({ field }) => (
                             <FormItem className='flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
                               <div className='min-w-0 flex-1 space-y-0.5'>
-                                <FormLabel>
-                                  {t('Responses Protocol')}
-                                </FormLabel>
+                                <FormLabel>{t('Responses Protocol')}</FormLabel>
                                 <FormDescription>
                                   {t(
                                     'Controls how this channel handles /v1/responses requests'
                                   )}
                                 </FormDescription>
+                                <div className='text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs'>
+                                  <Badge
+                                    variant='secondary'
+                                    className='h-5 rounded-md px-1.5 font-normal'
+                                  >
+                                    {responsesProtocolHint.badge}
+                                  </Badge>
+                                  <span>
+                                    {responsesProtocolHint.description}
+                                  </span>
+                                </div>
                               </div>
                               <div className='w-full sm:ml-4 sm:w-60'>
                                 <Select
@@ -3213,6 +3299,83 @@ export function ChannelMutateDrawer({
                                       </SelectItem>
                                       <SelectItem value='disabled'>
                                         {t('Disable Responses')}
+                                      </SelectItem>
+                                    </SelectGroup>
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </div>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='responses_reasoning_adapter'
+                          render={({ field }) => (
+                            <FormItem className='flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
+                              <div className='min-w-0 flex-1 space-y-0.5'>
+                                <FormLabel>{t('Responses 推理适配')}</FormLabel>
+                                <FormDescription>
+                                  {t(
+                                    '将 Responses reasoning 映射为上游 Chat 模型支持的推理参数'
+                                  )}
+                                </FormDescription>
+                                <div className='text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs'>
+                                  <Badge
+                                    variant='secondary'
+                                    className='h-5 rounded-md px-1.5 font-normal'
+                                  >
+                                    {responsesReasoningHint.badge}
+                                  </Badge>
+                                  <span>
+                                    {responsesReasoningHint.description}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className='w-full sm:ml-4 sm:w-60'>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  value={field.value || 'default'}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger className='w-full'>
+                                      <SelectValue
+                                        placeholder={t('默认兼容')}
+                                      />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent
+                                    align='end'
+                                    alignItemWithTrigger={false}
+                                  >
+                                    <SelectGroup>
+                                      <SelectItem value='default'>
+                                        {t('默认兼容')}
+                                      </SelectItem>
+                                      <SelectItem value='auto'>
+                                        {t('自动推断')}
+                                      </SelectItem>
+                                      <SelectItem value='off'>
+                                        {t('不转发推理参数')}
+                                      </SelectItem>
+                                      <SelectItem value='openai'>
+                                        {t('OpenAI reasoning_effort')}
+                                      </SelectItem>
+                                      <SelectItem value='deepseek'>
+                                        {t('DeepSeek')}
+                                      </SelectItem>
+                                      <SelectItem value='openrouter'>
+                                        {t('OpenRouter reasoning.effort')}
+                                      </SelectItem>
+                                      <SelectItem value='qwen_enable_thinking'>
+                                        {t('Qwen enable_thinking')}
+                                      </SelectItem>
+                                      <SelectItem value='minimax_reasoning_split'>
+                                        {t('MiniMax reasoning_split')}
+                                      </SelectItem>
+                                      <SelectItem value='low_high'>
+                                        {t('Low/High 档位')}
                                       </SelectItem>
                                     </SelectGroup>
                                   </SelectContent>

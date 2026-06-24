@@ -229,18 +229,21 @@ node tools/bridge_client_daemon.mjs --self-test --workspace=/tmp/data-proxy-brid
 ```
 
 The self-test does not require a token or data-proxy connection. It verifies a
-local read, write-disabled rejection, and outside-workspace write rejection.
+local read, daemon limit reporting, write-disabled rejection, outside-workspace
+write rejection, and a loopback HTTP Tunnel request against a temporary local
+HTTP server, including request body/header forwarding and response truncation.
 
 Supported capabilities:
 
 - Always advertised: `remote_read`, `remote_tree`, `remote_glob`,
-  `remote_grep`, `remote_env_info`, `mcp_proxy`.
+  `remote_grep`, `remote_env_info`, `mcp_proxy`, `http_tunnel`.
 - Advertised with `--enable-write`: `remote_write`, `remote_edit`.
 - Smoke-only policy verification can pass `--advertise-disabled-write-tools`
   without `--enable-write` so data-proxy can exercise the daemon's
   `REMOTE_WRITE_DISABLED` error and billing refund path.
 - MCP Proxy bridge tools: `mcp_proxy.test`, `mcp_proxy.tools_list`,
-  `mcp_proxy.tools_call`.
+  `mcp_proxy.tools_call`, `mcp_proxy.rpc`.
+- HTTP Tunnel bridge tool: `http_tunnel.request`.
 
 Default safety boundaries:
 
@@ -248,6 +251,9 @@ Default safety boundaries:
   for absolute paths outside the workspace.
 - MCP Proxy targets must be `localhost`, `127.0.0.1`, or `::1`;
   `--allow-non-loopback-mcp` is needed for other hosts.
+- HTTP Tunnel targets must be `localhost`, `127.0.0.1`, or `::1`;
+  `--allow-non-loopback-http` is needed for other hosts. data-proxy also
+  checks Bridge policy `http_allowed_targets`.
 - data-proxy also enforces per-client server policy before forwarding Bridge
   tool calls. The policy can restrict allowed tools, keep write tools disabled
   even when a daemon advertises them, cap result/scan limits, and allowlist MCP
@@ -403,16 +409,22 @@ and new configurations. Legacy `qidian_browser://...` endpoints are normalized
 by the parser, but `bridge://...` avoids URI scheme compatibility issues with
 the underscore.
 
-The client must advertise capability `mcp_proxy` and handle:
+The client must advertise capability `mcp_proxy` for MCP proxy and
+`http_tunnel` for HTTP tunnel. It should handle:
 
 - `mcp_proxy.test`
 - `mcp_proxy.tools_list`
 - `mcp_proxy.tools_call`
+- `mcp_proxy.rpc`
+- `http_tunnel.request`
 
 `tools_list` should return a Bridge tool result whose metadata contains
 `tools`, matching MCP `tools/list` definitions. `tools_call` should return
-normal MCP content/metadata/summary fields. Bridge tool errors are preserved in
-`bridge_audit_logs`, `mcp_tool_calls.error_code`, and billing refund records.
+normal MCP content/metadata/summary fields. `rpc` forwards read-only MCP
+methods such as `resources/list`, `resources/read`, `prompts/list`, and
+`prompts/get`; it should return the downstream JSON-RPC result in
+`metadata.result`. Bridge tool errors are preserved in `bridge_audit_logs`,
+`mcp_tool_calls.error_code`, and billing refund records.
 
 Write/edit/shell/install tools intentionally remain unsupported in the legacy
 mock client until QidianBrowser has a real permission and confirmation model.

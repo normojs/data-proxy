@@ -175,6 +175,10 @@ type RelayInfo struct {
 	// RequestConversionChain records request format conversions in order, e.g.
 	// ["openai", "openai_responses"] or ["openai", "claude"].
 	RequestConversionChain []types.RelayFormat
+	// RequestConversionMeta records structured details about compatibility
+	// conversions, such as protocol decisions and fallback behavior.
+	RequestConversionMeta  map[string]interface{}
+	RequestConversionNotes []string
 	// 最终请求到上游的格式。可由 adaptor 显式设置；
 	// 若为空，调用 GetFinalRequestRelayFormat 会回退到 RequestConversionChain 的最后一项或 RelayFormat。
 	FinalRequestRelayFormat types.RelayFormat
@@ -623,6 +627,45 @@ func (info *RelayInfo) AppendRequestConversion(format types.RelayFormat) {
 		return
 	}
 	info.RequestConversionChain = append(info.RequestConversionChain, format)
+}
+
+func (info *RelayInfo) SetRequestConversionMeta(key string, value interface{}) {
+	if info == nil {
+		return
+	}
+	key = strings.TrimSpace(key)
+	if key == "" || value == nil {
+		return
+	}
+	if info.RequestConversionMeta == nil {
+		info.RequestConversionMeta = map[string]interface{}{}
+	}
+	info.RequestConversionMeta[key] = value
+}
+
+func (info *RelayInfo) MergeRequestConversionMeta(meta map[string]interface{}) {
+	if info == nil || len(meta) == 0 {
+		return
+	}
+	for key, value := range meta {
+		info.SetRequestConversionMeta(key, value)
+	}
+}
+
+func (info *RelayInfo) AddRequestConversionNote(note string) {
+	if info == nil {
+		return
+	}
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return
+	}
+	for _, existing := range info.RequestConversionNotes {
+		if existing == note {
+			return
+		}
+	}
+	info.RequestConversionNotes = append(info.RequestConversionNotes, note)
 }
 
 func (info *RelayInfo) GetFinalRequestRelayFormat() types.RelayFormat {

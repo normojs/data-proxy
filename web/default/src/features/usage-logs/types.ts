@@ -92,6 +92,37 @@ export interface ChannelAffinityInfo {
   using_group?: string
 }
 
+export interface RequestConversionMeta {
+  responses_protocol?: string
+  upstream_protocol?: string
+  responses_protocol_decision?: string
+  responses_channel_capability?: string
+  responses_native_supported?: boolean
+  responses_chat_preferred?: boolean
+  responses_reasoning_adapter?: string
+  responses_reasoning_adapter_recommended?: string
+  responses_reasoning_adapter_source?: string
+  reasoning_forwarded?: boolean
+  reasoning_params?: string[]
+  reasoning_effort_mapped?: string
+  hosted_tools_functionized?: string[]
+  hosted_tools_filtered?: string[]
+  hosted_tools_direct_answer_hint?: boolean
+  unsupported_tools_filtered?: string[]
+  history_restored_count?: number
+  history_restore_sources?: string[]
+  history_recorded_count?: number
+  input_provided_tools_count?: number
+  namespace_tools_flattened?: number
+  reasoning_backfilled_count?: number
+  chat_sse_fallback?: boolean
+  responses_terminal_status?: string
+  responses_incomplete_details?: unknown
+  responses_terminal_error?: unknown
+  notes?: string[]
+  [key: string]: unknown
+}
+
 export interface LogOtherData {
   admin_info?: {
     is_multi_key?: boolean
@@ -112,6 +143,7 @@ export interface LogOtherData {
   }
   request_path?: string
   request_conversion?: string[]
+  request_conversion_meta?: RequestConversionMeta
   ws?: boolean
   audio?: boolean
   audio_input?: number
@@ -299,6 +331,161 @@ export interface GetLogStatsResponse {
   success: boolean
   message?: string
   data?: LogStatistics
+}
+
+export interface RequestLogTraceSummary {
+  status: string
+  type_counts: Record<string, number>
+  user_id?: number
+  username?: string
+  token_id?: number
+  token_name?: string
+  model_name?: string
+  channel?: number
+  channel_name?: string
+  group?: string
+  quota: number
+  prompt_tokens: number
+  completion_tokens: number
+  max_use_time: number
+  is_stream: boolean
+  created_at_start?: number
+  created_at_end?: number
+}
+
+export interface RequestLogTraceDiagnostics extends Record<string, unknown> {
+  request_path?: string
+  request_conversion?: string[]
+  request_conversion_meta?: RequestConversionMeta
+  stream_status?: LogOtherData['stream_status']
+  billing_source?: string
+  billing_preference?: string
+  upstream_model_name?: string
+  reasoning_effort?: string
+  error_type?: string
+  error_code?: string
+  status_code?: number
+  log_count?: number
+  contains_error?: boolean
+  contains_consume?: boolean
+  errors?: string[]
+}
+
+export interface RequestLogTraceItem {
+  id: number
+  user_id: number
+  created_at: number
+  type: number
+  type_name: string
+  content: string
+  username: string
+  token_id: number
+  token_name: string
+  model_name: string
+  quota: number
+  prompt_tokens: number
+  completion_tokens: number
+  use_time: number
+  is_stream: boolean
+  channel: number
+  channel_name?: string
+  group?: string
+  ip?: string
+  request_id?: string
+  upstream_request_id?: string
+  other?: LogOtherData
+}
+
+export interface RequestLogTrace {
+  query: string
+  scope: 'admin' | 'self' | string
+  total: number
+  request_ids: string[]
+  upstream_request_ids: string[]
+  summary: RequestLogTraceSummary
+  diagnostics: RequestLogTraceDiagnostics
+  logs: RequestLogTraceItem[]
+}
+
+export interface GetRequestLogTraceResponse {
+  success: boolean
+  message?: string
+  data?: RequestLogTrace
+}
+
+export interface RequestDiagnosticFinding {
+  level: 'error' | 'warning' | 'info' | string
+  code: string
+  message: string
+  detail?: string
+}
+
+export interface RequestDiagnosticArtifact {
+  id: number
+  kind: string
+  status: string
+  provider: string
+  bucket?: string
+  storage_key?: string
+  content_type: string
+  compression?: string
+  encryption_algorithm?: string
+  encryption_key_id?: string
+  sha256?: string
+  size_bytes: number
+  last_error?: string
+  uploaded_at?: number
+}
+
+export interface RequestDiagnosticCapture {
+  id: number
+  request_id: string
+  upstream_request_id?: string
+  user_id: number
+  token_id: number
+  channel_id: number
+  connected_app_id: number
+  group?: string
+  model_name: string
+  request_path: string
+  protocol_chain?: string
+  capture_level: string
+  capture_status: string
+  is_stream: boolean
+  has_error: boolean
+  last_error?: string
+  request_bytes: number
+  upstream_request_bytes: number
+  upstream_body_bytes: number
+  downstream_body_bytes: number
+  total_bytes: number
+  spool_dir?: string
+  started_at?: number
+  finished_at?: number
+  finalized_at?: number
+  artifacts?: RequestDiagnosticArtifact[]
+}
+
+export interface RequestDiagnosticReportPayload {
+  trace: RequestLogTrace
+  capture?: RequestDiagnosticCapture
+  findings: RequestDiagnosticFinding[]
+}
+
+export interface RequestDiagnosticReport {
+  id?: number
+  request_id: string
+  status: string
+  severity: 'ok' | 'warning' | 'error' | 'info' | string
+  summary: string
+  generated_at?: number
+  report: RequestDiagnosticReportPayload
+}
+
+export interface GetRequestDiagnosticReportResponse {
+  success: boolean
+  message?: string
+  data?: RequestDiagnosticReport
 }
 
 // ============================================================================

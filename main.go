@@ -145,6 +145,9 @@ func main() {
 	// OpenAPI binary response object cleanup task (enabled by TTL env)
 	service.StartMCPOpenAPIBinaryObjectCleanupTask()
 
+	// Request capture finalizer task (enabled by capture storage env)
+	service.StartRequestCaptureFinalizerTask()
+
 	// Currency display exchange rate auto-update task (admin-configurable)
 	service.StartExchangeRateAutoUpdateTask()
 

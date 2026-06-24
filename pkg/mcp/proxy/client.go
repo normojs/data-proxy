@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/QuantumNous/new-api/dto"
@@ -41,6 +42,22 @@ type CallResult struct {
 	TargetClient    string
 }
 
+type RawRequest struct {
+	Method    string
+	Params    json.RawMessage
+	RequestId string
+	UserId    int
+	TokenId   int
+}
+
+type RawResult struct {
+	Result          json.RawMessage
+	DurationMS      int
+	ResultSize      int
+	BridgeSessionId string
+	TargetClient    string
+}
+
 type SessionSnapshot struct {
 	Transport         string
 	HasSession        bool
@@ -60,6 +77,14 @@ type Client interface {
 	CallTool(ctx context.Context, server model.MCPProxyServer, req CallRequest) (CallResult, error)
 }
 
+type UserScopedListToolsClient interface {
+	ListToolsForUser(ctx context.Context, server model.MCPProxyServer, userId int) ([]ToolDefinition, error)
+}
+
+type RawCaller interface {
+	CallRaw(ctx context.Context, server model.MCPProxyServer, req RawRequest) (RawResult, error)
+}
+
 type UnconfiguredClient struct{}
 
 func (UnconfiguredClient) Test(ctx context.Context, server model.MCPProxyServer) (TestResult, error) {
@@ -70,6 +95,14 @@ func (UnconfiguredClient) ListTools(ctx context.Context, server model.MCPProxySe
 	return nil, ErrClientNotConfigured
 }
 
+func (UnconfiguredClient) ListToolsForUser(ctx context.Context, server model.MCPProxyServer, userId int) ([]ToolDefinition, error) {
+	return nil, ErrClientNotConfigured
+}
+
 func (UnconfiguredClient) CallTool(ctx context.Context, server model.MCPProxyServer, req CallRequest) (CallResult, error) {
 	return CallResult{}, ErrClientNotConfigured
+}
+
+func (UnconfiguredClient) CallRaw(ctx context.Context, server model.MCPProxyServer, req RawRequest) (RawResult, error) {
+	return RawResult{}, ErrClientNotConfigured
 }

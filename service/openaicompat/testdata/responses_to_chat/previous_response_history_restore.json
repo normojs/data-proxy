@@ -1,0 +1,35 @@
+{
+  "history": [
+    {
+      "id": "resp_exchange_lookup",
+      "output": [
+        {
+          "type": "function_call",
+          "call_id": "call_lookup_rate",
+          "name": "lookup_exchange_rate",
+          "arguments": "{\"pair\":\"USD_CNY\"}",
+          "reasoning_content": "Need the latest exchange rate before answering."
+        }
+      ]
+    }
+  ],
+  "request": {
+    "model": "deepseek-chat",
+    "previous_response_id": "resp_exchange_lookup",
+    "input": [
+      {
+        "type": "function_call_output",
+        "call_id": "call_lookup_rate",
+        "output": "{\"rate\":\"7.18\",\"source\":\"fixture\"}"
+      }
+    ]
+  },
+  "want": {
+    "message_roles": ["assistant", "tool"],
+    "assistant_tool_names": ["lookup_exchange_rate"],
+    "tool_message_call_ids": ["call_lookup_rate"],
+    "context_meta": {
+      "history_restored_count": 1
+    }
+  }
+}

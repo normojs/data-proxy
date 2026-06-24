@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from 'fs/promises';
+import http from 'http';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -21,6 +22,7 @@ const DEFAULT_TREE_DEPTH = 3;
 const DEFAULT_WALK_DEPTH = 8;
 const DEFAULT_MAX_RESULT_BYTES = 512 * 1024;
 const DEFAULT_MAX_SCAN_FILE_BYTES = 2 * 1024 * 1024;
+const DEFAULT_HTTP_TUNNEL_TIMEOUT_MS = 30_000;
 const MCP_PROTOCOL_VERSION = '2025-06-18';
 
 const DEFAULT_IGNORES = new Set([
@@ -67,6 +69,8 @@ Options:
                                  Advertise write tools while keeping writes disabled; intended for smoke tests.
   --allow-absolute-path          Allow absolute paths outside workspace.
   --allow-non-loopback-mcp       Allow MCP proxy targets outside loopback.
+  --allow-non-loopback-http      Allow HTTP tunnel targets outside loopback.
+  --http-tunnel-timeout-ms=<ms>  HTTP tunnel fetch timeout. Default ${DEFAULT_HTTP_TUNNEL_TIMEOUT_MS}
   --max-concurrency=<n>          Concurrent tool calls. Default ${DEFAULT_MAX_CONCURRENCY}
   --max-results=<n>              Max listed/search results per tool. Default ${DEFAULT_MAX_RESULTS}
   --tree-depth=<n>               Default and maximum remote_tree depth. Default ${DEFAULT_TREE_DEPTH}
@@ -76,13 +80,14 @@ Options:
   --ping-interval-ms=<ms>        Heartbeat interval. Default ${DEFAULT_PING_INTERVAL_MS}
   --no-reconnect                 Exit after first WebSocket close.
   --audit-log=<path>             Append local JSONL audit events.
-  --self-test                    Run local file guard checks and exit without connecting.
+  --self-test                    Run local file and HTTP tunnel guard checks, then exit without connecting.
   --help                         Show help.
 
 Supported tools:
   remote_read, remote_tree, remote_glob, remote_grep, remote_env_info
   remote_write, remote_edit when --enable-write is set
-  mcp_proxy.test, mcp_proxy.tools_list, mcp_proxy.tools_call
+  mcp_proxy.test, mcp_proxy.tools_list, mcp_proxy.tools_call, mcp_proxy.rpc
+  http_tunnel.request
 `);
 }
 
@@ -118,6 +123,7 @@ function buildConfig() {
     'remote_grep',
     'remote_env_info',
     'mcp_proxy',
+    'http_tunnel',
   ];
   if (enableWrite || advertiseDisabledWriteTools) {
     capabilities.push('remote_write', 'remote_edit');
@@ -136,6 +142,13 @@ function buildConfig() {
       args['allow-absolute-path'] === true || process.env.BRIDGE_DAEMON_ALLOW_ABSOLUTE_PATH === '1',
     allowNonLoopbackMCP:
       args['allow-non-loopback-mcp'] === true || process.env.BRIDGE_DAEMON_ALLOW_NON_LOOPBACK_MCP === '1',
+    allowNonLoopbackHTTP:
+      args['allow-non-loopback-http'] === true || process.env.BRIDGE_DAEMON_ALLOW_NON_LOOPBACK_HTTP === '1',
+    httpTunnelTimeoutMs: positiveInt(
+      args['http-tunnel-timeout-ms'] || process.env.BRIDGE_DAEMON_HTTP_TUNNEL_TIMEOUT_MS,
+      DEFAULT_HTTP_TUNNEL_TIMEOUT_MS,
+      300_000,
+    ),
     pingIntervalMs: positiveInt(args['ping-interval-ms'] || process.env.BRIDGE_DAEMON_PING_INTERVAL_MS, DEFAULT_PING_INTERVAL_MS),
     reconnect: args['no-reconnect'] !== true && process.env.BRIDGE_DAEMON_NO_RECONNECT !== '1',
     reconnectBaseMs: positiveInt(process.env.BRIDGE_DAEMON_RECONNECT_BASE_MS, DEFAULT_RECONNECT_BASE_MS),
@@ -725,6 +738,121 @@ function assertAllowedMCPTarget(config, target) {
   throw createToolError('MCP_PROXY_FORBIDDEN_TARGET', 'MCP proxy target must be loopback unless --allow-non-loopback-mcp is set');
 }
 
+function assertAllowedHTTPTarget(config, target) {
+  let parsed;
+  try {
+    parsed = new URL(target);
+  } catch {
+    throw createToolError('HTTP_TUNNEL_INVALID_TARGET', `invalid HTTP tunnel target: ${target}`);
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw createToolError('HTTP_TUNNEL_INVALID_TARGET', 'only http/https HTTP tunnel targets are supported');
+  }
+  if (config.allowNonLoopbackHTTP) return parsed.toString();
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+    return parsed.toString();
+  }
+  throw createToolError('HTTP_TUNNEL_FORBIDDEN_TARGET', 'HTTP tunnel target must be loopback unless --allow-non-loopback-http is set');
+}
+
+function httpHeaderObject(headers) {
+  const result = {};
+  for (const [key, value] of headers.entries()) {
+    if (hopByHopHeader(key)) continue;
+    result[key] = [value];
+  }
+  return result;
+}
+
+function normalizeTunnelRequestHeaders(value) {
+  const result = {};
+  if (!value || typeof value !== 'object') return result;
+  for (const [key, raw] of Object.entries(value)) {
+    if (hopByHopHeader(key)) continue;
+    if (Array.isArray(raw)) {
+      result[key] = raw.map((item) => String(item)).join(', ');
+    } else if (raw !== undefined && raw !== null) {
+      result[key] = String(raw);
+    }
+  }
+  return result;
+}
+
+function hopByHopHeader(name) {
+  switch (String(name || '').trim().toLowerCase()) {
+    case 'connection':
+    case 'proxy-connection':
+    case 'keep-alive':
+    case 'proxy-authenticate':
+    case 'proxy-authorization':
+    case 'te':
+    case 'trailer':
+    case 'transfer-encoding':
+    case 'upgrade':
+    case 'content-length':
+    case 'host':
+      return true;
+    default:
+      return false;
+  }
+}
+
+async function handleHTTPTunnelRequest(config, args) {
+  const startedAt = Date.now();
+  const target = assertAllowedHTTPTarget(config, String(args?.target || ''));
+  const method = String(args?.method || 'GET').trim().toUpperCase();
+  const headers = normalizeTunnelRequestHeaders(args?.headers);
+  const maxResponseBytes = positiveInt(args?.max_response_bytes, config.maxResultBytes, 50 * 1024 * 1024);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.httpTunnelTimeoutMs);
+  let body;
+  if (!['GET', 'HEAD'].includes(method) && args?.body_base64) {
+    body = Buffer.from(String(args.body_base64), 'base64');
+  }
+  try {
+    const response = await fetch(target, {
+      method,
+      headers,
+      body,
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const truncated = buffer.length > maxResponseBytes;
+    const output = truncated ? buffer.subarray(0, maxResponseBytes) : buffer;
+    const responseHeaders = httpHeaderObject(response.headers);
+    if (truncated) {
+      responseHeaders['x-data-proxy-tunnel-truncated'] = ['true'];
+    }
+    const payload = {
+      status_code: response.status,
+      headers: responseHeaders,
+      body_base64: output.toString('base64'),
+      truncated,
+      target,
+    };
+    return {
+      content: [{ type: 'text', text: JSON.stringify(payload) }],
+      summary: `${method} ${new URL(target).pathname} -> ${response.status}`,
+      duration_ms: Date.now() - startedAt,
+      result_size: output.length,
+      metadata: {
+        http_response: payload,
+        target,
+        method,
+      },
+    };
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw createToolError('HTTP_TUNNEL_TIMEOUT', `HTTP tunnel request timed out after ${config.httpTunnelTimeoutMs}ms`);
+    }
+    throw createToolError('HTTP_TUNNEL_REQUEST_FAILED', err?.message || 'HTTP tunnel request failed');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 class LocalMCPProxyClient {
   constructor() {
     this.nextId = 1;
@@ -783,6 +911,30 @@ class LocalMCPProxyClient {
         ...(result?.metadata && typeof result.metadata === 'object' ? result.metadata : {}),
         target,
         tool_name: args?.name,
+      },
+    };
+  }
+
+  async rpcForward(config, args) {
+    const startedAt = Date.now();
+    const target = assertAllowedMCPTarget(config, bridgeEndpointTarget(args));
+    const method = String(args?.method || '').trim();
+    if (!method) {
+      throw createToolError('MCP_PROXY_INVALID_METHOD', 'MCP proxy rpc method is required');
+    }
+    await this.ensureInitialized(target);
+    const params = args?.params && typeof args.params === 'object' ? args.params : {};
+    const result = await this.rpc(target, method, params);
+    const bytes = Buffer.byteLength(JSON.stringify(result ?? {}), 'utf8');
+    return {
+      content: [{ type: 'text', text: JSON.stringify(result ?? {}, null, 2) }],
+      summary: `${method} forwarded`,
+      duration_ms: Date.now() - startedAt,
+      result_size: bytes,
+      metadata: {
+        result: result ?? {},
+        target,
+        method,
       },
     };
   }
@@ -898,6 +1050,8 @@ async function handleMCPProxy(config, toolName, args) {
       return config.mcp.listTools(config, args);
     case 'mcp_proxy.tools_call':
       return config.mcp.callTool(config, args);
+    case 'mcp_proxy.rpc':
+      return config.mcp.rpcForward(config, args);
     default:
       throw createToolError('MCP_PROXY_TOOL_NOT_SUPPORTED', `unsupported MCP proxy bridge tool: ${toolName}`);
   }
@@ -928,6 +1082,9 @@ async function handleToolCall(config, message) {
   };
   if (toolName?.startsWith('mcp_proxy.')) {
     return handleMCPProxy(callConfig, toolName, args);
+  }
+  if (toolName === 'http_tunnel.request') {
+    return handleHTTPTunnelRequest(callConfig, args);
   }
   const handler = handlers[toolName];
   if (!handler || !callConfig.capabilities.includes(toolName)) {
@@ -1126,6 +1283,56 @@ async function expectToolError(label, expectedCode, fn) {
   throw new Error(`${label} unexpectedly succeeded; expected ${expectedCode}`);
 }
 
+async function startSelfTestHTTPServer() {
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
+      requests.push({
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body,
+      });
+      if (req.url.startsWith('/large')) {
+        res.writeHead(200, {
+          'Content-Type': 'text/plain',
+          'X-Self-Test': 'large',
+        });
+        res.end('abcdefghijklmnopqrstuvwxyz');
+        return;
+      }
+      res.writeHead(202, {
+        'Content-Type': 'application/json',
+        'X-Self-Test': 'echo',
+      });
+      res.end(JSON.stringify({
+        method: req.method,
+        url: req.url,
+        header: req.headers['x-self-test'] || '',
+        body,
+      }));
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  return {
+    requests,
+    baseURL: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise((resolve, reject) => {
+      server.close((err) => (err ? reject(err) : resolve()));
+    }),
+  };
+}
+
 async function runSelfTest(config) {
   await fs.mkdir(config.workspace, { recursive: true });
   const docsDir = path.join(config.workspace, 'docs');
@@ -1135,7 +1342,7 @@ async function runSelfTest(config) {
   const readOnlyConfig = {
     ...config,
     enableWrite: false,
-    capabilities: ['remote_read', 'remote_tree', 'remote_glob', 'remote_grep', 'remote_env_info', 'mcp_proxy', 'remote_write', 'remote_edit'],
+    capabilities: ['remote_read', 'remote_tree', 'remote_glob', 'remote_grep', 'remote_env_info', 'mcp_proxy', 'http_tunnel', 'remote_write', 'remote_edit'],
   };
   const writeConfig = {
     ...readOnlyConfig,
@@ -1175,10 +1382,64 @@ async function runSelfTest(config) {
     })
   ));
 
+  const httpServer = await startSelfTestHTTPServer();
+  try {
+    const echoResult = await handleHTTPTunnelRequest(readOnlyConfig, {
+      target: `${httpServer.baseURL}/echo?x=1`,
+      method: 'POST',
+      headers: {
+        'X-Self-Test': 'bridge-daemon',
+        Host: 'must-be-dropped.example',
+      },
+      body_base64: Buffer.from('hello over tunnel', 'utf8').toString('base64'),
+      max_response_bytes: 4096,
+    });
+    const echoPayload = echoResult.metadata?.http_response || {};
+    const echoBody = JSON.parse(Buffer.from(echoPayload.body_base64 || '', 'base64').toString('utf8'));
+    if (
+      echoPayload.status_code !== 202
+      || echoPayload.headers?.['x-self-test']?.[0] !== 'echo'
+      || echoBody.method !== 'POST'
+      || echoBody.url !== '/echo?x=1'
+      || echoBody.header !== 'bridge-daemon'
+      || echoBody.body !== 'hello over tunnel'
+    ) {
+      throw new Error(`self-test http_tunnel echo mismatch: ${JSON.stringify(echoPayload)}`);
+    }
+    if (httpServer.requests[0]?.headers?.host === 'must-be-dropped.example') {
+      throw new Error('self-test http_tunnel forwarded hop-by-hop Host header');
+    }
+
+    const truncatedResult = await handleHTTPTunnelRequest(readOnlyConfig, {
+      target: `${httpServer.baseURL}/large`,
+      method: 'GET',
+      max_response_bytes: 5,
+    });
+    const truncatedPayload = truncatedResult.metadata?.http_response || {};
+    const truncatedBody = Buffer.from(truncatedPayload.body_base64 || '', 'base64').toString('utf8');
+    if (
+      truncatedPayload.status_code !== 200
+      || truncatedPayload.truncated !== true
+      || truncatedPayload.headers?.['x-data-proxy-tunnel-truncated']?.[0] !== 'true'
+      || truncatedBody !== 'abcde'
+    ) {
+      throw new Error(`self-test http_tunnel truncation mismatch: ${JSON.stringify(truncatedPayload)}`);
+    }
+  } finally {
+    await httpServer.close();
+  }
+
   console.log(JSON.stringify({
     ok: true,
     workspace: config.workspace,
-    checks: ['remote_read', 'remote_env_info_limits', 'remote_write_disabled', 'remote_write_path_guard'],
+    checks: [
+      'remote_read',
+      'remote_env_info_limits',
+      'remote_write_disabled',
+      'remote_write_path_guard',
+      'http_tunnel_loopback',
+      'http_tunnel_response_limit',
+    ],
   }));
 }
 

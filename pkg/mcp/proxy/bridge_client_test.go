@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -86,6 +87,140 @@ func TestBridgeClientListToolsParsesMetadata(t *testing.T) {
 	require.Equal(t, "Search Repos", tools[0].Title)
 	require.Equal(t, "object", tools[0].InputSchema["type"])
 	<-done
+}
+
+func TestBridgeClientListToolsForUserUsesDedicatedUserSession(t *testing.T) {
+	originalDB := model.DB
+	model.DB = nil
+	t.Cleanup(func() {
+		model.DB = originalDB
+	})
+
+	hub := bridge.NewHub()
+	outbound := make(chan bridge.OutboundMessage, 1)
+	hub.Register(bridge.Session{
+		SessionId:    "session-user-100",
+		ClientId:     "client-user-100",
+		UserId:       100,
+		Capabilities: []string{BridgeCapabilityMCPProxy},
+		Send:         outbound,
+	})
+
+	done := make(chan error, 1)
+	var tools []ToolDefinition
+	go func() {
+		var err error
+		tools, err = NewBridgeClient(hub).ListToolsForUser(context.Background(), model.MCPProxyServer{
+			Transport: model.MCPProxyTransportBridge,
+			Endpoint:  "bridge://client-user-100",
+		}, 100)
+		done <- err
+	}()
+
+	msg := <-outbound
+	require.Equal(t, bridge.MessageTypeToolCall, msg.Type)
+	require.Equal(t, BridgeToolMCPProxyListTools, msg.Data.(dto.BridgeToolCallRequest).ToolName)
+	require.True(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{
+		Metadata: map[string]any{
+			"tools": []map[string]any{
+				{
+					"name":        "read_file",
+					"description": "Read a file",
+					"inputSchema": map[string]any{"type": "object"},
+				},
+			},
+		},
+	}))
+	require.NoError(t, <-done)
+	require.Len(t, tools, 1)
+	require.Equal(t, "read_file", tools[0].Name)
+}
+
+func TestBridgeClientListToolsForUserRejectsOtherUsersDedicatedSession(t *testing.T) {
+	originalDB := model.DB
+	model.DB = nil
+	t.Cleanup(func() {
+		model.DB = originalDB
+	})
+
+	hub := bridge.NewHub()
+	outbound := make(chan bridge.OutboundMessage, 1)
+	hub.Register(bridge.Session{
+		SessionId:    "session-user-200",
+		ClientId:     "client-user-200",
+		UserId:       200,
+		Capabilities: []string{BridgeCapabilityMCPProxy},
+		Send:         outbound,
+	})
+
+	_, err := NewBridgeClient(hub).ListToolsForUser(context.Background(), model.MCPProxyServer{
+		Transport: model.MCPProxyTransportBridge,
+		Endpoint:  "bridge://client-user-200",
+	}, 100)
+	require.ErrorIs(t, err, bridge.ErrClientNotFound)
+	select {
+	case msg := <-outbound:
+		t.Fatalf("other user's dedicated session should not receive tools/list: %#v", msg)
+	default:
+	}
+}
+
+func TestBridgeClientCallRawForwardsRPCMethod(t *testing.T) {
+	originalDB := model.DB
+	model.DB = nil
+	t.Cleanup(func() {
+		model.DB = originalDB
+	})
+
+	hub := bridge.NewHub()
+	outbound := make(chan bridge.OutboundMessage, 1)
+	hub.Register(bridge.Session{
+		SessionId:    "session-raw",
+		ClientId:     "client-raw",
+		UserId:       100,
+		Capabilities: []string{BridgeCapabilityMCPProxy},
+		Send:         outbound,
+	})
+
+	done := make(chan error, 1)
+	var result RawResult
+	go func() {
+		var err error
+		result, err = NewBridgeClient(hub).CallRaw(context.Background(), model.MCPProxyServer{
+			Transport: model.MCPProxyTransportBridge,
+			Endpoint:  "bridge://client-raw?target=http%3A%2F%2F127.0.0.1%3A30837%2Fmcp",
+		}, RawRequest{
+			Method:    dto.MCPMethodPromptsList,
+			Params:    json.RawMessage(`{"cursor":"next"}`),
+			RequestId: "raw-bridge-1",
+			UserId:    100,
+			TokenId:   10,
+		})
+		done <- err
+	}()
+
+	msg := <-outbound
+	require.Equal(t, bridge.MessageTypeToolCall, msg.Type)
+	req := msg.Data.(dto.BridgeToolCallRequest)
+	require.Equal(t, BridgeToolMCPProxyRPC, req.ToolName)
+	require.Equal(t, dto.MCPMethodPromptsList, req.Arguments["method"])
+	require.Equal(t, "http://127.0.0.1:30837/mcp", req.Arguments["target"])
+	require.Equal(t, map[string]any{"cursor": "next"}, req.Arguments["params"])
+	require.True(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{
+		Metadata: map[string]any{
+			"result": map[string]any{
+				"prompts": []map[string]any{
+					{"name": "summarize", "description": "Summarize"},
+				},
+			},
+		},
+		ResultSize: 64,
+	}))
+	require.NoError(t, <-done)
+	require.JSONEq(t, `{"prompts":[{"name":"summarize","description":"Summarize"}]}`, string(result.Result))
+	require.Equal(t, 64, result.ResultSize)
+	require.Equal(t, "session-raw", result.BridgeSessionId)
+	require.Equal(t, "client-raw", result.TargetClient)
 }
 
 func TestBridgeClientListToolsAutoSelectsLatestActiveSession(t *testing.T) {

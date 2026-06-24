@@ -45,6 +45,27 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			serviceStatusRoute.GET("/summary", controller.GetServiceStatusSummary)
 		}
+		tunnelRoute := apiRouter.Group("/tunnel")
+		tunnelRoute.Use(middleware.UserAuth())
+		{
+			tunnelRoute.GET("/apps", controller.ListTunnelApps)
+			tunnelRoute.POST("/apps", controller.CreateTunnelApp)
+			tunnelRoute.GET("/apps/:id", controller.GetTunnelApp)
+			tunnelRoute.GET("/apps/:id/connections", controller.ListTunnelConnections)
+			tunnelRoute.POST("/apps/:id/connections", controller.CreateTunnelConnection)
+			tunnelRoute.PATCH("/apps/:id/connections/:connection_id", controller.UpdateTunnelConnection)
+			tunnelRoute.DELETE("/apps/:id/connections/:connection_id", controller.RevokeTunnelConnection)
+			tunnelRoute.GET("/apps/:id/sessions", controller.ListTunnelSessions)
+			tunnelRoute.POST("/apps/:id/agent-setup", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.EnsureTunnelAgentSetup)
+			tunnelRoute.GET("/apps/:id/audit-logs", controller.ListTunnelAuditLogs)
+		}
+		tunnelAdminRoute := apiRouter.Group("/tunnel/admin")
+		tunnelAdminRoute.Use(middleware.AdminAuth())
+		{
+			tunnelAdminRoute.GET("/apps", controller.AdminListTunnelApps)
+			tunnelAdminRoute.GET("/apps/:id", controller.AdminGetTunnelApp)
+			tunnelAdminRoute.PATCH("/apps/:id", controller.AdminUpdateTunnelApp)
+		}
 		apiRouter.GET("/rankings", middleware.HeaderNavModuleAuth("rankings"), controller.GetRankings)
 		apiRouter.GET("/verification", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)
@@ -405,11 +426,20 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute := apiRouter.Group("/log")
 		logRoute.GET("/", middleware.AdminAuth(), controller.GetAllLogs)
 		logRoute.DELETE("/", middleware.AdminAuth(), controller.DeleteHistoryLogs)
+		logRoute.GET("/request", middleware.AdminAuth(), controller.GetRequestLogTrace)
+		logRoute.GET("/request-diagnostic-candidates", middleware.AdminAuth(), controller.ListRequestDiagnosticCandidates)
+		logRoute.GET("/request-diagnostic", middleware.AdminAuth(), controller.GetRequestDiagnosticReport)
+		logRoute.POST("/request-diagnostic", middleware.AdminAuth(), controller.GenerateRequestDiagnosticReport)
+		logRoute.GET("/request/:request_id/diagnostic", middleware.AdminAuth(), controller.GetRequestDiagnosticReport)
+		logRoute.POST("/request/:request_id/diagnostic", middleware.AdminAuth(), controller.GenerateRequestDiagnosticReport)
+		logRoute.GET("/request/:request_id", middleware.AdminAuth(), controller.GetRequestLogTrace)
 		logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
 		logRoute.GET("/self/stat", middleware.UserAuth(), controller.GetLogsSelfStat)
 		logRoute.GET("/channel_affinity_usage_cache", middleware.AdminAuth(), controller.GetChannelAffinityUsageCacheStats)
 		logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
 		logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogs)
+		logRoute.GET("/self/request", middleware.UserAuth(), controller.GetSelfRequestLogTrace)
+		logRoute.GET("/self/request/:request_id", middleware.UserAuth(), controller.GetSelfRequestLogTrace)
 		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
 
 		dataRoute := apiRouter.Group("/data")
@@ -645,6 +675,7 @@ func SetApiRouter(router *gin.Engine) {
 		bridgeRoute := apiRouter.Group("/bridge")
 		bridgeRoute.Use(middleware.UserAuth())
 		{
+			bridgeRoute.POST("/agent-setup", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.EnsureBridgeAgentSetup)
 			bridgeRoute.GET("/clients", controller.GetBridgeClients)
 			bridgeRoute.GET("/clients/:client_id/health", controller.GetBridgeClientHealth)
 			bridgeRoute.GET("/clients/:client_id", controller.GetBridgeClient)

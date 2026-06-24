@@ -1,9 +1,12 @@
 package openaicompat
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -19,22 +22,174 @@ const (
 	ResponsesProtocolDisabled        = "disabled"
 )
 
+const (
+	ResponsesReasoningAdapterLegacy                = "legacy"
+	ResponsesReasoningAdapterAuto                  = "auto"
+	ResponsesReasoningAdapterOff                   = "off"
+	ResponsesReasoningAdapterOpenAI                = "openai"
+	ResponsesReasoningAdapterDeepSeek              = "deepseek"
+	ResponsesReasoningAdapterOpenRouter            = "openrouter"
+	ResponsesReasoningAdapterQwenEnableThinking    = "qwen_enable_thinking"
+	ResponsesReasoningAdapterMiniMaxReasoningSplit = "minimax_reasoning_split"
+	ResponsesReasoningAdapterLowHigh               = "low_high"
+)
+
+type ResponsesToChatOptions struct {
+	ChannelType      int
+	ReasoningAdapter string
+}
+
 type ResponseToolKind string
 
 const (
 	ResponseToolKindFunction   ResponseToolKind = "function"
 	ResponseToolKindCustom     ResponseToolKind = "custom"
 	ResponseToolKindToolSearch ResponseToolKind = "tool_search"
+	ResponseToolKindHosted     ResponseToolKind = "hosted"
 )
 
 type ResponseToolSpec struct {
-	Kind     ResponseToolKind
-	Name     string
-	ChatName string
+	Kind       ResponseToolKind
+	Name       string
+	ChatName   string
+	HostedType string
+	Namespace  string
 }
 
 type ResponsesToChatContext struct {
 	ToolsByChatName map[string]ResponseToolSpec
+
+	HistoryRestoredCount     int
+	HistoryRestoreSources    []string
+	HistoryRecordedCount     int
+	InputProvidedToolsCount  int
+	NamespaceToolsFlattened  int
+	ReasoningBackfilledCount int
+	HostedToolsFunctionized  []string
+	HostedToolsFiltered      []string
+	HostedToolsDirectHint    bool
+	UnsupportedToolsFiltered []string
+	ReasoningAdapter         string
+	ReasoningAdapterSource   string
+	ReasoningForwarded       bool
+	ReasoningParams          []string
+	ReasoningEffort          string
+}
+
+func (ctx *ResponsesToChatContext) RequestConversionMeta() map[string]interface{} {
+	if ctx == nil {
+		return nil
+	}
+	meta := map[string]interface{}{}
+	if ctx.HistoryRestoredCount > 0 {
+		meta["history_restored_count"] = ctx.HistoryRestoredCount
+	}
+	if sources := uniqueSortedStrings(ctx.HistoryRestoreSources); len(sources) > 0 {
+		meta["history_restore_sources"] = sources
+	}
+	if ctx.HistoryRecordedCount > 0 {
+		meta["history_recorded_count"] = ctx.HistoryRecordedCount
+	}
+	if ctx.InputProvidedToolsCount > 0 {
+		meta["input_provided_tools_count"] = ctx.InputProvidedToolsCount
+	}
+	if ctx.NamespaceToolsFlattened > 0 {
+		meta["namespace_tools_flattened"] = ctx.NamespaceToolsFlattened
+	}
+	if ctx.ReasoningBackfilledCount > 0 {
+		meta["reasoning_backfilled_count"] = ctx.ReasoningBackfilledCount
+	}
+	if hostedTools := uniqueSortedStrings(ctx.HostedToolsFunctionized); len(hostedTools) > 0 {
+		meta["hosted_tools_functionized"] = hostedTools
+	}
+	if hostedTools := uniqueSortedStrings(ctx.HostedToolsFiltered); len(hostedTools) > 0 {
+		meta["hosted_tools_filtered"] = hostedTools
+	}
+	if ctx.HostedToolsDirectHint {
+		meta["hosted_tools_direct_answer_hint"] = true
+	}
+	if unsupportedTools := uniqueSortedStrings(ctx.UnsupportedToolsFiltered); len(unsupportedTools) > 0 {
+		meta["unsupported_tools_filtered"] = unsupportedTools
+	}
+	if ctx.ReasoningAdapter != "" && ctx.ReasoningAdapter != ResponsesReasoningAdapterLegacy {
+		meta["responses_reasoning_adapter"] = ctx.ReasoningAdapter
+		if ctx.ReasoningAdapterSource != "" {
+			meta["responses_reasoning_adapter_source"] = ctx.ReasoningAdapterSource
+		}
+	}
+	if ctx.ReasoningForwarded {
+		meta["reasoning_forwarded"] = true
+	}
+	if params := uniqueSortedStrings(ctx.ReasoningParams); len(params) > 0 {
+		meta["reasoning_params"] = params
+	}
+	if ctx.ReasoningEffort != "" {
+		meta["reasoning_effort_mapped"] = ctx.ReasoningEffort
+	}
+	return meta
+}
+
+func (ctx *ResponsesToChatContext) addHostedToolFunctionized(hostedType string) {
+	if ctx == nil {
+		return
+	}
+	hostedType = strings.TrimSpace(hostedType)
+	if hostedType == "" {
+		return
+	}
+	ctx.HostedToolsFunctionized = append(ctx.HostedToolsFunctionized, hostedType)
+}
+
+func (ctx *ResponsesToChatContext) addHostedToolFiltered(hostedType string) {
+	if ctx == nil {
+		return
+	}
+	hostedType = strings.TrimSpace(hostedType)
+	if hostedType == "" {
+		return
+	}
+	ctx.HostedToolsFiltered = append(ctx.HostedToolsFiltered, hostedType)
+}
+
+func (ctx *ResponsesToChatContext) addUnsupportedToolFiltered(toolType string) {
+	if ctx == nil {
+		return
+	}
+	toolType = strings.TrimSpace(toolType)
+	if toolType == "" {
+		toolType = "unknown"
+	}
+	ctx.UnsupportedToolsFiltered = append(ctx.UnsupportedToolsFiltered, toolType)
+}
+
+func (ctx *ResponsesToChatContext) addReasoningParam(param string) {
+	if ctx == nil {
+		return
+	}
+	param = strings.TrimSpace(param)
+	if param == "" {
+		return
+	}
+	ctx.ReasoningParams = append(ctx.ReasoningParams, param)
+	ctx.ReasoningForwarded = true
+}
+
+func uniqueSortedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func NormalizeResponsesProtocol(protocol string) string {
@@ -102,7 +257,266 @@ func IsResponsesProtocolDisabled(protocol string) bool {
 	return NormalizeResponsesProtocol(protocol) == ResponsesProtocolDisabled
 }
 
+func NormalizeResponsesReasoningAdapter(adapter string) string {
+	switch strings.TrimSpace(strings.ToLower(adapter)) {
+	case "", "default", ResponsesReasoningAdapterLegacy:
+		return ResponsesReasoningAdapterLegacy
+	case ResponsesReasoningAdapterAuto:
+		return ResponsesReasoningAdapterAuto
+	case ResponsesReasoningAdapterOff, "disabled", "none":
+		return ResponsesReasoningAdapterOff
+	case ResponsesReasoningAdapterOpenAI, "reasoning_effort":
+		return ResponsesReasoningAdapterOpenAI
+	case ResponsesReasoningAdapterDeepSeek:
+		return ResponsesReasoningAdapterDeepSeek
+	case ResponsesReasoningAdapterOpenRouter, "reasoning.effort":
+		return ResponsesReasoningAdapterOpenRouter
+	case ResponsesReasoningAdapterQwenEnableThinking, "qwen", "enable_thinking":
+		return ResponsesReasoningAdapterQwenEnableThinking
+	case ResponsesReasoningAdapterMiniMaxReasoningSplit, "minimax", "reasoning_split":
+		return ResponsesReasoningAdapterMiniMaxReasoningSplit
+	case ResponsesReasoningAdapterLowHigh:
+		return ResponsesReasoningAdapterLowHigh
+	default:
+		return ResponsesReasoningAdapterLegacy
+	}
+}
+
+type responsesReasoningConfig struct {
+	supportsThinking bool
+	thinkingParam    string
+	supportsEffort   bool
+	effortParam      string
+	effortValueMode  string
+}
+
+func applyResponsesReasoningToChat(chatReq *dto.GeneralOpenAIRequest, req *dto.OpenAIResponsesRequest, opts *ResponsesToChatOptions, ctx *ResponsesToChatContext) {
+	if chatReq == nil || req == nil || req.Reasoning == nil {
+		return
+	}
+	adapter := ResponsesReasoningAdapterLegacy
+	channelType := 0
+	if opts != nil {
+		adapter = NormalizeResponsesReasoningAdapter(opts.ReasoningAdapter)
+		channelType = opts.ChannelType
+	}
+	source := "configured"
+	if adapter == ResponsesReasoningAdapterAuto {
+		adapter = inferResponsesReasoningAdapter(channelType)
+		source = "auto"
+	}
+	if ctx != nil {
+		ctx.ReasoningAdapter = adapter
+		ctx.ReasoningAdapterSource = source
+	}
+	if adapter == ResponsesReasoningAdapterOff {
+		return
+	}
+	if adapter == ResponsesReasoningAdapterLegacy {
+		if strings.TrimSpace(req.Reasoning.Effort) != "" {
+			chatReq.ReasoningEffort = req.Reasoning.Effort
+			if ctx != nil {
+				ctx.ReasoningEffort = req.Reasoning.Effort
+				ctx.addReasoningParam("reasoning_effort")
+			}
+		}
+		return
+	}
+
+	config, ok := responsesReasoningConfigForAdapter(adapter)
+	if !ok {
+		return
+	}
+	reasoningEnabled, explicit := responsesReasoningRequested(req)
+	if !explicit {
+		return
+	}
+	if config.supportsThinking {
+		switch config.thinkingParam {
+		case "thinking":
+			chatReq.THINKING = mustMarshalRaw(map[string]any{
+				"type": lo.Ternary(reasoningEnabled, "enabled", "disabled"),
+			})
+			if ctx != nil {
+				ctx.addReasoningParam("thinking")
+			}
+		case "enable_thinking":
+			chatReq.EnableThinking = mustMarshalRaw(reasoningEnabled)
+			if ctx != nil {
+				ctx.addReasoningParam("enable_thinking")
+			}
+		case "reasoning_split":
+			chatReq.ReasoningSplit = mustMarshalRaw(reasoningEnabled)
+			if ctx != nil {
+				ctx.addReasoningParam("reasoning_split")
+			}
+		}
+	}
+
+	effortParam := config.effortParam
+	if effortParam == "" {
+		effortParam = "reasoning_effort"
+	}
+	if !reasoningEnabled {
+		if effortParam == "reasoning.effort" {
+			chatReq.Reasoning = mustMarshalRaw(map[string]any{"effort": "none"})
+			if ctx != nil {
+				ctx.ReasoningEffort = "none"
+				ctx.addReasoningParam("reasoning.effort")
+			}
+		}
+		return
+	}
+	if !config.supportsEffort {
+		return
+	}
+	mapped := mapResponsesReasoningEffort(req.Reasoning.Effort, config.effortValueMode)
+	if mapped == "" {
+		return
+	}
+	switch effortParam {
+	case "reasoning_effort":
+		chatReq.ReasoningEffort = mapped
+		if ctx != nil {
+			ctx.ReasoningEffort = mapped
+			ctx.addReasoningParam("reasoning_effort")
+		}
+	case "reasoning.effort":
+		chatReq.Reasoning = mustMarshalRaw(map[string]any{"effort": mapped})
+		if ctx != nil {
+			ctx.ReasoningEffort = mapped
+			ctx.addReasoningParam("reasoning.effort")
+		}
+	}
+}
+
+func inferResponsesReasoningAdapter(channelType int) string {
+	switch channelType {
+	case constant.ChannelTypeDeepSeek:
+		return ResponsesReasoningAdapterDeepSeek
+	case constant.ChannelTypeOpenRouter:
+		return ResponsesReasoningAdapterOpenRouter
+	case constant.ChannelTypeMiniMax:
+		return ResponsesReasoningAdapterMiniMaxReasoningSplit
+	case constant.ChannelTypeAli:
+		return ResponsesReasoningAdapterQwenEnableThinking
+	default:
+		return ResponsesReasoningAdapterLegacy
+	}
+}
+
+func InferResponsesReasoningAdapter(channelType int) string {
+	return inferResponsesReasoningAdapter(channelType)
+}
+
+func responsesReasoningConfigForAdapter(adapter string) (responsesReasoningConfig, bool) {
+	switch adapter {
+	case ResponsesReasoningAdapterOpenAI:
+		return responsesReasoningConfig{
+			supportsEffort:  true,
+			effortParam:     "reasoning_effort",
+			effortValueMode: "passthrough",
+		}, true
+	case ResponsesReasoningAdapterDeepSeek:
+		return responsesReasoningConfig{
+			supportsThinking: true,
+			thinkingParam:    "thinking",
+			supportsEffort:   true,
+			effortParam:      "reasoning_effort",
+			effortValueMode:  "deepseek",
+		}, true
+	case ResponsesReasoningAdapterOpenRouter:
+		return responsesReasoningConfig{
+			supportsEffort:  true,
+			effortParam:     "reasoning.effort",
+			effortValueMode: "openrouter",
+		}, true
+	case ResponsesReasoningAdapterQwenEnableThinking:
+		return responsesReasoningConfig{
+			supportsThinking: true,
+			thinkingParam:    "enable_thinking",
+		}, true
+	case ResponsesReasoningAdapterMiniMaxReasoningSplit:
+		return responsesReasoningConfig{
+			supportsThinking: true,
+			thinkingParam:    "reasoning_split",
+		}, true
+	case ResponsesReasoningAdapterLowHigh:
+		return responsesReasoningConfig{
+			supportsEffort:  true,
+			effortParam:     "reasoning_effort",
+			effortValueMode: "low_high",
+		}, true
+	default:
+		return responsesReasoningConfig{}, false
+	}
+}
+
+func responsesReasoningRequested(req *dto.OpenAIResponsesRequest) (bool, bool) {
+	if req == nil || req.Reasoning == nil {
+		return false, false
+	}
+	effort := strings.TrimSpace(strings.ToLower(req.Reasoning.Effort))
+	if effort != "" {
+		return !isDisabledReasoningEffort(effort), true
+	}
+	return true, true
+}
+
+func isDisabledReasoningEffort(effort string) bool {
+	switch strings.TrimSpace(strings.ToLower(effort)) {
+	case "none", "off", "disabled":
+		return true
+	default:
+		return false
+	}
+}
+
+func mapResponsesReasoningEffort(effort string, mode string) string {
+	effort = strings.TrimSpace(strings.ToLower(effort))
+	if effort == "" || isDisabledReasoningEffort(effort) {
+		return ""
+	}
+	switch strings.TrimSpace(strings.ToLower(mode)) {
+	case "deepseek":
+		if effort == "max" || effort == "xhigh" {
+			return "max"
+		}
+		return "high"
+	case "low_high":
+		if effort == "minimal" || effort == "low" {
+			return "low"
+		}
+		return "high"
+	case "openrouter":
+		switch effort {
+		case "max", "xhigh":
+			return "xhigh"
+		case "high", "medium", "low", "minimal":
+			return effort
+		default:
+			return ""
+		}
+	default:
+		switch effort {
+		case "minimal", "low", "medium", "high", "xhigh", "max":
+			return effort
+		default:
+			return ""
+		}
+	}
+}
+
+func mustMarshalRaw(value any) json.RawMessage {
+	raw, _ := common.Marshal(value)
+	return raw
+}
+
 func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (*dto.GeneralOpenAIRequest, *ResponsesToChatContext, error) {
+	return ResponsesRequestToChatCompletionsRequestWithOptions(req, nil)
+}
+
+func ResponsesRequestToChatCompletionsRequestWithOptions(req *dto.OpenAIResponsesRequest, opts *ResponsesToChatOptions) (*dto.GeneralOpenAIRequest, *ResponsesToChatContext, error) {
 	if req == nil {
 		return nil, nil, errors.New("request is nil")
 	}
@@ -111,6 +525,9 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 	}
 
 	ctx := &ResponsesToChatContext{ToolsByChatName: map[string]ResponseToolSpec{}}
+	enriched := DefaultResponsesChatHistory().EnrichRequestWithMeta(req)
+	ctx.HistoryRestoredCount = enriched.Count
+	ctx.HistoryRestoreSources = enriched.Sources
 	tools, err := convertResponsesToolsToChatTools(req.Tools, ctx)
 	if err != nil {
 		return nil, nil, err
@@ -125,6 +542,9 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		if text := strings.TrimSpace(rawJSONText(req.Instructions)); text != "" {
 			messages = append([]dto.Message{{Role: "system", Content: text}}, messages...)
 		}
+	}
+	if text := hostedToolFallbackInstruction(ctx); text != "" {
+		messages = append([]dto.Message{{Role: "system", Content: text}}, messages...)
 	}
 	messages = collapseSystemMessages(messages)
 	if len(messages) == 0 {
@@ -145,9 +565,7 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		ServiceTier:         rawStringToRawMessage(req.ServiceTier),
 		Store:               req.Store,
 	}
-	if req.Reasoning != nil && req.Reasoning.Effort != "" {
-		chatReq.ReasoningEffort = req.Reasoning.Effort
-	}
+	applyResponsesReasoningToChat(chatReq, req, opts, ctx)
 	if len(req.ToolChoice) > 0 {
 		chatReq.ToolChoice = responsesToolChoiceToChat(req.ToolChoice, ctx)
 	}
@@ -265,12 +683,23 @@ func convertResponsesToolValuesToChatTools(tools []any, ctx *ResponsesToChatCont
 				},
 			})
 			ctx.ToolsByChatName[name] = ResponseToolSpec{Kind: ResponseToolKindToolSearch, Name: name, ChatName: name}
+		case "web_search", "web_search_preview", "file_search", "computer", "computer_use_preview", "image_generation", "code_interpreter", "mcp":
+			ctx.addHostedToolFiltered(normalizeHostedToolType(toolType))
 		case "namespace":
 			children, _ := tool["tools"].([]any)
 			namespace := strings.TrimSpace(common.Interface2String(tool["name"]))
 			for _, child := range children {
 				childMap, ok := child.(map[string]any)
-				if !ok || common.Interface2String(childMap["type"]) != "function" {
+				if !ok {
+					ctx.addUnsupportedToolFiltered("namespace.unknown")
+					continue
+				}
+				childType := strings.TrimSpace(common.Interface2String(childMap["type"]))
+				if childType != "function" {
+					if childType == "" {
+						childType = "unknown"
+					}
+					ctx.addUnsupportedToolFiltered("namespace." + childType)
 					continue
 				}
 				name := strings.TrimSpace(common.Interface2String(childMap["name"]))
@@ -279,7 +708,10 @@ func convertResponsesToolValuesToChatTools(tools []any, ctx *ResponsesToChatCont
 				}
 				chatName := name
 				if namespace != "" {
-					chatName = namespace + "__" + name
+					chatName = flattenNamespaceToolName(namespace, name)
+					if chatName != name {
+						ctx.NamespaceToolsFlattened++
+					}
 				}
 				if _, exists := ctx.ToolsByChatName[chatName]; exists {
 					continue
@@ -292,9 +724,10 @@ func convertResponsesToolValuesToChatTools(tools []any, ctx *ResponsesToChatCont
 						Parameters:  childMap["parameters"],
 					},
 				})
-				ctx.ToolsByChatName[chatName] = ResponseToolSpec{Kind: ResponseToolKindFunction, Name: name, ChatName: chatName}
+				ctx.ToolsByChatName[chatName] = ResponseToolSpec{Kind: ResponseToolKindFunction, Name: name, ChatName: chatName, Namespace: namespace}
 			}
 		default:
+			ctx.addUnsupportedToolFiltered(toolType)
 			continue
 		}
 	}
@@ -325,7 +758,11 @@ func collectResponsesInputProvidedChatTools(raw json.RawMessage, ctx *ResponsesT
 		if !ok || len(rawTools) == 0 {
 			continue
 		}
-		chatTools = append(chatTools, convertResponsesToolValuesToChatTools(rawTools, ctx)...)
+		added := convertResponsesToolValuesToChatTools(rawTools, ctx)
+		chatTools = append(chatTools, added...)
+		if ctx != nil {
+			ctx.InputProvidedToolsCount += len(added)
+		}
 	}
 	return chatTools
 }
@@ -348,40 +785,306 @@ func convertResponsesInputToChatMessages(raw json.RawMessage, ctx *ResponsesToCh
 		}
 	}
 
-	messages := make([]dto.Message, 0, len(items))
+	outputCallIDs := map[string]bool{}
 	for _, item := range items {
 		itemType := strings.TrimSpace(common.Interface2String(item["type"]))
+		callID := responseItemCallID(item)
+		if callID != "" && isResponsesCallOutputItemType(itemType) {
+			outputCallIDs[callID] = true
+		}
+	}
+
+	messages := make([]dto.Message, 0, len(items))
+	pendingReasoning := ""
+	pendingToolCalls := make([]dto.ToolCallRequest, 0)
+	pendingToolReasoning := ""
+	pendingToolCallIDs := make([]string, 0)
+	awaitingToolOutputs := map[string]bool{}
+	deferredMessages := make([]dto.Message, 0)
+
+	hasAwaitingToolOutput := func() bool {
+		for callID := range awaitingToolOutputs {
+			if outputCallIDs[callID] {
+				return true
+			}
+		}
+		return false
+	}
+	appendRegularMessage := func(msg dto.Message) {
+		if hasAwaitingToolOutput() {
+			deferredMessages = append(deferredMessages, msg)
+			return
+		}
+		messages = append(messages, msg)
+	}
+	flushDeferredMessages := func() {
+		if len(deferredMessages) == 0 {
+			return
+		}
+		messages = append(messages, deferredMessages...)
+		deferredMessages = deferredMessages[:0]
+	}
+	appendPendingReasoningMessage := func() {
+		reasoning := consumePendingReasoning(&pendingReasoning)
+		if reasoning == "" {
+			return
+		}
+		msg := dto.Message{Role: "assistant", Content: ""}
+		attachReasoningToAssistantMessage(&msg, reasoning, false)
+		appendRegularMessage(msg)
+	}
+	flushPendingToolCalls := func() {
+		if len(pendingToolCalls) == 0 {
+			return
+		}
+		msg := dto.Message{Role: "assistant", Content: nil}
+		msg.SetToolCalls(pendingToolCalls)
+		attachReasoningToAssistantMessage(&msg, pendingToolReasoning, true)
+		if len(messages) > 0 && messages[len(messages)-1].Role == "assistant" {
+			prev := &messages[len(messages)-1]
+			toolCalls := prev.ParseToolCalls()
+			toolCalls = append(toolCalls, pendingToolCalls...)
+			prev.SetToolCalls(toolCalls)
+			attachReasoningToAssistantMessage(prev, pendingToolReasoning, true)
+			if prev.Content == "" {
+				prev.Content = nil
+			}
+		} else {
+			messages = append(messages, msg)
+		}
+		for _, callID := range pendingToolCallIDs {
+			if strings.TrimSpace(callID) != "" {
+				awaitingToolOutputs[callID] = true
+			}
+		}
+		pendingToolCalls = pendingToolCalls[:0]
+		pendingToolCallIDs = pendingToolCallIDs[:0]
+		pendingToolReasoning = ""
+	}
+	bufferToolCall := func(msg dto.Message) {
+		toolCalls := msg.ParseToolCalls()
+		if len(toolCalls) == 0 {
+			return
+		}
+		pendingToolCalls = append(pendingToolCalls, toolCalls...)
+		for _, toolCall := range toolCalls {
+			pendingToolCallIDs = append(pendingToolCallIDs, toolCall.ID)
+		}
+		pendingToolReasoning = joinReasoningText(pendingToolReasoning, consumePendingReasoning(&pendingReasoning), msg.GetReasoningContent())
+	}
+
+	for _, item := range items {
+		itemType := strings.TrimSpace(common.Interface2String(item["type"]))
+		if itemType == "" && strings.TrimSpace(common.Interface2String(item["role"])) != "" {
+			itemType = "message"
+		}
+		if !isResponsesCallItemType(itemType) {
+			flushPendingToolCalls()
+		}
 		switch itemType {
 		case "", "message":
 			role := strings.TrimSpace(common.Interface2String(item["role"]))
 			if role == "" {
 				role = "user"
 			}
-			messages = append(messages, dto.Message{Role: responsesRoleToChat(role), Content: responsesContentToChatContent(item["content"], role)})
+			if responsesRoleToChat(role) != "assistant" {
+				appendPendingReasoningMessage()
+			}
+			msg := dto.Message{Role: responsesRoleToChat(role), Content: responsesContentToChatContent(item["content"], role)}
+			attachReasoningToAssistantMessage(&msg, consumePendingReasoning(&pendingReasoning), false)
+			appendRegularMessage(msg)
 		case "input_text":
-			messages = append(messages, dto.Message{Role: "user", Content: common.Interface2String(item["text"])})
+			appendPendingReasoningMessage()
+			appendRegularMessage(dto.Message{Role: "user", Content: common.Interface2String(item["text"])})
 		case "output_text":
-			messages = append(messages, dto.Message{Role: "assistant", Content: common.Interface2String(item["text"])})
+			msg := dto.Message{Role: "assistant", Content: common.Interface2String(item["text"])}
+			attachReasoningToAssistantMessage(&msg, consumePendingReasoning(&pendingReasoning), false)
+			appendRegularMessage(msg)
 		case "function_call":
-			messages = append(messages, assistantToolCallMessage(item, common.Interface2String(item["name"]), item["arguments"]))
+			name := responsesFunctionCallChatName(item, ctx)
+			msg := assistantToolCallMessage(item, name, item["arguments"])
+			attachReasoningToAssistantMessage(&msg, joinReasoningText(consumePendingReasoning(&pendingReasoning), responseItemReasoningText(item)), false)
+			bufferToolCall(msg)
 		case "custom_tool_call":
 			input := common.Interface2String(item["input"])
-			messages = append(messages, assistantToolCallMessage(item, common.Interface2String(item["name"]), map[string]any{"input": input}))
+			name := common.Interface2String(item["name"])
+			msg := assistantToolCallMessage(item, name, map[string]any{"input": input})
+			attachReasoningToAssistantMessage(&msg, joinReasoningText(consumePendingReasoning(&pendingReasoning), responseItemReasoningText(item)), false)
+			bufferToolCall(msg)
 		case "tool_search_call":
-			messages = append(messages, assistantToolCallMessage(item, "tool_search", item["arguments"]))
+			msg := assistantToolCallMessage(item, "tool_search", item["arguments"])
+			attachReasoningToAssistantMessage(&msg, joinReasoningText(consumePendingReasoning(&pendingReasoning), responseItemReasoningText(item)), false)
+			bufferToolCall(msg)
+		case "web_search_call", "file_search_call", "computer_call", "image_generation_call", "code_interpreter_call", "mcp_call":
+			hostedType := hostedToolTypeFromCallItemType(itemType)
+			if ctx != nil {
+				ctx.addHostedToolFiltered(hostedType)
+			}
+			msg := dto.Message{Role: "assistant", Content: hostedToolCallFallbackText(itemType, item)}
+			attachReasoningToAssistantMessage(&msg, joinReasoningText(consumePendingReasoning(&pendingReasoning), responseItemReasoningText(item)), false)
+			appendRegularMessage(msg)
 		case "function_call_output", "custom_tool_call_output", "tool_search_output":
 			messages = append(messages, dto.Message{
 				Role:       "tool",
 				ToolCallId: common.Interface2String(item["call_id"]),
 				Content:    toolOutputContent(item),
 			})
+			if callID := responseItemCallID(item); callID != "" {
+				delete(awaitingToolOutputs, callID)
+			}
+			if !hasAwaitingToolOutput() {
+				flushDeferredMessages()
+			}
 		case "reasoning":
+			pendingReasoning = joinReasoningText(pendingReasoning, responseItemReasoningText(item))
 			continue
 		default:
-			messages = append(messages, dto.Message{Role: "user", Content: stringifyJSONValue(item)})
+			appendPendingReasoningMessage()
+			appendRegularMessage(dto.Message{Role: "user", Content: stringifyJSONValue(item)})
 		}
 	}
-	return mergeAdjacentToolCalls(messages, ctx), nil
+	flushPendingToolCalls()
+	appendPendingReasoningMessage()
+	flushDeferredMessages()
+	messages = mergeAdjacentToolCalls(messages, ctx)
+	if ctx != nil {
+		ctx.ReasoningBackfilledCount += backfillAssistantToolCallReasoning(messages)
+	} else {
+		backfillAssistantToolCallReasoning(messages)
+	}
+	return messages, nil
+}
+
+func responsesHostedCallChatName(itemType string, item map[string]any, ctx *ResponsesToChatContext) string {
+	if name := strings.TrimSpace(common.Interface2String(item["name"])); name != "" {
+		return name
+	}
+	hostedType := hostedToolTypeFromCallItemType(itemType)
+	if ctx != nil {
+		for chatName, spec := range ctx.ToolsByChatName {
+			if spec.Kind == ResponseToolKindHosted && spec.HostedType == hostedType {
+				return chatName
+			}
+		}
+	}
+	switch hostedType {
+	case "web_search":
+		return "web_search"
+	case "file_search":
+		return "file_search"
+	case "computer":
+		return "computer"
+	case "image_generation":
+		return "image_generation"
+	case "code_interpreter":
+		return "code_interpreter"
+	case "mcp":
+		return "mcp"
+	default:
+		return "tool"
+	}
+}
+
+func hostedToolTypeFromCallItemType(itemType string) string {
+	switch strings.TrimSpace(itemType) {
+	case "web_search_call":
+		return "web_search"
+	case "file_search_call":
+		return "file_search"
+	case "computer_call":
+		return "computer"
+	case "image_generation_call":
+		return "image_generation"
+	case "code_interpreter_call":
+		return "code_interpreter"
+	case "mcp_call":
+		return "mcp"
+	default:
+		return ""
+	}
+}
+
+func responsesHostedCallArguments(itemType string, item map[string]any) any {
+	switch hostedToolTypeFromCallItemType(itemType) {
+	case "web_search":
+		if action, ok := item["action"].(map[string]any); ok {
+			if query := strings.TrimSpace(common.Interface2String(action["query"])); query != "" {
+				return map[string]any{"query": query}
+			}
+			return map[string]any{"action": action}
+		}
+	case "file_search":
+		args := map[string]any{}
+		if queries, ok := item["queries"]; ok {
+			args["queries"] = queries
+			if list, ok := queries.([]any); ok && len(list) > 0 {
+				args["query"] = common.Interface2String(list[0])
+			}
+			if list, ok := queries.([]string); ok && len(list) > 0 {
+				args["query"] = list[0]
+			}
+		}
+		if results, ok := item["results"]; ok {
+			args["results"] = results
+		}
+		if len(args) > 0 {
+			return args
+		}
+	case "computer":
+		args := map[string]any{}
+		if action, ok := item["action"]; ok {
+			args["action"] = action
+		}
+		if pending, ok := item["pending_safety_checks"]; ok {
+			args["pending_safety_checks"] = pending
+		}
+		if len(args) > 0 {
+			return args
+		}
+	case "image_generation":
+		if arguments, ok := item["arguments"]; ok {
+			return arguments
+		}
+	case "code_interpreter":
+		args := map[string]any{}
+		if code := strings.TrimSpace(common.Interface2String(item["code"])); code != "" {
+			args["code"] = code
+		}
+		if language := strings.TrimSpace(common.Interface2String(item["language"])); language != "" {
+			args["language"] = language
+		}
+		if len(args) > 0 {
+			return args
+		}
+	case "mcp":
+		args := map[string]any{}
+		if toolName := strings.TrimSpace(common.Interface2String(item["tool_name"])); toolName != "" {
+			args["tool_name"] = toolName
+		}
+		if arguments, ok := item["arguments"]; ok {
+			args["arguments"] = arguments
+		}
+		if len(args) > 0 {
+			return args
+		}
+	}
+	if arguments, ok := item["arguments"]; ok {
+		return arguments
+	}
+	return map[string]any{}
+}
+
+func hostedToolCallFallbackText(itemType string, item map[string]any) string {
+	hostedType := hostedToolTypeFromCallItemType(itemType)
+	if hostedType == "" {
+		hostedType = strings.TrimSuffix(strings.TrimSpace(itemType), "_call")
+	}
+	args := responsesHostedCallArguments(itemType, item)
+	argsJSON, err := json.Marshal(args)
+	if err != nil || string(argsJSON) == "{}" || string(argsJSON) == "null" {
+		return "A hosted Responses tool call (" + hostedType + ") was requested earlier, but no hosted tool executor is available in this Chat Completions upstream."
+	}
+	return "A hosted Responses tool call (" + hostedType + ") was requested earlier, but no hosted tool executor is available in this Chat Completions upstream. Tool arguments: " + string(argsJSON)
 }
 
 func assistantToolCallMessage(item map[string]any, name string, arguments any) dto.Message {
@@ -406,6 +1109,77 @@ func assistantToolCallMessage(item map[string]any, name string, arguments any) d
 	return msg
 }
 
+func responsesFunctionCallChatName(item map[string]any, ctx *ResponsesToChatContext) string {
+	name := strings.TrimSpace(common.Interface2String(item["name"]))
+	namespace := strings.TrimSpace(common.Interface2String(item["namespace"]))
+	if namespace != "" && name != "" {
+		if ctx != nil {
+			chatName := flattenNamespaceToolName(namespace, name)
+			if _, ok := ctx.ToolsByChatName[chatName]; ok {
+				return chatName
+			}
+		}
+	}
+	if ctx != nil {
+		matchedChatName := ""
+		matches := 0
+		for chatName, spec := range ctx.ToolsByChatName {
+			if spec.Kind == ResponseToolKindFunction && spec.Name == name {
+				if chatName == name {
+					return chatName
+				}
+				matchedChatName = chatName
+				matches++
+			}
+		}
+		if matches == 1 {
+			return matchedChatName
+		}
+	}
+	return name
+}
+
+func flattenNamespaceToolName(namespace, name string) string {
+	namespace = strings.TrimSpace(namespace)
+	name = strings.TrimSpace(name)
+	if namespace == "" || name == "" || strings.HasPrefix(name, "mcp__") {
+		return name
+	}
+	if strings.HasPrefix(name, namespace) {
+		return name
+	}
+	combined := namespace + "__" + name
+	if len(combined) <= 64 {
+		return combined
+	}
+	sum := sha256.Sum256([]byte(combined))
+	suffix := "__" + hex.EncodeToString(sum[:])[:10]
+	prefixLimit := 64 - len(suffix)
+	if prefixLimit < 1 {
+		return hex.EncodeToString(sum[:])[:64]
+	}
+	prefix := truncateStringBytes(combined, prefixLimit)
+	prefix = strings.TrimRight(prefix, "_")
+	if prefix == "" {
+		prefix = "tool"
+	}
+	return prefix + suffix
+}
+
+func truncateStringBytes(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	var out strings.Builder
+	for _, r := range value {
+		if out.Len()+len(string(r)) > limit {
+			break
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
 func mergeAdjacentToolCalls(messages []dto.Message, _ *ResponsesToChatContext) []dto.Message {
 	if len(messages) < 2 {
 		return messages
@@ -418,6 +1192,7 @@ func mergeAdjacentToolCalls(messages []dto.Message, _ *ResponsesToChatContext) [
 				toolCalls := prev.ParseToolCalls()
 				toolCalls = append(toolCalls, msg.ParseToolCalls()...)
 				prev.SetToolCalls(toolCalls)
+				attachReasoningToAssistantMessage(prev, msg.GetReasoningContent(), true)
 				if prev.Content == "" {
 					prev.Content = nil
 				}
@@ -427,6 +1202,55 @@ func mergeAdjacentToolCalls(messages []dto.Message, _ *ResponsesToChatContext) [
 		merged = append(merged, msg)
 	}
 	return merged
+}
+
+func attachReasoningToAssistantMessage(msg *dto.Message, reasoning string, allowBackfill bool) {
+	if msg == nil || msg.Role != "assistant" {
+		return
+	}
+	reasoning = strings.TrimSpace(reasoning)
+	if reasoning == "" && allowBackfill && len(msg.ParseToolCalls()) > 0 {
+		reasoning = "tool call"
+	}
+	if reasoning == "" {
+		return
+	}
+	if existing := strings.TrimSpace(msg.GetReasoningContent()); existing != "" {
+		reasoning = joinReasoningText(existing, reasoning)
+	}
+	msg.ReasoningContent = &reasoning
+}
+
+func backfillAssistantToolCallReasoning(messages []dto.Message) int {
+	count := 0
+	for i := range messages {
+		if messages[i].Role != "assistant" || len(messages[i].ParseToolCalls()) == 0 || strings.TrimSpace(messages[i].GetReasoningContent()) != "" {
+			continue
+		}
+		reasoning := "tool call"
+		messages[i].ReasoningContent = &reasoning
+		count++
+	}
+	return count
+}
+
+func consumePendingReasoning(reasoning *string) string {
+	if reasoning == nil {
+		return ""
+	}
+	out := *reasoning
+	*reasoning = ""
+	return out
+}
+
+func joinReasoningText(values ...string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func responsesContentToChatContent(value any, role string) any {
@@ -557,9 +1381,24 @@ func responsesToolChoiceToChat(raw json.RawMessage, ctx *ResponsesToChatContext)
 		return choiceType
 	}
 	if isSkippedResponsesHostedToolType(choiceType) {
+		if ctx != nil {
+			ctx.addHostedToolFiltered(normalizeHostedToolType(choiceType))
+		}
 		return nil
 	}
 	return nil
+}
+
+func hostedToolFallbackInstruction(ctx *ResponsesToChatContext) string {
+	if ctx == nil {
+		return ""
+	}
+	hostedTools := uniqueSortedStrings(ctx.HostedToolsFiltered)
+	if len(hostedTools) == 0 {
+		return ""
+	}
+	ctx.HostedToolsDirectHint = true
+	return "The original Responses request included OpenAI hosted tools (" + strings.Join(hostedTools, ", ") + "), but this Chat Completions upstream cannot execute hosted tools. Do not call or invent those tools. Answer directly from the conversation and the model's available knowledge; if fresh external, file, computer, or code execution results are required, briefly state that limitation and provide the best answer possible."
 }
 
 func isSkippedResponsesHostedToolType(toolType string) bool {
@@ -568,6 +1407,152 @@ func isSkippedResponsesHostedToolType(toolType string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func normalizeHostedToolType(toolType string) string {
+	switch strings.TrimSpace(toolType) {
+	case "web_search_preview":
+		return "web_search"
+	case "computer_use_preview":
+		return "computer"
+	default:
+		return strings.TrimSpace(toolType)
+	}
+}
+
+func hostedToolChatName(toolType string, tool map[string]any) string {
+	if name := strings.TrimSpace(common.Interface2String(tool["name"])); name != "" {
+		return truncateHostedToolName(name)
+	}
+	switch normalizeHostedToolType(toolType) {
+	case "web_search":
+		return "web_search"
+	case "file_search":
+		return "file_search"
+	case "computer":
+		return "computer"
+	case "image_generation":
+		return "image_generation"
+	case "code_interpreter":
+		return "code_interpreter"
+	case "mcp":
+		if label := strings.TrimSpace(common.Interface2String(tool["server_label"])); label != "" {
+			return flattenNamespaceToolName("mcp", label)
+		}
+		return "mcp"
+	default:
+		return ""
+	}
+}
+
+func truncateHostedToolName(name string) string {
+	name = strings.TrimSpace(name)
+	if len(name) <= 64 {
+		return name
+	}
+	return flattenNamespaceToolName("hosted", name)
+}
+
+func hostedToolChoiceChatName(choiceType string, choice map[string]any, ctx *ResponsesToChatContext) string {
+	if ctx == nil {
+		return ""
+	}
+	name := hostedToolChatName(choiceType, choice)
+	if name != "" {
+		if spec, ok := ctx.ToolsByChatName[name]; ok && spec.Kind == ResponseToolKindHosted {
+			return spec.ChatName
+		}
+	}
+	normalized := normalizeHostedToolType(choiceType)
+	for chatName, spec := range ctx.ToolsByChatName {
+		if spec.Kind == ResponseToolKindHosted && spec.HostedType == normalized {
+			return chatName
+		}
+	}
+	return ""
+}
+
+func hostedToolDescription(toolType string, tool map[string]any) string {
+	if desc := strings.TrimSpace(common.Interface2String(tool["description"])); desc != "" {
+		return desc
+	}
+	switch normalizeHostedToolType(toolType) {
+	case "web_search":
+		return "Search the web for up-to-date information."
+	case "file_search":
+		return "Search files or vector stores available to the original Responses request."
+	case "computer":
+		return "Request a computer-use action from the client or upstream runtime."
+	case "image_generation":
+		return "Generate or edit an image."
+	case "code_interpreter":
+		return "Run code in an interpreter."
+	case "mcp":
+		return "Call a hosted MCP tool."
+	default:
+		return "Hosted Responses tool represented as a Chat function."
+	}
+}
+
+func hostedToolParameters(toolType string, tool map[string]any) any {
+	if params, ok := tool["parameters"]; ok && params != nil {
+		return params
+	}
+	switch normalizeHostedToolType(toolType) {
+	case "web_search":
+		return map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Search query."},
+			},
+			"required": []string{"query"},
+		}
+	case "file_search":
+		return map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Search query."},
+			},
+			"required": []string{"query"},
+		}
+	case "computer":
+		return map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action": map[string]any{"type": "string"},
+				"input":  map[string]any{"type": "object"},
+			},
+			"required": []string{"action"},
+		}
+	case "image_generation":
+		return map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"prompt": map[string]any{"type": "string"},
+			},
+			"required": []string{"prompt"},
+		}
+	case "code_interpreter":
+		return map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"code":     map[string]any{"type": "string"},
+				"language": map[string]any{"type": "string"},
+			},
+			"required": []string{"code"},
+		}
+	case "mcp":
+		return map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"tool_name": map[string]any{"type": "string"},
+				"arguments": map[string]any{"type": "object"},
+			},
+			"required": []string{"tool_name"},
+		}
+	default:
+		return map[string]any{"type": "object"}
 	}
 }
 
@@ -672,14 +1657,14 @@ func argumentsToString(value any) string {
 		if strings.TrimSpace(v) == "" {
 			return "{}"
 		}
-		return v
+		return canonicalizeJSONStringIfParseable(v)
 	case json.RawMessage:
 		if len(v) == 0 {
 			return "{}"
 		}
-		return string(v)
+		return canonicalizeJSONStringIfParseable(string(v))
 	default:
-		return stringifyJSONValue(v)
+		return canonicalizeJSONStringIfParseable(stringifyJSONValue(v))
 	}
 }
 
@@ -688,10 +1673,26 @@ func valueToOutputString(value any) string {
 	case nil:
 		return ""
 	case string:
-		return v
+		return canonicalizeJSONStringIfParseable(v)
 	default:
-		return stringifyJSONValue(v)
+		return canonicalizeJSONStringIfParseable(stringifyJSONValue(v))
 	}
+}
+
+func canonicalizeJSONStringIfParseable(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return value
+	}
+	var decoded any
+	if err := common.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		return value
+	}
+	encoded, err := common.Marshal(decoded)
+	if err != nil {
+		return value
+	}
+	return string(encoded)
 }
 
 func normalizeResponsesImageURL(value any) any {

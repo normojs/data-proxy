@@ -50,12 +50,29 @@ import type {
   BillingEventListParams,
   BridgeAuditLog,
   BridgeAuditLogListParams,
+  BridgeAgentSetupPayload,
+  BridgeAgentSetupResponse,
   BridgeClient,
   BridgeClientDetail,
   BridgeClientHealth,
   BridgeClientListParams,
   BridgeClientUpdatePayload,
   BridgeSession,
+  TunnelApp,
+  TunnelAppCreatePayload,
+  TunnelAppAdminUpdatePayload,
+  TunnelAppListParams,
+  TunnelConnection,
+  TunnelConnectionCreatePayload,
+  TunnelConnectionCreateResponse,
+  TunnelConnectionListParams,
+  TunnelConnectionUpdatePayload,
+  TunnelSession,
+  TunnelSessionListParams,
+  TunnelAuditLog,
+  TunnelAuditLogListParams,
+  TunnelAgentSetupPayload,
+  TunnelAgentSetupResponse,
   MCPSummary,
   MCPSummaryParams,
   MCPProxyDiscoveryEvent,
@@ -176,6 +193,19 @@ export const mcpQueryKeys = {
     clientId: string,
     filters: { scope?: 'all'; window_seconds?: number }
   ) => [...mcpQueryKeys.bridgeClients(), 'health', clientId, filters] as const,
+  tunnelApps: () => [...mcpQueryKeys.all, 'tunnel-apps'] as const,
+  tunnelAppsList: (filters: TunnelAppListParams) =>
+    [...mcpQueryKeys.tunnelApps(), 'list', filters] as const,
+  userTunnelAppsList: (filters: TunnelAppListParams) =>
+    [...mcpQueryKeys.tunnelApps(), 'user-list', filters] as const,
+  tunnelConnections: (appId: number) =>
+    [...mcpQueryKeys.tunnelApps(), 'connections', appId] as const,
+  tunnelConnectionsList: (appId: number, filters: TunnelConnectionListParams) =>
+    [...mcpQueryKeys.tunnelConnections(appId), 'list', filters] as const,
+  tunnelSessionsList: (appId: number, filters: TunnelSessionListParams) =>
+    [...mcpQueryKeys.tunnelApps(), 'sessions', appId, filters] as const,
+  tunnelAuditLogsList: (appId: number, filters: TunnelAuditLogListParams) =>
+    [...mcpQueryKeys.tunnelApps(), 'audit-logs', appId, filters] as const,
   auditLogs: () => [...mcpQueryKeys.all, 'audit-logs'] as const,
   auditLogsList: (filters: BridgeAuditLogListParams) =>
     [...mcpQueryKeys.auditLogs(), 'list', filters] as const,
@@ -214,6 +244,104 @@ export const mcpQueryKeys = {
 
 export function listMCPTools(params: MCPToolListParams) {
   return getPaginated<MCPTool>('/api/mcp/tools', params)
+}
+
+export function listTunnelApps(params: TunnelAppListParams) {
+  return getPaginated<TunnelApp>('/api/tunnel/admin/apps', params)
+}
+
+export function listUserTunnelApps(params: TunnelAppListParams) {
+  return getPaginated<TunnelApp>('/api/tunnel/apps', params)
+}
+
+export async function createTunnelApp(
+  payload: TunnelAppCreatePayload
+): Promise<ApiResponse<TunnelApp>> {
+  const res = await api.post('/api/tunnel/apps', payload)
+  return res.data
+}
+
+export function listTunnelConnections(
+  appId: number,
+  params: TunnelConnectionListParams
+) {
+  return getPaginated<TunnelConnection>(
+    `/api/tunnel/apps/${appId}/connections`,
+    params
+  )
+}
+
+export function listTunnelSessions(
+  appId: number,
+  params: TunnelSessionListParams
+) {
+  return getPaginated<TunnelSession>(
+    `/api/tunnel/apps/${appId}/sessions`,
+    params
+  )
+}
+
+export async function createTunnelConnection(
+  appId: number,
+  payload: TunnelConnectionCreatePayload
+): Promise<ApiResponse<TunnelConnectionCreateResponse>> {
+  const res = await api.post(`/api/tunnel/apps/${appId}/connections`, payload)
+  return res.data
+}
+
+export async function updateTunnelConnection(
+  appId: number,
+  connectionId: number,
+  payload: TunnelConnectionUpdatePayload
+): Promise<ApiResponse<TunnelConnection>> {
+  const res = await api.patch(
+    `/api/tunnel/apps/${appId}/connections/${connectionId}`,
+    payload
+  )
+  return res.data
+}
+
+export async function revokeTunnelConnection(
+  appId: number,
+  connectionId: number
+): Promise<ApiResponse<TunnelConnection>> {
+  const res = await api.delete(
+    `/api/tunnel/apps/${appId}/connections/${connectionId}`
+  )
+  return res.data
+}
+
+export async function ensureTunnelAgentSetup(
+  appId: number,
+  payload: TunnelAgentSetupPayload
+): Promise<ApiResponse<TunnelAgentSetupResponse>> {
+  const res = await api.post(`/api/tunnel/apps/${appId}/agent-setup`, payload)
+  return res.data
+}
+
+export async function ensureBridgeAgentSetup(
+  payload: BridgeAgentSetupPayload
+): Promise<ApiResponse<BridgeAgentSetupResponse>> {
+  const res = await api.post('/api/bridge/agent-setup', payload)
+  return res.data
+}
+
+export function listTunnelAuditLogs(
+  appId: number,
+  params: TunnelAuditLogListParams
+) {
+  return getPaginated<TunnelAuditLog>(
+    `/api/tunnel/apps/${appId}/audit-logs`,
+    params
+  )
+}
+
+export async function updateTunnelApp(
+  id: number,
+  payload: TunnelAppAdminUpdatePayload
+): Promise<ApiResponse<TunnelApp>> {
+  const res = await api.patch(`/api/tunnel/admin/apps/${id}`, payload)
+  return res.data
 }
 
 export async function getMCPTool(id: number): Promise<ApiResponse<MCPTool>> {

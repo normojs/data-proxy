@@ -1,0 +1,49 @@
+{
+  "request": {
+    "model": "Qwen/Qwen3-Coder",
+    "input": "Use the project tool if needed, then answer briefly.",
+    "stream": true,
+    "reasoning": {
+      "effort": "medium"
+    },
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "project",
+        "tools": [
+          {
+            "type": "function",
+            "name": "read_file",
+            "description": "Read a project file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        ]
+      }
+    ],
+    "tool_choice": "auto"
+  },
+  "options": {
+    "ChannelType": 17,
+    "ReasoningAdapter": "auto"
+  },
+  "want": {
+    "message_roles": ["user"],
+    "tool_names": ["project__read_file"],
+    "enable_thinking": true,
+    "context_meta": {
+      "namespace_tools_flattened": 1,
+      "responses_reasoning_adapter": "qwen_enable_thinking",
+      "responses_reasoning_adapter_source": "auto",
+      "reasoning_forwarded": true,
+      "reasoning_params": ["enable_thinking"]
+    }
+  }
+}

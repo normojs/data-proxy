@@ -1,0 +1,25 @@
+{
+  "request": {
+    "model": "moonshot-v1-128k",
+    "input": "Use the latest available context and answer in one sentence.",
+    "stream": true,
+    "reasoning": {
+      "effort": "high"
+    }
+  },
+  "options": {
+    "ChannelType": 25,
+    "ReasoningAdapter": "low_high"
+  },
+  "want": {
+    "message_roles": ["user"],
+    "reasoning_effort": "high",
+    "context_meta": {
+      "responses_reasoning_adapter": "low_high",
+      "responses_reasoning_adapter_source": "configured",
+      "reasoning_forwarded": true,
+      "reasoning_params": ["reasoning_effort"],
+      "reasoning_effort_mapped": "high"
+    }
+  }
+}

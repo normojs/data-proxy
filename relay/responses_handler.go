@@ -23,18 +23,6 @@ import (
 
 func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
-	if info.RelayMode == relayconstant.RelayModeResponsesCompact {
-		switch info.ApiType {
-		case appconstant.APITypeOpenAI, appconstant.APITypeCodex:
-		default:
-			return types.NewErrorWithStatusCode(
-				fmt.Errorf("unsupported endpoint %q for api type %d", "/v1/responses/compact", info.ApiType),
-				types.ErrorCodeInvalidRequest,
-				http.StatusBadRequest,
-				types.ErrOptionWithSkipRetry(),
-			)
-		}
-	}
 
 	var responsesReq *dto.OpenAIResponsesRequest
 	switch req := info.Request.(type) {
@@ -72,6 +60,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	}
 	adaptor.Init(info)
 	if openaicompat.IsResponsesProtocolDisabled(info.ChannelOtherSettings.ResponsesProtocol) {
+		recordResponsesProtocolDecision(info, "disabled", "disabled")
 		return types.NewErrorWithStatusCode(
 			fmt.Errorf("responses API is disabled for channel #%d", info.ChannelId),
 			types.ErrorCodeInvalidRequest,
@@ -79,14 +68,34 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			types.ErrOptionWithSkipRetry(),
 		)
 	}
-	if info.RelayMode != relayconstant.RelayModeResponsesCompact && openaicompat.ShouldConvertResponsesToChat(info.ChannelType, info.ChannelOtherSettings.ResponsesProtocol) {
-		usage, newAPIError := responsesViaChatCompletions(c, info, adaptor, request)
+	shouldConvertToChat := openaicompat.ShouldConvertResponsesToChat(info.ChannelType, info.ChannelOtherSettings.ResponsesProtocol)
+	if info.RelayMode == relayconstant.RelayModeResponsesCompact && !shouldConvertToChat {
+		switch info.ApiType {
+		case appconstant.APITypeOpenAI, appconstant.APITypeCodex:
+		default:
+			return types.NewErrorWithStatusCode(
+				fmt.Errorf("unsupported endpoint %q for api type %d", "/v1/responses/compact", info.ApiType),
+				types.ErrorCodeInvalidRequest,
+				http.StatusBadRequest,
+				types.ErrOptionWithSkipRetry(),
+			)
+		}
+	}
+	if shouldConvertToChat {
+		recordResponsesProtocolDecision(info, responsesUpstreamProtocolChat, "convert_to_chat_completions")
+		var usage *dto.Usage
+		if info.RelayMode == relayconstant.RelayModeResponsesCompact {
+			usage, newAPIError = responsesCompactViaChatCompletions(c, info, adaptor, request)
+		} else {
+			usage, newAPIError = responsesViaChatCompletions(c, info, adaptor, request)
+		}
 		if newAPIError != nil {
 			return newAPIError
 		}
 		service.PostTextConsumeQuota(c, info, usage, nil)
 		return nil
 	}
+	recordResponsesProtocolDecision(info, responsesUpstreamProtocolNative, "native_responses")
 	var requestBody io.Reader
 	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
 		storage, err := common.GetBodyStorage(c)

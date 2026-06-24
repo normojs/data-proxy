@@ -1,0 +1,46 @@
+{
+  "history": [
+    {
+      "id": "resp_kimi_tool",
+      "output": [
+        {
+          "type": "function_call",
+          "call_id": "call_get_market",
+          "name": "get_market_snapshot",
+          "arguments": "{\"symbol\":\"USD_CNY\"}"
+        }
+      ]
+    }
+  ],
+  "request": {
+    "model": "moonshot-v1-128k",
+    "previous_response_id": "resp_kimi_tool",
+    "input": [
+      {
+        "type": "function_call_output",
+        "call_id": "call_get_market",
+        "output": "{\"rate\":\"7.18\",\"as_of\":\"fixture\"}"
+      }
+    ],
+    "reasoning": {
+      "effort": "low"
+    }
+  },
+  "options": {
+    "ReasoningAdapter": "low_high"
+  },
+  "want": {
+    "message_roles": ["assistant", "tool"],
+    "reasoning_effort": "low",
+    "assistant_tool_names": ["get_market_snapshot"],
+    "tool_message_call_ids": ["call_get_market"],
+    "context_meta": {
+      "history_restored_count": 1,
+      "responses_reasoning_adapter": "low_high",
+      "responses_reasoning_adapter_source": "configured",
+      "reasoning_forwarded": true,
+      "reasoning_params": ["reasoning_effort"],
+      "reasoning_effort_mapped": "low"
+    }
+  }
+}

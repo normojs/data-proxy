@@ -624,6 +624,9 @@ export type BridgeClientPolicy = {
   tree_depth?: number
   walk_depth?: number
   mcp_allowed_targets?: string[]
+  http_allowed_targets?: string[]
+  http_denied_targets?: string[]
+  http_denied_ports?: number[]
 }
 
 export type BridgeClientUpdatePayload = Partial<{
@@ -634,6 +637,240 @@ export type BridgeClientUpdatePayload = Partial<{
   capabilities: string[]
   status: number
   policy: BridgeClientPolicy
+}>
+
+export type BridgeAgentSetupPayload = Partial<{
+  client_id: string
+  rotate: boolean
+  client_name: string
+  version: string
+  platform: string
+  workspace: string
+}>
+
+export type BridgeAgentSetupResponse = {
+  client: BridgeClient
+  base_url: string
+  bridge_ws_url: string
+  client_id: string
+  api_key?: string
+  api_key_once: boolean
+  token_id: number
+  token_name: string
+  token_masked_key: string
+  created: boolean
+  rotated: boolean
+  headers: Record<string, string>
+  register: Record<string, unknown>
+  environment: Record<string, string>
+  config: Record<string, unknown>
+}
+
+export type TunnelApp = {
+  id: number
+  user_id: number
+  name: string
+  description: string
+  app_type: 'mcp_code' | 'http_tunnel' | 'tcp_tunnel' | string
+  permission_mode: string
+  status: string
+  public_slug: string
+  bridge_client_id: string
+  target_host: string
+  target_port: number
+  target_path: string
+  policy?: Record<string, unknown>
+  route?: Record<string, unknown>
+  billing?: Record<string, unknown>
+  approved_by: number
+  approved_at: number
+  review_note: string
+  last_error: string
+  last_seen_at: number
+  created_at: number
+  updated_at: number
+}
+
+export type TunnelAppListParams = Partial<{
+  p: number
+  page_size: number
+  user_id: number
+  app_type: string
+  status: string
+  keyword: string
+}>
+
+export type TunnelAppCreatePayload = Partial<{
+  name: string
+  description: string
+  app_type: string
+  permission_mode: string
+  bridge_client_id: string
+  target_host: string
+  target_port: number
+  target_path: string
+  policy: Record<string, unknown>
+  route: Record<string, unknown>
+  billing: Record<string, unknown>
+}>
+
+export type TunnelAppAdminUpdatePayload = Partial<{
+  name: string
+  description: string
+  permission_mode: string
+  status: string
+  bridge_client_id: string
+  target_host: string
+  target_port: number
+  target_path: string
+  policy: Record<string, unknown>
+  route: Record<string, unknown>
+  billing: Record<string, unknown>
+  review_note: string
+}>
+
+export type TunnelConnection = {
+  id: number
+  app_id: number
+  user_id: number
+  agent_token_id: number
+  name: string
+  key_prefix: string
+  permission_mode: string
+  status: string
+  endpoint_path: string
+  config?: Record<string, unknown>
+  expires_at: number
+  last_used_at: number
+  last_request_id: string
+  revoked_at: number
+  created_at: number
+  updated_at: number
+}
+
+export type TunnelConnectionListParams = Partial<{
+  p: number
+  page_size: number
+  status: string
+  keyword: string
+}>
+
+export type TunnelSession = {
+  id: number
+  app_id: number
+  user_id: number
+  connection_id: number
+  connection_name: string
+  key_prefix: string
+  session_id: string
+  bridge_client_id: string
+  status: string
+  client_version: string
+  client_ip: string
+  user_agent: string
+  bytes_in: number
+  bytes_out: number
+  connected_at: number
+  last_seen_at: number
+  disconnected_at: number
+  close_reason: string
+  created_at: number
+  updated_at: number
+}
+
+export type TunnelSessionListParams = Partial<{
+  p: number
+  page_size: number
+  connection_id: number
+  status: string
+  session_id: string
+  keyword: string
+  start_time: number
+  end_time: number
+}>
+
+export type TunnelConnectionCreatePayload = Partial<{
+  name: string
+  permission_mode: string
+  expires_at: number
+  config: Record<string, unknown>
+}>
+
+export type TunnelConnectionUpdatePayload = Partial<{
+  name: string
+  expires_at: number
+  config: Record<string, unknown>
+}>
+
+export type TunnelConnectionCreateResponse = {
+  connection: TunnelConnection
+  connection_key: string
+  endpoint_path: string
+}
+
+export type TunnelAgentSetupPayload = Partial<{
+  connection_id: number
+  rotate: boolean
+  client_name: string
+  platform: string
+  workspace: string
+  version: string
+}>
+
+export type TunnelAgentSetupResponse = {
+  app: TunnelApp
+  connection: TunnelConnection
+  base_url: string
+  bridge_ws_url: string
+  mcp_url: string
+  client_id: string
+  api_key?: string
+  api_key_once: boolean
+  token_id: number
+  token_name: string
+  token_masked_key: string
+  created: boolean
+  rotated: boolean
+  headers: Record<string, string>
+  register: Record<string, unknown>
+  environment: Record<string, string>
+  config: Record<string, unknown>
+}
+
+export type TunnelAuditLog = {
+  id: number
+  app_id: number
+  connection_id: number
+  connection_key_prefix: string
+  session_id: string
+  user_id: number
+  actor_user_id: number
+  action: string
+  decision: string
+  reason: string
+  request_id: string
+  tool_name: string
+  method: string
+  path: string
+  bytes_in: number
+  bytes_out: number
+  duration_ms: number
+  metadata?: Record<string, unknown>
+  created_at: number
+}
+
+export type TunnelAuditLogListParams = Partial<{
+  p: number
+  page_size: number
+  connection_id: number
+  action: string
+  decision: string
+  request_id: string
+  tool_name: string
+  session_id: string
+  keyword: string
+  start_time: number
+  end_time: number
 }>
 
 export type BridgeSessionSnapshot = {

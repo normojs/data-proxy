@@ -16,10 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   Copy,
   Check,
   Route,
+  FileSearch,
+  RefreshCw,
   Settings2,
   AlertTriangle,
   Headphones,
@@ -29,6 +32,7 @@ import {
   ShieldCheck,
   UserCog,
   Info,
+  Activity,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
@@ -45,8 +49,14 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
+import {
+  generateRequestDiagnosticReport,
+  getRequestDiagnosticReport,
+  getRequestLogTrace,
+} from '../../api'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
@@ -64,7 +74,12 @@ import {
   isPerCallBilling,
   isTimingLogType,
 } from '../../lib/utils'
-import type { LogOtherData } from '../../types'
+import type {
+  LogOtherData,
+  RequestDiagnosticReport,
+  RequestConversionMeta,
+  RequestLogTrace,
+} from '../../types'
 
 function timingTextColorClass(
   variant: 'success' | 'warning' | 'danger'
@@ -133,6 +148,707 @@ function DetailSection(props: {
 function formatRatio(ratio: number | undefined): string {
   if (ratio == null) return '-'
   return ratio.toFixed(4)
+}
+
+function hasConversionMeta(other: LogOtherData | null): boolean {
+  const meta = other?.request_conversion_meta
+  return !!meta && Object.keys(meta).length > 0
+}
+
+function stringifyConversionValue(value: unknown): string {
+  if (value == null) return ''
+  if (Array.isArray(value)) return value.filter(Boolean).join(', ')
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function formatConversionToken(
+  value: string | undefined,
+  t: (key: string) => string
+): string {
+  if (!value) return ''
+  const labels: Record<string, string> = {
+    auto: t('Auto'),
+    native: t('Native'),
+    responses: t('Responses'),
+    chat_completions: t('Chat Completions'),
+    chat_completions_compat: t('Chat Completions Compatibility'),
+    disabled: t('Disabled'),
+    native_responses: t('Native Responses'),
+    unknown: t('Unknown'),
+    convert_to_chat_completions: t('Converted to Chat Completions'),
+    default: t('Default'),
+    legacy: t('Default'),
+    off: t('Off'),
+    openai: t('OpenAI'),
+    previous_response_id: t('Previous Response ID'),
+    deepseek: t('DeepSeek'),
+    openrouter: t('OpenRouter'),
+    qwen_enable_thinking: t('Qwen enable_thinking'),
+    minimax_reasoning_split: t('MiniMax reasoning_split'),
+    low_high: t('Low/High Mapping'),
+    completed: t('Completed'),
+    incomplete: t('Incomplete'),
+    failed: t('Failed'),
+    unique_call_id: t('Unique Call ID'),
+  }
+  return labels[value] || value
+}
+
+function ConversionMetaRows(props: {
+  meta: NonNullable<LogOtherData['request_conversion_meta']>
+}) {
+  const { t } = useTranslation()
+  const { meta } = props
+  const rows: Array<{ label: string; value: React.ReactNode; mono?: boolean }> =
+    []
+
+  if (meta.responses_protocol || meta.upstream_protocol) {
+    const protocol = formatConversionToken(meta.responses_protocol, t)
+    const upstream = formatConversionToken(meta.upstream_protocol, t)
+    rows.push({
+      label: t('Protocol'),
+      value:
+        protocol && upstream
+          ? `${protocol} -> ${upstream}`
+          : protocol || upstream,
+      mono: true,
+    })
+  }
+
+  if (meta.responses_protocol_decision) {
+    rows.push({
+      label: t('Decision'),
+      value: formatConversionToken(meta.responses_protocol_decision, t),
+      mono: true,
+    })
+  }
+
+  if (meta.responses_channel_capability) {
+    rows.push({
+      label: t('Channel Capability'),
+      value: formatConversionToken(meta.responses_channel_capability, t),
+      mono: true,
+    })
+  }
+
+  if (
+    typeof meta.responses_native_supported === 'boolean' ||
+    typeof meta.responses_chat_preferred === 'boolean'
+  ) {
+    const values = [
+      typeof meta.responses_native_supported === 'boolean'
+        ? `${t('Native')}: ${meta.responses_native_supported ? t('Yes') : t('No')}`
+        : '',
+      typeof meta.responses_chat_preferred === 'boolean'
+        ? `${t('Chat Preferred')}: ${meta.responses_chat_preferred ? t('Yes') : t('No')}`
+        : '',
+    ].filter(Boolean)
+    rows.push({
+      label: t('Auto Check'),
+      value: values.join(' · '),
+    })
+  }
+
+  if (meta.responses_reasoning_adapter) {
+    const adapter = formatConversionToken(meta.responses_reasoning_adapter, t)
+    rows.push({
+      label: t('Reasoning Adapter'),
+      value: meta.responses_reasoning_adapter_source
+        ? `${adapter} (${formatConversionToken(meta.responses_reasoning_adapter_source, t)})`
+        : adapter,
+      mono: true,
+    })
+  }
+
+  if (meta.responses_reasoning_adapter_recommended) {
+    rows.push({
+      label: t('Recommended Adapter'),
+      value: formatConversionToken(
+        meta.responses_reasoning_adapter_recommended,
+        t
+      ),
+      mono: true,
+    })
+  }
+
+  if (
+    Array.isArray(meta.reasoning_params) &&
+    meta.reasoning_params.length > 0
+  ) {
+    rows.push({
+      label: t('Reasoning Params'),
+      value: meta.reasoning_params.join(', '),
+      mono: true,
+    })
+  }
+
+  if (meta.reasoning_effort_mapped) {
+    rows.push({
+      label: t('Mapped Effort'),
+      value: meta.reasoning_effort_mapped,
+      mono: true,
+    })
+  }
+
+  if (
+    Array.isArray(meta.hosted_tools_functionized) &&
+    meta.hosted_tools_functionized.length > 0
+  ) {
+    rows.push({
+      label: t('Hosted Tools'),
+      value: meta.hosted_tools_functionized.join(', '),
+      mono: true,
+    })
+  }
+
+  if (
+    Array.isArray(meta.hosted_tools_filtered) &&
+    meta.hosted_tools_filtered.length > 0
+  ) {
+    rows.push({
+      label: t('Filtered Hosted Tools'),
+      value: meta.hosted_tools_filtered.join(', '),
+      mono: true,
+    })
+  }
+
+  if (meta.hosted_tools_direct_answer_hint) {
+    rows.push({
+      label: t('Hosted Direct Answer Hint'),
+      value: t('Injected'),
+    })
+  }
+
+  if (
+    Array.isArray(meta.unsupported_tools_filtered) &&
+    meta.unsupported_tools_filtered.length > 0
+  ) {
+    rows.push({
+      label: t('Filtered Tools'),
+      value: meta.unsupported_tools_filtered.join(', '),
+      mono: true,
+    })
+  }
+
+  if (
+    Array.isArray(meta.history_restore_sources) &&
+    meta.history_restore_sources.length > 0
+  ) {
+    rows.push({
+      label: t('History Source'),
+      value: meta.history_restore_sources
+        .map((source) => formatConversionToken(source, t))
+        .join(' · '),
+    })
+  }
+
+  const counters = [
+    meta.history_restored_count
+      ? `${t('Restored')}: ${meta.history_restored_count}`
+      : '',
+    meta.history_recorded_count
+      ? `${t('Recorded')}: ${meta.history_recorded_count}`
+      : '',
+    meta.input_provided_tools_count
+      ? `${t('Loaded Tools')}: ${meta.input_provided_tools_count}`
+      : '',
+    meta.namespace_tools_flattened
+      ? `${t('Namespace')}: ${meta.namespace_tools_flattened}`
+      : '',
+    meta.reasoning_backfilled_count
+      ? `${t('Reasoning Backfilled')}: ${meta.reasoning_backfilled_count}`
+      : '',
+  ].filter(Boolean)
+  if (counters.length > 0) {
+    rows.push({
+      label: t('Context'),
+      value: counters.join(' · '),
+    })
+  }
+
+  if (meta.chat_sse_fallback) {
+    rows.push({
+      label: t('Fallback'),
+      value: t('Chat SSE aggregated'),
+    })
+  }
+
+  if (meta.responses_terminal_status) {
+    rows.push({
+      label: t('Terminal Status'),
+      value: formatConversionToken(meta.responses_terminal_status, t),
+      mono: true,
+    })
+  }
+
+  if (meta.responses_incomplete_details) {
+    rows.push({
+      label: t('Incomplete Details'),
+      value: stringifyConversionValue(meta.responses_incomplete_details),
+      mono: true,
+    })
+  }
+
+  if (meta.responses_terminal_error) {
+    rows.push({
+      label: t('Terminal Error'),
+      value: stringifyConversionValue(meta.responses_terminal_error),
+      mono: true,
+    })
+  }
+
+  if (Array.isArray(meta.notes) && meta.notes.length > 0) {
+    rows.push({
+      label: t('Notes'),
+      value: meta.notes.join(' · '),
+    })
+  }
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className='border-border/70 mt-2 space-y-1 border-t pt-2'>
+      {rows.map((row, idx) => (
+        <DetailRow
+          key={idx}
+          label={row.label}
+          value={row.value}
+          mono={row.mono}
+        />
+      ))}
+    </div>
+  )
+}
+
+function traceStatusVariant(status: string): StatusBadgeProps['variant'] {
+  if (status === 'completed') return 'green'
+  if (status === 'error') return 'red'
+  if (status === 'not_found') return 'grey'
+  return 'neutral'
+}
+
+function traceStatusLabel(status: string, t: (key: string) => string): string {
+  const labels: Record<string, string> = {
+    completed: t('Completed'),
+    error: t('Error'),
+    logged: t('Logged'),
+    not_found: t('No trace data'),
+  }
+  return labels[status] || status
+}
+
+function safeTraceMeta(
+  meta: RequestLogTrace['diagnostics']['request_conversion_meta']
+): RequestConversionMeta | undefined {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return undefined
+  return meta as RequestConversionMeta
+}
+
+function traceTypeCountsText(
+  trace: RequestLogTrace,
+  t: (key: string) => string
+): string {
+  const counts = trace.summary.type_counts || {}
+  const parts = Object.entries(counts)
+    .filter(([, count]) => count > 0)
+    .map(([type, count]) => `${traceTypeNameLabel(type, t)} ${count}`)
+  return parts.length > 0 ? parts.join(' · ') : '-'
+}
+
+function traceTypeNameLabel(type: string, t: (key: string) => string): string {
+  const labels: Record<string, string> = {
+    topup: t('Top-up'),
+    consume: t('Consume'),
+    manage: t('Manage'),
+    system: t('System'),
+    error: t('Error'),
+    refund: t('Refund'),
+    unknown: t('Unknown'),
+  }
+  return labels[type] || type
+}
+
+function diagnosticSeverityVariant(
+  severity: string
+): StatusBadgeProps['variant'] {
+  if (severity === 'error') return 'red'
+  if (severity === 'warning') return 'yellow'
+  if (severity === 'ok') return 'green'
+  return 'neutral'
+}
+
+function diagnosticSeverityLabel(
+  severity: string,
+  t: (key: string) => string
+): string {
+  const labels: Record<string, string> = {
+    ok: t('OK'),
+    warning: t('Warning'),
+    error: t('Error'),
+    info: t('Info'),
+  }
+  return labels[severity] || severity
+}
+
+function formatBytes(value: number | undefined): string {
+  if (!value || value <= 0) return '0 B'
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`
+  return `${(value / 1024 / 1024).toFixed(1)} MiB`
+}
+
+function RequestDiagnosticSection(props: {
+  report?: RequestDiagnosticReport
+  loading: boolean
+  generating: boolean
+  errorMessage?: string
+  copiedText?: string | null
+  onCopy: (text: string) => void
+  onGenerate: () => void
+}) {
+  const { t } = useTranslation()
+  const {
+    report,
+    loading,
+    generating,
+    errorMessage,
+    copiedText,
+    onCopy,
+    onGenerate,
+  } = props
+
+  if (loading) {
+    return (
+      <DetailSection
+        icon={<FileSearch className='size-3.5' aria-hidden='true' />}
+        label={t('Diagnostic Report')}
+      >
+        <div className='space-y-2'>
+          <Skeleton className='h-4 w-36 rounded' />
+          <Skeleton className='h-4 w-full rounded' />
+        </div>
+      </DetailSection>
+    )
+  }
+
+  const reportCopyText = report ? JSON.stringify(report, null, 2) : ''
+  const findings = report?.report?.findings || []
+  const capture = report?.report?.capture
+  const hasReport = !!report && report.status !== 'not_found'
+
+  return (
+    <DetailSection
+      icon={<FileSearch className='size-3.5' aria-hidden='true' />}
+      label={t('Diagnostic Report')}
+      variant={report?.severity === 'error' ? 'danger' : 'default'}
+    >
+      <div className='relative min-w-0 space-y-2'>
+        {hasReport && (
+          <Button
+            variant='ghost'
+            size='sm'
+            className='absolute top-0 right-0 h-5 w-5 p-0'
+            onClick={() => onCopy(reportCopyText)}
+            title={t('Copy to clipboard')}
+            aria-label={t('Copy to clipboard')}
+          >
+            {copiedText === reportCopyText ? (
+              <Check className='size-3 text-green-600' />
+            ) : (
+              <Copy className='size-3' />
+            )}
+          </Button>
+        )}
+
+        <div className='min-w-0 space-y-1 pr-6'>
+          <DetailRow
+            label={t('Severity')}
+            value={
+              <StatusBadge
+                label={diagnosticSeverityLabel(report?.severity || 'info', t)}
+                variant={diagnosticSeverityVariant(report?.severity || 'info')}
+                size='sm'
+                copyable={false}
+              />
+            }
+          />
+          <DetailRow
+            label={t('Summary')}
+            value={report?.summary || t('No diagnostic report')}
+          />
+          {capture && (
+            <>
+              <DetailRow
+                label={t('Capture Status')}
+                value={capture.capture_status}
+                mono
+              />
+              <DetailRow
+                label={t('Captured Bytes')}
+                value={`${t('Upstream')}: ${formatBytes(capture.upstream_body_bytes)} · ${t('Downstream')}: ${formatBytes(capture.downstream_body_bytes)}`}
+                mono
+              />
+              <DetailRow
+                label={t('Artifacts')}
+                value={String(capture.artifacts?.length || 0)}
+                mono
+              />
+            </>
+          )}
+        </div>
+
+        {findings.length > 0 && (
+          <div className='border-border/70 space-y-1 border-t pt-2'>
+            <Label className='text-xs font-semibold'>{t('Findings')}</Label>
+            {findings.slice(0, 5).map((finding, index) => (
+              <div
+                key={`${finding.code}-${index}`}
+                className='bg-background/60 min-w-0 rounded border p-2'
+              >
+                <div className='flex min-w-0 items-center gap-1.5'>
+                  <StatusBadge
+                    label={diagnosticSeverityLabel(finding.level, t)}
+                    variant={diagnosticSeverityVariant(finding.level)}
+                    size='sm'
+                    copyable={false}
+                  />
+                  <span className='min-w-0 truncate font-mono text-[11px]'>
+                    {finding.code}
+                  </span>
+                </div>
+                <p className='mt-1 text-xs break-words'>{finding.message}</p>
+                {finding.detail && (
+                  <p className='text-muted-foreground mt-0.5 font-mono text-[11px] break-words'>
+                    {finding.detail}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {errorMessage && (
+          <p className='text-xs break-words text-red-600 dark:text-red-400'>
+            {errorMessage}
+          </p>
+        )}
+
+        <Button
+          variant='outline'
+          size='sm'
+          className='h-8 gap-1.5'
+          onClick={onGenerate}
+          disabled={generating}
+        >
+          <RefreshCw
+            className={cn('size-3.5', generating && 'animate-spin')}
+            aria-hidden='true'
+          />
+          {hasReport ? t('Regenerate Diagnostic') : t('Generate Diagnostic')}
+        </Button>
+      </div>
+    </DetailSection>
+  )
+}
+
+function RequestTraceSection(props: {
+  trace?: RequestLogTrace
+  loading: boolean
+  errorMessage?: string
+  copiedText?: string | null
+  onCopy: (text: string) => void
+}) {
+  const { t } = useTranslation()
+  const { trace, loading, errorMessage, copiedText, onCopy } = props
+
+  if (loading) {
+    return (
+      <DetailSection
+        icon={<Activity className='size-3.5' aria-hidden='true' />}
+        label={t('Request Trace')}
+      >
+        <div className='space-y-2'>
+          <Skeleton className='h-4 w-40 rounded' />
+          <Skeleton className='h-4 w-full rounded' />
+          <Skeleton className='h-4 w-2/3 rounded' />
+        </div>
+      </DetailSection>
+    )
+  }
+
+  if (errorMessage) {
+    return (
+      <DetailSection
+        icon={<Activity className='size-3.5' aria-hidden='true' />}
+        label={t('Request Trace')}
+        variant='danger'
+      >
+        <p className='text-xs break-words text-red-600 dark:text-red-400'>
+          {errorMessage}
+        </p>
+      </DetailSection>
+    )
+  }
+
+  if (!trace) return null
+
+  const traceCopyText = JSON.stringify(trace, null, 2)
+  const meta = safeTraceMeta(trace.diagnostics.request_conversion_meta)
+  const errors = Array.isArray(trace.diagnostics.errors)
+    ? trace.diagnostics.errors.filter(Boolean)
+    : []
+  const relatedLogs = trace.logs.slice(0, 3)
+  const moreLogsCount = Math.max(trace.logs.length - relatedLogs.length, 0)
+
+  return (
+    <DetailSection
+      icon={<Activity className='size-3.5' aria-hidden='true' />}
+      label={t('Request Trace')}
+      variant={trace.summary.status === 'error' ? 'danger' : 'default'}
+    >
+      <div className='relative min-w-0 space-y-2'>
+        <Button
+          variant='ghost'
+          size='sm'
+          className='absolute top-0 right-0 h-5 w-5 p-0'
+          onClick={() => onCopy(traceCopyText)}
+          title={t('Copy to clipboard')}
+          aria-label={t('Copy to clipboard')}
+        >
+          {copiedText === traceCopyText ? (
+            <Check className='size-3 text-green-600' />
+          ) : (
+            <Copy className='size-3' />
+          )}
+        </Button>
+
+        <div className='min-w-0 space-y-1 pr-6'>
+          <DetailRow
+            label={t('Trace Status')}
+            value={
+              <StatusBadge
+                label={traceStatusLabel(trace.summary.status, t)}
+                variant={traceStatusVariant(trace.summary.status)}
+                size='sm'
+                copyable={false}
+              />
+            }
+          />
+          <DetailRow
+            label={t('Matched Logs')}
+            value={`${trace.total}${trace.total > 0 ? ` (${traceTypeCountsText(trace, t)})` : ''}`}
+            mono
+          />
+          {trace.request_ids.length > 0 && (
+            <DetailRow
+              label={t('Request ID')}
+              value={trace.request_ids.join(' · ')}
+              mono
+            />
+          )}
+          {trace.upstream_request_ids.length > 0 && (
+            <DetailRow
+              label={t('Upstream Request ID')}
+              value={trace.upstream_request_ids.join(' · ')}
+              mono
+            />
+          )}
+          {trace.diagnostics.request_path && (
+            <DetailRow
+              label={t('Path')}
+              value={trace.diagnostics.request_path}
+              mono
+            />
+          )}
+          {trace.summary.model_name && (
+            <DetailRow
+              label={t('Model')}
+              value={
+                trace.diagnostics.upstream_model_name
+                  ? `${trace.summary.model_name} -> ${trace.diagnostics.upstream_model_name}`
+                  : trace.summary.model_name
+              }
+              mono
+            />
+          )}
+          {trace.summary.max_use_time > 0 && (
+            <DetailRow
+              label={t('Max Response Time')}
+              value={formatUseTime(trace.summary.max_use_time)}
+              mono
+            />
+          )}
+          {trace.summary.quota > 0 && (
+            <DetailRow
+              label={t('Total Cost')}
+              value={formatLogQuota(trace.summary.quota)}
+              mono
+            />
+          )}
+        </div>
+
+        {meta && <ConversionMetaRows meta={meta} />}
+
+        {errors.length > 0 && (
+          <div className='border-border/70 border-t pt-2'>
+            <Label className='text-xs font-semibold text-red-600 dark:text-red-400'>
+              {t('Errors')}
+            </Label>
+            <pre className='bg-background/60 mt-1 max-h-28 overflow-y-auto rounded border p-2 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap'>
+              {errors.join('\n')}
+            </pre>
+          </div>
+        )}
+
+        {relatedLogs.length > 0 && (
+          <div className='border-border/70 space-y-1.5 border-t pt-2'>
+            <Label className='text-xs font-semibold'>{t('Related Logs')}</Label>
+            {relatedLogs.map((log) => {
+              const config = getLogTypeConfig(log.type)
+              return (
+                <div
+                  key={log.id}
+                  className='bg-background/60 flex min-w-0 flex-col gap-1 rounded border p-2 sm:flex-row sm:items-center sm:justify-between'
+                >
+                  <div className='flex min-w-0 items-center gap-1.5'>
+                    <StatusBadge
+                      label={t(config.label)}
+                      variant={config.color as StatusBadgeProps['variant']}
+                      size='sm'
+                      copyable={false}
+                    />
+                    <span className='min-w-0 truncate font-mono text-[11px]'>
+                      {log.model_name || log.content || `#${log.id}`}
+                    </span>
+                  </div>
+                  <span className='text-muted-foreground shrink-0 font-mono text-[11px]'>
+                    {formatTokens(
+                      (log.prompt_tokens || 0) + (log.completion_tokens || 0)
+                    )}
+                    {log.use_time > 0
+                      ? ` · ${formatUseTime(log.use_time)}`
+                      : ''}
+                  </span>
+                </div>
+              )
+            })}
+            {moreLogsCount > 0 && (
+              <p className='text-muted-foreground text-xs'>
+                {t('{{count}} more related logs', { count: moreLogsCount })}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </DetailSection>
+  )
 }
 
 function BillingBreakdown(props: {
@@ -471,18 +1187,65 @@ export function DetailsDialog(props: DetailsDialogProps) {
     other && Array.isArray(other.request_conversion)
       ? other.request_conversion.filter(Boolean)
       : []
+  const conversionMeta = other?.request_conversion_meta
   const conversionLabel =
     conversionChain.length <= 1
       ? t('Native format')
       : conversionChain.join(' -> ')
+  const conversionCopyText = [
+    conversionLabel,
+    conversionMeta ? JSON.stringify(conversionMeta, null, 2) : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
   const showConversion =
     props.isAdmin &&
     props.log.type !== 6 &&
-    (other?.request_path || conversionChain.length > 0)
+    (other?.request_path ||
+      conversionChain.length > 0 ||
+      hasConversionMeta(other))
 
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
     useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+  const requestTraceId = props.log.request_id || ''
+  const requestTraceQuery = useQuery({
+    queryKey: [
+      'usage-log-request-trace',
+      props.isAdmin ? 'admin' : 'self',
+      requestTraceId,
+    ],
+    queryFn: () => getRequestLogTrace(requestTraceId, props.isAdmin),
+    enabled: props.open && requestTraceId.length > 0,
+    staleTime: 30_000,
+  })
+  const requestTraceResponse = requestTraceQuery.data
+  const requestTraceErrorMessage = requestTraceQuery.isError
+    ? t('Trace unavailable')
+    : requestTraceResponse && !requestTraceResponse.success
+      ? requestTraceResponse.message || t('Trace unavailable')
+      : undefined
+  const requestDiagnosticQuery = useQuery({
+    queryKey: ['usage-log-request-diagnostic', requestTraceId],
+    queryFn: () => getRequestDiagnosticReport(requestTraceId),
+    enabled: props.open && props.isAdmin && requestTraceId.length > 0,
+    staleTime: 30_000,
+  })
+  const generateDiagnosticMutation = useMutation({
+    mutationFn: () => generateRequestDiagnosticReport(requestTraceId),
+    onSuccess: () => {
+      void requestDiagnosticQuery.refetch()
+    },
+  })
+  const requestDiagnosticResponse =
+    generateDiagnosticMutation.data || requestDiagnosticQuery.data
+  const requestDiagnosticErrorMessage = generateDiagnosticMutation.isError
+    ? t('Diagnostic unavailable')
+    : requestDiagnosticQuery.isError
+      ? t('Diagnostic unavailable')
+      : requestDiagnosticResponse && !requestDiagnosticResponse.success
+        ? requestDiagnosticResponse.message || t('Diagnostic unavailable')
+        : undefined
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -626,11 +1389,11 @@ export function DetailsDialog(props: DetailsDialogProps) {
                     variant='ghost'
                     size='sm'
                     className='absolute top-0 right-0 h-5 w-5 p-0'
-                    onClick={() => copyToClipboard(conversionLabel)}
+                    onClick={() => copyToClipboard(conversionCopyText)}
                     title={t('Copy to clipboard')}
                     aria-label={t('Copy to clipboard')}
                   >
-                    {copiedText === conversionLabel ? (
+                    {copiedText === conversionCopyText ? (
                       <Check className='size-3 text-green-600' />
                     ) : (
                       <Copy className='size-3' />
@@ -653,9 +1416,42 @@ export function DetailsDialog(props: DetailsDialogProps) {
                         {conversionLabel}
                       </span>
                     </div>
+                    {conversionMeta && (
+                      <ConversionMetaRows meta={conversionMeta} />
+                    )}
                   </div>
                 </div>
               </DetailSection>
+            )}
+
+            {props.log.request_id && (
+              <RequestTraceSection
+                trace={
+                  requestTraceResponse?.success
+                    ? requestTraceResponse.data
+                    : undefined
+                }
+                loading={requestTraceQuery.isLoading}
+                errorMessage={requestTraceErrorMessage}
+                copiedText={copiedText}
+                onCopy={copyToClipboard}
+              />
+            )}
+
+            {props.isAdmin && props.log.request_id && (
+              <RequestDiagnosticSection
+                report={
+                  requestDiagnosticResponse?.success
+                    ? requestDiagnosticResponse.data
+                    : undefined
+                }
+                loading={requestDiagnosticQuery.isLoading}
+                generating={generateDiagnosticMutation.isPending}
+                errorMessage={requestDiagnosticErrorMessage}
+                copiedText={copiedText}
+                onCopy={copyToClipboard}
+                onGenerate={() => generateDiagnosticMutation.mutate()}
+              />
             )}
 
             {/* Reject reason (admin only) */}

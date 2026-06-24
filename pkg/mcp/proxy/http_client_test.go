@@ -123,6 +123,44 @@ func TestHTTPClientJSONRPCError(t *testing.T) {
 	require.Contains(t, err.Error(), "downstream failed")
 }
 
+func TestHTTPClientCallRawForwardsMCPMethod(t *testing.T) {
+	var seenMethod string
+	var seenParams json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		seenMethod = req.Method
+		seenParams = req.Params
+		writeJSONRPCResult(t, w, req.ID, map[string]any{
+			"resources": []map[string]any{
+				{
+					"uri":         "file:///README.md",
+					"name":        "README",
+					"description": "Project README",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.Client())
+	result, err := client.CallRaw(context.Background(), model.MCPProxyServer{
+		Endpoint: server.URL,
+	}, RawRequest{
+		Method: dto.MCPMethodResourcesList,
+		Params: json.RawMessage(`{"cursor":"abc"}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, dto.MCPMethodResourcesList, seenMethod)
+	require.JSONEq(t, `{"cursor":"abc"}`, string(seenParams))
+	require.JSONEq(t, `{"resources":[{"uri":"file:///README.md","name":"README","description":"Project README"}]}`, string(result.Result))
+	require.Positive(t, result.ResultSize)
+}
+
 func TestHTTPClientListToolsRetriesRetryableHTTPStatus(t *testing.T) {
 	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

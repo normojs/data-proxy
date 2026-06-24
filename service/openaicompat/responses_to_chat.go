@@ -13,6 +13,7 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 	}
 
 	text := ExtractOutputTextFromResponses(resp)
+	reasoning := ExtractReasoningTextFromResponses(resp)
 
 	usage := &dto.Usage{}
 	if resp.Usage != nil {
@@ -42,28 +43,26 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 	created := resp.CreatedAt
 
 	var toolCalls []dto.ToolCallResponse
-	if text == "" && len(resp.Output) > 0 {
-		for _, out := range resp.Output {
-			if out.Type != "function_call" {
-				continue
-			}
-			name := strings.TrimSpace(out.Name)
-			if name == "" {
-				continue
-			}
-			callId := strings.TrimSpace(out.CallId)
-			if callId == "" {
-				callId = strings.TrimSpace(out.ID)
-			}
-			toolCalls = append(toolCalls, dto.ToolCallResponse{
-				ID:   callId,
-				Type: "function",
-				Function: dto.FunctionResponse{
-					Name:      name,
-					Arguments: out.ArgumentsString(),
-				},
-			})
+	for _, out := range resp.Output {
+		if out.Type != "function_call" {
+			continue
 		}
+		name := strings.TrimSpace(out.Name)
+		if name == "" {
+			continue
+		}
+		callId := strings.TrimSpace(out.CallId)
+		if callId == "" {
+			callId = strings.TrimSpace(out.ID)
+		}
+		toolCalls = append(toolCalls, dto.ToolCallResponse{
+			ID:   callId,
+			Type: "function",
+			Function: dto.FunctionResponse{
+				Name:      name,
+				Arguments: out.ArgumentsString(),
+			},
+		})
 	}
 
 	finishReason := "stop"
@@ -75,9 +74,14 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 		Role:    "assistant",
 		Content: text,
 	}
+	if reasoning != "" {
+		msg.ReasoningContent = reasoning
+	}
 	if len(toolCalls) > 0 {
 		msg.SetToolCalls(toolCalls)
-		msg.Content = ""
+		if text == "" {
+			msg.Content = ""
+		}
 	}
 
 	out := &dto.OpenAITextResponse{
@@ -96,6 +100,24 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 	}
 
 	return out, usage, nil
+}
+
+func ExtractReasoningTextFromResponses(resp *dto.OpenAIResponsesResponse) string {
+	if resp == nil || len(resp.Output) == 0 {
+		return ""
+	}
+	parts := make([]string, 0)
+	for _, out := range resp.Output {
+		if out.Type != "reasoning" {
+			continue
+		}
+		for _, summary := range out.Summary {
+			if summary.Text != "" {
+				parts = append(parts, summary.Text)
+			}
+		}
+	}
+	return joinReasoningText(parts...)
 }
 
 func ExtractOutputTextFromResponses(resp *dto.OpenAIResponsesResponse) string {

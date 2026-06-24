@@ -32,6 +32,17 @@ func TestValidateToolAllowedTools(t *testing.T) {
 	}
 }
 
+func TestValidateToolHTTPFamily(t *testing.T) {
+	policy := Policy{AllowedTools: []string{"http_tunnel"}}
+	if err := ValidateTool(policy, "http_tunnel.request"); err != nil {
+		t.Fatalf("http_tunnel.request should be allowed by family entry: %v", err)
+	}
+	err := ValidateTool(policy, "mcp_proxy.tools_call")
+	if ErrorCode(err) != ErrorCodeToolNotAllowed {
+		t.Fatalf("other tool families should be denied, got %v code=%s", err, ErrorCode(err))
+	}
+}
+
 func TestValidateMCPTargetDefaultsLoopback(t *testing.T) {
 	for _, target := range []string{
 		"http://localhost:3001/mcp",
@@ -63,6 +74,58 @@ func TestValidateMCPTargetAllowlist(t *testing.T) {
 	err = ValidateMCPTarget(policy, "https://example.com/mcp-other")
 	if ErrorCode(err) != ErrorCodeMCPTargetForbidden {
 		t.Fatalf("sibling path should be denied, got %v code=%s", err, ErrorCode(err))
+	}
+}
+
+func TestValidateHTTPTargetDefaultsLoopback(t *testing.T) {
+	for _, target := range []string{
+		"http://localhost:8080/api",
+		"http://127.0.0.1:8080/api",
+		"http://[::1]:8080/api",
+	} {
+		if err := ValidateHTTPTarget(Policy{}, target); err != nil {
+			t.Fatalf("loopback HTTP target should be allowed: %s: %v", target, err)
+		}
+	}
+	err := ValidateHTTPTarget(Policy{}, "http://192.168.0.10:8080/api")
+	if ErrorCode(err) != ErrorCodeHTTPTargetForbidden {
+		t.Fatalf("non-loopback HTTP target should be denied, got %v code=%s", err, ErrorCode(err))
+	}
+}
+
+func TestValidateHTTPTargetAllowlist(t *testing.T) {
+	policy := Policy{HTTPAllowedTargets: []string{"http://192.168.0.10:8080/api", "dev.internal:3000"}}
+	if err := ValidateHTTPTarget(policy, "http://192.168.0.10:8080/api/users"); err != nil {
+		t.Fatalf("HTTP URL prefix should be allowed: %v", err)
+	}
+	if err := ValidateHTTPTarget(policy, "https://dev.internal:3000/health"); err != nil {
+		t.Fatalf("HTTP host:port allowlist should allow any scheme/path: %v", err)
+	}
+	err := ValidateHTTPTarget(policy, "http://192.168.0.10:8080/other")
+	if ErrorCode(err) != ErrorCodeHTTPTargetForbidden {
+		t.Fatalf("HTTP path outside prefix should be denied, got %v code=%s", err, ErrorCode(err))
+	}
+}
+
+func TestValidateHTTPTargetDenylistTakesPrecedence(t *testing.T) {
+	policy := Policy{
+		HTTPAllowedTargets: []string{"*"},
+		HTTPDeniedTargets:  []string{"http://127.0.0.1:8080/admin", "169.254.169.254"},
+		HTTPDeniedPorts:    []int{3306, 6379},
+	}
+	if err := ValidateHTTPTarget(policy, "http://127.0.0.1:8080/api"); err != nil {
+		t.Fatalf("non-denied target should be allowed: %v", err)
+	}
+	for _, target := range []string{
+		"http://127.0.0.1:8080/admin/users",
+		"http://169.254.169.254/latest/meta-data",
+		"http://127.0.0.1:6379/",
+		"http://192.168.0.10:3306/",
+	} {
+		err := ValidateHTTPTarget(policy, target)
+		if ErrorCode(err) != ErrorCodeHTTPTargetForbidden {
+			t.Fatalf("denied target should be rejected: %s got %v code=%s", target, err, ErrorCode(err))
+		}
 	}
 }
 

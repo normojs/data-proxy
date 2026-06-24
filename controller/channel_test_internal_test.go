@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
@@ -79,4 +81,46 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, 2, userID)
+}
+
+func TestResolveChannelTestModelPriority(t *testing.T) {
+	channelTestModel := " channel-test-model "
+	channel := &model.Channel{
+		Type:      constant.ChannelTypeSiliconFlow,
+		TestModel: &channelTestModel,
+		Models:    " first-model ,second-model",
+	}
+
+	testModel, err := resolveChannelTestModel(channel, " requested-model ")
+	require.NoError(t, err)
+	require.Equal(t, "requested-model", testModel)
+
+	testModel, err = resolveChannelTestModel(channel, "")
+	require.NoError(t, err)
+	require.Equal(t, "channel-test-model", testModel)
+
+	channel.TestModel = nil
+	testModel, err = resolveChannelTestModel(channel, "")
+	require.NoError(t, err)
+	require.Equal(t, "first-model", testModel)
+}
+
+func TestResolveChannelTestModelDefaultsOnlyForOfficialOpenAI(t *testing.T) {
+	testModel, err := resolveChannelTestModel(&model.Channel{
+		Type: constant.ChannelTypeOpenAI,
+	}, "")
+	require.NoError(t, err)
+	require.Equal(t, defaultOpenAIChannelTestModel, testModel)
+
+	customBaseURL := "https://api.siliconflow.cn"
+	_, err = resolveChannelTestModel(&model.Channel{
+		Type:    constant.ChannelTypeOpenAI,
+		BaseURL: &customBaseURL,
+	}, "")
+	require.ErrorContains(t, err, "test model is empty")
+
+	_, err = resolveChannelTestModel(&model.Channel{
+		Type: constant.ChannelTypeSiliconFlow,
+	}, "")
+	require.ErrorContains(t, err, "test model is empty")
 }

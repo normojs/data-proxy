@@ -337,6 +337,11 @@ func migrateDB() error {
 		&BridgeClient{},
 		&BridgeSession{},
 		&BridgeAuditLog{},
+		&TunnelApp{},
+		&TunnelConnection{},
+		&TunnelSession{},
+		&TunnelRoute{},
+		&TunnelAuditLog{},
 		&Enterprise{},
 		&EnterpriseOrgUnit{},
 		&EnterpriseOrgMembership{},
@@ -361,6 +366,11 @@ func migrateDB() error {
 		&EnterpriseGovernanceSharedPoolBorrow{},
 		&EnterpriseGovernanceAnomalyProtection{},
 		&EnterpriseAuditLog{},
+		&RequestCaptureRecord{},
+		&RequestCaptureArtifact{},
+		&RequestDiagnosticReport{},
+		&TrainingDatasetVersion{},
+		&TrainingSample{},
 	)
 	if err != nil {
 		return err
@@ -464,6 +474,11 @@ func migrateDBFast() error {
 		{&BridgeClient{}, "BridgeClient"},
 		{&BridgeSession{}, "BridgeSession"},
 		{&BridgeAuditLog{}, "BridgeAuditLog"},
+		{&TunnelApp{}, "TunnelApp"},
+		{&TunnelConnection{}, "TunnelConnection"},
+		{&TunnelSession{}, "TunnelSession"},
+		{&TunnelRoute{}, "TunnelRoute"},
+		{&TunnelAuditLog{}, "TunnelAuditLog"},
 		{&Enterprise{}, "Enterprise"},
 		{&EnterpriseOrgUnit{}, "EnterpriseOrgUnit"},
 		{&EnterpriseOrgMembership{}, "EnterpriseOrgMembership"},
@@ -485,6 +500,11 @@ func migrateDBFast() error {
 		{&EnterpriseGovernanceSharedPoolBorrow{}, "EnterpriseGovernanceSharedPoolBorrow"},
 		{&EnterpriseGovernanceAnomalyProtection{}, "EnterpriseGovernanceAnomalyProtection"},
 		{&EnterpriseAuditLog{}, "EnterpriseAuditLog"},
+		{&RequestCaptureRecord{}, "RequestCaptureRecord"},
+		{&RequestCaptureArtifact{}, "RequestCaptureArtifact"},
+		{&RequestDiagnosticReport{}, "RequestDiagnosticReport"},
+		{&TrainingDatasetVersion{}, "TrainingDatasetVersion"},
+		{&TrainingSample{}, "TrainingSample"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))

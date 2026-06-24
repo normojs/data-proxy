@@ -359,6 +359,38 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		return nil, 0, err
 	}
 
+	if err = hydrateLogChannelNames(logs); err != nil {
+		return logs, total, err
+	}
+
+	return logs, total, err
+}
+
+const logRequestTraceLimit = 100
+
+func GetLogsByRequestId(requestId string, userId int, scopedToUser bool) (logs []*Log, err error) {
+	requestId = strings.TrimSpace(requestId)
+	if requestId == "" {
+		return nil, errors.New("request_id is required")
+	}
+	if LOG_DB == nil {
+		return nil, errors.New("log database is not initialized")
+	}
+
+	tx := LOG_DB.Model(&Log{}).Where("(logs.request_id = ? OR logs.upstream_request_id = ?)", requestId, requestId)
+	if scopedToUser {
+		tx = tx.Where("logs.user_id = ?", userId)
+	}
+	if err = tx.Order("logs.created_at desc, logs.id desc").Limit(logRequestTraceLimit).Find(&logs).Error; err != nil {
+		return nil, err
+	}
+	if err = hydrateLogChannelNames(logs); err != nil {
+		return logs, err
+	}
+	return logs, nil
+}
+
+func hydrateLogChannelNames(logs []*Log) error {
 	channelIds := types.NewSet[int]()
 	for _, log := range logs {
 		if log.ChannelId != 0 {
@@ -386,8 +418,11 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 			}
 		} else {
 			// Bulk query channels from DB
-			if err = DB.Table("channels").Select("id, name").Where("id IN ?", channelIds.Items()).Find(&channels).Error; err != nil {
-				return logs, total, err
+			if DB == nil {
+				return nil
+			}
+			if err := DB.Table("channels").Select("id, name").Where("id IN ?", channelIds.Items()).Find(&channels).Error; err != nil {
+				return err
 			}
 		}
 		channelMap := make(map[int]string, len(channels))
@@ -399,7 +434,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		}
 	}
 
-	return logs, total, err
+	return nil
 }
 
 const logSearchCountLimit = 10000

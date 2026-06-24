@@ -44,6 +44,17 @@ const mcpSearchSchema = z.object({
   billingPageSize: z.number().optional().catch(undefined),
   auditPage: z.number().optional().catch(1),
   auditPageSize: z.number().optional().catch(undefined),
+  tunnelAppsPage: z.number().optional().catch(1),
+  tunnelAppsPageSize: z.number().optional().catch(undefined),
+  myTunnelAppsPage: z.number().optional().catch(1),
+  myTunnelAppsPageSize: z.number().optional().catch(undefined),
+  tunnelConnectionsPage: z.number().optional().catch(1),
+  tunnelConnectionsPageSize: z.number().optional().catch(undefined),
+  tunnelConnectionAppId: z.number().optional().catch(undefined),
+  tunnelSessionsPage: z.number().optional().catch(1),
+  tunnelSessionsPageSize: z.number().optional().catch(undefined),
+  tunnelSessionAppId: z.number().optional().catch(undefined),
+  tunnelSessionConnectionId: z.number().optional().catch(undefined),
   proxyServersPage: z.number().optional().catch(1),
   proxyServersPageSize: z.number().optional().catch(undefined),
   proxyToolsPage: z.number().optional().catch(1),
@@ -51,9 +62,18 @@ const mcpSearchSchema = z.object({
   filter: z.string().optional().catch(''),
   proxyServerFilter: z.string().optional().catch(''),
   proxyToolFilter: z.string().optional().catch(''),
+  tunnelFilter: z.string().optional().catch(''),
+  myTunnelFilter: z.string().optional().catch(''),
+  tunnelConnectionFilter: z.string().optional().catch(''),
+  tunnelSessionFilter: z.string().optional().catch(''),
   toolStatus: arraySearchSchema.optional(),
   clientStatus: arraySearchSchema.optional(),
   callStatus: arraySearchSchema.optional(),
+  tunnelStatus: arraySearchSchema.optional(),
+  myTunnelStatus: arraySearchSchema.optional(),
+  tunnelType: arraySearchSchema.optional(),
+  tunnelConnectionStatus: arraySearchSchema.optional(),
+  tunnelSessionStatus: arraySearchSchema.optional(),
   proxyServerStatus: arraySearchSchema.optional(),
   proxyToolStatus: arraySearchSchema.optional(),
   proxyTransport: arraySearchSchema.optional(),
@@ -99,7 +119,13 @@ export const Route = createFileRoute('/_authenticated/mcp/$section')({
       })
     }
 
-    if (auth.user.role < ROLE.ADMIN && params.section !== 'market') {
+    if (
+      auth.user.role < ROLE.ADMIN &&
+      params.section !== 'market' &&
+      params.section !== 'my-tunnel-apps' &&
+      params.section !== 'tunnel-connections' &&
+      params.section !== 'tunnel-sessions'
+    ) {
       throw redirect({
         to: '/403',
       })

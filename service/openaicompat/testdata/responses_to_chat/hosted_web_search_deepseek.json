@@ -1,0 +1,38 @@
+{
+  "request": {
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "input": "用百度查询一下，人民币和美元汇率",
+    "tools": [
+      {
+        "type": "web_search"
+      }
+    ],
+    "tool_choice": {
+      "type": "web_search"
+    },
+    "stream": true,
+    "reasoning": {
+      "effort": "xhigh"
+    }
+  },
+  "options": {
+    "ChannelType": 43,
+    "ReasoningAdapter": "auto"
+  },
+  "want": {
+    "message_roles": ["system", "user"],
+    "reasoning_effort": "max",
+    "thinking": {
+      "type": "enabled"
+    },
+    "context_meta": {
+      "hosted_tools_filtered": ["web_search"],
+      "hosted_tools_direct_answer_hint": true,
+      "responses_reasoning_adapter": "deepseek",
+      "responses_reasoning_adapter_source": "auto",
+      "reasoning_forwarded": true,
+      "reasoning_params": ["reasoning_effort", "thinking"],
+      "reasoning_effort_mapped": "max"
+    }
+  }
+}

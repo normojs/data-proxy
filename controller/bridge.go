@@ -252,6 +252,24 @@ func UpdateBridgeClient(c *gin.Context) {
 	common.ApiSuccess(c, item)
 }
 
+func EnsureBridgeAgentSetup(c *gin.Context) {
+	var req dto.BridgeAgentSetupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	item, err := service.EnsureBridgeAgentSetup(service.BridgeAgentSetupParams{
+		UserId:  c.GetInt("id"),
+		BaseURL: tunnelServerBaseURL(c),
+		Request: req,
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, item)
+}
+
 func DeleteBridgeClient(c *gin.Context) {
 	item, err := service.ArchiveBridgeClient(service.BridgeClientDetailParams{
 		UserId:   bridgeViewerUserId(c),

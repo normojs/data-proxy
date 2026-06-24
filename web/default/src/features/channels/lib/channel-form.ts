@@ -190,6 +190,19 @@ export const channelFormSchema = z
     responses_protocol: z
       .enum(['auto', 'native', 'chat_completions', 'disabled'])
       .optional(),
+    responses_reasoning_adapter: z
+      .enum([
+        'default',
+        'auto',
+        'off',
+        'openai',
+        'deepseek',
+        'openrouter',
+        'qwen_enable_thinking',
+        'minimax_reasoning_split',
+        'low_high',
+      ])
+      .optional(),
     // Field passthrough controls (stored in settings JSON)
     allow_service_tier: z.boolean().optional(), // OpenAI/Anthropic
     disable_store: z.boolean().optional(), // OpenAI only
@@ -309,6 +322,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   aws_key_type: 'ak_sk',
   azure_responses_version: '',
   responses_protocol: 'auto',
+  responses_reasoning_adapter: 'default',
   // Field passthrough controls
   allow_service_tier: false,
   disable_store: false,
@@ -364,6 +378,16 @@ export function transformChannelToFormDefaults(
   let azureResponsesVersion = ''
   let responsesProtocol: 'auto' | 'native' | 'chat_completions' | 'disabled' =
     'auto'
+  let responsesReasoningAdapter:
+    | 'default'
+    | 'auto'
+    | 'off'
+    | 'openai'
+    | 'deepseek'
+    | 'openrouter'
+    | 'qwen_enable_thinking'
+    | 'minimax_reasoning_split'
+    | 'low_high' = 'default'
   let isEnterpriseAccount = false
   let awsKeyType: 'ak_sk' | 'api_key' = 'ak_sk'
   let allowServiceTier = false
@@ -390,6 +414,19 @@ export function transformChannelToFormDefaults(
       ].includes(parsed.responses_protocol)
         ? parsed.responses_protocol
         : 'auto'
+      responsesReasoningAdapter = [
+        'default',
+        'auto',
+        'off',
+        'openai',
+        'deepseek',
+        'openrouter',
+        'qwen_enable_thinking',
+        'minimax_reasoning_split',
+        'low_high',
+      ].includes(parsed.responses_reasoning_adapter)
+        ? parsed.responses_reasoning_adapter
+        : 'default'
       isEnterpriseAccount = parsed.openrouter_enterprise === true
       awsKeyType = parsed.aws_key_type || 'ak_sk'
       allowServiceTier = parsed.allow_service_tier === true
@@ -447,6 +484,7 @@ export function transformChannelToFormDefaults(
     vertex_key_type: vertexKeyType,
     azure_responses_version: azureResponsesVersion,
     responses_protocol: responsesProtocol,
+    responses_reasoning_adapter: responsesReasoningAdapter,
     aws_key_type: awsKeyType,
     allow_service_tier: allowServiceTier,
     disable_store: disableStore,
@@ -510,6 +548,16 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.responses_protocol = formData.responses_protocol
   } else if ('responses_protocol' in settingsObj) {
     delete settingsObj.responses_protocol
+  }
+
+  if (
+    formData.responses_reasoning_adapter &&
+    formData.responses_reasoning_adapter !== 'default'
+  ) {
+    settingsObj.responses_reasoning_adapter =
+      formData.responses_reasoning_adapter
+  } else if ('responses_reasoning_adapter' in settingsObj) {
+    delete settingsObj.responses_reasoning_adapter
   }
 
   // Add enterprise account setting for OpenRouter (type 20)

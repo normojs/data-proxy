@@ -75,6 +75,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)
+	appendRequestConversionMeta(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)
 	appendParamOverrideInfo(relayInfo, other)
@@ -196,6 +197,52 @@ func appendRequestConversionChain(relayInfo *relaycommon.RelayInfo, other map[st
 		return
 	}
 	other["request_conversion"] = chain
+}
+
+func appendRequestConversionMeta(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	if relayInfo == nil || other == nil {
+		return
+	}
+	meta := make(map[string]interface{}, len(relayInfo.RequestConversionMeta)+1)
+	for key, value := range relayInfo.RequestConversionMeta {
+		key = strings.TrimSpace(key)
+		if key == "" || isEmptyRequestConversionMetaValue(value) {
+			continue
+		}
+		meta[key] = value
+	}
+	if len(relayInfo.RequestConversionNotes) > 0 {
+		notes := make([]string, 0, len(relayInfo.RequestConversionNotes))
+		for _, note := range relayInfo.RequestConversionNotes {
+			if note = strings.TrimSpace(note); note != "" {
+				notes = append(notes, note)
+			}
+		}
+		if len(notes) > 0 {
+			meta["notes"] = notes
+		}
+	}
+	if len(meta) == 0 {
+		return
+	}
+	other["request_conversion_meta"] = meta
+}
+
+func isEmptyRequestConversionMetaValue(value interface{}) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(v) == ""
+	case []string:
+		return len(v) == 0
+	case []interface{}:
+		return len(v) == 0
+	case map[string]interface{}:
+		return len(v) == 0
+	default:
+		return false
+	}
 }
 
 func appendFinalRequestFormat(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {

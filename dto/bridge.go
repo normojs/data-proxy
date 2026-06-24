@@ -46,6 +46,33 @@ type BridgeClientUpdateRequest struct {
 	Policy       *bridgepolicy.Policy `json:"policy,omitempty"`
 }
 
+type BridgeAgentSetupRequest struct {
+	ClientId   string `json:"client_id,omitempty"`
+	Rotate     bool   `json:"rotate"`
+	ClientName string `json:"client_name"`
+	Version    string `json:"version"`
+	Platform   string `json:"platform"`
+	Workspace  string `json:"workspace"`
+}
+
+type BridgeAgentSetupResponse struct {
+	Client         BridgeClientItem  `json:"client"`
+	BaseURL        string            `json:"base_url"`
+	BridgeWSURL    string            `json:"bridge_ws_url"`
+	ClientId       string            `json:"client_id"`
+	APIKey         string            `json:"api_key,omitempty"`
+	APIKeyOnce     bool              `json:"api_key_once"`
+	TokenId        int               `json:"token_id"`
+	TokenName      string            `json:"token_name"`
+	TokenMaskedKey string            `json:"token_masked_key"`
+	Created        bool              `json:"created"`
+	Rotated        bool              `json:"rotated"`
+	Headers        map[string]string `json:"headers"`
+	Register       map[string]any    `json:"register"`
+	Environment    map[string]string `json:"environment"`
+	Config         map[string]any    `json:"config"`
+}
+
 type BridgeSessionCloseRequest struct {
 	Reason string `json:"reason,omitempty"`
 }

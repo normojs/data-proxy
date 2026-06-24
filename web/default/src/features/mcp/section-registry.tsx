@@ -23,10 +23,14 @@ import { BridgeClientsTable } from './components/bridge-clients-table'
 import { MCPMarket } from './components/mcp-market'
 import { MCPOverview } from './components/mcp-overview'
 import { MCPToolsTable } from './components/mcp-tools-table'
+import { MyTunnelAppsTable } from './components/my-tunnel-apps-table'
 import { OpenAPIBinaryObjectsTable } from './components/openapi-binary-objects-table'
 import { MCPProxyServersTable } from './components/proxy-servers-table'
 import { MCPProxyToolsTable } from './components/proxy-tools-table'
 import { ToolCallsTable } from './components/tool-calls-table'
+import { TunnelAppsTable } from './components/tunnel-apps-table'
+import { TunnelConnectionsTable } from './components/tunnel-connections-table'
+import { TunnelSessionsTable } from './components/tunnel-sessions-table'
 
 export const MCP_SECTIONS = [
   {
@@ -77,6 +81,34 @@ export const MCP_SECTIONS = [
     descriptionKey:
       'Inspect local Bridge clients, heartbeats, workspace exposure, and write permissions.',
     build: () => <BridgeClientsTable />,
+  },
+  {
+    id: 'tunnel-apps',
+    titleKey: 'Tunnel Apps',
+    descriptionKey:
+      'Review MCP code tunnels and traffic tunnels with approval, permissions, and routing state.',
+    build: () => <TunnelAppsTable />,
+  },
+  {
+    id: 'my-tunnel-apps',
+    titleKey: 'My Tunnel Apps',
+    descriptionKey:
+      'Request MCP code tunnel or HTTP tunnel apps for local Bridge clients and track administrator review.',
+    build: () => <MyTunnelAppsTable />,
+  },
+  {
+    id: 'tunnel-connections',
+    titleKey: 'Tunnel Connections',
+    descriptionKey:
+      'Create and revoke dedicated tunnel connection keys for approved local apps.',
+    build: () => <TunnelConnectionsTable />,
+  },
+  {
+    id: 'tunnel-sessions',
+    titleKey: 'Tunnel Sessions',
+    descriptionKey:
+      'Inspect active and historical MCP tunnel sessions by app, connection, and gateway session id.',
+    build: () => <TunnelSessionsTable />,
   },
   {
     id: 'tool-calls',

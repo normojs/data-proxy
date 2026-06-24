@@ -1,10 +1,10 @@
 package relay
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -22,12 +22,90 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, request *dto.OpenAIResponsesRequest) (*dto.Usage, *types.NewAPIError) {
-	chatReq, compatCtx, err := service.ResponsesRequestToChatCompletionsRequest(request)
+func responsesCompactViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, request *dto.OpenAIResponsesRequest) (*dto.Usage, *types.NewAPIError) {
+	chatReq, compatCtx, err := service.ResponsesRequestToChatCompletionsRequestWithOptions(request, &openaicompat.ResponsesToChatOptions{
+		ChannelType:      info.ChannelType,
+		ReasoningAdapter: info.ChannelOtherSettings.ResponsesReasoningAdapter,
+	})
 	if err != nil {
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	info.AppendRequestConversion(types.RelayFormatOpenAI)
+	info.SetRequestConversionMeta("responses_compact_converted", true)
+	mergeResponsesCompatMeta(info, compatCtx)
+
+	savedRelayMode := info.RelayMode
+	savedRequestURLPath := info.RequestURLPath
+	defer func() {
+		info.RelayMode = savedRelayMode
+		info.RequestURLPath = savedRequestURLPath
+	}()
+
+	info.RelayMode = relayconstant.RelayModeChatCompletions
+	info.RequestURLPath = "/v1/chat/completions"
+
+	convertedRequest, err := adaptor.ConvertOpenAIRequest(c, info, chatReq)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
+	relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
+
+	jsonData, err := common.Marshal(convertedRequest)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
+	jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
+	if len(info.ParamOverride) > 0 {
+		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+		if err != nil {
+			return nil, newAPIErrorFromParamOverride(err)
+		}
+	}
+
+	logger.LogDebug(c, "responses compact chat compatibility requestBody: %s", jsonData)
+	body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
+	defer closer.Close()
+	info.UpstreamRequestBodySize = size
+
+	resp, err := adaptor.DoRequest(c, info, body)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
+	}
+	if resp == nil {
+		return nil, types.NewOpenAIError(nil, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+
+	httpResp := resp.(*http.Response)
+	statusCodeMappingStr := c.GetString("status_code_mapping")
+	if httpResp.StatusCode != http.StatusOK {
+		newAPIError := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
+		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
+		return nil, newAPIError
+	}
+	usage, newAPIError := chatCompletionsToResponsesCompactHandler(c, info, httpResp, request, compatCtx)
+	if newAPIError != nil {
+		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
+		return nil, newAPIError
+	}
+	return usage, nil
+}
+
+func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, request *dto.OpenAIResponsesRequest) (*dto.Usage, *types.NewAPIError) {
+	chatReq, compatCtx, err := service.ResponsesRequestToChatCompletionsRequestWithOptions(request, &openaicompat.ResponsesToChatOptions{
+		ChannelType:      info.ChannelType,
+		ReasoningAdapter: info.ChannelOtherSettings.ResponsesReasoningAdapter,
+	})
+	if err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	info.AppendRequestConversion(types.RelayFormatOpenAI)
+	mergeResponsesCompatMeta(info, compatCtx)
 
 	savedRelayMode := info.RelayMode
 	savedRequestURLPath := info.RequestURLPath
@@ -103,6 +181,38 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 	return usage, nil
 }
 
+func chatCompletionsToResponsesCompactHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, request *dto.OpenAIResponsesRequest, compatCtx *openaicompat.ResponsesToChatContext) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+	text, responsesUsage, newAPIError := compactTextAndUsageFromChatBody(responseBody, request, compatCtx, resp.StatusCode)
+	if newAPIError != nil {
+		return nil, newAPIError
+	}
+	if responsesUsage == nil || responsesUsage.TotalTokens == 0 && responsesUsage.InputTokens == 0 && responsesUsage.OutputTokens == 0 {
+		responsesUsage = openaicompat.ChatUsageToResponsesUsage(service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens()))
+	}
+
+	response := dto.OpenAIResponsesCompactionResponse{
+		ID:        "resp_" + common.GetUUID(),
+		Object:    "response",
+		CreatedAt: int(time.Now().Unix()),
+		Output:    compactOutputMessage(text),
+		Usage:     responsesUsage,
+	}
+	responseJSON, err := common.Marshal(response)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	info.SetRequestConversionMeta("responses_compact_output_text_chars", len(text))
+	mergeResponsesCompatMeta(info, compatCtx)
+	service.IOCopyBytesGracefully(c, resp, responseJSON)
+	return openaicompat.ResponsesUsageToChatUsage(responsesUsage), nil
+}
+
 func chatCompletionsToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, request *dto.OpenAIResponsesRequest, compatCtx *openaicompat.ResponsesToChatContext) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -112,7 +222,22 @@ func chatCompletionsToResponsesHandler(c *gin.Context, info *relaycommon.RelayIn
 	}
 	var chatResp dto.OpenAITextResponse
 	if err := common.Unmarshal(responseBody, &chatResp); err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		responsesResp, usage, ok, aggregateErr := service.ChatCompletionsStreamBodyToResponses(responseBody, request, compatCtx)
+		if aggregateErr != nil {
+			return nil, types.NewOpenAIError(aggregateErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		if !ok || responsesResp == nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		info.SetRequestConversionMeta("chat_sse_fallback", true)
+		recordResponsesTerminalStatus(info, responsesResp)
+		mergeResponsesCompatMeta(info, compatCtx)
+		responseJSON, marshalErr := common.Marshal(responsesResp)
+		if marshalErr != nil {
+			return nil, types.NewOpenAIError(marshalErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		service.IOCopyBytesGracefully(c, resp, responseJSON)
+		return openaicompat.ResponsesUsageToChatUsage(usage), nil
 	}
 	if oaiError := chatResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
@@ -122,6 +247,8 @@ func chatCompletionsToResponsesHandler(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	recordResponsesTerminalStatus(info, responsesResp)
+	mergeResponsesCompatMeta(info, compatCtx)
 	responseJSON, err := common.Marshal(responsesResp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
@@ -130,228 +257,106 @@ func chatCompletionsToResponsesHandler(c *gin.Context, info *relaycommon.RelayIn
 	return openaicompat.ResponsesUsageToChatUsage(usage), nil
 }
 
+func compactTextAndUsageFromChatBody(responseBody []byte, request *dto.OpenAIResponsesRequest, compatCtx *openaicompat.ResponsesToChatContext, statusCode int) (string, *dto.Usage, *types.NewAPIError) {
+	var chatResp dto.OpenAITextResponse
+	if err := common.Unmarshal(responseBody, &chatResp); err != nil {
+		responsesResp, usage, ok, aggregateErr := service.ChatCompletionsStreamBodyToResponses(responseBody, request, compatCtx)
+		if aggregateErr != nil {
+			return "", nil, types.NewOpenAIError(aggregateErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		if !ok || responsesResp == nil {
+			return "", nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		return compactTextFromResponsesOutput(responsesResp["output"]), usage, nil
+	}
+	if oaiError := chatResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+		return "", nil, types.WithOpenAIError(*oaiError, statusCode)
+	}
+	text := ""
+	if len(chatResp.Choices) > 0 {
+		msg := chatResp.Choices[0].Message
+		text = msg.StringContent()
+		if strings.TrimSpace(text) == "" {
+			text = msg.GetReasoningContent()
+		}
+	}
+	return text, openaicompat.ChatUsageToResponsesUsage(&chatResp.Usage), nil
+}
+
+func compactTextFromResponsesOutput(output any) string {
+	items, ok := output.([]any)
+	if !ok {
+		return ""
+	}
+	var parts []string
+	for _, rawItem := range items {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		content, ok := item["content"].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawPart := range content {
+			part, ok := rawPart.(map[string]any)
+			if !ok {
+				continue
+			}
+			if text := strings.TrimSpace(common.Interface2String(part["text"])); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func compactOutputMessage(text string) json.RawMessage {
+	output := []any{
+		map[string]any{
+			"id":     "msg_" + common.GetUUID(),
+			"type":   "message",
+			"role":   "assistant",
+			"status": "completed",
+			"content": []any{
+				map[string]any{
+					"type":        "output_text",
+					"text":        text,
+					"annotations": []any{},
+				},
+			},
+		},
+	}
+	raw, err := common.Marshal(output)
+	if err != nil {
+		return json.RawMessage("[]")
+	}
+	return raw
+}
+
 func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, request *dto.OpenAIResponsesRequest, compatCtx *openaicompat.ResponsesToChatContext) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	defer service.CloseResponseBodyGracefully(resp)
 
-	usage := &dto.Usage{}
-	responseID := "resp_" + common.GetUUID()
-	model := request.Model
-	createdAt := time.Now().Unix()
-	var outputText strings.Builder
-	var fallbackReasoningText strings.Builder
-	var textItemStarted bool
-	var textDone bool
-	toolStates := map[int]*streamToolState{}
+	converter := openaicompat.NewChatToResponsesStreamConverter(request, compatCtx)
 	var streamErr *types.NewAPIError
 
-	send := func(event string, payload map[string]any) bool {
-		payload["type"] = event
-		jsonData, err := common.Marshal(payload)
+	sendEvent := func(event openaicompat.ChatToResponsesStreamEvent) bool {
+		event.Payload["type"] = event.Event
+		jsonData, err := common.Marshal(event.Payload)
 		if err != nil {
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 			return false
 		}
-		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", event)})
+		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", event.Event)})
 		c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonData)})
 		if err := helper.FlushWriter(c); err != nil {
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			return false
 		}
 		return true
-	}
-
-	baseResponse := func(status string, output []any) map[string]any {
-		resp := map[string]any{
-			"id":         responseID,
-			"object":     "response",
-			"created_at": createdAt,
-			"status":     status,
-			"model":      model,
-			"output":     output,
-		}
-		if request.PreviousResponseID != "" {
-			resp["previous_response_id"] = request.PreviousResponseID
-		}
-		return resp
-	}
-
-	sendCreated := false
-	ensureCreated := func() bool {
-		if sendCreated {
-			return true
-		}
-		sendCreated = true
-		return send("response.created", map[string]any{
-			"response": baseResponse("in_progress", []any{}),
-		})
-	}
-
-	toolOutputIndex := func(state *streamToolState) int {
-		if state == nil {
-			return 0
-		}
-		if textItemStarted {
-			return state.Index + 1
-		}
-		return state.Index
-	}
-
-	toolCallForState := func(state *streamToolState, arguments string) dto.ToolCallRequest {
-		callID := strings.TrimSpace(state.ID)
-		if callID == "" {
-			callID = "call_" + common.GetUUID()
-			state.ID = callID
-		}
-		name := strings.TrimSpace(state.Name)
-		if name == "" {
-			name = "tool"
-		}
-		return dto.ToolCallRequest{
-			ID:   callID,
-			Type: "function",
-			Function: dto.FunctionRequest{
-				Name:      name,
-				Arguments: arguments,
-			},
-		}
-	}
-
-	toolItemForState := func(state *streamToolState, arguments string, status string) map[string]any {
-		item := openaicompat.ChatToolCallToResponsesItem(toolCallForState(state, arguments), compatCtx)
-		if status != "" {
-			item["status"] = status
-		}
-		itemID := strings.TrimSpace(common.Interface2String(item["id"]))
-		if itemID == "" {
-			itemID = "fc_" + state.ID
-			item["id"] = itemID
-		}
-		if state.ItemID == "" {
-			state.ItemID = itemID
-		}
-		return item
-	}
-
-	ensureToolStarted := func(state *streamToolState) bool {
-		if state == nil {
-			return true
-		}
-		if state.Started {
-			return true
-		}
-		if !ensureCreated() {
-			return false
-		}
-		state.Started = true
-		item := toolItemForState(state, "", "in_progress")
-		return send("response.output_item.added", map[string]any{
-			"output_index": toolOutputIndex(state),
-			"item":         item,
-		})
-	}
-
-	sendToolArgumentsDelta := func(state *streamToolState, delta string) bool {
-		if state == nil || delta == "" {
-			return true
-		}
-		if !ensureToolStarted(state) {
-			return false
-		}
-		item := toolItemForState(state, state.Arguments.String(), "in_progress")
-		if common.Interface2String(item["type"]) != "function_call" {
-			return true
-		}
-		return send("response.function_call_arguments.delta", map[string]any{
-			"output_index": toolOutputIndex(state),
-			"item_id":      state.ItemID,
-			"delta":        delta,
-		})
-	}
-
-	finalizeTool := func(state *streamToolState) bool {
-		if state == nil || state.Done {
-			return true
-		}
-		if !ensureToolStarted(state) {
-			return false
-		}
-		state.Done = true
-		arguments := state.Arguments.String()
-		item := toolItemForState(state, arguments, "completed")
-		if common.Interface2String(item["type"]) == "function_call" {
-			if !send("response.function_call_arguments.done", map[string]any{
-				"output_index": toolOutputIndex(state),
-				"item_id":      state.ItemID,
-				"arguments":    arguments,
-			}) {
-				return false
-			}
-		}
-		return send("response.output_item.done", map[string]any{
-			"output_index": toolOutputIndex(state),
-			"item":         item,
-		})
-	}
-
-	sortedToolStates := func() []*streamToolState {
-		states := make([]*streamToolState, 0, len(toolStates))
-		for _, state := range toolStates {
-			states = append(states, state)
-		}
-		sort.Slice(states, func(i, j int) bool {
-			return states[i].Index < states[j].Index
-		})
-		return states
-	}
-
-	ensureTextStarted := func() bool {
-		if textItemStarted {
-			return true
-		}
-		if !ensureCreated() {
-			return false
-		}
-		textItemStarted = true
-		item := openaicompat.ResponseMessageItem("msg_"+responseID, "")
-		return send("response.output_item.added", map[string]any{
-			"output_index": 0,
-			"item":         item,
-		}) && send("response.content_part.added", map[string]any{
-			"output_index":  0,
-			"content_index": 0,
-			"part": map[string]any{
-				"type":        "output_text",
-				"text":        "",
-				"annotations": []any{},
-			},
-		})
-	}
-
-	finalizeText := func() bool {
-		if !textItemStarted || textDone {
-			return true
-		}
-		textDone = true
-		text := outputText.String()
-		return send("response.output_text.done", map[string]any{
-			"output_index":  0,
-			"content_index": 0,
-			"text":          text,
-		}) && send("response.content_part.done", map[string]any{
-			"output_index":  0,
-			"content_index": 0,
-			"part": map[string]any{
-				"type":        "output_text",
-				"text":        text,
-				"annotations": []any{},
-			},
-		}) && send("response.output_item.done", map[string]any{
-			"output_index": 0,
-			"item":         openaicompat.ResponseMessageItem("msg_"+responseID, text),
-		})
 	}
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
@@ -368,73 +373,10 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 			sr.Stop(streamErr)
 			return
 		}
-		if chunk.Id != "" {
-			responseID = openaicompat.ChatStreamIDToResponsesID(chunk.Id)
-		}
-		if chunk.Model != "" {
-			model = chunk.Model
-		}
-		if chunk.Created != 0 {
-			createdAt = chunk.Created
-		}
-		if chunk.Usage != nil {
-			usage = chunk.Usage
-		}
-		if len(chunk.Choices) == 0 {
-			return
-		}
-		choice := chunk.Choices[0]
-		if textDelta := choice.Delta.GetContentString(); textDelta != "" {
-			if !ensureTextStarted() {
+		for _, event := range converter.HandleChunk(chunk) {
+			if !sendEvent(event) {
 				sr.Stop(streamErr)
 				return
-			}
-			outputText.WriteString(textDelta)
-			if !send("response.output_text.delta", map[string]any{
-				"output_index":  0,
-				"content_index": 0,
-				"delta":         textDelta,
-			}) {
-				sr.Stop(streamErr)
-				return
-			}
-		} else if fallbackDelta := openaicompat.ChatStreamDeltaOutputText(choice.Delta); fallbackDelta != "" {
-			fallbackReasoningText.WriteString(fallbackDelta)
-		}
-		if len(choice.Delta.ToolCalls) > 0 {
-			if !ensureCreated() {
-				sr.Stop(streamErr)
-				return
-			}
-			for _, tool := range choice.Delta.ToolCalls {
-				index := 0
-				if tool.Index != nil {
-					index = *tool.Index
-				}
-				state := toolStates[index]
-				if state == nil {
-					state = &streamToolState{Index: index}
-					toolStates[index] = state
-				}
-				if tool.ID != "" {
-					state.ID = tool.ID
-				}
-				if tool.Function.Name != "" {
-					state.Name = tool.Function.Name
-				}
-				if tool.Function.Arguments != "" {
-					state.Arguments.WriteString(tool.Function.Arguments)
-				}
-				if !ensureToolStarted(state) {
-					sr.Stop(streamErr)
-					return
-				}
-				if tool.Function.Arguments != "" {
-					if !sendToolArgumentsDelta(state, tool.Function.Arguments) {
-						sr.Stop(streamErr)
-						return
-					}
-				}
 			}
 		}
 	})
@@ -442,59 +384,20 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 		return nil, streamErr
 	}
 
-	output := make([]any, 0)
-	if outputText.Len() == 0 && fallbackReasoningText.Len() > 0 {
-		text := fallbackReasoningText.String()
-		if !ensureTextStarted() {
-			return nil, streamErr
-		}
-		outputText.WriteString(text)
-		if !send("response.output_text.delta", map[string]any{
-			"output_index":  0,
-			"content_index": 0,
-			"delta":         text,
-		}) {
-			return nil, streamErr
-		}
-	}
-	if outputText.Len() > 0 {
-		if !finalizeText() {
-			return nil, streamErr
-		}
-		output = append(output, openaicompat.ResponseMessageItem("msg_"+responseID, outputText.String()))
-	}
-	for _, state := range sortedToolStates() {
-		if !finalizeTool(state) {
-			return nil, streamErr
-		}
-		output = append(output, toolItemForState(state, state.Arguments.String(), "completed"))
-	}
+	usage := converter.Usage()
 	if usage.TotalTokens == 0 && usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
-		usage = service.ResponseText2Usage(c, outputText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		usage = service.ResponseText2Usage(c, converter.EstimatedOutputText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		converter.SetUsage(usage)
 	}
-	responsesUsage := openaicompat.ChatUsageToResponsesUsage(usage)
-	if !ensureCreated() {
-		return nil, streamErr
+	finishEvents := converter.Finish()
+	for _, event := range finishEvents {
+		if response, ok := event.Payload["response"].(map[string]any); ok {
+			recordResponsesTerminalStatus(info, response)
+		}
+		if !sendEvent(event) {
+			return nil, streamErr
+		}
 	}
-	if !send("response.completed", map[string]any{
-		"response": mergeResponseUsageForRelay(baseResponse("completed", output), responsesUsage),
-	}) {
-		return nil, streamErr
-	}
+	mergeResponsesCompatMeta(info, compatCtx)
 	return usage, nil
-}
-
-type streamToolState struct {
-	Index     int
-	ID        string
-	Name      string
-	Arguments strings.Builder
-	ItemID    string
-	Started   bool
-	Done      bool
-}
-
-func mergeResponseUsageForRelay(response map[string]any, usage *dto.Usage) map[string]any {
-	response["usage"] = usage
-	return response
 }

@@ -17,8 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
+import { getRouteApi } from '@tanstack/react-router'
 import { type ColumnDef } from '@tanstack/react-table'
-import { CircleAlert, Sparkles, KeyRound } from 'lucide-react'
+import {
+  CircleAlert,
+  Sparkles,
+  KeyRound,
+  ListFilter,
+  Route,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
@@ -29,6 +36,7 @@ import {
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -58,6 +66,8 @@ import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { ModelBadge } from '../model-badge'
 import { useUsageLogsContext } from '../usage-logs-provider'
+
+const route = getRouteApi('/_authenticated/usage-logs/$section')
 
 interface DetailSegment {
   text: string
@@ -100,6 +110,96 @@ function formatRequestId(value: string): string {
   if (!value) return ''
   if (value.length <= 16) return value
   return `${value.slice(0, 6)}...${value.slice(-6)}`
+}
+
+interface RequestIdCellProps {
+  log: UsageLog
+  isAdmin: boolean
+  onFilter: (requestId: string) => void
+}
+
+function RequestIdCell({ log, isAdmin, onFilter }: RequestIdCellProps) {
+  const { t } = useTranslation()
+  const [traceOpen, setTraceOpen] = useState(false)
+  const requestId = log.request_id
+
+  if (!requestId) {
+    return <span className='text-muted-foreground/50 text-xs'>-</span>
+  }
+
+  return (
+    <>
+      <div className='flex max-w-[210px] items-center gap-1'>
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            <TooltipTrigger render={<div className='min-w-0 flex-1' />}>
+              <StatusBadge
+                label={formatRequestId(requestId)}
+                copyText={requestId}
+                size='sm'
+                showDot={false}
+                className='border-border/60 bg-muted/30 text-foreground h-6 max-w-full gap-1.5 overflow-hidden rounded-md border px-2 py-0.5 font-mono'
+              />
+            </TooltipTrigger>
+            <TooltipContent
+              side='top'
+              className='max-w-xs font-mono text-xs break-all'
+            >
+              {requestId}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='text-muted-foreground hover:text-foreground size-6 shrink-0'
+                  aria-label={t('View request trace')}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setTraceOpen(true)
+                  }}
+                />
+              }
+            >
+              <Route className='size-3.5' aria-hidden='true' />
+            </TooltipTrigger>
+            <TooltipContent side='top'>
+              {t('View request trace')}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='text-muted-foreground hover:text-foreground size-6 shrink-0'
+                  aria-label={t('Filter by Request ID')}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onFilter(requestId)
+                  }}
+                />
+              }
+            >
+              <ListFilter className='size-3.5' aria-hidden='true' />
+            </TooltipTrigger>
+            <TooltipContent side='top'>
+              {t('Filter by Request ID')}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+      <DetailsDialog
+        log={log}
+        isAdmin={isAdmin}
+        open={traceOpen}
+        onOpenChange={setTraceOpen}
+      />
+    </>
+  )
 }
 
 function buildDetailSegments(
@@ -268,6 +368,22 @@ function buildDetailSegments(
 
 export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
   const { t } = useTranslation()
+  const navigate = route.useNavigate()
+  const search = route.useSearch()
+
+  const applyRequestIdFilter = (requestId: string) => {
+    navigate({
+      to: '/usage-logs/$section',
+      params: { section: 'common' },
+      search: {
+        ...search,
+        requestId,
+        upstreamRequestId: undefined,
+        page: 1,
+      },
+    })
+  }
+
   const columns: ColumnDef<UsageLog>[] = [
     {
       accessorKey: 'created_at',
@@ -308,35 +424,16 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         <DataTableColumnHeader column={column} title={t('Request ID')} />
       ),
       cell: ({ row }) => {
-        const requestId = row.original.request_id
-        if (!requestId) {
-          return <span className='text-muted-foreground/50 text-xs'>-</span>
-        }
-
         return (
-          <TooltipProvider delay={300}>
-            <Tooltip>
-              <TooltipTrigger render={<div className='max-w-[150px]' />}>
-                <StatusBadge
-                  label={formatRequestId(requestId)}
-                  copyText={requestId}
-                  size='sm'
-                  showDot={false}
-                  className='border-border/60 bg-muted/30 text-foreground h-6 max-w-full gap-1.5 overflow-hidden rounded-md border px-2 py-0.5 font-mono'
-                />
-              </TooltipTrigger>
-              <TooltipContent
-                side='top'
-                className='max-w-xs break-all font-mono text-xs'
-              >
-                {requestId}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <RequestIdCell
+            log={row.original}
+            isAdmin={isAdmin}
+            onFilter={applyRequestIdFilter}
+          />
         )
       },
       meta: { label: t('Request ID') },
-      size: 150,
+      size: 210,
     },
   ]
 
@@ -794,7 +891,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         return (
           <div className='flex flex-col gap-0.5'>
-            <span className='border-border/80 bg-muted/60 inline-flex h-6 w-fit items-center rounded-md border px-2 text-sm leading-none [font-family:var(--font-body)] font-semibold tabular-nums'>
+            <span className='border-border/80 bg-muted/60 inline-flex h-6 w-fit items-center rounded-md border px-2 [font-family:var(--font-body)] text-sm leading-none font-semibold tabular-nums'>
               {quotaDisplay.prefix && (
                 <span className='mr-1'>{quotaDisplay.prefix}</span>
               )}

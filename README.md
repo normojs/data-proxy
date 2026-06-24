@@ -39,6 +39,7 @@ Data Proxy 适合需要集中管理大模型 API 资产的团队：
 - 额度策略：支持 `request_count` 和 `quota`，可按企业、部门、分组或用户命中，支持 dry-run 与 hard reject。
 - 临时额度审批：用户提交、管理员审批、拒绝、撤回、过期和即将过期提醒。
 - 通知闭环：站内通知、企业审计事件、email/webhook outbox、通知偏好、投递结果查询、失败重试和 worker 指标。
+- Tunnel Apps：规划并开始实现 `mcp_code` 与 `http_tunnel` / `tcp_tunnel` 两类隧道应用，当前已具备申请/审批/审计/Bridge policy 同步、管理端列表、用户专属连接密钥和 MCP 网关入口。
 - HStation OAuth：登录、注册、绑定、解绑、管理员配置和自动化测试覆盖。
 - SSO 组织同步：支持 payload preview、dry-run、冲突列表、事务 apply 和同步审计。
 - 企业额度 Redis 计数：可选 Redis 原子 reserve/settle/refund，DB 降级和 DB/Redis 对账修复。
@@ -110,8 +111,16 @@ docker pull ghcr.io/normojs/data-proxy:v1.3.0
 | `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_PROVIDER` | queue replay 大 payload 外部对象存储 provider；未设置时使用 DB，支持 `local` 或 `s3`。 |
 | `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_DIR` | `local` provider 的对象目录；未设置时使用系统临时目录。 |
 | `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_ENDPOINT` / `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_BUCKET` | `s3` provider 的 S3 或 S3-compatible endpoint 和 bucket。 |
+| `CAPTURE_ENABLED` | 请求捕获总开关，默认关闭；完整捕获链路完成前生产环境应保持 `false`。 |
+| `CAPTURE_LEVEL` / `CAPTURE_SAMPLE_RATE` / `CAPTURE_MODEL_PATTERNS` | 请求捕获策略配置，可先按模型、路径、用户、token、渠道小范围启用。 |
+| `CAPTURE_MAX_ARTIFACT_BYTES` | 单个请求/响应 artifact 的最大保存字节数，`0` 表示不限制；超出后只截断捕获数据，不影响主请求。 |
+| `CAPTURE_OBJECT_BACKEND` / `CAPTURE_S3_ENDPOINT` / `CAPTURE_S3_BUCKET` | 请求捕获私密数据包的 SeaweedFS/S3-compatible 存储配置。 |
+| `CAPTURE_BUNDLE_MASTER_KEY` | 请求捕获私密数据包 AES-256-GCM 加密主密钥，支持 `base64:` 或 `hex:` 前缀，必须解码为 32 字节。 |
 
 完整部署说明见 [Data Proxy Operator Guide](./docs/data-proxy-operator-guide.md)。
+
+请求捕获和诊断数据湖使用 SeaweedFS/S3-compatible 存储；生产部署可通过
+`docker-compose.capture-storage.yml` 追加 SeaweedFS 服务和持久化卷映射。
 
 ## 管理与验证
 
@@ -155,6 +164,27 @@ make deployment-preflight
 DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight
 ```
 
+### Request ID 排障
+
+当客户端出现“HTTP 200 但无回复”、流式中断、协议转换异常或计费疑问时，优先使用 request id 查询追踪信息：
+
+```text
+GET /api/log/request?request_id=REQ_ID
+GET /api/log/self/request?request_id=REQ_ID
+```
+
+控制台可在 `Usage Logs -> Common` 按 request id 过滤，也可点击 request id 旁的追踪图标直接打开日志详情，并在 `Request Trace` 区块查看转换链、流状态、上游 request id 和关联错误。完整说明见 [Request ID Trace Troubleshooting](./docs/request-trace-troubleshooting.md)。
+
+### Tunnel MCP 连接
+
+用户先在 `MCP -> My Tunnel Apps` 为本地 Bridge 客户端申请 `mcp_code` Tunnel App。管理员在 `MCP -> Tunnel Apps` 审批通过后，用户可在 `MCP -> Tunnel Connections` 为该应用创建专属连接。连接 key 只在创建成功时显示一次，MCP 客户端使用：
+
+```text
+https://<data-proxy-host>/t/<connection_key>/tunnel/mcp/<public_slug>
+```
+
+每条连接都绑定当前用户和 Tunnel App，可单独撤销，并会写入 Tunnel audit log。控制台在 `MCP -> Tunnel Connections` 的连接行提供审计入口，可按 connection 查看 `tools/list`、`tools/call`、策略拒绝和撤销事件。完整架构见 [Tunnel Apps Architecture](./docs/tunnel-apps-architecture.md)。
+
 ## 文档索引
 
 | 文档 | 用途 |
@@ -162,6 +192,10 @@ DEPLOYMENT_PREFLIGHT_DOCKER_BUILD=1 make deployment-preflight
 | [Data Proxy Operator Guide](./docs/data-proxy-operator-guide.md) | 运行、初始化、依赖和部署交接。 |
 | [Data Proxy Release Runbook](./docs/data-proxy-release-runbook.md) | tag、镜像、发布证据、回滚和合规检查。 |
 | [Deployment Readiness](./docs/deployment-readiness.md) | 发布前预检命令和当前机器状态记录。 |
+| [Request ID Trace Troubleshooting](./docs/request-trace-troubleshooting.md) | 按 request id 查询日志、转换链、流状态和关联错误。 |
+| [Request Capture, Diagnostics, and Training Data Architecture](./docs/request-capture-diagnostics-architecture.md) | SeaweedFS 私密数据包、诊断模块和训练数据湖架构。 |
+| [Request Capture and Diagnostics Implementation Plan](./docs/request-capture-diagnostics-implementation-plan.md) | 请求捕获、诊断和训练数据湖的分阶段开发顺序与当前状态。 |
+| [Tunnel Apps Architecture](./docs/tunnel-apps-architecture.md) | MCP 代码隧道、HTTP/TCP 通用流量隧道、Cloudflare Remote MCP 对标和实施顺序。 |
 | [Enterprise Governance Admin Guide](./docs/enterprise-governance-admin-guide.md) | 企业治理管理员操作手册。 |
 | [Post V1.3 TODO](./docs/data-proxy-post-v1.3-todo.md) | V1.3 之后的开发顺序和剩余任务。 |
 | [Branding and Release Policy](./docs/branding-and-release-policy.md) | Data Proxy 品牌边界和 new-api attribution 规则。 |

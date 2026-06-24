@@ -2,8 +2,10 @@ package openaicompat
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/stretchr/testify/require"
@@ -66,7 +68,89 @@ func TestResponsesRequestToChatCompletionsRequest(t *testing.T) {
 	require.Contains(t, ctx.ToolsByChatName, "lookup")
 }
 
-func TestResponsesRequestToChatSkipsHostedTools(t *testing.T) {
+func TestResponsesRequestToChatReasoningAdapterDeepSeek(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model:     "deepseek-ai/DeepSeek-V4-Flash",
+		Input:     rawJSON(t, "hello"),
+		Reasoning: &dto.Reasoning{Effort: "xhigh"},
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequestWithOptions(req, &ResponsesToChatOptions{
+		ReasoningAdapter: ResponsesReasoningAdapterDeepSeek,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "max", chatReq.ReasoningEffort)
+	require.JSONEq(t, `{"type":"enabled"}`, string(chatReq.THINKING))
+}
+
+func TestResponsesRequestToChatReasoningAdapterOpenRouter(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model:     "openrouter/model",
+		Input:     rawJSON(t, "hello"),
+		Reasoning: &dto.Reasoning{Effort: "max"},
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequestWithOptions(req, &ResponsesToChatOptions{
+		ReasoningAdapter: ResponsesReasoningAdapterOpenRouter,
+	})
+	require.NoError(t, err)
+	require.Empty(t, chatReq.ReasoningEffort)
+	require.JSONEq(t, `{"effort":"xhigh"}`, string(chatReq.Reasoning))
+}
+
+func TestResponsesRequestToChatReasoningAdapterOpenRouterNone(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model:     "openrouter/model",
+		Input:     rawJSON(t, "hello"),
+		Reasoning: &dto.Reasoning{Effort: "none"},
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequestWithOptions(req, &ResponsesToChatOptions{
+		ReasoningAdapter: ResponsesReasoningAdapterOpenRouter,
+	})
+	require.NoError(t, err)
+	require.Empty(t, chatReq.ReasoningEffort)
+	require.JSONEq(t, `{"effort":"none"}`, string(chatReq.Reasoning))
+}
+
+func TestResponsesRequestToChatReasoningAdapterThinkingFlags(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model:     "qwen",
+		Input:     rawJSON(t, "hello"),
+		Reasoning: &dto.Reasoning{Effort: "medium"},
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequestWithOptions(req, &ResponsesToChatOptions{
+		ReasoningAdapter: ResponsesReasoningAdapterQwenEnableThinking,
+	})
+	require.NoError(t, err)
+	require.Empty(t, chatReq.ReasoningEffort)
+	require.JSONEq(t, `true`, string(chatReq.EnableThinking))
+
+	req.Reasoning.Effort = "off"
+	chatReq, _, err = ResponsesRequestToChatCompletionsRequestWithOptions(req, &ResponsesToChatOptions{
+		ReasoningAdapter: ResponsesReasoningAdapterMiniMaxReasoningSplit,
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `false`, string(chatReq.ReasoningSplit))
+}
+
+func TestResponsesRequestToChatReasoningAdapterAutoInfersChannel(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model:     "deepseek-reasoner",
+		Input:     rawJSON(t, "hello"),
+		Reasoning: &dto.Reasoning{Effort: "xhigh"},
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequestWithOptions(req, &ResponsesToChatOptions{
+		ChannelType:      constant.ChannelTypeDeepSeek,
+		ReasoningAdapter: ResponsesReasoningAdapterAuto,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "max", chatReq.ReasoningEffort)
+}
+
+func TestResponsesRequestToChatFiltersHostedTools(t *testing.T) {
 	req := &dto.OpenAIResponsesRequest{
 		Model: "gpt-5",
 		Input: rawJSON(t, "hello"),
@@ -82,14 +166,21 @@ func TestResponsesRequestToChatSkipsHostedTools(t *testing.T) {
 		ToolChoice: rawJSON(t, map[string]any{"type": "web_search"}),
 	}
 
-	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	chatReq, ctx, err := ResponsesRequestToChatCompletionsRequest(req)
 	require.NoError(t, err)
 	require.Len(t, chatReq.Tools, 1)
 	require.Equal(t, "lookup", chatReq.Tools[0].Function.Name)
 	require.Nil(t, chatReq.ToolChoice)
+	require.Len(t, chatReq.Messages, 2)
+	require.Equal(t, "system", chatReq.Messages[0].Role)
+	require.Contains(t, common.Interface2String(chatReq.Messages[0].Content), "hosted tools (web_search)")
+	requireJSONSubset(t, map[string]any{
+		"hosted_tools_filtered":           []any{"web_search"},
+		"hosted_tools_direct_answer_hint": true,
+	}, ctx.RequestConversionMeta())
 }
 
-func TestResponsesRequestToChatDropsToolChoiceWhenAllToolsFiltered(t *testing.T) {
+func TestResponsesRequestToChatClearsHostedToolChoice(t *testing.T) {
 	parallelToolCalls := rawJSON(t, true)
 	req := &dto.OpenAIResponsesRequest{
 		Model: "gpt-5",
@@ -101,11 +192,39 @@ func TestResponsesRequestToChatDropsToolChoiceWhenAllToolsFiltered(t *testing.T)
 		ParallelToolCalls: parallelToolCalls,
 	}
 
-	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	chatReq, ctx, err := ResponsesRequestToChatCompletionsRequest(req)
 	require.NoError(t, err)
 	require.Empty(t, chatReq.Tools)
 	require.Nil(t, chatReq.ToolChoice)
 	require.Nil(t, chatReq.ParallelTooCalls)
+	require.Len(t, chatReq.Messages, 2)
+	require.Equal(t, "system", chatReq.Messages[0].Role)
+	requireJSONSubset(t, map[string]any{
+		"hosted_tools_filtered":           []any{"web_search"},
+		"hosted_tools_direct_answer_hint": true,
+	}, ctx.RequestConversionMeta())
+}
+
+func TestResponsesRequestToChatRecordsUnsupportedFilteredTools(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-5",
+		Input: rawJSON(t, "hello"),
+		Tools: rawJSON(t, []any{
+			map[string]any{"type": "unsupported_tool"},
+			map[string]any{
+				"type": "namespace",
+				"name": "workspace",
+				"tools": []any{
+					map[string]any{"type": "prompt", "name": "build_plan"},
+				},
+			},
+		}),
+	}
+
+	chatReq, ctx, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Empty(t, chatReq.Tools)
+	require.Equal(t, []string{"namespace.prompt", "unsupported_tool"}, ctx.RequestConversionMeta()["unsupported_tools_filtered"])
 }
 
 func TestResponsesRequestToChatUsesToolSearchOutputTools(t *testing.T) {
@@ -135,6 +254,247 @@ func TestResponsesRequestToChatUsesToolSearchOutputTools(t *testing.T) {
 	require.Equal(t, "auto", chatReq.ToolChoice)
 }
 
+func TestResponsesRequestToChatRestoresPreviousToolCallFromHistory(t *testing.T) {
+	ResetDefaultResponsesChatHistoryForTest()
+	defer ResetDefaultResponsesChatHistoryForTest()
+	DefaultResponsesChatHistory().RecordResponseMap(map[string]any{
+		"id": "resp_1",
+		"output": []any{
+			map[string]any{
+				"type":              "function_call",
+				"call_id":           "call_1",
+				"name":              "lookup",
+				"arguments":         `{"q":"usd"}`,
+				"reasoning_content": "Need lookup.",
+			},
+		},
+	})
+
+	req := &dto.OpenAIResponsesRequest{
+		Model:              "deepseek-chat",
+		PreviousResponseID: "resp_1",
+		Input: rawJSON(t, []any{
+			map[string]any{"type": "function_call_output", "call_id": "call_1", "output": "ok"},
+		}),
+	}
+
+	chatReq, ctx, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Messages, 2)
+	require.Equal(t, "assistant", chatReq.Messages[0].Role)
+	require.Equal(t, "Need lookup.", chatReq.Messages[0].GetReasoningContent())
+	toolCalls := chatReq.Messages[0].ParseToolCalls()
+	require.Len(t, toolCalls, 1)
+	require.Equal(t, "call_1", toolCalls[0].ID)
+	require.Equal(t, "lookup", toolCalls[0].Function.Name)
+	require.Equal(t, `{"q":"usd"}`, toolCalls[0].Function.Arguments)
+	require.Equal(t, "tool", chatReq.Messages[1].Role)
+	require.Equal(t, "call_1", chatReq.Messages[1].ToolCallId)
+	require.Equal(t, []string{"previous_response_id"}, ctx.RequestConversionMeta()["history_restore_sources"])
+}
+
+func TestResponsesRequestToChatRestoresPreviousToolCallByUniqueCallID(t *testing.T) {
+	ResetDefaultResponsesChatHistoryForTest()
+	defer ResetDefaultResponsesChatHistoryForTest()
+	DefaultResponsesChatHistory().RecordResponseMap(map[string]any{
+		"id": "resp_1",
+		"output": []any{
+			map[string]any{
+				"type":      "function_call",
+				"call_id":   "call_unique",
+				"name":      "lookup",
+				"arguments": `{"q":"usd"}`,
+			},
+		},
+	})
+
+	req := &dto.OpenAIResponsesRequest{
+		Model: "deepseek-chat",
+		Input: rawJSON(t, []any{
+			map[string]any{"type": "function_call_output", "call_id": "call_unique", "output": "ok"},
+		}),
+	}
+
+	chatReq, ctx, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Messages, 2)
+	require.Equal(t, "assistant", chatReq.Messages[0].Role)
+	require.Equal(t, "tool", chatReq.Messages[1].Role)
+	require.Equal(t, []string{"unique_call_id"}, ctx.RequestConversionMeta()["history_restore_sources"])
+}
+
+func TestResponsesRequestToChatBackfillsToolCallReasoning(t *testing.T) {
+	ResetDefaultResponsesChatHistoryForTest()
+	req := &dto.OpenAIResponsesRequest{
+		Model: "deepseek-chat",
+		Input: rawJSON(t, []any{
+			map[string]any{"type": "function_call", "call_id": "call_1", "name": "lookup", "arguments": `{"q":"usd"}`},
+		}),
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Messages, 1)
+	require.Equal(t, "tool call", chatReq.Messages[0].GetReasoningContent())
+}
+
+func TestResponsesRequestToChatExtractsToolCallReasoningDetails(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "deepseek-chat",
+		Input: rawJSON(t, []any{
+			map[string]any{
+				"type":      "function_call",
+				"call_id":   "call_1",
+				"name":      "lookup",
+				"arguments": `{}`,
+				"reasoning_details": []any{
+					map[string]any{"type": "reasoning.text", "text": "Need lookup."},
+				},
+			},
+		}),
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Messages, 1)
+	require.Equal(t, "Need lookup.", chatReq.Messages[0].GetReasoningContent())
+}
+
+func TestResponsesRequestToChatDefersMessagesUntilToolOutput(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "deepseek-chat",
+		Input: rawJSON(t, []any{
+			map[string]any{"type": "function_call", "call_id": "call_1", "name": "lookup", "arguments": `{"q":"usd"}`},
+			map[string]any{"type": "message", "role": "user", "content": "next question"},
+			map[string]any{"type": "function_call_output", "call_id": "call_1", "output": "ok"},
+		}),
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Messages, 3)
+	require.Equal(t, "assistant", chatReq.Messages[0].Role)
+	require.Len(t, chatReq.Messages[0].ParseToolCalls(), 1)
+	require.Equal(t, "tool", chatReq.Messages[1].Role)
+	require.Equal(t, "call_1", chatReq.Messages[1].ToolCallId)
+	require.Equal(t, "user", chatReq.Messages[2].Role)
+	require.Equal(t, "next question", chatReq.Messages[2].Content)
+}
+
+func TestResponsesRequestToChatGroupsParallelToolCalls(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "deepseek-chat",
+		Input: rawJSON(t, []any{
+			map[string]any{"type": "function_call", "call_id": "call_1", "name": "lookup_a", "arguments": `{ "a": 1 }`},
+			map[string]any{"type": "function_call", "call_id": "call_2", "name": "lookup_b", "arguments": `{ "b": 2 }`},
+			map[string]any{"type": "function_call_output", "call_id": "call_1", "output": "a"},
+			map[string]any{"type": "function_call_output", "call_id": "call_2", "output": "b"},
+		}),
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Messages, 3)
+	require.Equal(t, "assistant", chatReq.Messages[0].Role)
+	toolCalls := chatReq.Messages[0].ParseToolCalls()
+	require.Len(t, toolCalls, 2)
+	require.Equal(t, "lookup_a", toolCalls[0].Function.Name)
+	require.Equal(t, "lookup_b", toolCalls[1].Function.Name)
+	require.JSONEq(t, `{"a":1}`, toolCalls[0].Function.Arguments)
+	require.JSONEq(t, `{"b":2}`, toolCalls[1].Function.Arguments)
+	require.Equal(t, "tool", chatReq.Messages[1].Role)
+	require.Equal(t, "tool", chatReq.Messages[2].Role)
+}
+
+func TestResponsesRequestToChatCanonicalizesArgumentsAndToolOutput(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "deepseek-chat",
+		Input: rawJSON(t, []any{
+			map[string]any{"type": "function_call", "call_id": "call_1", "name": "lookup", "arguments": `{ "b": 2, "a": 1 }`},
+			map[string]any{"type": "function_call_output", "call_id": "call_1", "output": `{ "z": 2, "a": 1 }`},
+		}),
+	}
+
+	chatReq, _, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Messages, 2)
+	toolCalls := chatReq.Messages[0].ParseToolCalls()
+	require.Len(t, toolCalls, 1)
+	require.JSONEq(t, `{"a":1,"b":2}`, toolCalls[0].Function.Arguments)
+	require.JSONEq(t, `{"a":1,"z":2}`, chatReq.Messages[1].Content.(string))
+}
+
+func TestResponsesRequestToChatFlattensLongNamespaceToolName(t *testing.T) {
+	namespace := strings.Repeat("namespace", 8)
+	childName := strings.Repeat("lookup", 8)
+	req := &dto.OpenAIResponsesRequest{
+		Model: "deepseek-chat",
+		Tools: rawJSON(t, []any{
+			map[string]any{
+				"type": "namespace",
+				"name": namespace,
+				"tools": []any{
+					map[string]any{
+						"type":        "function",
+						"name":        childName,
+						"description": "Lookup data",
+						"parameters":  map[string]any{"type": "object"},
+					},
+				},
+			},
+		}),
+		Input: rawJSON(t, []any{
+			map[string]any{"type": "function_call", "call_id": "call_1", "namespace": namespace, "name": childName, "arguments": `{}`},
+		}),
+	}
+
+	chatReq, ctx, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Tools, 1)
+	chatName := chatReq.Tools[0].Function.Name
+	require.LessOrEqual(t, len(chatName), 64)
+	require.NotEqual(t, namespace+"__"+childName, chatName)
+	require.Contains(t, ctx.ToolsByChatName, chatName)
+	require.Equal(t, namespace, ctx.ToolsByChatName[chatName].Namespace)
+	toolCalls := chatReq.Messages[0].ParseToolCalls()
+	require.Len(t, toolCalls, 1)
+	require.Equal(t, chatName, toolCalls[0].Function.Name)
+}
+
+func TestResponsesRequestToChatConvertsHostedCallInput(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "deepseek-chat",
+		Input: rawJSON(t, []any{
+			map[string]any{
+				"type":    "web_search_call",
+				"id":      "ws_1",
+				"call_id": "call_ws_1",
+				"status":  "completed",
+				"action": map[string]any{
+					"type":  "search",
+					"query": "人民币 美元 汇率",
+				},
+			},
+		}),
+		Tools: rawJSON(t, []any{
+			map[string]any{"type": "web_search"},
+		}),
+	}
+
+	chatReq, ctx, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Messages, 2)
+	require.Equal(t, "system", chatReq.Messages[0].Role)
+	require.Equal(t, "assistant", chatReq.Messages[1].Role)
+	require.Contains(t, common.Interface2String(chatReq.Messages[1].Content), "hosted Responses tool call (web_search)")
+	require.Contains(t, common.Interface2String(chatReq.Messages[1].Content), "人民币 美元 汇率")
+	require.Empty(t, chatReq.Messages[1].ParseToolCalls())
+	requireJSONSubset(t, map[string]any{
+		"hosted_tools_filtered":           []any{"web_search"},
+		"hosted_tools_direct_answer_hint": true,
+	}, ctx.RequestConversionMeta())
+}
+
 func TestChatCompletionResponseToResponses(t *testing.T) {
 	ctx := &ResponsesToChatContext{ToolsByChatName: map[string]ResponseToolSpec{
 		"lookup": {Kind: ResponseToolKindFunction, Name: "lookup", ChatName: "lookup"},
@@ -160,6 +520,93 @@ func TestChatCompletionResponseToResponses(t *testing.T) {
 	require.Len(t, output, 1)
 	item := output[0].(map[string]any)
 	require.Equal(t, "message", item["type"])
+}
+
+func TestChatCompletionResponseToResponsesMapsLengthToIncomplete(t *testing.T) {
+	chat := &dto.OpenAITextResponse{
+		Id:    "chatcmpl-length",
+		Model: "deepseek-chat",
+		Choices: []dto.OpenAITextResponseChoice{
+			{
+				Message:      dto.Message{Role: "assistant", Content: "partial"},
+				FinishReason: "length",
+			},
+		},
+	}
+
+	resp, _, err := ChatCompletionResponseToResponses(chat, &dto.OpenAIResponsesRequest{Model: "deepseek-chat"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "incomplete", resp["status"])
+	require.Equal(t, map[string]any{"reason": "max_output_tokens"}, resp["incomplete_details"])
+}
+
+func TestChatCompletionResponseToResponsesPreservesTextAndToolCalls(t *testing.T) {
+	msg := dto.Message{Role: "assistant", Content: "Let me check."}
+	msg.SetToolCalls([]dto.ToolCallRequest{
+		{
+			ID:   "call_1",
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name:      "lookup",
+				Arguments: `{"q":"usd"}`,
+			},
+		},
+	})
+	chat := &dto.OpenAITextResponse{
+		Id:      "chatcmpl-text-tool",
+		Model:   "deepseek-chat",
+		Created: float64(123),
+		Choices: []dto.OpenAITextResponseChoice{
+			{Message: msg},
+		},
+	}
+
+	resp, _, err := ChatCompletionResponseToResponses(chat, &dto.OpenAIResponsesRequest{Model: "deepseek-chat"}, nil)
+	require.NoError(t, err)
+	output := resp["output"].([]any)
+	require.Len(t, output, 2)
+	require.Equal(t, "message", output[0].(map[string]any)["type"])
+	require.Equal(t, "function_call", output[1].(map[string]any)["type"])
+}
+
+func TestChatCompletionResponseToResponsesRestoresHostedToolCall(t *testing.T) {
+	msg := dto.Message{Role: "assistant", Content: nil}
+	msg.SetToolCalls([]dto.ToolCallRequest{
+		{
+			ID:   "call_ws_1",
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name:      "web_search",
+				Arguments: `{"query":"人民币 美元 汇率"}`,
+			},
+		},
+	})
+	chat := &dto.OpenAITextResponse{
+		Id:    "chatcmpl-web-search",
+		Model: "deepseek-chat",
+		Choices: []dto.OpenAITextResponseChoice{
+			{Message: msg},
+		},
+	}
+	ctx := &ResponsesToChatContext{ToolsByChatName: map[string]ResponseToolSpec{
+		"web_search": {
+			Kind:       ResponseToolKindHosted,
+			Name:       "web_search",
+			ChatName:   "web_search",
+			HostedType: "web_search",
+		},
+	}}
+
+	resp, _, err := ChatCompletionResponseToResponses(chat, &dto.OpenAIResponsesRequest{Model: "deepseek-chat"}, ctx)
+	require.NoError(t, err)
+	output := resp["output"].([]any)
+	require.Len(t, output, 1)
+	item := output[0].(map[string]any)
+	require.Equal(t, "web_search_call", item["type"])
+	require.Equal(t, "call_ws_1", item["call_id"])
+	action := item["action"].(map[string]any)
+	require.Equal(t, "search", action["type"])
+	require.Equal(t, "人民币 美元 汇率", action["query"])
 }
 
 func TestChatCompletionResponseToResponsesReasoningFallback(t *testing.T) {

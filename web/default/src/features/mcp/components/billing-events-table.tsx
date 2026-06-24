@@ -180,6 +180,8 @@ function relationInspectionStatusVariant(status: string): StatusVariant {
 
 const billingEventSourceOptions = [
   { labelKey: 'MCP Tool Call', value: 'mcp_tool_call' },
+  { labelKey: 'Tunnel MCP', value: 'tunnel_mcp' },
+  { labelKey: 'HTTP Tunnel', value: 'tunnel_http' },
   { labelKey: 'Model Request', value: 'model_request' },
   { labelKey: 'Async Task', value: 'async_task' },
   { labelKey: 'Violation Fee', value: 'violation_fee' },
@@ -202,6 +204,7 @@ const billingEventStatusOptions = [
 const billingSourceOptions = [
   { labelKey: 'Wallet', value: 'wallet' },
   { labelKey: 'Subscription', value: 'subscription' },
+  { labelKey: 'Tunnel', value: 'tunnel' },
 ] as const
 
 const billingUsageKindOptions = [
@@ -209,6 +212,7 @@ const billingUsageKindOptions = [
   { labelKey: 'Audio', value: 'audio' },
   { labelKey: 'Realtime', value: 'realtime' },
   { labelKey: 'Midjourney', value: 'midjourney' },
+  { labelKey: 'Tunnel', value: 'tunnel' },
 ] as const
 
 function getBillingEventSourceLabel(source: string) {

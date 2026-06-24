@@ -34,7 +34,7 @@ export const Route = createFileRoute('/_authenticated/mcp/')({
     if (auth.user.role < ROLE.ADMIN) {
       throw redirect({
         to: '/mcp/$section',
-        params: { section: 'market' },
+        params: { section: 'my-tunnel-apps' },
       })
     }
 
