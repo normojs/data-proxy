@@ -30,7 +30,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { getRequestDiagnosticCandidates } from '../api'
@@ -41,6 +50,15 @@ interface RequestDiagnosticCandidatesDialogProps {
   endTimestamp?: number
   onSelectRequest: (requestId: string) => void
 }
+
+type CandidateFilters = {
+  severity: string
+  source: string
+  modelName: string
+  channelId: string
+}
+
+const ALL_FILTER_VALUE = 'all'
 
 function diagnosticSeverityVariant(
   severity?: string
@@ -180,17 +198,41 @@ export function RequestDiagnosticCandidatesDialog(
 ) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [filters, setFilters] = useState<CandidateFilters>({
+    severity: ALL_FILTER_VALUE,
+    source: ALL_FILTER_VALUE,
+    modelName: '',
+    channelId: '',
+  })
+  const normalizedChannelId = Number.parseInt(filters.channelId.trim(), 10)
+  const hasFilters =
+    filters.severity !== ALL_FILTER_VALUE ||
+    filters.source !== ALL_FILTER_VALUE ||
+    filters.modelName.trim() !== '' ||
+    filters.channelId.trim() !== ''
   const candidatesQuery = useQuery({
     queryKey: [
       'request-diagnostic-candidates',
       props.startTimestamp,
       props.endTimestamp,
+      filters.severity,
+      filters.source,
+      filters.modelName,
+      filters.channelId,
     ],
     queryFn: () =>
       getRequestDiagnosticCandidates({
         limit: 20,
         start_timestamp: props.startTimestamp,
         end_timestamp: props.endTimestamp,
+        severity:
+          filters.severity === ALL_FILTER_VALUE ? undefined : filters.severity,
+        source: filters.source === ALL_FILTER_VALUE ? undefined : filters.source,
+        model_name: filters.modelName.trim() || undefined,
+        channel_id:
+          Number.isFinite(normalizedChannelId) && normalizedChannelId > 0
+            ? normalizedChannelId
+            : undefined,
       }),
     enabled: open,
     staleTime: 15_000,
@@ -206,6 +248,15 @@ export function RequestDiagnosticCandidatesDialog(
   const handleSelect = (requestId: string) => {
     props.onSelectRequest(requestId)
     setOpen(false)
+  }
+
+  const clearFilters = () => {
+    setFilters({
+      severity: ALL_FILTER_VALUE,
+      source: ALL_FILTER_VALUE,
+      modelName: '',
+      channelId: '',
+    })
   }
 
   return (
@@ -253,6 +304,92 @@ export function RequestDiagnosticCandidatesDialog(
                 aria-hidden='true'
               />
               {t('Refresh')}
+            </Button>
+          </div>
+
+          <div className='grid gap-2 rounded-md border bg-muted/30 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_7rem_auto] sm:items-center'>
+            <Select
+              value={filters.severity}
+              onValueChange={(value) =>
+                setFilters((current) => ({
+                  ...current,
+                  severity: value ?? ALL_FILTER_VALUE,
+                }))
+              }
+            >
+              <SelectTrigger className='h-8 text-xs'>
+                <SelectValue placeholder={t('Severity')} />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value={ALL_FILTER_VALUE}>
+                    {t('All severities')}
+                  </SelectItem>
+                  <SelectItem value='error'>{t('Error')}</SelectItem>
+                  <SelectItem value='warning'>{t('Warning')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.source}
+              onValueChange={(value) =>
+                setFilters((current) => ({
+                  ...current,
+                  source: value ?? ALL_FILTER_VALUE,
+                }))
+              }
+            >
+              <SelectTrigger className='h-8 text-xs'>
+                <SelectValue placeholder={t('Source')} />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value={ALL_FILTER_VALUE}>
+                    {t('All sources')}
+                  </SelectItem>
+                  <SelectItem value='log_error'>{t('Error Log')}</SelectItem>
+                  <SelectItem value='trace_meta'>
+                    {t('Conversion Trace')}
+                  </SelectItem>
+                  <SelectItem value='channel_failover'>
+                    {t('Channel Failover')}
+                  </SelectItem>
+                  <SelectItem value='capture'>{t('Request Capture')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Input
+              value={filters.modelName}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  modelName: event.target.value,
+                }))
+              }
+              placeholder={t('Model')}
+              className='h-8 text-xs'
+            />
+            <Input
+              value={filters.channelId}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  channelId: event.target.value.replace(/[^\d]/g, ''),
+                }))
+              }
+              inputMode='numeric'
+              placeholder={t('Channel ID')}
+              className='h-8 text-xs'
+            />
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              className='h-8 px-2 text-xs'
+              onClick={clearFilters}
+              disabled={!hasFilters}
+            >
+              {t('Clear')}
             </Button>
           </div>
 

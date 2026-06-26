@@ -565,6 +565,99 @@ func TestListRequestDiagnosticCandidatesIncludesChannelFailoverAnomaly(t *testin
 	require.Contains(t, item.Summary, "status=502")
 }
 
+func TestListRequestDiagnosticCandidatesFilters(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&model.Log{},
+		&model.RequestCaptureRecord{},
+		&model.RequestDiagnosticReport{},
+	))
+
+	originalLogDB := model.LOG_DB
+	originalDB := model.DB
+	model.LOG_DB = db
+	model.DB = db
+	t.Cleanup(func() {
+		model.LOG_DB = originalLogDB
+		model.DB = originalDB
+	})
+
+	require.NoError(t, db.Create(&[]model.Log{
+		{
+			UserId:    9,
+			Username:  "charlie",
+			CreatedAt: 4100,
+			Type:      model.LogTypeConsume,
+			Content:   "consume succeeded after retry",
+			RequestId: "req-filter-failover",
+			ModelName: "deepseek-ai/DeepSeek-V4-Flash",
+			ChannelId: 88,
+			Group:     "cn",
+			Other:     `{"request_conversion_meta":{"responses_terminal_status":"completed"},"admin_info":{"channel_failover":[{"event":"failed","channel_id":87,"channel_name":"primary","status_code":502,"error_code":"bad_response","retry_planned":true,"remaining_retries":1},{"event":"selected","channel_id":88,"channel_name":"backup","retry_index":1,"remaining_retries":0}]}}`,
+		},
+		{
+			UserId:    10,
+			Username:  "dana",
+			CreatedAt: 4101,
+			Type:      model.LogTypeError,
+			Content:   "upstream authentication failed",
+			RequestId: "req-filter-error",
+			ModelName: "qwen-plus",
+			ChannelId: 99,
+			Group:     "default",
+		},
+	}).Error)
+	require.NoError(t, db.Create(&model.RequestDiagnosticReport{
+		RequestId:   "req-filter-failover",
+		Status:      model.RequestDiagnosticStatusCompleted,
+		Severity:    "warning",
+		GeneratedAt: 4102,
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/log/request-diagnostic-candidates", ListRequestDiagnosticCandidates)
+
+	failoverRecorder := httptest.NewRecorder()
+	router.ServeHTTP(failoverRecorder, httptest.NewRequest(http.MethodGet, "/api/log/request-diagnostic-candidates?limit=10&source=failover&model_name=deepseek&channel_id=88&group=cn&report_status=completed", nil))
+	require.Equal(t, http.StatusOK, failoverRecorder.Code)
+	var failoverBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total int `json:"total"`
+			Items []struct {
+				RequestId string `json:"request_id"`
+				Source    string `json:"source"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(failoverRecorder.Body.Bytes(), &failoverBody))
+	require.True(t, failoverBody.Success)
+	require.Equal(t, 1, failoverBody.Data.Total)
+	require.Equal(t, "req-filter-failover", failoverBody.Data.Items[0].RequestId)
+	require.Equal(t, "channel_failover", failoverBody.Data.Items[0].Source)
+
+	errorRecorder := httptest.NewRecorder()
+	router.ServeHTTP(errorRecorder, httptest.NewRequest(http.MethodGet, "/api/log/request-diagnostic-candidates?limit=10&severity=error&source=log_error", nil))
+	require.Equal(t, http.StatusOK, errorRecorder.Code)
+	var errorBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total int `json:"total"`
+			Items []struct {
+				RequestId string `json:"request_id"`
+				Severity  string `json:"severity"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(errorRecorder.Body.Bytes(), &errorBody))
+	require.True(t, errorBody.Success)
+	require.Equal(t, 1, errorBody.Data.Total)
+	require.Equal(t, "req-filter-error", errorBody.Data.Items[0].RequestId)
+	require.Equal(t, "error", errorBody.Data.Items[0].Severity)
+}
+
 func TestListRequestDiagnosticCandidatesIncludesHostedToolsDirectAnswer(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)

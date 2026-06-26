@@ -561,6 +561,14 @@ export interface GetRequestDiagnosticCandidatesParams {
   limit?: number
   start_timestamp?: number
   end_timestamp?: number
+  severity?: string
+  source?: string
+  model_name?: string
+  channel_id?: number
+  group?: string
+  report_status?: string
+  user_id?: number
+  token_id?: number
 }
 
 export interface GetRequestDiagnosticCandidatesResponse {

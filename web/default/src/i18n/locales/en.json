@@ -5187,6 +5187,8 @@
     "Calls": "Calls",
     "Channel Failover": "Channel Failover",
     "Click a request to filter logs by Request ID.": "Click a request to filter logs by Request ID.",
+    "All severities": "All severities",
+    "All sources": "All sources",
     "Consumes": "Consumes",
     "Conversion Trace": "Conversion Trace",
     "Cooldown Until": "Cooldown Until",

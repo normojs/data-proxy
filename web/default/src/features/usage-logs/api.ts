@@ -125,6 +125,14 @@ export async function getRequestDiagnosticCandidates(
     limit: params.limit || 20,
     start_timestamp: params.start_timestamp,
     end_timestamp: params.end_timestamp,
+    severity: params.severity,
+    source: params.source,
+    model_name: params.model_name,
+    channel_id: params.channel_id,
+    group: params.group,
+    report_status: params.report_status,
+    user_id: params.user_id,
+    token_id: params.token_id,
   })
   const res = await api.get(
     `/api/log/request-diagnostic-candidates?${queryParams}`

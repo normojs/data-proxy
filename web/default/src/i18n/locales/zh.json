@@ -5699,6 +5699,8 @@
     "Answer Chars": "回答字符数",
     "Channel Failover": "渠道故障切换",
     "Click a request to filter logs by Request ID.": "点击请求以按 Request ID 过滤日志。",
+    "All severities": "全部严重性",
+    "All sources": "全部来源",
     "Consumes": "消费日志",
     "Conversion Trace": "转换追踪",
     "Cooldown Until": "冷却至",

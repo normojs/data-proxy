@@ -116,6 +116,28 @@ type requestDiagnosticCandidate struct {
 	ReportSeverity string `json:"report_severity,omitempty"`
 }
 
+type requestDiagnosticCandidateFilters struct {
+	Severity     string
+	Source       string
+	ModelName    string
+	ChannelId    int
+	Group        string
+	ReportStatus string
+	UserId       int
+	TokenId      int
+}
+
+func (filters requestDiagnosticCandidateFilters) HasFilter() bool {
+	return filters.Severity != "" ||
+		filters.Source != "" ||
+		filters.ModelName != "" ||
+		filters.ChannelId > 0 ||
+		filters.Group != "" ||
+		filters.ReportStatus != "" ||
+		filters.UserId > 0 ||
+		filters.TokenId > 0
+}
+
 func GetRequestDiagnosticReport(c *gin.Context) {
 	requestId := requestDiagnosticQuery(c)
 	if requestId == "" {
@@ -154,18 +176,20 @@ func GetRequestDiagnosticReport(c *gin.Context) {
 
 func ListRequestDiagnosticCandidates(c *gin.Context) {
 	limit := requestDiagnosticCandidateLimit(c)
+	filters := requestDiagnosticCandidateFiltersFromQuery(c)
+	scanLimit := requestDiagnosticCandidateScanLimit(limit, filters)
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	candidates := map[string]*requestDiagnosticCandidate{}
-	if err := collectRequestDiagnosticLogCandidates(candidates, limit, startTimestamp, endTimestamp); err != nil {
+	if err := collectRequestDiagnosticLogCandidates(candidates, scanLimit, startTimestamp, endTimestamp); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := collectRequestDiagnosticTraceMetaCandidates(candidates, limit, startTimestamp, endTimestamp); err != nil {
+	if err := collectRequestDiagnosticTraceMetaCandidates(candidates, scanLimit, startTimestamp, endTimestamp); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := collectRequestDiagnosticCaptureCandidates(candidates, limit, startTimestamp, endTimestamp); err != nil {
+	if err := collectRequestDiagnosticCaptureCandidates(candidates, scanLimit, startTimestamp, endTimestamp); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -173,13 +197,22 @@ func ListRequestDiagnosticCandidates(c *gin.Context) {
 	for _, candidate := range candidates {
 		items = append(items, *candidate)
 	}
+	hydrateRequestDiagnosticCandidateReports(items)
+	if filters.HasFilter() {
+		filtered := items[:0]
+		for _, candidate := range items {
+			if requestDiagnosticCandidateMatchesFilters(candidate, filters) {
+				filtered = append(filtered, candidate)
+			}
+		}
+		items = filtered
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].LastSeenAt > items[j].LastSeenAt
 	})
 	if len(items) > limit {
 		items = items[:limit]
 	}
-	hydrateRequestDiagnosticCandidateReports(items)
 	common.ApiSuccess(c, gin.H{
 		"total": len(items),
 		"items": items,
@@ -300,6 +333,49 @@ func requestDiagnosticCandidateLimit(c *gin.Context) int {
 		return 200
 	}
 	return limit
+}
+
+func requestDiagnosticCandidateFiltersFromQuery(c *gin.Context) requestDiagnosticCandidateFilters {
+	if c == nil {
+		return requestDiagnosticCandidateFilters{}
+	}
+	severity := strings.ToLower(strings.TrimSpace(c.Query("severity")))
+	if severity == "" {
+		severity = strings.ToLower(strings.TrimSpace(c.Query("status")))
+	}
+	channelId, _ := strconv.Atoi(strings.TrimSpace(c.Query("channel_id")))
+	if channelId <= 0 {
+		channelId, _ = strconv.Atoi(strings.TrimSpace(c.Query("channel")))
+	}
+	userId, _ := strconv.Atoi(strings.TrimSpace(c.Query("user_id")))
+	tokenId, _ := strconv.Atoi(strings.TrimSpace(c.Query("token_id")))
+	return requestDiagnosticCandidateFilters{
+		Severity:     severity,
+		Source:       normalizeRequestDiagnosticCandidateSource(c.Query("source")),
+		ModelName:    strings.TrimSpace(c.Query("model_name")),
+		ChannelId:    channelId,
+		Group:        strings.TrimSpace(c.Query("group")),
+		ReportStatus: strings.ToLower(strings.TrimSpace(c.Query("report_status"))),
+		UserId:       userId,
+		TokenId:      tokenId,
+	}
+}
+
+func requestDiagnosticCandidateScanLimit(limit int, filters requestDiagnosticCandidateFilters) int {
+	if limit <= 0 {
+		limit = 50
+	}
+	if !filters.HasFilter() {
+		return limit
+	}
+	scanLimit := limit * 10
+	if scanLimit < 100 {
+		scanLimit = 100
+	}
+	if scanLimit > 1000 {
+		scanLimit = 1000
+	}
+	return scanLimit
 }
 
 func requestCaptureCleanupIntQuery(c *gin.Context, name string) (int, bool) {
@@ -818,6 +894,61 @@ func requestDiagnosticAppendSource(existing string, source string) string {
 		}
 	}
 	return existing + "," + source
+}
+
+func normalizeRequestDiagnosticCandidateSource(source string) string {
+	source = strings.ToLower(strings.TrimSpace(source))
+	switch source {
+	case "error", "log", "logs":
+		return "log_error"
+	case "trace", "conversion", "conversion_trace":
+		return "trace_meta"
+	case "failover":
+		return "channel_failover"
+	default:
+		return source
+	}
+}
+
+func requestDiagnosticCandidateSourceContains(source string, expected string) bool {
+	expected = normalizeRequestDiagnosticCandidateSource(expected)
+	if expected == "" {
+		return true
+	}
+	for _, item := range strings.Split(source, ",") {
+		if normalizeRequestDiagnosticCandidateSource(item) == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func requestDiagnosticCandidateMatchesFilters(candidate requestDiagnosticCandidate, filters requestDiagnosticCandidateFilters) bool {
+	if filters.Severity != "" && strings.ToLower(candidate.Severity) != filters.Severity {
+		return false
+	}
+	if filters.Source != "" && !requestDiagnosticCandidateSourceContains(candidate.Source, filters.Source) {
+		return false
+	}
+	if filters.ModelName != "" && !strings.Contains(strings.ToLower(candidate.ModelName), strings.ToLower(filters.ModelName)) {
+		return false
+	}
+	if filters.ChannelId > 0 && candidate.ChannelId != filters.ChannelId {
+		return false
+	}
+	if filters.Group != "" && !strings.EqualFold(candidate.Group, filters.Group) {
+		return false
+	}
+	if filters.ReportStatus != "" && strings.ToLower(candidate.ReportStatus) != filters.ReportStatus {
+		return false
+	}
+	if filters.UserId > 0 && candidate.UserId != filters.UserId {
+		return false
+	}
+	if filters.TokenId > 0 && candidate.TokenId != filters.TokenId {
+		return false
+	}
+	return true
 }
 
 func requestDiagnosticMaxSeverity(current string, incoming string) string {
