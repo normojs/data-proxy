@@ -282,6 +282,17 @@ export async function getChannelKey(
   return res.data
 }
 
+export async function resetChannelRuntimeHealth(
+  id: number
+): Promise<{ success: boolean; message?: string; data?: { cleared: boolean } }> {
+  const res = await api.post(
+    `/api/channel/${id}/health/reset`,
+    {},
+    channelActionConfig()
+  )
+  return res.data
+}
+
 // ============================================================================
 // Codex Channel Operations
 // ============================================================================

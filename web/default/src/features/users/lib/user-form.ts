@@ -32,6 +32,7 @@ export const userFormSchema = z.object({
   role: z.number().optional(),
   quota_dollars: z.number().min(0).optional(),
   group: z.string().optional(),
+  token_groups: z.array(z.string()).optional(),
   remark: z.string().optional(),
 })
 
@@ -48,7 +49,37 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   role: 1, // Default to common user
   quota_dollars: 0,
   group: DEFAULT_GROUP,
+  token_groups: [],
   remark: '',
+}
+
+export function parseUserTokenGroups(value?: string | null): string[] {
+  const raw = (value || '').trim()
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return Array.from(
+        new Set(
+          parsed
+            .map((item) => (typeof item === 'string' ? item.trim() : ''))
+            .filter(Boolean)
+        )
+      )
+    }
+  } catch {
+    /* fall back to comma separated values */
+  }
+
+  return Array.from(
+    new Set(
+      raw
+        .split(/[,，\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  )
 }
 
 // ============================================================================
@@ -74,6 +105,7 @@ export function transformFormDataToPayload(
   } else {
     // For update: quota is adjusted atomically via /api/user/manage, not sent here
     payload.group = data.group
+    payload.token_groups = data.token_groups || []
     payload.remark = data.remark || undefined
     payload.id = userId
   }
@@ -92,6 +124,7 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     role: user.role,
     quota_dollars: quotaUnitsToDollars(user.quota),
     group: user.group || DEFAULT_GROUP,
+    token_groups: parseUserTokenGroups(user.token_groups),
     remark: user.remark || '',
   }
 }

@@ -41,6 +41,7 @@ export type ApiKeyGroupOption = {
   label: string
   desc?: string
   ratio?: number | string
+  unavailable?: boolean
 }
 
 type ApiKeyGroupComboboxProps = {
@@ -154,7 +155,16 @@ export function ApiKeyGroupCombobox({
             )}
           </span>
           <span className='hidden sm:block'>
-            <GroupRatioBadge ratio={selectedOption?.ratio} />
+            {selectedOption?.unavailable ? (
+              <Badge
+                variant='outline'
+                className='border-destructive/30 text-destructive'
+              >
+                {t('Not available')}
+              </Badge>
+            ) : (
+              <GroupRatioBadge ratio={selectedOption?.ratio} />
+            )}
           </span>
         </span>
         <ChevronsUpDown className='h-4 w-4 shrink-0 opacity-50' />
@@ -179,7 +189,10 @@ export function ApiKeyGroupCombobox({
                   key={option.value}
                   value={option.value}
                   onSelect={() => handleSelect(option.value)}
-                  className='data-[selected=true]:bg-muted items-start gap-3 rounded-lg px-3 py-3 transition-colors'
+                  className={cn(
+                    'data-[selected=true]:bg-muted items-start gap-3 rounded-lg px-3 py-3 transition-colors',
+                    option.unavailable && 'text-muted-foreground'
+                  )}
                 >
                   <Check
                     className={cn(
@@ -197,7 +210,16 @@ export function ApiKeyGroupCombobox({
                       </span>
                     )}
                   </span>
-                  <GroupRatioBadge ratio={option.ratio} />
+                  {option.unavailable ? (
+                    <Badge
+                      variant='outline'
+                      className='border-destructive/30 text-destructive'
+                    >
+                      {t('Not available')}
+                    </Badge>
+                  ) : (
+                    <GroupRatioBadge ratio={option.ratio} />
+                  )}
                 </CommandItem>
               ))}
             </CommandGroup>

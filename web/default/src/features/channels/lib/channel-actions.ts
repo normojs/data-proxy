@@ -35,6 +35,7 @@ import {
   testAllChannels,
   updateAllChannelsBalance,
   updateChannelBalance,
+  resetChannelRuntimeHealth,
 } from '../api'
 import { CHANNEL_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import type { CopyChannelParams } from '../types'
@@ -115,6 +116,26 @@ export async function handleToggleChannelStatus(
     await handleDisableChannel(id, queryClient, onSuccess)
   } else {
     await handleEnableChannel(id, queryClient, onSuccess)
+  }
+}
+
+export async function handleClearChannelRuntimeHealth(
+  id: number,
+  queryClient?: QueryClient,
+  onSuccess?: () => void
+): Promise<void> {
+  try {
+    const response = await resetChannelRuntimeHealth(id)
+    if (response.success) {
+      toast.success(i18next.t('Temporary circuit cleared'))
+      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.detail(id) })
+      onSuccess?.()
+    } else {
+      toast.error(response.message || i18next.t('Failed to clear temporary circuit'))
+    }
+  } catch (_error) {
+    toast.error(i18next.t('Failed to clear temporary circuit'))
   }
 }
 

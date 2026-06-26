@@ -209,35 +209,62 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
         const apiKey = row.original
         const group = row.getValue('group') as string
         const ratio = group && group !== 'auto' ? groupRatios[group] : undefined
+        const isAutoGroup = group === 'auto'
+        const isGroupUnavailable = apiKey.group_available === false
+        const unavailableReason =
+          apiKey.group_unavailable_reason ||
+          t('This API key group is no longer available for this user.')
+        const badges = (
+          <>
+            <GroupBadge group={group} ratio={isAutoGroup ? undefined : ratio} />
+            {isAutoGroup && apiKey.cross_group_retry && (
+              <StatusBadge
+                label={t('Cross-group')}
+                variant='info'
+                copyable={false}
+              />
+            )}
+            {isGroupUnavailable && (
+              <StatusBadge
+                label={t('Not available')}
+                variant='danger'
+                copyable={false}
+              />
+            )}
+          </>
+        )
 
-        if (group === 'auto') {
+        if (isAutoGroup || isGroupUnavailable) {
           return (
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <span className='inline-flex items-center gap-1.5 text-xs' />
+                  <span className='inline-flex max-w-[220px] flex-wrap items-center gap-1.5 text-xs' />
                 }
               >
-                <GroupBadge group='auto' />
-                {apiKey.cross_group_retry && (
-                  <StatusBadge
-                    label={t('Cross-group')}
-                    variant='info'
-                    copyable={false}
-                  />
-                )}
+                {badges}
               </TooltipTrigger>
               <TooltipContent>
-                <span className='text-xs'>
-                  {t(
-                    'Automatically selects the best available group with circuit breaker mechanism'
+                <div className='max-w-xs space-y-1 text-xs'>
+                  {isAutoGroup && (
+                    <div>
+                      {t(
+                        'Automatically selects the best available group with circuit breaker mechanism'
+                      )}
+                    </div>
                   )}
-                </span>
+                  {isGroupUnavailable && <div>{unavailableReason}</div>}
+                </div>
               </TooltipContent>
             </Tooltip>
           )
         }
-        return <GroupBadge group={group} ratio={ratio} />
+
+        return (
+          <span className='inline-flex max-w-[220px] flex-wrap items-center gap-1.5'>
+            {badges}
+          </span>
+        )
       },
       meta: { label: t('Group'), mobileHidden: true },
     },

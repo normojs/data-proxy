@@ -62,6 +62,7 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { MultiSelect } from '@/components/multi-select'
 import { createUser, updateUser, getUser, getGroups } from '../api'
 import { BINDING_FIELDS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -100,6 +101,7 @@ export function UsersMutateDrawer({
   })
 
   const groups = groupsData?.data || []
+  const groupOptions = groups.map((group) => ({ label: group, value: group }))
 
   const form = useForm<UserFormValues>({
     resolver: zodResolver(userFormSchema),
@@ -351,6 +353,32 @@ export function UsersMutateDrawer({
                             </SelectGroup>
                           </SelectContent>
                         </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='token_groups'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Bound Token Groups')}</FormLabel>
+                        <FormControl>
+                          <MultiSelect
+                            options={groupOptions}
+                            selected={field.value || []}
+                            onChange={field.onChange}
+                            placeholder={t('No restriction')}
+                            emptyText={t('No groups found')}
+                            maxVisibleChips={4}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Leave empty to allow all usable groups. When set, this user can only create and use API keys in the selected groups.'
+                          )}
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}

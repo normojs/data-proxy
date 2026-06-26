@@ -36,6 +36,13 @@ const defaultOperationsSettings: OperationsSettings = {
   AutomaticEnableChannelEnabled: false,
   AutomaticDisableKeywords: '',
   AutomaticDisableStatusCodes: '401',
+  ChannelHealthTransientKeywords:
+    'timeout\ndeadline exceeded\nconnection reset\nconnection refused\nconnection closed\nno such host\neof\nunexpected end\ntls handshake\ntemporary failure',
+  ChannelHealthTransientStatusCodes: '408,429,500-599',
+  ChannelHealthFailureThreshold: 3,
+  ChannelHealthFailureWindowMinutes: 5,
+  ChannelHealthCooldownMinutes: 2,
+  ChannelHealthMaxCooldownMinutes: 10,
   AutomaticRetryStatusCodes:
     '100-199,300-399,401-407,409-499,500-503,505-523,525-599',
   'monitor_setting.auto_test_channel_enabled': false,

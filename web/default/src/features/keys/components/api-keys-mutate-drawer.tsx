@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
@@ -150,6 +150,33 @@ export function ApiKeysMutateDrawer({
     resolver: zodResolver(schema),
     defaultValues: getApiKeyFormDefaultValues(defaultUseAutoGroup),
   })
+  const selectedGroup = form.watch('group')
+  const groupsLoaded = !!groupsData?.data
+  const groupOptions = useMemo<ApiKeyGroupOption[]>(() => {
+    if (
+      !groupsLoaded ||
+      !isUpdate ||
+      !selectedGroup ||
+      groups.some((group) => group.value === selectedGroup)
+    ) {
+      return groups
+    }
+
+    return [
+      {
+        value: selectedGroup,
+        label: selectedGroup,
+        desc: t(
+          'This API key uses a group that is no longer available for this user.'
+        ),
+        unavailable: true,
+      },
+      ...groups,
+    ]
+  }, [groups, groupsLoaded, isUpdate, selectedGroup, t])
+  const selectedGroupUnavailable = groupOptions.some(
+    (group) => group.value === selectedGroup && group.unavailable
+  )
 
   // Load existing data when updating
   useEffect(() => {
@@ -169,6 +196,7 @@ export function ApiKeysMutateDrawer({
   // Correct group after groups load: if the form value is not in available groups, fall back
   useEffect(() => {
     if (groups.length === 0) return
+    if (isUpdate) return
     const currentGroup = form.getValues('group')
     if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
       const fallback =
@@ -180,9 +208,18 @@ export function ApiKeysMutateDrawer({
         form.setValue('cross_group_retry', false)
       }
     }
-  }, [groups, form])
+  }, [groups, form, isUpdate])
 
   const onSubmit = async (data: ApiKeyFormValues) => {
+    if (selectedGroupUnavailable) {
+      toast.error(
+        t(
+          'This API key uses a group that is no longer available for this user. Choose an available group before saving changes.'
+        )
+      )
+      return
+    }
+
     setIsSubmitting(true)
     try {
       const basePayload = transformFormDataToPayload(data)
@@ -262,7 +299,6 @@ export function ApiKeysMutateDrawer({
   const quotaPlaceholder = tokensOnly
     ? t('Enter quota in tokens')
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
-  const selectedGroup = form.watch('group')
   const unlimitedQuota = form.watch('unlimited_quota')
   const hardLimitEnabled = form.watch('quota_hard_limit_enabled')
 
@@ -323,12 +359,19 @@ export function ApiKeysMutateDrawer({
                     <FormLabel>{t('Group')}</FormLabel>
                     <FormControl>
                       <ApiKeyGroupCombobox
-                        options={groups}
+                        options={groupOptions}
                         value={field.value}
                         onValueChange={field.onChange}
                         placeholder={t('Select a group')}
                       />
                     </FormControl>
+                    {selectedGroupUnavailable && (
+                      <FormDescription className='text-destructive'>
+                        {t(
+                          'This API key uses a group that is no longer available for this user. Choose an available group before saving changes.'
+                        )}
+                      </FormDescription>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

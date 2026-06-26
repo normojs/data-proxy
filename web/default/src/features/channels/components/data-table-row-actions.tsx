@@ -34,6 +34,7 @@ import {
   Trash2,
   RefreshCw,
   Loader2,
+  ShieldOff,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -57,6 +58,7 @@ import {
   handleDeleteChannel,
   handleTestChannel,
   handleToggleChannelStatus,
+  handleClearChannelRuntimeHealth,
   isChannelEnabled,
   isMultiKeyChannel,
 } from '../lib'
@@ -76,9 +78,13 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
+  const [isClearingHealth, setIsClearingHealth] = useState(false)
 
   const isEnabled = isChannelEnabled(channel)
   const isMultiKey = isMultiKeyChannel(channel)
+  const hasRuntimeHealth =
+    channel.runtime_health?.temporarily_unavailable ||
+    channel.runtime_health?.status === 'degraded'
 
   const handleEdit = () => {
     setCurrentRow(channel)
@@ -136,6 +142,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       await handleToggleChannelStatus(channel.id, channel.status, queryClient)
     } finally {
       setIsTogglingStatus(false)
+    }
+  }
+
+  const handleClearRuntimeHealth = async () => {
+    setIsClearingHealth(true)
+    try {
+      await handleClearChannelRuntimeHealth(channel.id, queryClient)
+    } finally {
+      setIsClearingHealth(false)
     }
   }
 
@@ -260,6 +275,22 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
               {t('Upstream Updates')}
               <DropdownMenuShortcut>
                 <RefreshCw size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
+
+          {hasRuntimeHealth && (
+            <DropdownMenuItem
+              onClick={handleClearRuntimeHealth}
+              disabled={isClearingHealth}
+            >
+              {t('Clear temporary circuit')}
+              <DropdownMenuShortcut>
+                {isClearingHealth ? (
+                  <Loader2 size={16} className='animate-spin' />
+                ) : (
+                  <ShieldOff size={16} />
+                )}
               </DropdownMenuShortcut>
             </DropdownMenuItem>
           )}

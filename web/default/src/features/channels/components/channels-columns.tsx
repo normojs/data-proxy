@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /* eslint-disable react-refresh/only-export-components */
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import {
@@ -771,6 +771,83 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
           isMultiKey && keySize > 0
             ? `${t(config.label)} (${enabledCount}/${keySize})`
             : t(config.label)
+        const runtimeHealth = channel.runtime_health
+        const runtimeHealthBadge = (() => {
+          if (!runtimeHealth) return null
+          const isTemporarilyUnavailable =
+            runtimeHealth.temporarily_unavailable ||
+            runtimeHealth.status === 'temporarily_unavailable'
+          const isDegraded = runtimeHealth.status === 'degraded'
+          if (!isTemporarilyUnavailable && !isDegraded) return null
+
+          const cooldownUntil = runtimeHealth.cooldown_until
+            ? formatTimestampToDate(runtimeHealth.cooldown_until)
+            : ''
+          const lastFailureAt = runtimeHealth.last_failure_at
+            ? formatTimestampToDate(runtimeHealth.last_failure_at)
+            : ''
+          const badge = (
+            <StatusBadge
+              label={isTemporarilyUnavailable ? t('Temporary circuit') : t('Degraded')}
+              variant={isTemporarilyUnavailable ? 'warning' : 'info'}
+              size='sm'
+              pulse={isTemporarilyUnavailable}
+              copyable={false}
+            />
+          )
+
+          if (!runtimeHealth.last_reason && !cooldownUntil && !lastFailureAt) {
+            return badge
+          }
+
+          return (
+            <TooltipProvider delay={100}>
+              <Tooltip>
+                <TooltipTrigger render={<span />}>{badge}</TooltipTrigger>
+                <TooltipContent side='top' className='max-w-sm'>
+                  <div className='space-y-1 text-xs'>
+                    {runtimeHealth.consecutive_failures ? (
+                      <div>
+                        {t('Consecutive failures')}:{' '}
+                        {runtimeHealth.consecutive_failures}
+                      </div>
+                    ) : null}
+                    {runtimeHealth.last_status_code ? (
+                      <div>
+                        {t('Last status code')}: {runtimeHealth.last_status_code}
+                      </div>
+                    ) : null}
+                    {lastFailureAt && (
+                      <div>
+                        {t('Last failure')}: {lastFailureAt}
+                      </div>
+                    )}
+                    {cooldownUntil && (
+                      <div>
+                        {t('Cooldown until')}: {cooldownUntil}
+                      </div>
+                    )}
+                    {runtimeHealth.last_reason && (
+                      <div>
+                        {t('Reason:')} {runtimeHealth.last_reason}
+                      </div>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )
+        })()
+        const withRuntimeHealth = (primaryBadge: ReactNode) => {
+          if (!runtimeHealthBadge) return primaryBadge
+          return (
+            <StatusBadgeList
+              items={[primaryBadge, runtimeHealthBadge]}
+              max={2}
+              renderItem={(item) => item}
+            />
+          )
+        }
 
         // Auto-disabled: show reason and time tooltip
         if (status === 3) {
@@ -791,7 +868,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
           }
 
           if (statusReason || statusTime) {
-            return (
+            return withRuntimeHealth(
               <TooltipProvider delay={100}>
                 <Tooltip>
                   <TooltipTrigger render={<span />}>
@@ -822,7 +899,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
           }
         }
 
-        return (
+        return withRuntimeHealth(
           <StatusBadge
             label={label}
             variant={config.variant}

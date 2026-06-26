@@ -60,6 +60,24 @@ const monitoringSchema = z
     AutomaticEnableChannelEnabled: z.boolean(),
     AutomaticDisableKeywords: z.string(),
     AutomaticDisableStatusCodes: z.string(),
+    ChannelHealthTransientKeywords: z.string(),
+    ChannelHealthTransientStatusCodes: z.string(),
+    ChannelHealthFailureThreshold: z.coerce
+      .number()
+      .int()
+      .min(1, 'Threshold must be at least 1'),
+    ChannelHealthFailureWindowMinutes: z.coerce
+      .number()
+      .int()
+      .min(1, 'Window must be at least 1 minute'),
+    ChannelHealthCooldownMinutes: z.coerce
+      .number()
+      .int()
+      .min(1, 'Cooldown must be at least 1 minute'),
+    ChannelHealthMaxCooldownMinutes: z.coerce
+      .number()
+      .int()
+      .min(1, 'Max cooldown must be at least 1 minute'),
     AutomaticRetryStatusCodes: z.string(),
     monitor_setting: z.object({
       auto_test_channel_enabled: z.boolean(),
@@ -95,6 +113,30 @@ const monitoringSchema = z
         )}`,
       })
     }
+
+    const transientParsed = parseHttpStatusCodeRules(
+      values.ChannelHealthTransientStatusCodes
+    )
+    if (!transientParsed.ok) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ChannelHealthTransientStatusCodes'],
+        message: `Invalid status code rules: ${transientParsed.invalidTokens.join(
+          ', '
+        )}`,
+      })
+    }
+
+    if (
+      values.ChannelHealthMaxCooldownMinutes <
+      values.ChannelHealthCooldownMinutes
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ChannelHealthMaxCooldownMinutes'],
+        message: 'Max cooldown must be greater than or equal to cooldown',
+      })
+    }
   })
 
 type MonitoringFormValues = z.output<typeof monitoringSchema>
@@ -108,6 +150,12 @@ type MonitoringSettingsSectionProps = {
     AutomaticEnableChannelEnabled: boolean
     AutomaticDisableKeywords: string
     AutomaticDisableStatusCodes: string
+    ChannelHealthTransientKeywords: string
+    ChannelHealthTransientStatusCodes: string
+    ChannelHealthFailureThreshold: number
+    ChannelHealthFailureWindowMinutes: number
+    ChannelHealthCooldownMinutes: number
+    ChannelHealthMaxCooldownMinutes: number
     AutomaticRetryStatusCodes: string
     'monitor_setting.auto_test_channel_enabled': boolean
     'monitor_setting.auto_test_channel_minutes': number
@@ -125,6 +173,12 @@ type NormalizedMonitoringValues = {
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
   AutomaticDisableStatusCodes: string
+  ChannelHealthTransientKeywords: string
+  ChannelHealthTransientStatusCodes: string
+  ChannelHealthFailureThreshold: number
+  ChannelHealthFailureWindowMinutes: number
+  ChannelHealthCooldownMinutes: number
+  ChannelHealthMaxCooldownMinutes: number
   AutomaticRetryStatusCodes: string
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
@@ -141,6 +195,16 @@ const buildFormDefaults = (
     defaults.AutomaticDisableKeywords ?? ''
   ),
   AutomaticDisableStatusCodes: defaults.AutomaticDisableStatusCodes ?? '',
+  ChannelHealthTransientKeywords: normalizeLineEndings(
+    defaults.ChannelHealthTransientKeywords ?? ''
+  ),
+  ChannelHealthTransientStatusCodes:
+    defaults.ChannelHealthTransientStatusCodes ?? '',
+  ChannelHealthFailureThreshold: defaults.ChannelHealthFailureThreshold ?? 3,
+  ChannelHealthFailureWindowMinutes:
+    defaults.ChannelHealthFailureWindowMinutes ?? 5,
+  ChannelHealthCooldownMinutes: defaults.ChannelHealthCooldownMinutes ?? 2,
+  ChannelHealthMaxCooldownMinutes: defaults.ChannelHealthMaxCooldownMinutes ?? 10,
   AutomaticRetryStatusCodes: defaults.AutomaticRetryStatusCodes ?? '',
   monitor_setting: {
     auto_test_channel_enabled:
@@ -163,6 +227,17 @@ const normalizeDefaults = (
   AutomaticDisableStatusCodes: parseHttpStatusCodeRules(
     defaults.AutomaticDisableStatusCodes ?? ''
   ).normalized,
+  ChannelHealthTransientKeywords: normalizeLineEndings(
+    defaults.ChannelHealthTransientKeywords ?? ''
+  ),
+  ChannelHealthTransientStatusCodes: parseHttpStatusCodeRules(
+    defaults.ChannelHealthTransientStatusCodes ?? ''
+  ).normalized,
+  ChannelHealthFailureThreshold: defaults.ChannelHealthFailureThreshold ?? 3,
+  ChannelHealthFailureWindowMinutes:
+    defaults.ChannelHealthFailureWindowMinutes ?? 5,
+  ChannelHealthCooldownMinutes: defaults.ChannelHealthCooldownMinutes ?? 2,
+  ChannelHealthMaxCooldownMinutes: defaults.ChannelHealthMaxCooldownMinutes ?? 10,
   AutomaticRetryStatusCodes: parseHttpStatusCodeRules(
     defaults.AutomaticRetryStatusCodes ?? ''
   ).normalized,
@@ -185,6 +260,16 @@ const normalizeFormValues = (
   AutomaticDisableStatusCodes: parseHttpStatusCodeRules(
     values.AutomaticDisableStatusCodes
   ).normalized,
+  ChannelHealthTransientKeywords: normalizeLineEndings(
+    values.ChannelHealthTransientKeywords
+  ),
+  ChannelHealthTransientStatusCodes: parseHttpStatusCodeRules(
+    values.ChannelHealthTransientStatusCodes
+  ).normalized,
+  ChannelHealthFailureThreshold: values.ChannelHealthFailureThreshold,
+  ChannelHealthFailureWindowMinutes: values.ChannelHealthFailureWindowMinutes,
+  ChannelHealthCooldownMinutes: values.ChannelHealthCooldownMinutes,
+  ChannelHealthMaxCooldownMinutes: values.ChannelHealthMaxCooldownMinutes,
   AutomaticRetryStatusCodes: parseHttpStatusCodeRules(
     values.AutomaticRetryStatusCodes
   ).normalized,
@@ -217,6 +302,7 @@ export function MonitoringSettingsSection({
 
   const autoDisableStatusCodes = form.watch('AutomaticDisableStatusCodes')
   const autoRetryStatusCodes = form.watch('AutomaticRetryStatusCodes')
+  const transientStatusCodes = form.watch('ChannelHealthTransientStatusCodes')
   const autoDisableParsed = useMemo(
     () => parseHttpStatusCodeRules(autoDisableStatusCodes),
     [autoDisableStatusCodes]
@@ -224,6 +310,10 @@ export function MonitoringSettingsSection({
   const autoRetryParsed = useMemo(
     () => parseHttpStatusCodeRules(autoRetryStatusCodes),
     [autoRetryStatusCodes]
+  )
+  const transientParsed = useMemo(
+    () => parseHttpStatusCodeRules(transientStatusCodes),
+    [transientStatusCodes]
   )
 
   const onSubmit = async (values: MonitoringFormValues) => {
@@ -419,6 +509,152 @@ export function MonitoringSettingsSection({
               </FormItem>
             )}
           />
+
+          <div className='grid gap-6 md:grid-cols-2'>
+            <FormField
+              control={form.control}
+              name='ChannelHealthTransientStatusCodes'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Transient failure status codes')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder={t('e.g. 408, 429, 500-599')}
+                      value={field.value}
+                      onChange={(event) => field.onChange(event.target.value)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Errors in these status codes count toward temporary circuit breaking.'
+                    )}{' '}
+                    {transientParsed.ok &&
+                      transientParsed.normalized &&
+                      transientParsed.normalized !== field.value.trim() && (
+                        <span className='text-muted-foreground'>
+                          {t('Normalized:')} {transientParsed.normalized}
+                        </span>
+                      )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='ChannelHealthTransientKeywords'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Transient failure keywords')}</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      rows={6}
+                      placeholder={t('one keyword per line')}
+                      {...field}
+                      onChange={(event) => field.onChange(event.target.value)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'If an upstream error contains any of these keywords, it is treated as temporary and will not hard-disable the channel.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className='grid gap-6 md:grid-cols-4'>
+            <FormField
+              control={form.control}
+              name='ChannelHealthFailureThreshold'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Failure threshold')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={1}
+                      step={1}
+                      {...safeNumberFieldProps(field)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Consecutive temporary failures before circuit breaking')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='ChannelHealthFailureWindowMinutes'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Failure window (minutes)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={1}
+                      step={1}
+                      {...safeNumberFieldProps(field)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Failures counted within this rolling window')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='ChannelHealthCooldownMinutes'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Cooldown (minutes)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={1}
+                      step={1}
+                      {...safeNumberFieldProps(field)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Initial skip time after the threshold is hit')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='ChannelHealthMaxCooldownMinutes'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Max cooldown (minutes)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={1}
+                      step={1}
+                      {...safeNumberFieldProps(field)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Upper bound for progressive cooldown backoff')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
 
           <div className='grid gap-6 md:grid-cols-2'>
             <FormField

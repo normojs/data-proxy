@@ -329,6 +329,12 @@ export type OperationsSettings = {
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
   AutomaticDisableStatusCodes: string
+  ChannelHealthTransientKeywords: string
+  ChannelHealthTransientStatusCodes: string
+  ChannelHealthFailureThreshold: number
+  ChannelHealthFailureWindowMinutes: number
+  ChannelHealthCooldownMinutes: number
+  ChannelHealthMaxCooldownMinutes: number
   AutomaticRetryStatusCodes: string
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number

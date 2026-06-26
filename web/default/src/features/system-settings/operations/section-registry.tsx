@@ -55,6 +55,17 @@ const OPERATIONS_SECTIONS = [
           AutomaticEnableChannelEnabled: settings.AutomaticEnableChannelEnabled,
           AutomaticDisableKeywords: settings.AutomaticDisableKeywords,
           AutomaticDisableStatusCodes: settings.AutomaticDisableStatusCodes,
+          ChannelHealthTransientKeywords:
+            settings.ChannelHealthTransientKeywords,
+          ChannelHealthTransientStatusCodes:
+            settings.ChannelHealthTransientStatusCodes,
+          ChannelHealthFailureThreshold:
+            settings.ChannelHealthFailureThreshold,
+          ChannelHealthFailureWindowMinutes:
+            settings.ChannelHealthFailureWindowMinutes,
+          ChannelHealthCooldownMinutes: settings.ChannelHealthCooldownMinutes,
+          ChannelHealthMaxCooldownMinutes:
+            settings.ChannelHealthMaxCooldownMinutes,
           AutomaticRetryStatusCodes: settings.AutomaticRetryStatusCodes,
           'monitor_setting.auto_test_channel_enabled':
             settings['monitor_setting.auto_test_channel_enabled'],

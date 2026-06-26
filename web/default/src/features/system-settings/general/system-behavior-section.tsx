@@ -101,7 +101,9 @@ export function SystemBehaviorSection({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Number of times to retry failed requests (0-10)')}
+                  {t(
+                    'Number of extra attempts after the first channel fails. Set at least 1 to allow failover to a backup channel.'
+                  )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

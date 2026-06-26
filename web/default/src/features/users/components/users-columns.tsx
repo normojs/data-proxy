@@ -33,6 +33,7 @@ import { LongText } from '@/components/long-text'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
 import { USER_STATUSES, USER_ROLES, isUserDeleted } from '../constants'
+import { parseUserTokenGroups } from '../lib'
 import { type User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 
@@ -237,6 +238,40 @@ export function useUsersColumns(): ColumnDef<User>[] {
         return group.includes(searchValue)
       },
       meta: { label: t('Group') },
+    },
+    {
+      accessorKey: 'token_groups',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Bound Groups')} />
+      ),
+      cell: ({ row }) => {
+        const groups = parseUserTokenGroups(row.original.token_groups)
+        if (groups.length === 0) {
+          return (
+            <StatusBadge
+              label={t('Unrestricted')}
+              variant='neutral'
+              copyable={false}
+            />
+          )
+        }
+        const visibleGroups = groups.slice(0, 3)
+        return (
+          <div className='flex max-w-[220px] flex-wrap gap-1'>
+            {visibleGroups.map((group) => (
+              <GroupBadge key={group} group={group} />
+            ))}
+            {groups.length > visibleGroups.length && (
+              <StatusBadge
+                label={`+${groups.length - visibleGroups.length}`}
+                variant='neutral'
+                copyable={false}
+              />
+            )}
+          </div>
+        )
+      },
+      meta: { label: t('Bound Groups'), mobileHidden: true },
     },
     {
       accessorKey: 'role',

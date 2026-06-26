@@ -34,6 +34,22 @@ export const channelInfoSchema = z.object({
 
 export type ChannelInfo = z.infer<typeof channelInfoSchema>
 
+export const channelRuntimeHealthSchema = z.object({
+  status: z
+    .enum(['healthy', 'degraded', 'temporarily_unavailable'])
+    .default('healthy'),
+  temporarily_unavailable: z.boolean().default(false),
+  consecutive_failures: z.number().optional(),
+  first_failure_at: z.number().optional(),
+  last_failure_at: z.number().optional(),
+  cooldown_until: z.number().optional(),
+  last_status_code: z.number().optional(),
+  last_error_code: z.string().optional(),
+  last_reason: z.string().optional(),
+})
+
+export type ChannelRuntimeHealth = z.infer<typeof channelRuntimeHealthSchema>
+
 export const channelSchema = z.object({
   id: z.number(),
   type: z.number(),
@@ -71,6 +87,7 @@ export const channelSchema = z.object({
     multi_key_mode: 'random',
   }),
   settings: z.string().default('{}'), // other_settings JSON
+  runtime_health: channelRuntimeHealthSchema.optional(),
 })
 
 export type Channel = z.infer<typeof channelSchema>
