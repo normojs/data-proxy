@@ -150,6 +150,8 @@ scripts/data-proxy-production-smoke.sh
 | `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_ENDPOINT` / `ENTERPRISE_QUEUE_PAYLOAD_OBJECT_S3_BUCKET` | `s3` provider 的 S3 或 S3-compatible endpoint 和 bucket。 |
 | `CAPTURE_ENABLED` | 请求捕获总开关，默认关闭；完整捕获链路完成前生产环境应保持 `false`。 |
 | `CAPTURE_LEVEL` / `CAPTURE_SAMPLE_RATE` / `CAPTURE_MODEL_PATTERNS` | 请求捕获策略配置，可先按模型、路径、用户、token、渠道小范围启用。 |
+| `CAPTURE_START_TIMESTAMP` / `CAPTURE_END_TIMESTAMP` | 请求捕获时间窗口，Unix 秒；`0` 表示不限制对应边界。 |
+| `CAPTURE_SEVERITIES` | 只捕获指定严重级别的显式诊断/异常流量，例如 `warning,error`；正常 relay 未标记 severity 时不会命中该过滤器。 |
 | `CAPTURE_MAX_ARTIFACT_BYTES` | 单个请求/响应 artifact 的最大保存字节数，`0` 表示不限制；超出后只截断捕获数据，不影响主请求。 |
 | `CAPTURE_OBJECT_BACKEND` / `CAPTURE_S3_ENDPOINT` / `CAPTURE_S3_BUCKET` | 请求捕获私密数据包的 SeaweedFS/S3-compatible 存储配置。 |
 | `CAPTURE_BUNDLE_MASTER_KEY` | 请求捕获私密数据包 AES-256-GCM 加密主密钥，支持 `base64:` 或 `hex:` 前缀，必须解码为 32 字节。 |

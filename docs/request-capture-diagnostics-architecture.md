@@ -349,6 +349,12 @@ Capture should be configurable by:
 - severity flags
 - sample rate
 
+The environment policy currently exposes time-window selectors through
+`CAPTURE_START_TIMESTAMP` and `CAPTURE_END_TIMESTAMP` using Unix seconds. It
+also exposes `CAPTURE_SEVERITIES` for explicit diagnostic or abnormal-flow
+labels such as `warning,error`; normal relay traffic that has no severity label
+will not match that selector.
+
 Because the product goal is to save all configured traffic for model
 improvement, the default production policy can be broad, but it still must
 support opt-out scopes and administrative controls.

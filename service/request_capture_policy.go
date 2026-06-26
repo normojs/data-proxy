@@ -12,6 +12,9 @@ import (
 const (
 	requestCaptureLevelEnv            = "CAPTURE_LEVEL"
 	requestCaptureSampleRateEnv       = "CAPTURE_SAMPLE_RATE"
+	requestCaptureStartTimestampEnv   = "CAPTURE_START_TIMESTAMP"
+	requestCaptureEndTimestampEnv     = "CAPTURE_END_TIMESTAMP"
+	requestCaptureSeveritiesEnv       = "CAPTURE_SEVERITIES"
 	requestCaptureModelPatternsEnv    = "CAPTURE_MODEL_PATTERNS"
 	requestCapturePathPrefixesEnv     = "CAPTURE_PATH_PREFIXES"
 	requestCaptureProtocolChainsEnv   = "CAPTURE_PROTOCOL_CHAINS"
@@ -26,6 +29,9 @@ type RequestCapturePolicy struct {
 	Enabled          bool
 	Level            string
 	SampleRate       float64
+	StartTimestamp   int64
+	EndTimestamp     int64
+	Severities       map[string]struct{}
 	ModelPatterns    []string
 	PathPrefixes     []string
 	ProtocolChains   []string
@@ -48,6 +54,8 @@ type RequestCaptureDecisionInput struct {
 	RequestPath    string
 	ProtocolChain  string
 	IsStream       bool
+	Severity       string
+	Now            int64
 }
 
 type RequestCaptureDecision struct {
@@ -66,6 +74,9 @@ func LoadRequestCapturePolicyFromEnv() RequestCapturePolicy {
 		Enabled:          storage.Enabled && level != model.RequestCaptureLevelOff,
 		Level:            level,
 		SampleRate:       requestCaptureEnvFloat(requestCaptureSampleRateEnv, 1),
+		StartTimestamp:   requestCaptureEnvInt64(requestCaptureStartTimestampEnv, 0),
+		EndTimestamp:     requestCaptureEnvInt64(requestCaptureEndTimestampEnv, 0),
+		Severities:       requestCaptureEnvStringSet(requestCaptureSeveritiesEnv),
 		ModelPatterns:    requestCaptureEnvCSV(requestCaptureModelPatternsEnv),
 		PathPrefixes:     requestCaptureEnvCSV(requestCapturePathPrefixesEnv),
 		ProtocolChains:   requestCaptureEnvCSV(requestCaptureProtocolChainsEnv),
@@ -92,6 +103,12 @@ func (p RequestCapturePolicy) Decide(input RequestCaptureDecisionInput) RequestC
 	}
 	if p.Level == "" || p.Level == model.RequestCaptureLevelOff {
 		return RequestCaptureDecision{Reason: "level_off"}
+	}
+	if !requestCaptureTimeWindowMatches(p.StartTimestamp, p.EndTimestamp, input.Now) {
+		return RequestCaptureDecision{Reason: "time_window_not_matched"}
+	}
+	if !requestCaptureStringSetMatches(p.Severities, input.Severity) {
+		return RequestCaptureDecision{Reason: "severity_not_matched"}
 	}
 	if !requestCaptureSetMatches(p.UserIds, input.UserId) {
 		return RequestCaptureDecision{Reason: "user_not_matched"}
@@ -188,6 +205,49 @@ func requestCaptureEnvInt64Set(name string) map[int64]struct{} {
 		}
 	}
 	return result
+}
+
+func requestCaptureEnvStringSet(name string) map[string]struct{} {
+	parts := requestCaptureEnvCSV(name)
+	if len(parts) == 0 {
+		return nil
+	}
+	result := map[string]struct{}{}
+	for _, part := range parts {
+		value := strings.ToLower(strings.TrimSpace(part))
+		if value != "" {
+			result[value] = struct{}{}
+		}
+	}
+	return result
+}
+
+func requestCaptureTimeWindowMatches(startTimestamp int64, endTimestamp int64, now int64) bool {
+	if startTimestamp <= 0 && endTimestamp <= 0 {
+		return true
+	}
+	if now <= 0 {
+		return false
+	}
+	if startTimestamp > 0 && now < startTimestamp {
+		return false
+	}
+	if endTimestamp > 0 && now > endTimestamp {
+		return false
+	}
+	return true
+}
+
+func requestCaptureStringSetMatches(values map[string]struct{}, value string) bool {
+	if len(values) == 0 {
+		return true
+	}
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return false
+	}
+	_, ok := values[value]
+	return ok
 }
 
 func requestCaptureSetMatches(values map[int]struct{}, value int) bool {

@@ -52,8 +52,15 @@ Status: implemented for the current single-node P0 scope.
   - `CAPTURE_TOKEN_IDS`
   - `CAPTURE_CHANNEL_IDS`
   - `CAPTURE_CONNECTED_APP_IDS`
+  - `CAPTURE_START_TIMESTAMP`
+  - `CAPTURE_END_TIMESTAMP`
+  - `CAPTURE_SEVERITIES`
   - `CAPTURE_MAX_ARTIFACT_BYTES`
-  Time-window and severity-flag policies are pending.
+  `CAPTURE_START_TIMESTAMP` and `CAPTURE_END_TIMESTAMP` use Unix seconds and
+  `0` means the corresponding boundary is not limited. `CAPTURE_SEVERITIES`
+  matches explicit diagnostic or abnormal-flow severity labels; normal relay
+  traffic without a severity label is intentionally excluded when this selector
+  is configured.
 - Add local capture session lifecycle. Implemented as
   `service/request_capture_spool.go`:
   - create `active/{request_id}` spool directory

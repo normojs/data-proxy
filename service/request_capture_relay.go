@@ -70,6 +70,7 @@ func StartRelayRequestCapture(c *gin.Context, info *relaycommon.RelayInfo) *Rela
 		RequestPath:    c.Request.URL.Path,
 		ProtocolChain:  relayRequestCaptureProtocolChain(info),
 		IsStream:       info.IsStream,
+		Now:            common.GetTimestamp(),
 	})
 	if !decision.Enabled {
 		return nil

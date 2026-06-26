@@ -19,6 +19,9 @@ func TestRequestCapturePolicyMatchesConfiguredFilters(t *testing.T) {
 	t.Setenv("CAPTURE_ENABLED", "true")
 	t.Setenv("CAPTURE_OBJECT_BACKEND", "s3")
 	t.Setenv("CAPTURE_LEVEL", model.RequestCaptureLevelFullBundle)
+	t.Setenv("CAPTURE_START_TIMESTAMP", "100")
+	t.Setenv("CAPTURE_END_TIMESTAMP", "200")
+	t.Setenv("CAPTURE_SEVERITIES", "warning,error")
 	t.Setenv("CAPTURE_MODEL_PATTERNS", "deepseek-*,qwen-*")
 	t.Setenv("CAPTURE_PATH_PREFIXES", "/v1/responses,/v1/chat")
 	t.Setenv("CAPTURE_PROTOCOL_CHAINS", "responses->chat,chat->responses")
@@ -30,6 +33,10 @@ func TestRequestCapturePolicyMatchesConfiguredFilters(t *testing.T) {
 	t.Setenv("CAPTURE_MAX_ARTIFACT_BYTES", "1048576")
 
 	policy := LoadRequestCapturePolicyFromEnv()
+	assert.Equal(t, int64(100), policy.StartTimestamp)
+	assert.Equal(t, int64(200), policy.EndTimestamp)
+	assert.Contains(t, policy.Severities, "warning")
+	assert.Contains(t, policy.Severities, "error")
 	assert.Equal(t, int64(1048576), policy.MaxArtifactBytes)
 	assert.Equal(t, []string{"responses->chat", "chat->responses"}, policy.ProtocolChains)
 	decision := policy.Decide(RequestCaptureDecisionInput{
@@ -42,6 +49,8 @@ func TestRequestCapturePolicyMatchesConfiguredFilters(t *testing.T) {
 		RequestPath:    "/v1/responses",
 		ProtocolChain:  "responses->chat",
 		IsStream:       true,
+		Severity:       "Warning",
+		Now:            150,
 	})
 
 	assert.True(t, decision.Enabled)
@@ -90,6 +99,35 @@ func TestRequestCapturePolicySampleRateBounds(t *testing.T) {
 	decision := never.Decide(RequestCaptureDecisionInput{RequestId: "req"})
 	assert.False(t, decision.Enabled)
 	assert.Equal(t, "sample_not_matched", decision.Reason)
+}
+
+func TestRequestCapturePolicyTimeWindowAndSeverityFilters(t *testing.T) {
+	windowPolicy := RequestCapturePolicy{
+		Enabled:        true,
+		Level:          model.RequestCaptureLevelMetadata,
+		SampleRate:     1,
+		StartTimestamp: 100,
+		EndTimestamp:   200,
+	}
+
+	assert.Equal(t, "time_window_not_matched", windowPolicy.Decide(RequestCaptureDecisionInput{Now: 0}).Reason)
+	assert.Equal(t, "time_window_not_matched", windowPolicy.Decide(RequestCaptureDecisionInput{Now: 99}).Reason)
+	assert.Equal(t, "matched", windowPolicy.Decide(RequestCaptureDecisionInput{Now: 100}).Reason)
+	assert.Equal(t, "matched", windowPolicy.Decide(RequestCaptureDecisionInput{Now: 200}).Reason)
+	assert.Equal(t, "time_window_not_matched", windowPolicy.Decide(RequestCaptureDecisionInput{Now: 201}).Reason)
+
+	severityPolicy := RequestCapturePolicy{
+		Enabled:    true,
+		Level:      model.RequestCaptureLevelMetadata,
+		SampleRate: 1,
+		Severities: map[string]struct{}{
+			"error": {},
+		},
+	}
+
+	assert.Equal(t, "severity_not_matched", severityPolicy.Decide(RequestCaptureDecisionInput{}).Reason)
+	assert.Equal(t, "severity_not_matched", severityPolicy.Decide(RequestCaptureDecisionInput{Severity: "warning"}).Reason)
+	assert.Equal(t, "matched", severityPolicy.Decide(RequestCaptureDecisionInput{Severity: "ERROR"}).Reason)
 }
 
 func TestRequestCaptureWildcardMatch(t *testing.T) {

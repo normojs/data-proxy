@@ -316,7 +316,9 @@ Acceptance:
 Tasks:
 
 - Keep raw capture disabled by default.
-- Add time-window and severity-flag policy selectors.
+- Time-window and severity-flag policy selectors are implemented through
+  `CAPTURE_START_TIMESTAMP`, `CAPTURE_END_TIMESTAMP`, and
+  `CAPTURE_SEVERITIES`; next polish is admin UI wording and safer presets.
 - Keep capture fail-open and bounded by byte caps.
 - Improve admin wording around raw bundle sensitivity.
 
