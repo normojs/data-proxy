@@ -1,0 +1,28 @@
+services:
+  data-proxy:
+    image: ${DATA_PROXY_IMAGE:-ghcr.io/normojs/data-proxy:latest}
+    container_name: data-proxy
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "${DATA_PROXY_BIND_ADDR:-127.0.0.1}:${DATA_PROXY_HOST_PORT:-13002}:${DATA_PROXY_CONTAINER_PORT:-13002}"
+    env_file:
+      - .env.production
+    environment:
+      PORT: ${DATA_PROXY_CONTAINER_PORT:-13002}
+      NODE_TYPE: ${NODE_TYPE:-master}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    networks:
+      - data-proxy-public
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:$${PORT:-13002}/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  data-proxy-public:

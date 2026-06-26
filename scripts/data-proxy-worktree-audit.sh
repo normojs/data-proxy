@@ -64,6 +64,9 @@ group_for_file() {
     ;;
 
   .env.example | README.md | makefile | \
+    docker-compose.prod.yml | \
+    docker-compose.wechat-pay.yml | \
+    docker-compose.capture-storage.yml | \
     .github/workflows/* | \
     docs/data-proxy-current-release-execution-plan.md | \
     docs/data-proxy-follow-up-task-board.md | \
