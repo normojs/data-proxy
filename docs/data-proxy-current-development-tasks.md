@@ -278,82 +278,89 @@ scripts/data-proxy-release-gate.sh --with-docker-config
 git diff --check -- scripts/data-proxy-focused-regression.sh docs/data-proxy-current-development-tasks.md docs/data-proxy-near-term-development-plan.md docs/data-proxy-single-node-development-roadmap.md docs/openai-hosted-tools-support-plan.md
 ```
 
+## 已完成提交
+
+当前节点已经完成并提交：
+
+- request diagnostic console 基础流程；
+- vNext 范围边界文档，协议转换长尾进入 post-vNext 停车场；
+- Tunnel Gateway、MCP Gateway、HTTP/TCP Tunnel MVP 和 `dpa` agent 单机加固；
+- 训练数据 review console；
+- 价格页平台实际成交均价和 billing event source matrix 补充。
+
+这些功能后续只做生产 smoke、文档补充和窄回归修复，不再列为待拆提交。
+
 ## 剩余工作区拆分顺序
 
-当前工作区仍有大量 P1/P2/P3 功能改动。后续不要把它们一次性混进一个
-commit，建议按下面顺序拆分和验证。
+当前工作区仍有发布基线、渠道设置 UI、协议转换停车场和 benchmark 工具差异。
+后续不要把它们一次性混进一个 commit，建议按下面顺序拆分和验证。
 
-### Commit A：P1 渠道故障切换和用户分组限制
+### Commit A：P0 发布基线、README 和环境样例
 
 范围：
 
-- `service/channel*`、`service/group.go`、`service/channel_health.go`、
-  `service/channel_failover_admin.go`；
-- `controller/channel*`、`controller/model*`、`controller/token*`、
-  `controller/user*`、`controller/group.go`；
-- `model/channel*`、`model/user*`、`model/token.go`、`model/ability.go`；
-- `middleware/distributor.go`、`middleware/auth.go`；
-- `setting/operation_setting/status_code_ranges.go`；
-- `web/default/src/features/channels/`、`keys/`、`users/` 相关分组 UI；
-- `docs/channel-failover-and-circuit-breaker.md`。
+- `README.md`；
+- `.env.example`；
+- CI/Docker/部署/回滚文档中仍需补充的发布说明。
 
 验证：
 
 ```bash
-scripts/data-proxy-focused-regression.sh --p1
+scripts/data-proxy-release-gate.sh --scan-all
+scripts/data-proxy-release-gate.sh --with-docker-config
 ```
 
-### Commit B：P2 请求诊断、request trace、capture 安全性
+### Commit B：P1 渠道故障切换和用户分组限制收口
 
 范围：
 
-- `controller/log_diagnostic.go`、`controller/log_request_trace_test.go`、
-  `router/request_diagnostic_routes_test.go`；
-- `service/request_capture_*`、`model/request_capture.go`；
-- `web/default/src/features/usage-logs/` 诊断候选和详情入口；
-- `docs/request-trace-troubleshooting.md`；
-- `docs/request-capture-diagnostics-architecture.md`；
-- `docs/request-capture-diagnostics-implementation-plan.md`。
+- 渠道 retry、临时故障、硬故障、熔断阈值、窗口、冷却时间、手动恢复 UI；
+- 用户绑定一个或多个分组、Key 创建/修改/实际调用限制；
+- request trace 中失败渠道、重试决策、最终渠道和熔断动作展示。
+
+注意：
+
+当前工作区里 `dto/channel_settings.go` 和 `web/default/src/features/channels/`
+包含 hosted tools policy / Responses 设置相关改动。如果这些改动只是协议转换
+长尾 UI，不要放进 P1；除非确认它们是当前版本的窄回归修复，否则进入
+post-vNext 停车场。
 
 验证：
 
 ```bash
-scripts/data-proxy-focused-regression.sh --p2
+scripts/data-proxy-focused-regression.sh --p1 --frontend
 ```
 
-### Commit C：P2/P3 训练数据 review API 和 UI
+### Commit C：P2 请求诊断、request trace、capture 安全性
 
 范围：
 
-- `controller/training_dataset.go`、`controller/training_dataset_test.go`；
-- `service/request_training_corpus.go`、
-  `service/training_dataset_export.go`、
-  `service/training_sample_preview.go`；
-- `web/default/src/features/training-data/`。
+- README 或排障文档补 request trace API/UI 和诊断包下载说明；
+- common logs request id 直达 trace/过滤的快捷入口；
+- 诊断候选列表；
+- capture spool 重启恢复、finalizer retry backoff、cleanup、流式 fail-open。
 
 验证：
 
 ```bash
-go test ./service -run 'Test(BuildTrainingCorpus|Training)' -count=1
-go test ./controller -run 'Test(Training|DownloadTrainingDataset|GetTrainingSample|ReviewTrainingSample)' -count=1
+scripts/data-proxy-focused-regression.sh --p2 --frontend
 ```
 
-### Commit D：P2 Tunnel、MCP Gateway、HTTP/TCP Tunnel、`dpa`
+### Commit D：P3 Tunnel、MCP Gateway、`dpa` 生产 smoke 和计费风险控制
 
 范围：
 
-- `service/tunnel*`、`controller/tunnel*`、`router/tunnel-router.go`；
-- `dto/bridge.go`、`dto/mcp.go`、`pkg/bridgepolicy/`、
-  `pkg/mcpgateway/`；
-- `pkg/dpagent/`；
-- `web/default/src/features/mcp/`；
-- `docs/tunnel-apps-architecture.md`、
-  `docs/data-proxy-agent-cli-design.md`。
+- Tunnel App 创建、删除、随机前缀、route 和在线状态；
+- MCP Gateway tool/resource/prompt 审计；
+- HTTP Tunnel WebSocket/SSE/大文件流式转发压测；
+- TCP-over-WebSocket MVP smoke；
+- Tunnel 单机计费结算和 denied/failed/charged 审计；
+- `dpa status --json`、`dpa doctor --json`、`dpa tunnel route test` 生产验证。
 
 验证：
 
 ```bash
-scripts/data-proxy-focused-regression.sh --p3
+scripts/data-proxy-focused-regression.sh --p3 --frontend
 ```
 
 ### Commit E：可选清理，协议转换回归守护，不做长尾
@@ -384,32 +391,37 @@ scripts/data-proxy-focused-regression.sh --p3
 go test ./service/openaicompat ./relay/channel/openai ./relay -count=1
 ```
 
-### Commit F：dpa 发布资产和安装包打磨
+### Commit F：benchmark 工具差异确认
 
 范围：
 
-- `.github/workflows/data-proxy-agent.yml`；
-- `scripts/generate-data-proxy-agent-manifest.sh`；
-- `scripts/install-data-proxy-agent.sh`；
-- `docs/data-proxy-agent-cli-design.md` 中发布/manifest 相关段落。
+- `tools/fusion-benchmark.mjs`；
+- `tools/fusion-benchmark/config.json`。
+
+处理方式：
+
+- 如果是当前版本生产验证必须使用的 benchmark 工具，单独提交；
+- 如果只是后续性能评估工具，保留到 vNext 稳定后再处理；
+- 不要和发布基线、P1、协议转换停车场混提交。
 
 验证：
 
 ```bash
-bash -n scripts/generate-data-proxy-agent-manifest.sh scripts/install-data-proxy-agent.sh
+node tools/fusion-benchmark.mjs --help
 ```
 
-### Commit G：价格展示、README、环境样例和杂项
+### Commit G：部署和生产 smoke
 
 范围：
 
-- `README.md`、`.env.example`、`makefile`；
-- `controller/pricing.go`、`model/pricing.go`、`service/pricing_actual.go`；
-- `web/default/src/features/pricing/`；
-- `tools/fusion-benchmark.*` 的剩余差异需要单独确认是否仍属于当前版本。
+- GitHub Actions 生成的生产镜像；
+- 服务器 compose/env/nginx/runbook；
+- 镜像 tag、digest、上一版镜像和回滚命令；
+- `/api/status`、Chat、Responses、request trace、诊断包、同模型备用渠道、
+  Tunnel、`dpa status --json`、支付 happy path smoke。
 
 验证：
 
 ```bash
-go test ./controller ./service -run 'Test.*Pricing|TestGetPlatformPricingActualPrices' -count=1
+scripts/data-proxy-production-smoke.sh
 ```

@@ -32,6 +32,18 @@
 这些能力统一进入 vNext 稳定后的独立评审，届时需要重新讨论安全边界、
 用户授权、审计、计费、沙盒和失败兜底。
 
+## 已完成到当前节点
+
+- 已完成 vNext 范围边界文档：协议转换长尾进入 vNext 稳定后的停车场。
+- 已完成 request diagnostic console 基础流程。
+- 已完成 Tunnel Gateway、MCP Gateway、`dpa` agent 的单机基础能力加固。
+- 已完成训练数据 review console：dataset build、样本预览、approve/reject、
+  approved-only export 的控制台入口。
+- 已完成价格页平台实际成交均价展示和 billing event source matrix 补充。
+
+这些已完成项后续只做生产回归修复、文档补充和部署 smoke，不再作为当前
+工作区拆分主线重复开发。
+
 ## 当前开发顺序
 
 ### P0：发布基线和工作区收口
@@ -93,9 +105,8 @@
   异常类型窄范围开启；
 - 验证 capture spool 重启恢复、finalizer 单进程 retry backoff、cleanup；
 - 验证流式捕获 fail-open、字节上限、截断标记；
-- 完成训练数据 review UI：dataset build、样本预览、approve/reject、
-  approved-only export；
-- 导出先使用版本化 `jsonl.zst`。
+- 训练数据 review UI 已完成，当前只补生产 smoke 和导出边界文档；
+- 导出先使用版本化 `jsonl.zst`，后续数据湖增强放到 P4/P5 之后。
 
 验收：
 
@@ -134,9 +145,9 @@
 
 - 核对微信 Native 支付配置、回调、余额入账和未点击完成时的轮询体验；
 - 支付模态框在待支付状态下不能被误点关闭；
-- 价格页展示理论价格和实际扣费口径；
-- 计费事件记录 request id、来源、模型、渠道、用量、折扣和最终金额；
-- Tunnel/MCP 计费事件进入统一 billing event source matrix；
+- 价格页已展示理论价格和最近平台实际成交均价；
+- 计费事件已补 request id、来源、模型、渠道、用量、折扣和最终金额字段；
+- Tunnel/MCP 计费事件已进入统一 billing event source matrix；
 - 明确折扣最低充值金额规则，并在 UI 上用中文说明。
 
 验收：
@@ -165,13 +176,14 @@
 ## 立即执行清单
 
 1. 跑工作区审计，确认当前未提交文件属于哪个批次。
-2. 先收口 P2 训练数据 review UI 和相关文档，避免和协议转换文件混提交。
-3. 单独处理支付、定价、计费核对。
-4. 单独处理 P1 渠道自动切换和用户分组限制。
-5. 单独处理 P3 Tunnel、MCP Gateway、`dpa`。
-6. 暂存或保留协议转换长尾改动，不进入当前发布提交。
-7. 每个批次提交后跑对应 focused regression 和 release gate。
-8. 部署到服务器并记录 smoke 结果、镜像 digest 和回滚命令。
+2. 先收口 P0：`README.md`、`.env.example`、CI/Docker、部署和回滚说明。
+3. 单独处理 P1：渠道自动切换、熔断配置 UI、用户分组限制。
+4. 单独处理 P2：request trace 文档、诊断候选列表、capture 安全性。
+5. 单独处理 P3：Tunnel/MCP Gateway/`dpa` 的生产 smoke 和单机计费风险控制。
+6. 单独确认 benchmark 工具是否进入当前版本；不进入则保留为后续工具改动。
+7. 暂存或保留协议转换长尾改动，不进入当前发布提交。
+8. 每个批次提交后跑对应 focused regression 和 release gate。
+9. 部署到服务器并记录 smoke 结果、镜像 digest 和回滚命令。
 
 ## 验证命令
 
