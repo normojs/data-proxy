@@ -31,7 +31,8 @@ These items are intentionally not part of the current development track:
 - Multi-region or HA object storage.
 - Cluster-level scheduler/job queue design.
 - Protocol-conversion long-tail executors and hosted-tool bridges beyond the
-  existing safe policy/webhook `web_search` MVP.
+  existing safe policy/webhook `web_search` MVP. These are postponed until
+  after the next vNext release is stable.
 
 Single-node code may still use MySQL/Redis for normal application state,
 existing quota counters, background tasks, and cache-like behavior. The
@@ -140,7 +141,8 @@ Scope note:
 - This is not a scheduled feature track for the current release.
 - The current release track is stabilization only when an existing production
   path breaks.
-- New protocol-conversion long-tail executor work is deferred to vNext.
+- New protocol-conversion long-tail executor work is deferred until after the
+  next vNext release is stable.
 - Do not start new executor work for `file_search`, `computer_use`,
   `code_interpreter`, `image_generation`, hosted `mcp`, `shell`, or other local
   runtime execution semantics in this track.

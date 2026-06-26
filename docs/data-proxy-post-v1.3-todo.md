@@ -2,6 +2,10 @@
 
 本文档承接 V1.3 通知闭环发布后的剩余工作。排序原则是先保证代码进入 GitHub 后能自动验证，再完成发布链路和当前工作区已有功能线，最后进入更大的企业治理后续版本。
 
+当前生产规划已收敛为单服务器优先，后续开发顺序以
+`docs/data-proxy-single-node-development-roadmap.md` 为准；多节点、
+跨节点 SSE、分布式 Tunnel 限流和分布式带宽统计暂不进入近期主线。
+
 ## 当前基线
 
 - V1.3 通知闭环代码已推送到 `normojs/main`，最新提交包含站内通知、审计、outbox、email、webhook、通知偏好、投递日志、手动重试、用户邮件偏好和 new-api attribution 合规补丁。

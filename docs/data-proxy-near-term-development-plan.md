@@ -7,7 +7,8 @@ attribution, and third-party license requirements visible in every release.
 
 ## Product Decision
 
-Protocol-conversion long-tail work is deferred to a later vNext track.
+Protocol-conversion long-tail work is deferred until after the next vNext
+release is stable.
 
 For the current release window, keep only the already implemented safe behavior:
 
@@ -36,7 +37,11 @@ Ship a deployable single-node Data Proxy build that is stable, diagnosable,
 and manageable on one server.
 
 The current execution checklist is maintained in
+`docs/data-proxy-follow-up-task-board.md`.
+The detailed current development checklist is maintained in
 `docs/data-proxy-current-development-tasks.md`.
+The current release execution order is maintained in
+`docs/data-proxy-current-release-execution-plan.md`.
 
 The near-term priority is not broadening model protocol features. The priority
 is making the current server usable in production:
@@ -358,8 +363,8 @@ These are explicitly not part of the near-term release:
    diagnostics, Tunnel, and dpa.
 4. Run frontend typecheck/build after the UI-bearing commits are isolated.
 5. Deploy the tagged image to the single server and record smoke evidence.
-6. Leave protocol-conversion long-tail items in the deferred vNext list unless
-   a current production regression forces a narrow fix.
+6. Leave protocol-conversion long-tail items in the post-vNext list unless a
+   current production regression forces a narrow fix.
 
 ## Validation Snapshot
 
