@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -125,4 +126,37 @@ func TestChannelFailoverTraceKeepsNoRetryDecision(t *testing.T) {
 	require.Len(t, events, 2)
 	require.Equal(t, false, events[1]["retry_planned"])
 	require.Equal(t, "failed", events[1]["event"])
+}
+
+func TestShouldRetryUsesTransientFailureRulesForFailover(t *testing.T) {
+	originalRetryRanges := append([]operation_setting.StatusCodeRange(nil), operation_setting.AutomaticRetryStatusCodeRanges...)
+	originalTransientRanges := append([]operation_setting.StatusCodeRange(nil), operation_setting.ChannelHealthTransientStatusCodeRanges...)
+	originalTransientKeywords := append([]string(nil), operation_setting.ChannelHealthTransientKeywords...)
+	t.Cleanup(func() {
+		operation_setting.AutomaticRetryStatusCodeRanges = originalRetryRanges
+		operation_setting.ChannelHealthTransientStatusCodeRanges = originalTransientRanges
+		operation_setting.ChannelHealthTransientKeywords = originalTransientKeywords
+	})
+
+	operation_setting.AutomaticRetryStatusCodeRanges = []operation_setting.StatusCodeRange{
+		{Start: http.StatusTooManyRequests, End: http.StatusTooManyRequests},
+	}
+	operation_setting.ChannelHealthTransientStatusCodeRanges = []operation_setting.StatusCodeRange{
+		{Start: http.StatusRequestTimeout, End: http.StatusRequestTimeout},
+	}
+	operation_setting.ChannelHealthTransientKeywords = []string{"connection reset"}
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	requestTimeoutErr := types.NewOpenAIError(errors.New("provider request timeout"), types.ErrorCodeBadResponseStatusCode, http.StatusRequestTimeout)
+	require.True(t, shouldRetry(ctx, requestTimeoutErr, 1))
+
+	connectionResetErr := types.NewOpenAIError(errors.New("connection reset by peer"), types.ErrorCodeDoRequestFailed, 0)
+	require.True(t, shouldRetry(ctx, connectionResetErr, 1))
+
+	require.False(t, shouldRetry(ctx, requestTimeoutErr, 0))
+
+	ctx.Set("specific_channel_id", 42)
+	require.False(t, shouldRetry(ctx, requestTimeoutErr, 1))
 }
