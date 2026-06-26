@@ -4,8 +4,37 @@
 
 ## 发布前检查
 
+当前单机版本发布前，先运行 Data Proxy 通用 release gate。默认模式只做非破坏性
+卫生检查：工作区 artifact/密钥路径、私钥内容、new-api 许可证/NOTICE、生产
+部署脚本、Docker workflow 存在性和 tracked diff 空白检查。
+
+```bash
+scripts/data-proxy-release-gate.sh
+```
+
+发布候选 commit 冻结后，建议再运行带测试的 gate：
+
+```bash
+scripts/data-proxy-release-gate.sh --with-tests
+```
+
+在有 Docker 的构建机或服务器上，可额外校验生产 compose。这个检查会同时读取
+`docker-compose.prod.yml` 和 `docker-compose.wechat-pay.yml`，用于避免发布或回滚
+时丢失微信支付证书挂载：
+
+```bash
+scripts/data-proxy-release-gate.sh --with-docker-config
+```
+
+如需把 token-like 字符串警告升级为失败：
+
+```bash
+DATA_PROXY_RELEASE_GATE_STRICT_SECRETS=1 scripts/data-proxy-release-gate.sh
+```
+
 1. 确认 GitHub `CI` workflow 在目标 commit 上通过，至少包含 `Backend`、`Frontend`、`Snapless Connected App` 和 `Fusion Benchmark` jobs。
 2. 本地或 CI 至少覆盖：
+   - `scripts/data-proxy-release-gate.sh`
    - `go test ./model ./controller ./service ./router ./oauth`
    - `cd web/default && bun run typecheck`
    - `cd web/default && bun run smoke:approval-notification-links`
@@ -16,6 +45,55 @@
 5. 确认 `LICENSE`、`NOTICE`、`THIRD-PARTY-LICENSES.md` 仍随仓库和 Docker 镜像分发。
 6. 确认前端可见位置仍保留原项目链接和文案：`Frontend design and development by New API contributors.`
 7. 确认工作区没有本地 DB、日志、Playwright 输出、缓存、构建产物或密钥文件混入提交。
+
+## 生产 Smoke
+
+部署后先跑最小健康检查：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+scripts/data-proxy-production-smoke.sh
+```
+
+如果要验证 LLM 中转链路，传入临时 API key 和一个可用模型。脚本不会打印 API key，
+只记录 request id 和 smoke 结果：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_API_KEY='sk-***' \
+DATA_PROXY_SMOKE_MODEL='gpt-4o-mini' \
+scripts/data-proxy-production-smoke.sh
+```
+
+如果要同时验证 request trace、diagnostic candidates 和诊断报告生成，传入管理员
+header。`DATA_PROXY_ADMIN_HEADER` 使用完整 HTTP header，例如
+`Cookie: session=...` 或 `Authorization: Bearer ...`。默认不会下载诊断 zip；
+需要下载时再显式开启 `DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE=1`。
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_API_KEY='sk-***' \
+DATA_PROXY_SMOKE_MODEL='gpt-4o-mini' \
+DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
+DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
+scripts/data-proxy-production-smoke.sh
+```
+
+也可以只验证某个已知 request id 的 trace/diagnostic：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
+DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
+DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
+DATA_PROXY_SMOKE_CHAT=0 \
+DATA_PROXY_SMOKE_RESPONSES=0 \
+scripts/data-proxy-production-smoke.sh
+```
+
+每次生产 smoke 至少把 summary、Docker image digest、tag、commit SHA、回滚镜像
+记录到发布证据里。不要把 API key、Cookie、诊断 zip 或原始 capture bundle
+提交到 Git。
 
 ## 版本和镜像
 
@@ -35,6 +113,36 @@ ghcr.io/normojs/data-proxy:latest
 ```
 
 也可以在 GitHub Actions 页面手动触发 `Publish Data Proxy image`，输入一个已存在的 tag。手动触发默认不更新 `latest`，除非显式勾选 `publish_latest`。
+
+## dpa Agent 发布资产
+
+`Data Proxy Agent` workflow 会在 tag 发布时构建 `dpa` 的跨平台资产：
+
+- Linux/macOS/Windows 的 `amd64` 和 `arm64` tar/zip。
+- Linux `deb` / `rpm`。
+- Windows MSI。
+- Homebrew formula。
+- `data-proxy-agent-manifest.json` 机器可读更新清单。
+- `checksums.txt` 及 cosign 签名。
+
+manifest 会优先引用已完成 notarization 的 macOS archive；如果签名证书未配置，
+则回退到普通 macOS archive。控制台或服务器可以缓存这些 release asset，然后把
+manifest 代理到 Data Proxy 自己的域名：
+
+```bash
+dpa update --manifest-url https://dp.app.mbu.ltd/agent/releases/data-proxy-agent-manifest.json --dry-run
+dpa update --manifest-url https://dp.app.mbu.ltd/agent/releases/data-proxy-agent-manifest.json
+```
+
+首次安装也可以复用同一个 manifest，避免脚本访问 GitHub Release API：
+
+```bash
+curl -fsSL https://dp.app.mbu.ltd/agent/install-data-proxy-agent.sh | \
+  DATA_PROXY_AGENT_MANIFEST_URL=https://dp.app.mbu.ltd/agent/releases/data-proxy-agent-manifest.json sh
+```
+
+发布前需要确认 manifest 和 checksum 一起上传；如果使用自建 CDN 或对象存储镜像
+release asset，需要设置相同文件名并保持 manifest 中的 URL 与 sha256 对应。
 
 ## 发布证据
 

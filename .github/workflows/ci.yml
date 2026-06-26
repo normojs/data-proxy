@@ -35,6 +35,9 @@ jobs:
       - name: Check release artifacts
         run: scripts/enterprise-governance-preflight.sh --artifact-check-only
 
+      - name: Run Data Proxy release gate
+        run: scripts/data-proxy-release-gate.sh --scan-all
+
       - name: Download Go modules
         run: go mod download
 
