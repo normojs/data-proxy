@@ -39,16 +39,34 @@ that is not a general full-fidelity capture system for normal relay traffic.
 
 ## Implementation Status
 
-The first implementation slice has landed the database metadata models,
+The current implementation has landed the database metadata models,
 SeaweedFS/S3-compatible object store foundation, production Docker volume
 mapping, environment variable examples, a local spool session writer, and a
-single-session tar + zstd + AES-GCM finalizer with artifact persistence. A
-minimal environment-based capture policy matcher and relay request hook are
-also implemented. Raw relay capture is still disabled by default. The current
-relay hook captures metadata, client request bodies, and downstream response
-bytes. Raw upstream response body capture and buffered async stream writes are
-pending. A callable finalizer scanner exists for `spool/finalize`, while
-a master-node periodic scheduler is wired; Redis job wiring is pending.
+tar + zstd + AES-GCM finalizer with artifact persistence. A minimal
+environment-based capture policy matcher and relay request hook are also
+implemented. Raw relay capture is still disabled by default. The current relay
+hook captures metadata, client request bodies, raw upstream response bodies,
+and downstream response bytes. Streaming response bodies use buffered async
+spool writes and fail open if capture cannot keep up. When capture is truncated
+because of backpressure or `CAPTURE_MAX_ARTIFACT_BYTES`, the relay stores
+`capture_truncated` metadata and the diagnostic report emits a
+`capture_truncated` warning. A single-node finalizer scanner runs on the master
+process, applies DB-backed retry/backoff, recovers
+old `active`/`finalize`/`failed` spool directories on boot, and supports
+admin-only request diagnostic bundle downloads from the usage log detail UI.
+Retention cleanup is implemented for the current single-node deployment:
+expired capture records are marked `expired`, available raw bundle artifacts
+are deleted from SeaweedFS/S3-compatible storage and then marked `deleted`, and
+old local `failed/` plus already uploaded/expired `finalize/` spool directories
+are removed by a master-process background worker. The cleanup worker is
+single-process guarded and can also be run manually through
+`POST /api/log/request-capture/cleanup?dry_run=true`. A service-layer training
+corpus MVP is now implemented: it reads available encrypted raw bundles,
+decodes them in memory with a size cap, applies basic JSON secret-key
+redaction, extracts Chat/Responses JSON and SSE output text, writes a
+versioned `jsonl.zst` shard to SeaweedFS/S3-compatible storage, and records
+dataset/sample lineage in MySQL. Admin review and approval workflows are still
+pending.
 
 Concrete model definitions:
 
@@ -137,7 +155,10 @@ MySQL must not be the long-term storage for raw stream bodies.
 
 ### Redis
 
-Use Redis Stream or a small queue for async jobs:
+For the current single-node Data Proxy deployment, request capture finalization
+and cleanup use in-process master-node periodic workers with DB-backed status
+and retry/backoff. Redis Stream or a small queue is reserved for a future
+multi-node worker model:
 
 - finalize captured spool
 - upload bundle
@@ -234,6 +255,11 @@ services:
       CAPTURE_S3_ENDPOINT: "http://seaweedfs:8333"
       CAPTURE_S3_BUCKET: "data-proxy-captures"
       CAPTURE_SPOOL_DIR: "/data/dataproxy-capture/spool"
+      CAPTURE_FINALIZER_ENABLED: "true"
+      CAPTURE_FINALIZER_INTERVAL_SECONDS: "60"
+      CAPTURE_FINALIZER_RETRY_BASE_SECONDS: "60"
+      CAPTURE_FINALIZER_RETRY_MAX_SECONDS: "3600"
+      CAPTURE_SPOOL_WARN_BYTES: "268435456"
 ```
 
 The tracked Compose overlay is:
@@ -355,12 +381,15 @@ If capture cannot keep up, mark:
 
 ```text
 capture_truncated=true
-capture_drop_reason=backpressure
+capture_truncated_artifacts=["downstream_response.sse"]
+capture_truncation_reasons={"downstream_response.sse":"backpressure"}
 ```
 
 The minimal implementation already enforces a per-artifact byte limit in the
 spool writer. Oversized artifacts keep the first configured bytes, set
-`truncated=true` in `manifest.json`, and never block the normal model response.
+`truncated=true` in `manifest.json`, update capture record metadata, and never
+block the normal model response. Diagnostic reports surface this as a warning so
+operators know the raw bundle is useful but incomplete.
 
 The user request must continue whenever possible.
 
@@ -378,8 +407,10 @@ The finalizer consumes spool directories:
 8. Update MySQL metadata.
 9. Remove spool files.
 
-If upload fails, keep the spool directory in `failed/` and retry with
-exponential backoff.
+If upload fails, keep the spool directory in `finalize/`, update
+`request_capture_records.finalize_attempts`, `next_finalize_at`, and
+`last_error`, and retry with exponential backoff. Successful uploads can remove
+the spool directory when `CAPTURE_FINALIZER_REMOVE_ON_SUCCESS=true`.
 
 On process restart, recovery scans:
 
@@ -390,6 +421,34 @@ spool/failed
 ```
 
 and marks old incomplete captures as aborted or retries finalization.
+
+For the current single-node deployment, this recovery runs in the same master
+process as Data Proxy. Multi-node coordination is intentionally deferred.
+
+## Online Request Diagnostics
+
+Admin-only endpoints:
+
+```text
+GET  /api/log/request-diagnostic-candidates
+GET  /api/log/request/:request_id/diagnostic
+POST /api/log/request/:request_id/diagnostic
+GET  /api/log/request/:request_id/diagnostic/bundle
+```
+
+The diagnostic bundle endpoint returns a zip with:
+
+- `diagnostic/report.json`
+- `diagnostic/trace.json`
+- `diagnostic/capture.json` when capture metadata exists
+- `diagnostic/findings.json`
+- `capture/raw/*` decoded from the encrypted raw bundle when available
+
+If the raw bundle is missing, cannot be decoded, or exceeds
+`DIAGNOSTIC_BUNDLE_MAX_RAW_TAR_BYTES`, the zip still includes the diagnostic
+report plus a short marker under `capture/`. The default raw tar expansion limit
+is 256 MiB; `0` disables the diagnostic download limit. This limit only protects
+the download process and does not truncate the object-storage capture artifact.
 
 ## Encryption
 
@@ -540,6 +599,31 @@ GET  /api/training/samples
 POST /api/training/samples/:id/approve
 POST /api/training/samples/:id/reject
 ```
+
+Implemented admin endpoints:
+
+- `GET /api/training/datasets`: list dataset versions with optional `name` and
+  `status` filters.
+- `POST /api/training/datasets/build`: build a single-node `jsonl.zst` shard
+  from available raw capture bundles.
+- `GET /api/training/datasets/:id/export`: download an approved-only
+  `jsonl.zst` export. The endpoint reads the generated dataset shard, filters
+  lines by approved `training_samples.source_hash`, and returns a recompressed
+  shard so pending or rejected samples are not exported for training by
+  default.
+- `GET /api/training/samples`: list sample lineage with filters such as
+  `dataset_version_id`, `request_id`, `model_name`, `min_quality_score`, and
+  `review_status`.
+- `GET /api/training/samples/:id/preview`: load the generated dataset shard and
+  return the matching JSONL sample by `source_hash` for admin review.
+- `POST /api/training/samples/:id/approve`: mark a sample approved with an
+  optional review comment.
+- `POST /api/training/samples/:id/reject`: mark a sample rejected with an
+  optional review comment.
+
+Pending endpoints:
+
+- richer policy-aware export gates
 
 ## Diagnostics Module
 

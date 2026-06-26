@@ -39,7 +39,12 @@ can be pasted into the same field.
 
 If you do not know which request id failed, administrators can list recent
 diagnostic candidates. The API combines error logs and suspicious capture
-records, such as failed captures or stream requests with no downstream body.
+records, such as failed captures or stream requests with no downstream body. It
+also includes conversion anomalies and admin-only channel failover traces when a
+request hit a failed channel and retried or switched to another channel.
+Requests that filter hosted tools into a direct-answer or executor-fallback
+path are listed as warnings, because the model may have answered without a real
+hosted `web_search`, `file_search`, or similar tool execution.
 
 ```bash
 curl -sS \
@@ -49,7 +54,9 @@ curl -sS \
 
 Each item contains `request_id`, `severity`, `source`, `summary`,
 `last_seen_at`, log counters, and the latest diagnostic report status when one
-exists. Use the returned `request_id` with the trace or diagnostic report APIs.
+exists. `source` can include `log_error`, `trace_meta`, `channel_failover`, or
+`capture`. Use the returned `request_id` with the trace or diagnostic report
+APIs.
 
 ## Console Lookup
 
@@ -69,6 +76,9 @@ The trace section shows:
 - max response time and total quota;
 - protocol conversion metadata;
 - stream status and errors when visible;
+- admin-only `admin_info.channel_failover`, including selected channels,
+  excluded channel ids, failure status/error code, retry decisions, and
+  temporary circuit actions;
 - a short list of related consume/error logs.
 
 The copy button in this section copies the sanitized trace JSON for support or
@@ -103,11 +113,22 @@ POST /api/log/request-diagnostic?request_id=REQ_ID
 In the console, open **Usage Logs -> Common**, open a log detail dialog, then
 use the **Diagnostic Report** section. The generate button stores a report in
 `request_diagnostic_reports`; the copy button copies the report JSON for local
-analysis.
+analysis, and the download button returns a complete diagnostic zip.
 
-The diagnostic report intentionally does not include raw user request bodies or
-raw model response bodies. It only includes metadata. Use the private capture
-bundle workflow for raw data once the authorized download API is enabled.
+The diagnostic report intentionally keeps raw user request bodies and raw model
+response bodies out of the JSON payload. The admin-only diagnostic bundle can
+include decoded raw capture files under `capture/raw/*` when a finalized capture
+artifact exists. If the raw bundle is missing, cannot be decoded, or exceeds
+`DIAGNOSTIC_BUNDLE_MAX_RAW_TAR_BYTES`, the zip still includes the metadata
+report and a marker explaining why raw files were skipped.
+
+```text
+GET /api/log/request/:request_id/diagnostic/bundle
+```
+
+Keep downloaded bundles private. They are meant for authorized offline analysis
+and may contain user prompts, upstream responses, model names, route metadata,
+and other production traffic details.
 
 ## Key Fields
 
@@ -120,9 +141,12 @@ bundle workflow for raw data once the authorized download API is enabled.
 | `diagnostics.request_conversion_meta` | Structured protocol metadata. |
 | `diagnostics.stream_status` | Stream ending state and soft errors. Admin view only. |
 | `diagnostics.request_conversion_meta.hosted_tools_filtered` | Hosted tools filtered from a Chat-only conversion path. |
+| `diagnostics.request_conversion_meta.hosted_tools_policy_effect` | Final hosted-tool handling effect, such as `direct_answer`, `executor_bridge_ready`, `executor_bridge_fallback`, or `rejected`. |
 | `diagnostics.request_conversion_meta.hosted_tools_direct_answer_hint` | Whether Data Proxy injected the direct-answer hint after filtering hosted tools. |
 | `report.findings` | Automatic diagnostic findings generated from trace and capture metadata. |
+| `report.findings[].code=channel_failover_failed` | The request failed over between channels or hit a temporary circuit; detail includes selected channel, retry decision, and health action. |
 | `report.capture.capture_status` | Capture lifecycle status, such as spooling, finalizing, uploaded, or failed. |
+| `report.capture.metadata.capture_truncated` | Raw capture was truncated for size or backpressure; user response delivery is unaffected. |
 | `report.capture.artifacts` | Stored object metadata for encrypted capture bundles. Raw payload is not included. |
 
 ## Common Diagnosis Patterns
@@ -134,6 +158,7 @@ Check:
 - `summary.status`;
 - `diagnostics.request_conversion_meta.responses_terminal_status`;
 - `diagnostics.stream_status`;
+- `diagnostics.request_conversion_meta.hosted_tools_policy_effect`;
 - whether `hosted_tools_filtered` contains `web_search`,
   `file_search`, `computer`, `code_interpreter`, or hosted `mcp`;
 - whether the related logs include an error row for the same request id.

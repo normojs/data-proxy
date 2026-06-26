@@ -1,16 +1,30 @@
 package controller
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+)
+
+const (
+	requestDiagnosticBundleMaxRawTarBytesEnv     = "DIAGNOSTIC_BUNDLE_MAX_RAW_TAR_BYTES"
+	requestDiagnosticBundleDefaultMaxRawTarBytes = 256 * 1024 * 1024
 )
 
 type requestDiagnosticReportView struct {
@@ -62,6 +76,7 @@ type requestDiagnosticCaptureSummary struct {
 	StartedAt            int64                              `json:"started_at,omitempty"`
 	FinishedAt           int64                              `json:"finished_at,omitempty"`
 	FinalizedAt          int64                              `json:"finalized_at,omitempty"`
+	Metadata             map[string]interface{}             `json:"metadata,omitempty"`
 	Artifacts            []requestDiagnosticArtifactSummary `json:"artifacts,omitempty"`
 }
 
@@ -146,6 +161,10 @@ func ListRequestDiagnosticCandidates(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := collectRequestDiagnosticTraceMetaCandidates(candidates, limit, startTimestamp, endTimestamp); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := collectRequestDiagnosticCaptureCandidates(candidates, limit, startTimestamp, endTimestamp); err != nil {
 		common.ApiError(c, err)
 		return
@@ -217,6 +236,61 @@ func GenerateRequestDiagnosticReport(c *gin.Context) {
 	})
 }
 
+func DownloadRequestDiagnosticBundle(c *gin.Context) {
+	requestId := requestDiagnosticQuery(c)
+	if requestId == "" {
+		common.ApiErrorMsg(c, "request_id is required")
+		return
+	}
+	if model.DB == nil {
+		common.ApiErrorMsg(c, "database is not initialized")
+		return
+	}
+	payload, severity, summary, _, artifactId, err := buildRequestDiagnosticReportPayload(requestId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	now := common.GetTimestamp()
+	report := requestDiagnosticReportView{
+		RequestId:   requestId,
+		Status:      model.RequestDiagnosticStatusCompleted,
+		Severity:    severity,
+		Summary:     summary,
+		GeneratedAt: now,
+		Report:      payload,
+	}
+	zipBody, err := buildRequestDiagnosticBundleZip(c.Request.Context(), requestId, report, artifactId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	filename := "data-proxy-diagnostic-" + sanitizeDiagnosticBundleFileName(requestId) + ".zip"
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Header("X-Data-Proxy-Request-Id", requestId)
+	c.Data(http.StatusOK, "application/zip", zipBody)
+}
+
+func CleanupRequestCaptureData(c *gin.Context) {
+	options := service.RequestCaptureCleanupOptionsFromEnv()
+	if value, ok := requestCaptureCleanupIntQuery(c, "retention_days"); ok {
+		options.RetentionDays = value
+	}
+	if value, ok := requestCaptureCleanupIntQuery(c, "spool_retention_days"); ok {
+		options.SpoolRetentionDays = value
+	}
+	if value, ok := requestCaptureCleanupIntQuery(c, "limit"); ok {
+		options.Limit = value
+	}
+	options.DryRun = requestCaptureCleanupBoolQuery(c, "dry_run")
+	summary, err := service.CleanupExpiredRequestCaptureData(c.Request.Context(), options)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, summary)
+}
+
 func requestDiagnosticCandidateLimit(c *gin.Context) int {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit <= 0 {
@@ -226,6 +300,206 @@ func requestDiagnosticCandidateLimit(c *gin.Context) int {
 		return 200
 	}
 	return limit
+}
+
+func requestCaptureCleanupIntQuery(c *gin.Context, name string) (int, bool) {
+	raw := strings.TrimSpace(c.Query(name))
+	if raw == "" {
+		return 0, false
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func requestCaptureCleanupBoolQuery(c *gin.Context, name string) bool {
+	switch strings.ToLower(strings.TrimSpace(c.Query(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildRequestDiagnosticBundleZip(ctx context.Context, requestId string, report requestDiagnosticReportView, artifactId int64) ([]byte, error) {
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	if err := writeDiagnosticZipJSON(writer, "diagnostic/report.json", report); err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	if err := writeDiagnosticZipJSON(writer, "diagnostic/trace.json", report.Report.Trace); err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	if report.Report.Capture != nil {
+		if err := writeDiagnosticZipJSON(writer, "diagnostic/capture.json", report.Report.Capture); err != nil {
+			_ = writer.Close()
+			return nil, err
+		}
+	}
+	if err := writeDiagnosticZipJSON(writer, "diagnostic/findings.json", report.Report.Findings); err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	artifact, err := loadRequestDiagnosticRawBundleArtifact(requestId, artifactId)
+	if err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	if artifact == nil {
+		if err := writeDiagnosticZipText(writer, "capture/raw_bundle_unavailable.txt", "no available raw capture bundle artifact for request_id "+requestId+"\n"); err != nil {
+			_ = writer.Close()
+			return nil, err
+		}
+	} else {
+		maxRawBytes := requestDiagnosticBundleMaxRawTarBytes()
+		tarBody, err := service.LoadDecodedRequestCaptureArtifactBundleWithLimit(ctx, *artifact, maxRawBytes)
+		if err != nil {
+			message := err.Error() + "\n"
+			target := "capture/raw_bundle_error.txt"
+			if errors.Is(err, service.ErrRequestCaptureBundleDecodedTooLarge) {
+				target = "capture/raw_bundle_skipped.txt"
+				message = fmt.Sprintf("raw capture bundle is larger than DIAGNOSTIC_BUNDLE_MAX_RAW_TAR_BYTES=%d; increase the limit or inspect the object storage artifact directly\n", maxRawBytes)
+			}
+			if writeErr := writeDiagnosticZipText(writer, target, message); writeErr != nil {
+				_ = writer.Close()
+				return nil, writeErr
+			}
+		} else if err := addDiagnosticTarToZip(writer, "capture/raw/", tarBody); err != nil {
+			_ = writer.Close()
+			return nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func requestDiagnosticBundleMaxRawTarBytes() int64 {
+	value := common.GetEnvOrDefault(requestDiagnosticBundleMaxRawTarBytesEnv, requestDiagnosticBundleDefaultMaxRawTarBytes)
+	if value < 0 {
+		return requestDiagnosticBundleDefaultMaxRawTarBytes
+	}
+	return int64(value)
+}
+
+func loadRequestDiagnosticRawBundleArtifact(requestId string, preferredArtifactId int64) (*model.RequestCaptureArtifact, error) {
+	if model.DB == nil {
+		return nil, nil
+	}
+	var artifact model.RequestCaptureArtifact
+	tx := model.DB.Where("request_id = ? AND kind = ? AND status = ?", requestId, model.RequestCaptureArtifactKindRawBundle, model.RequestCaptureArtifactStatusAvailable)
+	if preferredArtifactId > 0 {
+		err := tx.Where("id = ?", preferredArtifactId).First(&artifact).Error
+		if err == nil {
+			return &artifact, nil
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+	}
+	err := model.DB.Where("request_id = ? AND kind = ? AND status = ?", requestId, model.RequestCaptureArtifactKindRawBundle, model.RequestCaptureArtifactStatusAvailable).
+		Order("uploaded_at desc, id desc").
+		First(&artifact).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &artifact, nil
+}
+
+func writeDiagnosticZipJSON(writer *zip.Writer, name string, value interface{}) error {
+	body, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	body = append(body, '\n')
+	return writeDiagnosticZipFile(writer, name, body)
+}
+
+func writeDiagnosticZipText(writer *zip.Writer, name string, value string) error {
+	return writeDiagnosticZipFile(writer, name, []byte(value))
+}
+
+func writeDiagnosticZipFile(writer *zip.Writer, name string, body []byte) error {
+	file, err := writer.Create(name)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(body)
+	return err
+}
+
+func addDiagnosticTarToZip(writer *zip.Writer, prefix string, tarBody []byte) error {
+	reader := tar.NewReader(bytes.NewReader(tarBody))
+	added := 0
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if header == nil || header.Typeflag != tar.TypeReg {
+			continue
+		}
+		name, ok := cleanDiagnosticTarEntryName(header.Name)
+		if !ok {
+			continue
+		}
+		file, err := writer.Create(prefix + name)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(file, reader); err != nil {
+			return err
+		}
+		added++
+	}
+	if added == 0 {
+		return writeDiagnosticZipText(writer, prefix+"empty.txt", "raw capture bundle did not contain regular files\n")
+	}
+	return nil
+}
+
+func cleanDiagnosticTarEntryName(name string) (string, bool) {
+	name = strings.TrimSpace(strings.ReplaceAll(name, "\\", "/"))
+	if name == "" {
+		return "", false
+	}
+	name = strings.TrimPrefix(name, "/")
+	name = path.Clean(name)
+	if name == "." || strings.HasPrefix(name, "../") || strings.Contains(name, "/../") {
+		return "", false
+	}
+	return name, true
+}
+
+func sanitizeDiagnosticBundleFileName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "request"
+	}
+	var builder strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			builder.WriteRune(r)
+			continue
+		}
+		builder.WriteByte('_')
+	}
+	result := strings.Trim(builder.String(), "._-")
+	if result == "" {
+		return "request"
+	}
+	return result
 }
 
 func collectRequestDiagnosticLogCandidates(candidates map[string]*requestDiagnosticCandidate, limit int, startTimestamp int64, endTimestamp int64) error {
@@ -287,6 +561,176 @@ func collectRequestDiagnosticLogCandidates(candidates map[string]*requestDiagnos
 		}
 	}
 	return nil
+}
+
+func collectRequestDiagnosticTraceMetaCandidates(candidates map[string]*requestDiagnosticCandidate, limit int, startTimestamp int64, endTimestamp int64) error {
+	if model.LOG_DB == nil {
+		return errors.New("log database is not initialized")
+	}
+	var logs []model.Log
+	tx := model.LOG_DB.Model(&model.Log{}).
+		Where("(request_id <> '' OR upstream_request_id <> '')").
+		Where("type = ?", model.LogTypeConsume).
+		Where("other <> ''")
+	if startTimestamp > 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp > 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+	if err := tx.Order("created_at desc, id desc").Limit(limit * 4).Find(&logs).Error; err != nil {
+		return err
+	}
+	for _, log := range logs {
+		other := parseRequestLogOther(log.Other, true)
+		meta, _ := other["request_conversion_meta"].(map[string]interface{})
+		traceSeverity, traceSummary, hasTraceAnomaly := requestDiagnosticTraceMetaCandidate(meta)
+		failoverSeverity, failoverSummary, hasFailoverAnomaly := requestDiagnosticChannelFailoverCandidate(other)
+		if !hasTraceAnomaly && !hasFailoverAnomaly {
+			continue
+		}
+		requestId := strings.TrimSpace(log.RequestId)
+		if requestId == "" {
+			requestId = strings.TrimSpace(log.UpstreamRequestId)
+		}
+		if requestId == "" {
+			continue
+		}
+		candidate := ensureRequestDiagnosticCandidate(candidates, requestId)
+		if hasTraceAnomaly {
+			candidate.Severity = requestDiagnosticMaxSeverity(candidate.Severity, traceSeverity)
+			candidate.Source = requestDiagnosticAppendSource(candidate.Source, "trace_meta")
+			if candidate.Summary == "" {
+				candidate.Summary = traceSummary
+			}
+		}
+		if hasFailoverAnomaly {
+			candidate.Severity = requestDiagnosticMaxSeverity(candidate.Severity, failoverSeverity)
+			candidate.Source = requestDiagnosticAppendSource(candidate.Source, "channel_failover")
+			if candidate.Summary == "" {
+				candidate.Summary = failoverSummary
+			}
+		}
+		if log.CreatedAt > candidate.LastSeenAt {
+			candidate.LastSeenAt = log.CreatedAt
+		}
+		candidate.ConsumeCount++
+		hydrateRequestDiagnosticCandidateFromLog(candidate, log)
+	}
+	return nil
+}
+
+func requestDiagnosticTraceMetaCandidate(meta map[string]interface{}) (string, string, bool) {
+	if len(meta) == 0 {
+		return "", "", false
+	}
+	if rawError := strings.TrimSpace(common.Interface2String(meta["hosted_web_search_executor_error"])); rawError != "" {
+		return "error", "web_search executor bridge error: " + rawError, true
+	}
+	if rejected, ok := meta["hosted_tools_rejected"].(bool); ok && rejected {
+		return "error", "hosted tools rejected by channel policy", true
+	}
+	if status := strings.TrimSpace(common.Interface2String(meta["responses_terminal_status"])); status != "" && status != "completed" {
+		severity := "warning"
+		if status == "failed" {
+			severity = "error"
+		}
+		return severity, "Responses terminal status: " + status, true
+	}
+	if filteredTools := requestDiagnosticStringSlice(meta["hosted_tools_filtered"]); len(filteredTools) > 0 {
+		effect := strings.TrimSpace(common.Interface2String(meta["hosted_tools_policy_effect"]))
+		directAnswerHint := requestDiagnosticBool(meta["hosted_tools_direct_answer_hint"])
+		if effect == "direct_answer" || effect == "executor_bridge_fallback" || directAnswerHint {
+			summary := "Hosted tools filtered: " + strings.Join(filteredTools, ", ")
+			if effect != "" {
+				summary += " (" + effect + ")"
+			}
+			return "warning", summary, true
+		}
+	}
+	return "", "", false
+}
+
+func requestDiagnosticChannelFailoverCandidate(other map[string]interface{}) (string, string, bool) {
+	if len(other) == 0 {
+		return "", "", false
+	}
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		return "", "", false
+	}
+	events := requestDiagnosticChannelFailoverEvents(adminInfo)
+	if len(events) == 0 {
+		return "", "", false
+	}
+	failedCount := 0
+	retryPlanned := false
+	retryBlocked := false
+	details := make([]string, 0, 1)
+	for _, event := range events {
+		if strings.TrimSpace(common.Interface2String(event["event"])) != "failed" {
+			continue
+		}
+		failedCount++
+		if planned, ok := event["retry_planned"].(bool); ok {
+			if planned {
+				retryPlanned = true
+			} else {
+				retryBlocked = true
+			}
+		}
+		if len(details) == 0 {
+			if detail := requestDiagnosticChannelFailoverDetail(event); detail != "" {
+				details = append(details, detail)
+			}
+		}
+	}
+	if failedCount == 0 {
+		return "", "", false
+	}
+	severity := "warning"
+	summary := "请求发生渠道失败或切换"
+	if retryPlanned {
+		summary = "请求发生渠道失败并已尝试切换"
+	}
+	if retryBlocked && !retryPlanned {
+		severity = "error"
+		summary = "请求发生渠道失败且未计划重试"
+	}
+	if failedCount > 1 {
+		summary += "（" + strconv.Itoa(failedCount) + " 次）"
+	}
+	if len(details) > 0 {
+		summary += ": " + details[0]
+	}
+	return severity, summary, true
+}
+
+func hydrateRequestDiagnosticCandidateFromLog(candidate *requestDiagnosticCandidate, log model.Log) {
+	if candidate == nil {
+		return
+	}
+	if log.UserId != 0 {
+		candidate.UserId = log.UserId
+	}
+	if log.Username != "" {
+		candidate.Username = log.Username
+	}
+	if log.TokenId != 0 {
+		candidate.TokenId = log.TokenId
+	}
+	if log.TokenName != "" {
+		candidate.TokenName = log.TokenName
+	}
+	if log.ModelName != "" {
+		candidate.ModelName = log.ModelName
+	}
+	if log.ChannelId != 0 {
+		candidate.ChannelId = log.ChannelId
+	}
+	if log.Group != "" {
+		candidate.Group = log.Group
+	}
 }
 
 func collectRequestDiagnosticCaptureCandidates(candidates map[string]*requestDiagnosticCandidate, limit int, startTimestamp int64, endTimestamp int64) error {
@@ -506,6 +950,7 @@ func loadRequestDiagnosticCaptureSummary(requestId string) (*requestDiagnosticCa
 		StartedAt:            record.StartedAt,
 		FinishedAt:           record.FinishedAt,
 		FinalizedAt:          record.FinalizedAt,
+		Metadata:             requestDiagnosticCaptureMetadata(record.MetadataJson),
 		Artifacts:            make([]requestDiagnosticArtifactSummary, 0, len(artifacts)),
 	}
 	var artifactId int64
@@ -580,6 +1025,14 @@ func buildRequestDiagnosticFindings(trace requestLogTraceResponse, capture *requ
 				Message: "流式请求没有记录到下游响应体",
 			})
 		}
+		if requestDiagnosticBool(capture.Metadata["capture_truncated"]) {
+			findings = append(findings, requestDiagnosticFinding{
+				Level:   "warning",
+				Code:    "capture_truncated",
+				Message: "请求捕获数据被截断",
+				Detail:  strings.Join(requestDiagnosticStringSlice(capture.Metadata["capture_truncated_artifacts"]), ", "),
+			})
+		}
 		if len(capture.Artifacts) == 0 && capture.CaptureStatus == model.RequestCaptureStatusUploaded {
 			findings = append(findings, requestDiagnosticFinding{
 				Level:   "warning",
@@ -605,6 +1058,7 @@ func buildRequestDiagnosticFindings(trace requestLogTraceResponse, capture *requ
 			Detail:  status,
 		})
 	}
+	findings = append(findings, requestDiagnosticChannelFailoverFindings(trace)...)
 	return findings
 }
 
@@ -614,6 +1068,131 @@ func requestDiagnosticTraceMeta(trace requestLogTraceResponse) map[string]interf
 		return map[string]interface{}{}
 	}
 	return meta
+}
+
+func requestDiagnosticChannelFailoverFindings(trace requestLogTraceResponse) []requestDiagnosticFinding {
+	adminInfo, ok := trace.Diagnostics["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		return nil
+	}
+	events := requestDiagnosticChannelFailoverEvents(adminInfo)
+	if len(events) == 0 {
+		return nil
+	}
+
+	failedDetails := make([]string, 0)
+	for _, event := range events {
+		if strings.TrimSpace(common.Interface2String(event["event"])) != "failed" {
+			continue
+		}
+		detail := requestDiagnosticChannelFailoverDetail(event)
+		if detail != "" {
+			failedDetails = append(failedDetails, detail)
+		}
+	}
+	if len(failedDetails) == 0 {
+		return nil
+	}
+
+	return []requestDiagnosticFinding{
+		{
+			Level:   "warning",
+			Code:    "channel_failover_failed",
+			Message: "请求链路发生渠道失败或切换",
+			Detail:  strings.Join(failedDetails, "\n"),
+		},
+	}
+}
+
+func requestDiagnosticChannelFailoverEvents(adminInfo map[string]interface{}) []map[string]interface{} {
+	if len(adminInfo) == 0 {
+		return nil
+	}
+	switch rawEvents := adminInfo["channel_failover"].(type) {
+	case []interface{}:
+		events := make([]map[string]interface{}, 0, len(rawEvents))
+		for _, rawEvent := range rawEvents {
+			event, ok := rawEvent.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			events = append(events, event)
+		}
+		return events
+	case []map[string]interface{}:
+		return rawEvents
+	default:
+		return nil
+	}
+}
+
+func requestDiagnosticChannelFailoverDetail(event map[string]interface{}) string {
+	parts := make([]string, 0)
+	channelId := common.Interface2String(event["channel_id"])
+	channelName := strings.TrimSpace(common.Interface2String(event["channel_name"]))
+	if channelId != "" {
+		channel := "#" + channelId
+		if channelName != "" {
+			channel += " " + channelName
+		}
+		parts = append(parts, "channel="+channel)
+	}
+	if statusCode := common.Interface2String(event["status_code"]); statusCode != "" {
+		parts = append(parts, "status="+statusCode)
+	}
+	if errorCode := common.Interface2String(event["error_code"]); errorCode != "" {
+		parts = append(parts, "error_code="+errorCode)
+	}
+	if retryPlanned, ok := event["retry_planned"].(bool); ok {
+		parts = append(parts, fmt.Sprintf("retry_planned=%t", retryPlanned))
+	}
+	if remaining := common.Interface2String(event["remaining_retries"]); remaining != "" {
+		parts = append(parts, "remaining_retries="+remaining)
+	}
+	if healthAction := common.Interface2String(event["health_action"]); healthAction != "" {
+		parts = append(parts, "health_action="+healthAction)
+	}
+	if runtimeStatus := common.Interface2String(event["runtime_status"]); runtimeStatus != "" {
+		parts = append(parts, "runtime_status="+runtimeStatus)
+	}
+	if cooldownUntil := common.Interface2String(event["cooldown_until"]); cooldownUntil != "" {
+		parts = append(parts, "cooldown_until="+cooldownUntil)
+	}
+	if reason := strings.TrimSpace(common.Interface2String(event["reason"])); reason != "" {
+		parts = append(parts, "reason="+reason)
+	}
+	return strings.Join(parts, " ")
+}
+
+func requestDiagnosticCaptureMetadata(value string) map[string]interface{} {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	var metadata map[string]interface{}
+	if err := json.Unmarshal([]byte(value), &metadata); err != nil {
+		return nil
+	}
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
+}
+
+func requestDiagnosticBool(value interface{}) bool {
+	switch current := value.(type) {
+	case bool:
+		return current
+	case string:
+		switch strings.ToLower(strings.TrimSpace(current)) {
+		case "1", "true", "yes", "on":
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
 }
 
 func requestDiagnosticStringSlice(value interface{}) []string {

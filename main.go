@@ -148,6 +148,9 @@ func main() {
 	// Request capture finalizer task (enabled by capture storage env)
 	service.StartRequestCaptureFinalizerTask()
 
+	// Request capture retention cleanup task (enabled by capture storage env)
+	service.StartRequestCaptureCleanupTask()
+
 	// Currency display exchange rate auto-update task (admin-configurable)
 	service.StartExchangeRateAutoUpdateTask()
 

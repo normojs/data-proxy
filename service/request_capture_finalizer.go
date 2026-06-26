@@ -34,6 +34,8 @@ const (
 	requestCaptureBundleContentType  = "application/x-data-proxy-capture-bundle"
 )
 
+var ErrRequestCaptureBundleDecodedTooLarge = errors.New("request capture bundle decoded body exceeds limit")
+
 type RequestCaptureFinalizeOptions struct {
 	SessionDir string
 }
@@ -48,9 +50,12 @@ type RequestCaptureFinalizeResult struct {
 }
 
 type RequestCaptureFinalizerWorkerOptions struct {
-	SpoolDir        string
-	Limit           int
-	RemoveOnSuccess bool
+	SpoolDir         string
+	Limit            int
+	RemoveOnSuccess  bool
+	RetryBaseSeconds int
+	RetryMaxSeconds  int
+	Now              func() int64
 }
 
 type RequestCaptureFinalizerWorkerSummary struct {
@@ -59,6 +64,20 @@ type RequestCaptureFinalizerWorkerSummary struct {
 	Failed    int      `json:"failed"`
 	Skipped   int      `json:"skipped"`
 	Errors    []string `json:"errors,omitempty"`
+}
+
+type RequestCaptureSpoolRecoveryOptions struct {
+	SpoolDir           string
+	ActiveStaleSeconds int64
+	Now                func() int64
+}
+
+type RequestCaptureSpoolRecoverySummary struct {
+	ActiveRecovered int      `json:"active_recovered"`
+	FinalizeSynced  int      `json:"finalize_synced"`
+	FailedSynced    int      `json:"failed_synced"`
+	Skipped         int      `json:"skipped"`
+	Errors          []string `json:"errors,omitempty"`
 }
 
 func FinalizeRequestCaptureSpoolSession(ctx context.Context, options RequestCaptureFinalizeOptions) (RequestCaptureFinalizeResult, error) {
@@ -161,6 +180,7 @@ func FinalizePendingRequestCaptureSpool(ctx context.Context, options RequestCapt
 		}
 		return RequestCaptureFinalizerWorkerSummary{}, err
 	}
+	now := requestCaptureFinalizerNow(options)
 	sort.Slice(entries, func(i int, j int) bool {
 		return entries[i].Name() < entries[j].Name()
 	})
@@ -178,9 +198,38 @@ func FinalizePendingRequestCaptureSpool(ctx context.Context, options RequestCapt
 		}
 		summary.Scanned++
 		sessionDir := filepath.Join(finalizeRoot, entry.Name())
+		manifest, err := readRequestCaptureSpoolManifest(sessionDir)
+		if err != nil {
+			summary.Failed++
+			target, failedManifest, quarantineErr := quarantineUnreadableRequestCaptureSpoolSession(ctx, sessionDir, filepath.Join(spoolDir, requestCaptureSpoolStatusFailed), entry.Name(), err, now)
+			if quarantineErr != nil {
+				summary.Errors = append(summary.Errors, fmt.Sprintf("%s manifest: %s; quarantine: %s", entry.Name(), err.Error(), quarantineErr.Error()))
+				continue
+			}
+			summary.Errors = append(summary.Errors, fmt.Sprintf("%s manifest: %s; moved to failed spool", entry.Name(), err.Error()))
+			syncRequestCaptureRecordFromSpoolPaths(ctx, failedManifest, sessionDir, target, model.RequestCaptureStatusFailed, failedManifest.Error, now)
+			continue
+		}
+		decision, err := requestCaptureFinalizeDecision(ctx, manifest.RequestId, now)
+		if err != nil {
+			summary.Failed++
+			summary.Errors = append(summary.Errors, fmt.Sprintf("%s decision: %s", entry.Name(), err.Error()))
+			continue
+		}
+		if decision.skip {
+			summary.Skipped++
+			if decision.cleanup && options.RemoveOnSuccess {
+				if err := os.RemoveAll(sessionDir); err != nil {
+					summary.Failed++
+					summary.Errors = append(summary.Errors, fmt.Sprintf("%s cleanup: %s", entry.Name(), err.Error()))
+				}
+			}
+			continue
+		}
 		if _, err := FinalizeAndPersistRequestCaptureSpoolSession(ctx, RequestCaptureFinalizeOptions{SessionDir: sessionDir}); err != nil {
 			summary.Failed++
 			summary.Errors = append(summary.Errors, fmt.Sprintf("%s: %s", entry.Name(), err.Error()))
+			recordRequestCaptureFinalizeFailure(ctx, manifest.RequestId, err, options, now)
 			continue
 		}
 		summary.Succeeded++
@@ -228,16 +277,26 @@ func PersistRequestCaptureFinalizeResult(ctx context.Context, result RequestCapt
 		if err == nil {
 			recordFound = true
 			artifact.CaptureId = record.Id
+			if artifact.ExpiresAt == 0 && record.ExpiresAt > 0 {
+				artifact.ExpiresAt = record.ExpiresAt
+			}
+		}
+		if artifact.ExpiresAt == 0 {
+			artifact.ExpiresAt = RequestCaptureExpiryFromNow(now)
 		}
 		if err := tx.Create(&artifact).Error; err != nil {
 			return err
 		}
 		if recordFound {
 			updates := map[string]interface{}{
-				"capture_status": model.RequestCaptureStatusUploaded,
-				"finalized_at":   artifact.UploadedAt,
-				"total_bytes":    artifact.SizeBytes,
-				"last_error":     "",
+				"capture_status":    model.RequestCaptureStatusUploaded,
+				"finalized_at":      artifact.UploadedAt,
+				"total_bytes":       artifact.SizeBytes,
+				"has_error":         false,
+				"error_code":        "",
+				"last_error":        "",
+				"finalize_attempts": 0,
+				"next_finalize_at":  0,
 			}
 			if err := tx.Model(&model.RequestCaptureRecord{}).Where("id = ?", record.Id).Updates(updates).Error; err != nil {
 				return err
@@ -245,6 +304,351 @@ func PersistRequestCaptureFinalizeResult(ctx context.Context, result RequestCapt
 		}
 		return nil
 	})
+}
+
+func RecoverStaleRequestCaptureSpool(ctx context.Context, options RequestCaptureSpoolRecoveryOptions) (RequestCaptureSpoolRecoverySummary, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	spoolDir := strings.TrimSpace(options.SpoolDir)
+	if spoolDir == "" {
+		spoolDir = requestCaptureEnvString(requestCaptureSpoolDirEnv, requestCaptureDefaultSpoolDir)
+	}
+	now := requestCaptureSpoolRecoveryNow(options)
+	summary := RequestCaptureSpoolRecoverySummary{}
+	if err := recoverStaleRequestCaptureActiveSpool(ctx, spoolDir, now, options.ActiveStaleSeconds, &summary); err != nil {
+		return summary, err
+	}
+	if err := syncRequestCaptureSpoolStatusDir(ctx, filepath.Join(spoolDir, requestCaptureSpoolStatusFinalize), model.RequestCaptureStatusFinalizing, now, &summary); err != nil {
+		return summary, err
+	}
+	if err := syncRequestCaptureSpoolStatusDir(ctx, filepath.Join(spoolDir, requestCaptureSpoolStatusFailed), model.RequestCaptureStatusFailed, now, &summary); err != nil {
+		return summary, err
+	}
+	return summary, nil
+}
+
+type requestCaptureFinalizeDecisionResult struct {
+	skip    bool
+	cleanup bool
+}
+
+func requestCaptureFinalizeDecision(ctx context.Context, requestId string, now int64) (requestCaptureFinalizeDecisionResult, error) {
+	requestId = strings.TrimSpace(requestId)
+	if model.DB == nil || requestId == "" {
+		return requestCaptureFinalizeDecisionResult{}, nil
+	}
+	var record model.RequestCaptureRecord
+	err := model.DB.WithContext(ctx).Where("request_id = ?", requestId).Order("id desc").First(&record).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return requestCaptureFinalizeDecisionResult{}, nil
+	}
+	if err != nil {
+		return requestCaptureFinalizeDecisionResult{}, err
+	}
+	switch record.CaptureStatus {
+	case model.RequestCaptureStatusUploaded, model.RequestCaptureStatusDeleted, model.RequestCaptureStatusExpired:
+		return requestCaptureFinalizeDecisionResult{skip: true, cleanup: true}, nil
+	}
+	if record.NextFinalizeAt > 0 && record.NextFinalizeAt > now {
+		return requestCaptureFinalizeDecisionResult{skip: true}, nil
+	}
+	return requestCaptureFinalizeDecisionResult{}, nil
+}
+
+func recordRequestCaptureFinalizeFailure(ctx context.Context, requestId string, cause error, options RequestCaptureFinalizerWorkerOptions, now int64) {
+	requestId = strings.TrimSpace(requestId)
+	if model.DB == nil || requestId == "" || cause == nil {
+		return
+	}
+	var record model.RequestCaptureRecord
+	err := model.DB.WithContext(ctx).Where("request_id = ?", requestId).Order("id desc").First(&record).Error
+	if err != nil {
+		return
+	}
+	attempts := record.FinalizeAttempts + 1
+	delay := requestCaptureFinalizeRetryDelaySeconds(attempts, options.RetryBaseSeconds, options.RetryMaxSeconds)
+	updates := map[string]interface{}{
+		"capture_status":    model.RequestCaptureStatusFinalizing,
+		"has_error":         true,
+		"error_code":        "request_capture_finalize_failed",
+		"last_error":        truncateRequestCaptureError(cause.Error()),
+		"finalize_attempts": attempts,
+		"next_finalize_at":  now + delay,
+	}
+	_ = model.DB.WithContext(ctx).Model(&model.RequestCaptureRecord{}).Where("id = ?", record.Id).Updates(updates).Error
+}
+
+func requestCaptureFinalizeRetryDelaySeconds(attempts int, baseSeconds int, maxSeconds int) int64 {
+	if attempts <= 0 {
+		attempts = 1
+	}
+	if baseSeconds <= 0 {
+		baseSeconds = 60
+	}
+	if maxSeconds <= 0 {
+		maxSeconds = 3600
+	}
+	delay := int64(baseSeconds)
+	maxDelay := int64(maxSeconds)
+	for i := 1; i < attempts; i++ {
+		if delay >= maxDelay {
+			return maxDelay
+		}
+		delay *= 2
+		if delay > maxDelay {
+			return maxDelay
+		}
+	}
+	return delay
+}
+
+func requestCaptureFinalizerNow(options RequestCaptureFinalizerWorkerOptions) int64 {
+	if options.Now != nil {
+		return options.Now()
+	}
+	return common.GetTimestamp()
+}
+
+func requestCaptureSpoolRecoveryNow(options RequestCaptureSpoolRecoveryOptions) int64 {
+	if options.Now != nil {
+		return options.Now()
+	}
+	return common.GetTimestamp()
+}
+
+func recoverStaleRequestCaptureActiveSpool(ctx context.Context, spoolDir string, now int64, activeStaleSeconds int64, summary *RequestCaptureSpoolRecoverySummary) error {
+	activeRoot := filepath.Join(spoolDir, requestCaptureSpoolStatusActive)
+	entries, err := os.ReadDir(activeRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			summary.Skipped++
+			continue
+		}
+		sessionDir := filepath.Join(activeRoot, entry.Name())
+		manifest, err := readRequestCaptureSpoolManifest(sessionDir)
+		if err != nil {
+			target, failedManifest, quarantineErr := quarantineUnreadableRequestCaptureSpoolSession(ctx, sessionDir, filepath.Join(spoolDir, requestCaptureSpoolStatusFailed), entry.Name(), err, now)
+			if quarantineErr != nil {
+				summary.Errors = append(summary.Errors, fmt.Sprintf("%s manifest: %s; quarantine: %s", entry.Name(), err.Error(), quarantineErr.Error()))
+				continue
+			}
+			summary.Errors = append(summary.Errors, fmt.Sprintf("%s manifest: %s; moved to failed spool", entry.Name(), err.Error()))
+			summary.ActiveRecovered++
+			syncRequestCaptureRecordFromSpoolPaths(ctx, failedManifest, sessionDir, target, model.RequestCaptureStatusFailed, failedManifest.Error, now)
+			continue
+		}
+		updatedAt := manifest.UpdatedAt
+		if updatedAt == 0 {
+			updatedAt = manifest.CreatedAt
+		}
+		if activeStaleSeconds > 0 && updatedAt > 0 && updatedAt+activeStaleSeconds > now {
+			summary.Skipped++
+			continue
+		}
+		_ = refreshRequestCaptureSpoolManifestArtifacts(sessionDir, &manifest)
+		manifest.Status = requestCaptureSpoolStatusFailed
+		manifest.Error = "recovered stale active request capture session after service restart"
+		manifest.UpdatedAt = now
+		manifest.FinishedAt = now
+		if err := writeRequestCaptureSpoolManifest(sessionDir, manifest); err != nil {
+			summary.Errors = append(summary.Errors, fmt.Sprintf("%s write manifest: %s", entry.Name(), err.Error()))
+			continue
+		}
+		target, err := requestCaptureMoveSessionDir(sessionDir, filepath.Join(spoolDir, requestCaptureSpoolStatusFailed))
+		if err != nil {
+			summary.Errors = append(summary.Errors, fmt.Sprintf("%s move failed: %s", entry.Name(), err.Error()))
+			continue
+		}
+		summary.ActiveRecovered++
+		syncRequestCaptureRecordFromSpool(ctx, manifest, target, model.RequestCaptureStatusFailed, manifest.Error, now)
+	}
+	return nil
+}
+
+func syncRequestCaptureSpoolStatusDir(ctx context.Context, root string, captureStatus string, now int64, summary *RequestCaptureSpoolRecoverySummary) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			summary.Skipped++
+			continue
+		}
+		sessionDir := filepath.Join(root, entry.Name())
+		manifest, err := readRequestCaptureSpoolManifest(sessionDir)
+		if err != nil {
+			if captureStatus == model.RequestCaptureStatusFinalizing {
+				target, failedManifest, quarantineErr := quarantineUnreadableRequestCaptureSpoolSession(ctx, sessionDir, filepath.Join(filepath.Dir(root), requestCaptureSpoolStatusFailed), entry.Name(), err, now)
+				if quarantineErr != nil {
+					summary.Errors = append(summary.Errors, fmt.Sprintf("%s manifest: %s; quarantine: %s", entry.Name(), err.Error(), quarantineErr.Error()))
+					continue
+				}
+				summary.Errors = append(summary.Errors, fmt.Sprintf("%s manifest: %s; moved to failed spool", entry.Name(), err.Error()))
+				if syncRequestCaptureRecordFromSpoolPaths(ctx, failedManifest, sessionDir, target, model.RequestCaptureStatusFailed, failedManifest.Error, now) {
+					summary.FailedSynced++
+				} else {
+					summary.Skipped++
+				}
+				continue
+			}
+			summary.Errors = append(summary.Errors, fmt.Sprintf("%s manifest: %s", entry.Name(), err.Error()))
+			continue
+		}
+		message := ""
+		if captureStatus == model.RequestCaptureStatusFailed {
+			message = manifest.Error
+		}
+		if syncRequestCaptureRecordFromSpool(ctx, manifest, sessionDir, captureStatus, message, now) {
+			if captureStatus == model.RequestCaptureStatusFinalizing {
+				summary.FinalizeSynced++
+			} else if captureStatus == model.RequestCaptureStatusFailed {
+				summary.FailedSynced++
+			}
+		} else {
+			summary.Skipped++
+		}
+	}
+	return nil
+}
+
+func syncRequestCaptureRecordFromSpool(ctx context.Context, manifest RequestCaptureSpoolManifest, spoolDir string, captureStatus string, message string, now int64) bool {
+	return syncRequestCaptureRecordFromSpoolPaths(ctx, manifest, "", spoolDir, captureStatus, message, now)
+}
+
+func syncRequestCaptureRecordFromSpoolPaths(ctx context.Context, manifest RequestCaptureSpoolManifest, previousSpoolDir string, spoolDir string, captureStatus string, message string, now int64) bool {
+	requestId := strings.TrimSpace(manifest.RequestId)
+	if model.DB == nil {
+		return false
+	}
+	var record model.RequestCaptureRecord
+	if !findRequestCaptureRecordForSpoolSync(ctx, requestId, previousSpoolDir, spoolDir, &record) {
+		return false
+	}
+	switch record.CaptureStatus {
+	case model.RequestCaptureStatusUploaded, model.RequestCaptureStatusDeleted, model.RequestCaptureStatusExpired:
+		return false
+	}
+	updates := map[string]interface{}{
+		"capture_status": captureStatus,
+		"spool_dir":      spoolDir,
+	}
+	if captureStatus == model.RequestCaptureStatusFailed {
+		updates["has_error"] = true
+		updates["error_code"] = "request_capture_spool_recovered_failed"
+		updates["last_error"] = truncateRequestCaptureError(message)
+		updates["finished_at"] = now
+	} else if captureStatus == model.RequestCaptureStatusFinalizing {
+		if record.StartedAt == 0 && manifest.CreatedAt > 0 {
+			updates["started_at"] = manifest.CreatedAt
+		}
+	}
+	if err := model.DB.WithContext(ctx).Model(&model.RequestCaptureRecord{}).Where("id = ?", record.Id).Updates(updates).Error; err != nil {
+		return false
+	}
+	return true
+}
+
+func findRequestCaptureRecordForSpoolSync(ctx context.Context, requestId string, previousSpoolDir string, spoolDir string, record *model.RequestCaptureRecord) bool {
+	if record == nil || model.DB == nil {
+		return false
+	}
+	requestId = strings.TrimSpace(requestId)
+	previousSpoolDir = strings.TrimSpace(previousSpoolDir)
+	spoolDir = strings.TrimSpace(spoolDir)
+	if requestId != "" {
+		err := model.DB.WithContext(ctx).Where("request_id = ?", requestId).Order("id desc").First(record).Error
+		if err == nil {
+			return true
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return false
+		}
+	}
+	for _, candidate := range []string{previousSpoolDir, spoolDir} {
+		if candidate == "" {
+			continue
+		}
+		err := model.DB.WithContext(ctx).Where("spool_dir = ?", candidate).Order("id desc").First(record).Error
+		if err == nil {
+			return true
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return false
+		}
+	}
+	return false
+}
+
+func quarantineUnreadableRequestCaptureSpoolSession(ctx context.Context, sessionDir string, targetRoot string, requestIdHint string, cause error, now int64) (string, RequestCaptureSpoolManifest, error) {
+	requestId := strings.TrimSpace(requestIdHint)
+	if requestId == "" {
+		requestId = filepath.Base(sessionDir)
+	}
+	message := "request capture spool manifest unreadable"
+	if cause != nil {
+		message += ": " + cause.Error()
+	}
+	message = truncateRequestCaptureError(message)
+	manifest := RequestCaptureSpoolManifest{
+		RequestId:    requestId,
+		CaptureLevel: model.RequestCaptureLevelMetadata,
+		Status:       requestCaptureSpoolStatusFailed,
+		Error:        message,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		FinishedAt:   now,
+		Artifacts:    []RequestCaptureSpoolArtifact{},
+		Metadata:     map[string]any{"recovered_from": filepath.Base(sessionDir)},
+	}
+	if err := writeRequestCaptureSpoolManifest(sessionDir, manifest); err != nil {
+		return "", manifest, err
+	}
+	target, err := requestCaptureMoveSessionDir(sessionDir, targetRoot)
+	if err != nil {
+		return "", manifest, err
+	}
+	return target, manifest, nil
+}
+
+func refreshRequestCaptureSpoolManifestArtifacts(sessionDir string, manifest *RequestCaptureSpoolManifest) error {
+	for i := range manifest.Artifacts {
+		artifact := &manifest.Artifacts[i]
+		if strings.TrimSpace(artifact.Path) == "" {
+			continue
+		}
+		size, sha256Value, err := requestCaptureFileSHA256(filepath.Join(sessionDir, artifact.Path))
+		if err != nil {
+			return err
+		}
+		artifact.Bytes = size
+		artifact.SHA256 = sha256Value
+	}
+	return nil
+}
+
+func truncateRequestCaptureError(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 1024 {
+		return value
+	}
+	return value[:1024]
 }
 
 func readRequestCaptureSpoolManifest(sessionDir string) (RequestCaptureSpoolManifest, error) {
@@ -323,6 +727,62 @@ func compressRequestCaptureBundleZstd(body []byte) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
+func LoadDecodedRequestCaptureArtifactBundle(ctx context.Context, artifact model.RequestCaptureArtifact) ([]byte, error) {
+	return LoadDecodedRequestCaptureArtifactBundleWithLimit(ctx, artifact, 0)
+}
+
+func LoadDecodedRequestCaptureArtifactBundleWithLimit(ctx context.Context, artifact model.RequestCaptureArtifact, maxDecodedBytes int64) ([]byte, error) {
+	storageKey := strings.TrimSpace(artifact.StorageKey)
+	if storageKey == "" {
+		return nil, errors.New("request capture artifact storage key is empty")
+	}
+	body, err := LoadRequestCaptureObject(ctx, storageKey)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeRequestCaptureBundleWithLimit(body, maxDecodedBytes)
+}
+
+func DecodeRequestCaptureBundle(body []byte) ([]byte, error) {
+	return DecodeRequestCaptureBundleWithLimit(body, 0)
+}
+
+func DecodeRequestCaptureBundleWithLimit(body []byte, maxDecodedBytes int64) ([]byte, error) {
+	key, _, err := requestCaptureBundleMasterKeyFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	compressedBytes, err := decryptRequestCaptureBundle(body, key)
+	if err != nil {
+		return nil, err
+	}
+	return decompressRequestCaptureBundleZstdWithLimit(compressedBytes, maxDecodedBytes)
+}
+
+func decompressRequestCaptureBundleZstd(body []byte) ([]byte, error) {
+	return decompressRequestCaptureBundleZstdWithLimit(body, 0)
+}
+
+func decompressRequestCaptureBundleZstdWithLimit(body []byte, maxDecodedBytes int64) ([]byte, error) {
+	decoder, err := zstd.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer decoder.Close()
+	if maxDecodedBytes <= 0 {
+		return io.ReadAll(decoder)
+	}
+	limited := io.LimitReader(decoder, maxDecodedBytes+1)
+	decoded, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(decoded)) > maxDecodedBytes {
+		return nil, fmt.Errorf("%w: max=%d", ErrRequestCaptureBundleDecodedTooLarge, maxDecodedBytes)
+	}
+	return decoded, nil
+}
+
 func encryptRequestCaptureBundle(body []byte, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -342,6 +802,27 @@ func encryptRequestCaptureBundle(body []byte, key []byte) ([]byte, error) {
 	result = append(result, nonce...)
 	result = append(result, ciphertext...)
 	return result, nil
+}
+
+func decryptRequestCaptureBundle(body []byte, key []byte) ([]byte, error) {
+	if !bytes.HasPrefix(body, []byte(requestCaptureBundleMagic)) {
+		return nil, errors.New("request capture bundle has invalid magic")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	offset := len(requestCaptureBundleMagic)
+	if len(body) < offset+gcm.NonceSize()+gcm.Overhead() {
+		return nil, errors.New("request capture bundle is too short")
+	}
+	nonce := body[offset : offset+gcm.NonceSize()]
+	ciphertext := body[offset+gcm.NonceSize():]
+	return gcm.Open(nil, nonce, ciphertext, nil)
 }
 
 func requestCaptureBundleMasterKeyFromEnv() ([]byte, string, error) {

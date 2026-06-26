@@ -21,6 +21,7 @@ func TestRequestCapturePolicyMatchesConfiguredFilters(t *testing.T) {
 	t.Setenv("CAPTURE_LEVEL", model.RequestCaptureLevelFullBundle)
 	t.Setenv("CAPTURE_MODEL_PATTERNS", "deepseek-*,qwen-*")
 	t.Setenv("CAPTURE_PATH_PREFIXES", "/v1/responses,/v1/chat")
+	t.Setenv("CAPTURE_PROTOCOL_CHAINS", "responses->chat,chat->responses")
 	t.Setenv("CAPTURE_USER_IDS", "10,11")
 	t.Setenv("CAPTURE_TOKEN_IDS", "20")
 	t.Setenv("CAPTURE_CHANNEL_IDS", "30")
@@ -30,6 +31,7 @@ func TestRequestCapturePolicyMatchesConfiguredFilters(t *testing.T) {
 
 	policy := LoadRequestCapturePolicyFromEnv()
 	assert.Equal(t, int64(1048576), policy.MaxArtifactBytes)
+	assert.Equal(t, []string{"responses->chat", "chat->responses"}, policy.ProtocolChains)
 	decision := policy.Decide(RequestCaptureDecisionInput{
 		RequestId:      "req-capture-match",
 		UserId:         10,
@@ -49,12 +51,13 @@ func TestRequestCapturePolicyMatchesConfiguredFilters(t *testing.T) {
 
 func TestRequestCapturePolicyRejectsUnmatchedFilters(t *testing.T) {
 	policy := RequestCapturePolicy{
-		Enabled:       true,
-		Level:         model.RequestCaptureLevelSanitizedBundle,
-		SampleRate:    1,
-		ModelPatterns: []string{"qwen-*"},
-		PathPrefixes:  []string{"/v1/chat"},
-		UserIds:       map[int]struct{}{10: {}},
+		Enabled:        true,
+		Level:          model.RequestCaptureLevelSanitizedBundle,
+		SampleRate:     1,
+		ModelPatterns:  []string{"qwen-*"},
+		PathPrefixes:   []string{"/v1/chat"},
+		ProtocolChains: []string{"chat->responses"},
+		UserIds:        map[int]struct{}{10: {}},
 	}
 
 	assert.Equal(t, "user_not_matched", policy.Decide(RequestCaptureDecisionInput{UserId: 9}).Reason)
@@ -69,6 +72,13 @@ func TestRequestCapturePolicyRejectsUnmatchedFilters(t *testing.T) {
 		ModelName:   "qwen-plus",
 		RequestPath: "/v1/responses",
 		RequestId:   "req-path",
+	}).Reason)
+	assert.Equal(t, "protocol_chain_not_matched", policy.Decide(RequestCaptureDecisionInput{
+		UserId:        10,
+		ModelName:     "qwen-plus",
+		RequestPath:   "/v1/chat/completions",
+		ProtocolChain: "responses->chat",
+		RequestId:     "req-protocol",
 	}).Reason)
 }
 

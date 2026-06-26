@@ -239,7 +239,10 @@ func (s *requestCaptureS3ObjectStore) Save(ctx context.Context, object RequestCa
 	}
 	object.Provider = s.Provider()
 	object.Bucket = s.bucket
-	object.StorageKey = s.objectKey(object)
+	object.StorageKey = strings.Trim(strings.TrimSpace(object.StorageKey), "/")
+	if object.StorageKey == "" {
+		object.StorageKey = s.objectKey(object)
+	}
 	if err := s.putObject(ctx, object.StorageKey, body, object.ContentType); err != nil {
 		return RequestCaptureObject{}, err
 	}

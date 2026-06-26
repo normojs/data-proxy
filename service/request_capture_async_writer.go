@@ -6,9 +6,13 @@ import (
 )
 
 const (
-	requestCaptureAsyncWriterBufferChunks = 256
-	requestCaptureAsyncWriterFlushBytes   = 64 * 1024
-	requestCaptureAsyncWriterFlushEvery   = 200 * time.Millisecond
+	requestCaptureAsyncWriterBufferChunks    = 256
+	requestCaptureAsyncWriterFlushBytes      = 64 * 1024
+	requestCaptureAsyncWriterFlushEvery      = 200 * time.Millisecond
+	requestCaptureAsyncWriterMaxPendingBytes = 8 * 1024 * 1024
+
+	requestCaptureAsyncWriterTruncationBackpressure      = "backpressure"
+	requestCaptureAsyncWriterTruncationPendingBytesLimit = "pending_bytes_limit"
 )
 
 type requestCaptureAsyncArtifactWriter struct {
@@ -19,9 +23,13 @@ type requestCaptureAsyncArtifactWriter struct {
 	done        chan struct{}
 	closeOnce   sync.Once
 
-	mu        sync.Mutex
-	err       error
-	truncated bool
+	sendMu         sync.Mutex
+	closed         bool
+	pendingBytes   int64
+	mu             sync.Mutex
+	err            error
+	truncated      bool
+	truncateReason string
 }
 
 func newRequestCaptureAsyncArtifactWriter(session *RequestCaptureSession, name string, contentType string) *requestCaptureAsyncArtifactWriter {
@@ -40,11 +48,21 @@ func (w *requestCaptureAsyncArtifactWriter) Append(chunk []byte) {
 	if w == nil || len(chunk) == 0 || w.isTruncated() {
 		return
 	}
+	w.sendMu.Lock()
+	defer w.sendMu.Unlock()
+	if w.closed || w.isTruncated() {
+		return
+	}
+	if int64(len(chunk)) > requestCaptureAsyncWriterMaxPendingBytes || w.pendingBytes+int64(len(chunk)) > requestCaptureAsyncWriterMaxPendingBytes {
+		w.setTruncated(requestCaptureAsyncWriterTruncationPendingBytesLimit)
+		return
+	}
 	copied := append([]byte(nil), chunk...)
 	select {
 	case w.chunks <- copied:
+		w.pendingBytes += int64(len(copied))
 	default:
-		w.setTruncated()
+		w.setTruncated(requestCaptureAsyncWriterTruncationBackpressure)
 	}
 }
 
@@ -53,7 +71,10 @@ func (w *requestCaptureAsyncArtifactWriter) Close() error {
 		return nil
 	}
 	w.closeOnce.Do(func() {
+		w.sendMu.Lock()
+		w.closed = true
 		close(w.chunks)
+		w.sendMu.Unlock()
 		<-w.done
 	})
 	w.mu.Lock()
@@ -92,6 +113,7 @@ func (w *requestCaptureAsyncArtifactWriter) run() {
 			if len(chunk) == 0 {
 				continue
 			}
+			w.addPendingBytes(-int64(len(chunk)))
 			buffer = append(buffer, chunk...)
 			if len(buffer) >= requestCaptureAsyncWriterFlushBytes {
 				flush()
@@ -113,14 +135,35 @@ func (w *requestCaptureAsyncArtifactWriter) setError(err error) {
 	}
 }
 
-func (w *requestCaptureAsyncArtifactWriter) setTruncated() {
+func (w *requestCaptureAsyncArtifactWriter) setTruncated(reason string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.truncated = true
+	if w.truncateReason == "" {
+		w.truncateReason = reason
+	}
 }
 
 func (w *requestCaptureAsyncArtifactWriter) isTruncated() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.truncated
+}
+
+func (w *requestCaptureAsyncArtifactWriter) TruncationReason() string {
+	if w == nil {
+		return ""
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.truncateReason
+}
+
+func (w *requestCaptureAsyncArtifactWriter) addPendingBytes(delta int64) {
+	w.sendMu.Lock()
+	defer w.sendMu.Unlock()
+	w.pendingBytes += delta
+	if w.pendingBytes < 0 {
+		w.pendingBytes = 0
+	}
 }

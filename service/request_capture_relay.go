@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 
@@ -23,6 +24,8 @@ type RelayRequestCapture struct {
 	Session               *RequestCaptureSession
 	RecordId              int64
 	IsStream              bool
+	Metadata              map[string]interface{}
+	UpstreamRequestId     string
 	UpstreamBodyBytes     int64
 	DownstreamBodyBytes   int64
 	upstreamWriter        *requestCaptureAsyncArtifactWriter
@@ -31,9 +34,15 @@ type RelayRequestCapture struct {
 	downstreamWriter      *requestCaptureAsyncArtifactWriter
 	downstreamArtifact    string
 	downstreamContentType string
+	truncatedArtifacts    map[string]string
 }
 
 const relayRequestCaptureContextKey = "request_capture"
+
+const (
+	requestCaptureRelayFailureErrorCode            = "request_capture_relay_failed"
+	requestCaptureRelayTruncationArtifactSizeLimit = "artifact_size_limit"
+)
 
 type relayRequestCaptureResponseWriter struct {
 	gin.ResponseWriter
@@ -70,6 +79,7 @@ func StartRelayRequestCapture(c *gin.Context, info *relaycommon.RelayInfo) *Rela
 		Policy:   policy,
 		IsStream: info.IsStream,
 	}
+	capture.Metadata = relayRequestCaptureInitialMetadata(info, capture)
 	if decision.Level != model.RequestCaptureLevelMetadata {
 		session, err := NewRequestCaptureSession(RequestCaptureSessionOptions{
 			RequestId:        info.RequestId,
@@ -115,6 +125,7 @@ func WrapUpstreamResponseForCapture(c *gin.Context, resp *http.Response) *http.R
 	if capture == nil || capture.Session == nil {
 		return resp
 	}
+	capture.SetUpstreamRequestId(c.GetString(common.UpstreamRequestIdKey))
 	resp.Body = &relayRequestCaptureReadCloser{
 		ReadCloser:  resp.Body,
 		capture:     capture,
@@ -155,6 +166,19 @@ func (r *relayRequestCaptureReadCloser) Read(p []byte) (int, error) {
 		r.capture.AppendUpstreamResponse(r.contentType, p[:n])
 	}
 	return n, err
+}
+
+func (capture *RelayRequestCapture) SetUpstreamRequestId(requestId string) {
+	if capture == nil {
+		return
+	}
+	requestId = strings.TrimSpace(requestId)
+	if requestId == "" {
+		return
+	}
+	capture.mu.Lock()
+	capture.UpstreamRequestId = requestId
+	capture.mu.Unlock()
 }
 
 func (capture *RelayRequestCapture) AppendUpstreamResponse(contentType string, data []byte) {
@@ -239,6 +263,7 @@ func FinishRelayRequestCapture(capture *RelayRequestCapture, err error) {
 			relayRequestCaptureLogError("finish capture session", "", finishErr)
 		}
 	}
+	capture.collectSessionTruncation()
 	if model.DB == nil || capture.RecordId == 0 {
 		return
 	}
@@ -252,8 +277,15 @@ func FinishRelayRequestCapture(capture *RelayRequestCapture, err error) {
 	if capture.Session != nil {
 		updates["spool_dir"] = capture.Session.Dir()
 	}
+	if upstreamRequestId := capture.upstreamRequestId(); upstreamRequestId != "" {
+		updates["upstream_request_id"] = upstreamRequestId
+	}
+	if metadataJson := capture.metadataJson(); metadataJson != "" {
+		updates["metadata_json"] = metadataJson
+	}
 	if status == model.RequestCaptureStatusFailed {
 		updates["has_error"] = true
+		updates["error_code"] = requestCaptureRelayFailureErrorCode
 	}
 	if err := model.DB.Model(&model.RequestCaptureRecord{}).Where("id = ?", capture.RecordId).Updates(updates).Error; err != nil {
 		relayRequestCaptureLogError("update capture record", "", err)
@@ -276,13 +308,122 @@ func (capture *RelayRequestCapture) closeWriters() error {
 		if err := upstreamWriter.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
+		capture.recordAsyncWriterTruncation(upstreamWriter)
 	}
 	if downstreamWriter != nil {
 		if err := downstreamWriter.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
+		capture.recordAsyncWriterTruncation(downstreamWriter)
 	}
 	return firstErr
+}
+
+func (capture *RelayRequestCapture) recordAsyncWriterTruncation(writer *requestCaptureAsyncArtifactWriter) {
+	if capture == nil || writer == nil {
+		return
+	}
+	reason := writer.TruncationReason()
+	if reason == "" {
+		return
+	}
+	capture.recordTruncatedArtifact(writer.name, reason)
+}
+
+func (capture *RelayRequestCapture) collectSessionTruncation() {
+	if capture == nil || capture.Session == nil {
+		return
+	}
+	manifest, err := readRequestCaptureSpoolManifest(capture.Session.Dir())
+	if err != nil {
+		return
+	}
+	for _, artifact := range manifest.Artifacts {
+		if artifact.Truncated {
+			capture.recordTruncatedArtifact(artifact.Name, requestCaptureRelayTruncationArtifactSizeLimit)
+		}
+	}
+}
+
+func (capture *RelayRequestCapture) recordTruncatedArtifact(name string, reason string) {
+	if capture == nil {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "unknown"
+	}
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	if capture.truncatedArtifacts == nil {
+		capture.truncatedArtifacts = map[string]string{}
+	}
+	if _, exists := capture.truncatedArtifacts[name]; exists {
+		return
+	}
+	capture.truncatedArtifacts[name] = reason
+}
+
+func (capture *RelayRequestCapture) metadataJson() string {
+	if capture == nil {
+		return ""
+	}
+	metadata := capture.metadataSnapshot()
+	truncatedArtifacts := capture.truncationSnapshot()
+	if len(truncatedArtifacts) > 0 {
+		artifactNames := make([]string, 0, len(truncatedArtifacts))
+		for name := range truncatedArtifacts {
+			artifactNames = append(artifactNames, name)
+		}
+		sort.Strings(artifactNames)
+		metadata["capture_truncated"] = true
+		metadata["capture_truncated_artifacts"] = artifactNames
+		metadata["capture_truncation_reasons"] = truncatedArtifacts
+	}
+	body, err := common.Marshal(metadata)
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
+func (capture *RelayRequestCapture) metadataSnapshot() map[string]interface{} {
+	result := map[string]interface{}{}
+	if capture == nil {
+		return result
+	}
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	for key, value := range capture.Metadata {
+		result[key] = value
+	}
+	return result
+}
+
+func (capture *RelayRequestCapture) truncationSnapshot() map[string]string {
+	result := map[string]string{}
+	if capture == nil {
+		return result
+	}
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	for name, reason := range capture.truncatedArtifacts {
+		result[name] = reason
+	}
+	return result
+}
+
+func (capture *RelayRequestCapture) upstreamRequestId() string {
+	if capture == nil {
+		return ""
+	}
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return strings.TrimSpace(capture.UpstreamRequestId)
 }
 
 func relayRequestCaptureContentType(contentType string) string {
@@ -320,11 +461,7 @@ func relayRequestCaptureCreateRecord(c *gin.Context, info *relaycommon.RelayInfo
 		return 0
 	}
 	now := common.GetTimestamp()
-	metadata, _ := common.Marshal(map[string]interface{}{
-		"decision_reason": capture.Decision.Reason,
-		"retry_index":     info.RetryIndex,
-		"relay_format":    string(info.RelayFormat),
-	})
+	metadata, _ := common.Marshal(capture.metadataSnapshot())
 	conversion, _ := common.Marshal(map[string]interface{}{
 		"chain": info.RequestConversionChain,
 		"meta":  info.RequestConversionMeta,
@@ -351,6 +488,7 @@ func relayRequestCaptureCreateRecord(c *gin.Context, info *relaycommon.RelayInfo
 		MetadataJson:      string(metadata),
 		ConversionJson:    string(conversion),
 		StartedAt:         now,
+		ExpiresAt:         RequestCaptureExpiryFromNow(now),
 		CreatedAt:         now,
 		UpdatedAt:         now,
 		UpstreamRequestId: c.GetString(common.UpstreamRequestIdKey),
@@ -363,6 +501,18 @@ func relayRequestCaptureCreateRecord(c *gin.Context, info *relaycommon.RelayInfo
 		return 0
 	}
 	return record.Id
+}
+
+func relayRequestCaptureInitialMetadata(info *relaycommon.RelayInfo, capture *RelayRequestCapture) map[string]interface{} {
+	metadata := map[string]interface{}{}
+	if capture != nil {
+		metadata["decision_reason"] = capture.Decision.Reason
+	}
+	if info != nil {
+		metadata["retry_index"] = info.RetryIndex
+		metadata["relay_format"] = string(info.RelayFormat)
+	}
+	return metadata
 }
 
 func relayRequestCaptureClientRequest(c *gin.Context, session *RequestCaptureSession) error {

@@ -37,7 +37,7 @@ capture bundle objects. It does not upload stream chunks directly.
 
 ### Phase 3: Capture Session and Spool Writer
 
-Status: foundation implemented, minimal relay integration implemented.
+Status: implemented for the current single-node P0 scope.
 
 - Add capture policy matcher by time window, user, token, channel, model,
   request path, protocol conversion, connected app, severity flag, and sample
@@ -47,6 +47,7 @@ Status: foundation implemented, minimal relay integration implemented.
   - `CAPTURE_SAMPLE_RATE`
   - `CAPTURE_MODEL_PATTERNS`
   - `CAPTURE_PATH_PREFIXES`
+  - `CAPTURE_PROTOCOL_CHAINS`
   - `CAPTURE_USER_IDS`
   - `CAPTURE_TOKEN_IDS`
   - `CAPTURE_CHANNEL_IDS`
@@ -71,17 +72,16 @@ Status: foundation implemented, minimal relay integration implemented.
     wrapper
   - move successful sessions to `finalize/`
   - move failed sessions to `failed/`
-- Remaining response capture improvements:
-  - replace synchronous artifact appends with buffered async writes for high
-    token-rate streams
+- Stream responses use buffered async artifact writers for upstream and
+  downstream bodies. If the writer buffer cannot keep up, the artifact is
+  marked `truncated=true` and the user response continues.
 - Ensure capture is fail-open and never breaks normal relay traffic.
 - Add restart recovery for old `active`, `finalize`, and `failed` spool
-  directories. Pending.
+  directories. Implemented in `RecoverStaleRequestCaptureSpool`.
 
 ### Phase 4: Finalizer Worker
 
-Status: single-session finalizer foundation implemented, background worker
-pending.
+Status: implemented for the current single-node P0 scope.
 
 - Build `manifest.json`. Implemented by the spool writer.
 - Archive spool files into tar. Implemented in
@@ -95,38 +95,77 @@ pending.
   `PersistRequestCaptureFinalizeResult`.
 - Add background worker and Redis/job scheduling. Core scanner implemented as
   `FinalizePendingRequestCaptureSpool`; periodic master-node scheduler is
-  wired through `StartRequestCaptureFinalizerTask`; Redis job queue is pending.
-- Retry failed uploads with backoff. Pending; failed finalizer attempts keep
-  the spool directory in `finalize/` for retry.
+  wired through `StartRequestCaptureFinalizerTask`. Redis/distributed queue is
+  intentionally out of scope for the single-node plan.
+- Retry failed uploads with DB-backed exponential backoff. Failed finalizer
+  attempts keep the spool directory in `finalize/`, update
+  `finalize_attempts`, `next_finalize_at`, and `last_error`, then retry later.
 - Clean old spool files after successful upload. Implemented for the scanner
   when `RemoveOnSuccess=true`.
+- Add single-node retention cleanup. Implemented as
+  `CleanupExpiredRequestCaptureData` and `StartRequestCaptureCleanupTask`:
+  - `CAPTURE_RETENTION_DAYS` controls DB record and object artifact retention;
+    default is 30 days, and `0` disables this cleanup dimension.
+  - `CAPTURE_SPOOL_RETENTION_DAYS` controls stale local `failed/` spool cleanup
+    and uploaded/expired `finalize/` spool cleanup; default is 7 days, and `0`
+    disables this cleanup dimension.
+  - Available object artifacts are deleted from SeaweedFS/S3-compatible storage
+    before being marked `deleted`; capture records are marked `expired`.
+  - The background worker is guarded by a single-process atomic lock and only
+    runs on the master/single-node process.
+  - Admins can manually run or preview cleanup through
+    `POST /api/log/request-capture/cleanup?dry_run=true`.
 
 ### Phase 5: Online Diagnostics
 
-Status: minimal request-id report loop and candidate API implemented; raw
-bundle download pending.
+Status: implemented for the current single-node P0 scope.
 
 - Add request id based diagnostic candidates list. Implemented via
-  `GET /api/log/request-diagnostic-candidates`.
+  `GET /api/log/request-diagnostic-candidates`; candidates are collected from
+  explicit error logs, suspicious capture records, and abnormal
+  `request_conversion_meta` on consume logs, such as non-completed Responses
+  terminal status, hosted-tool policy rejection, or hosted web-search executor
+  errors.
 - Generate diagnostic reports from normal logs and trace metadata. Implemented
   via `POST /api/log/request/:request_id/diagnostic`.
 - Enrich reports with raw capture bundle metadata when available. Implemented
-  for capture records and object artifact metadata; raw payload is not exposed.
-- Add diagnostic bundle download for authorized administrators.
+  for capture records and object artifact metadata.
+- Add diagnostic bundle download for authorized administrators. Implemented via
+  `GET /api/log/request/:request_id/diagnostic/bundle`; the zip includes
+  report JSON, trace JSON, findings, capture summary, and decoded capture bundle
+  files when an encrypted raw bundle is available. Raw bundle expansion is
+  guarded by `DIAGNOSTIC_BUNDLE_MAX_RAW_TAR_BYTES`; when exceeded, the zip keeps
+  report files and writes a skipped marker instead of loading the full raw tar.
 - Add UI shortcuts from usage log request id to trace and diagnostics.
-  Implemented in the usage log detail dialog.
+  Implemented in the usage log detail dialog, including generate/regenerate and
+  download bundle actions.
 
 ### Phase 6: Training Corpus Builder
 
-Status: planned.
+Status: partially implemented for a single-node MVP.
 
-- Read encrypted raw bundles in a worker.
-- Decrypt in memory only.
-- Redact secrets and PII.
+- Read encrypted raw bundles in a worker. Implemented in
+  `service/request_training_corpus.go` as `BuildTrainingCorpusDataset`.
+- Decrypt in memory only. Implemented by reusing the capture bundle decoder
+  with `MaxDecodedBundleBytes`, defaulting to 64 MiB per raw bundle.
+- Redact secrets and PII. Basic recursive JSON key redaction is implemented
+  for common secret fields such as `api_key`, `authorization`, `token`,
+  `password`, `secret`, `cookie`, and `session`. Broader PII detection remains
+  pending.
 - Normalize Responses and Chat Completions variants into training schemas.
-- Produce versioned JSONL.zst or Parquet shards in SeaweedFS.
-- Record dataset version and sample lineage.
+  Implemented for raw JSON responses and SSE text extraction, including Chat
+  delta content and Responses `response.output_text.delta` events.
+- Produce versioned JSONL.zst shards in SeaweedFS/S3-compatible storage.
+  Implemented as one shard per build at
+  `training/dataset={name}/version={version}/date={yyyy-mm-dd}/part-0001.jsonl.zst`.
+- Record dataset version and sample lineage. Implemented through
+  `training_dataset_versions` and `training_samples`.
 - Add review and approval workflows before using samples for model training.
+  Sample `pending` / `approved` / `rejected` status and approve/reject admin
+  APIs are implemented. Dataset export filters the generated shard to approved
+  `source_hash` rows before returning it. Sample preview API is implemented by
+  loading the matching generated JSONL line by `source_hash`. Preview UI and
+  richer export policies remain pending.
 
 ## Deployment Notes
 
@@ -163,8 +202,9 @@ it through:
 http://seaweedfs:8333
 ```
 
-Raw capture should remain disabled until Phase 3 and Phase 4 are complete and
-tested on a small scoped policy.
+Raw capture remains disabled by default. For production, first enable capture
+for one scoped token, user, model, or channel, then check generated reports and
+downloaded diagnostic bundles before broadening the policy.
 
 ## Current Safe Rollout
 
@@ -174,5 +214,9 @@ The current safe rollout is:
 2. Keep `CAPTURE_ENABLED=false`.
 3. Verify Data Proxy starts normally.
 4. Verify SeaweedFS container and volume persistence.
-5. Enable capture only after capture session, finalizer, encryption, and admin
-   access controls are implemented.
+5. Enable capture for one scoped test token/channel.
+6. Generate one request, then confirm:
+   - `GET /api/log/request-diagnostic-candidates` lists suspicious failures.
+   - `POST /api/log/request/:request_id/diagnostic` generates a report.
+   - `GET /api/log/request/:request_id/diagnostic/bundle` downloads a zip.
+   - The usage log detail dialog can generate and download the same bundle.

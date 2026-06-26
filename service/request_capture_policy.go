@@ -14,6 +14,7 @@ const (
 	requestCaptureSampleRateEnv       = "CAPTURE_SAMPLE_RATE"
 	requestCaptureModelPatternsEnv    = "CAPTURE_MODEL_PATTERNS"
 	requestCapturePathPrefixesEnv     = "CAPTURE_PATH_PREFIXES"
+	requestCaptureProtocolChainsEnv   = "CAPTURE_PROTOCOL_CHAINS"
 	requestCaptureUserIdsEnv          = "CAPTURE_USER_IDS"
 	requestCaptureTokenIdsEnv         = "CAPTURE_TOKEN_IDS"
 	requestCaptureChannelIdsEnv       = "CAPTURE_CHANNEL_IDS"
@@ -27,6 +28,7 @@ type RequestCapturePolicy struct {
 	SampleRate       float64
 	ModelPatterns    []string
 	PathPrefixes     []string
+	ProtocolChains   []string
 	UserIds          map[int]struct{}
 	TokenIds         map[int]struct{}
 	ChannelIds       map[int]struct{}
@@ -66,6 +68,7 @@ func LoadRequestCapturePolicyFromEnv() RequestCapturePolicy {
 		SampleRate:       requestCaptureEnvFloat(requestCaptureSampleRateEnv, 1),
 		ModelPatterns:    requestCaptureEnvCSV(requestCaptureModelPatternsEnv),
 		PathPrefixes:     requestCaptureEnvCSV(requestCapturePathPrefixesEnv),
+		ProtocolChains:   requestCaptureEnvCSV(requestCaptureProtocolChainsEnv),
 		UserIds:          requestCaptureEnvIntSet(requestCaptureUserIdsEnv),
 		TokenIds:         requestCaptureEnvIntSet(requestCaptureTokenIdsEnv),
 		ChannelIds:       requestCaptureEnvIntSet(requestCaptureChannelIdsEnv),
@@ -107,6 +110,9 @@ func (p RequestCapturePolicy) Decide(input RequestCaptureDecisionInput) RequestC
 	}
 	if !requestCapturePathMatches(p.PathPrefixes, input.RequestPath) {
 		return RequestCaptureDecision{Reason: "path_not_matched"}
+	}
+	if !requestCaptureProtocolChainMatches(p.ProtocolChains, input.ProtocolChain) {
+		return RequestCaptureDecision{Reason: "protocol_chain_not_matched"}
 	}
 	if !requestCaptureSampleMatches(input.RequestId, p.SampleRate) {
 		return RequestCaptureDecision{Reason: "sample_not_matched"}
@@ -218,6 +224,19 @@ func requestCapturePathMatches(prefixes []string, requestPath string) bool {
 	}
 	for _, prefix := range prefixes {
 		if prefix == "*" || strings.HasPrefix(requestPath, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func requestCaptureProtocolChainMatches(patterns []string, protocolChain string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	protocolChain = strings.TrimSpace(strings.ToLower(protocolChain))
+	for _, pattern := range patterns {
+		if requestCaptureWildcardMatch(strings.ToLower(pattern), protocolChain) {
 			return true
 		}
 	}

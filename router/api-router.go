@@ -432,8 +432,10 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/request-diagnostic-candidates", middleware.AdminAuth(), controller.ListRequestDiagnosticCandidates)
 		logRoute.GET("/request-diagnostic", middleware.AdminAuth(), controller.GetRequestDiagnosticReport)
 		logRoute.POST("/request-diagnostic", middleware.AdminAuth(), controller.GenerateRequestDiagnosticReport)
+		logRoute.POST("/request-capture/cleanup", middleware.AdminAuth(), controller.CleanupRequestCaptureData)
 		logRoute.GET("/request/:request_id/diagnostic", middleware.AdminAuth(), controller.GetRequestDiagnosticReport)
 		logRoute.POST("/request/:request_id/diagnostic", middleware.AdminAuth(), controller.GenerateRequestDiagnosticReport)
+		logRoute.GET("/request/:request_id/diagnostic/bundle", middleware.AdminAuth(), controller.DownloadRequestDiagnosticBundle)
 		logRoute.GET("/request/:request_id", middleware.AdminAuth(), controller.GetRequestLogTrace)
 		logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
 		logRoute.GET("/self/stat", middleware.UserAuth(), controller.GetLogsSelfStat)
@@ -443,6 +445,18 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/self/request", middleware.UserAuth(), controller.GetSelfRequestLogTrace)
 		logRoute.GET("/self/request/:request_id", middleware.UserAuth(), controller.GetSelfRequestLogTrace)
 		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
+
+		trainingRoute := apiRouter.Group("/training")
+		trainingRoute.Use(middleware.AdminAuth())
+		{
+			trainingRoute.GET("/datasets", controller.ListTrainingDatasets)
+			trainingRoute.POST("/datasets/build", controller.BuildTrainingDataset)
+			trainingRoute.GET("/datasets/:id/export", controller.DownloadTrainingDatasetExport)
+			trainingRoute.GET("/samples", controller.ListTrainingSamples)
+			trainingRoute.GET("/samples/:id/preview", controller.GetTrainingSamplePreview)
+			trainingRoute.POST("/samples/:id/approve", controller.ApproveTrainingSample)
+			trainingRoute.POST("/samples/:id/reject", controller.RejectTrainingSample)
+		}
 
 		dataRoute := apiRouter.Group("/data")
 		dataRoute.GET("/", middleware.AdminAuth(), controller.GetAllQuotaDates)

@@ -368,11 +368,15 @@ func requestCaptureChunkWithinLimit(chunk []byte, currentBytes int64, maxBytes i
 }
 
 func (s *RequestCaptureSession) writeManifestLocked() error {
-	manifestBytes, err := json.MarshalIndent(s.manifest, "", "  ")
+	return writeRequestCaptureSpoolManifest(s.dir, s.manifest)
+}
+
+func writeRequestCaptureSpoolManifest(sessionDir string, manifest RequestCaptureSpoolManifest) error {
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return err
 	}
-	return requestCaptureWriteFileAtomic(filepath.Join(s.dir, requestCaptureSpoolManifestName), manifestBytes, 0600)
+	return requestCaptureWriteFileAtomic(filepath.Join(sessionDir, requestCaptureSpoolManifestName), manifestBytes, 0600)
 }
 
 func requestCaptureSessionNow(options RequestCaptureSessionOptions) time.Time {

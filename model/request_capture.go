@@ -34,6 +34,10 @@ const (
 	TrainingDatasetStatusCompleted = "completed"
 	TrainingDatasetStatusFailed    = "failed"
 	TrainingDatasetStatusDeleted   = "deleted"
+
+	TrainingSampleReviewStatusPending  = "pending"
+	TrainingSampleReviewStatusApproved = "approved"
+	TrainingSampleReviewStatusRejected = "rejected"
 )
 
 type RequestCaptureRecord struct {
@@ -71,6 +75,8 @@ type RequestCaptureRecord struct {
 	StartedAt            int64  `json:"started_at" gorm:"not null;default:0;index"`
 	FinishedAt           int64  `json:"finished_at" gorm:"not null;default:0;index"`
 	FinalizedAt          int64  `json:"finalized_at" gorm:"not null;default:0;index"`
+	FinalizeAttempts     int    `json:"finalize_attempts" gorm:"not null;default:0"`
+	NextFinalizeAt       int64  `json:"next_finalize_at" gorm:"not null;default:0;index"`
 	ExpiresAt            int64  `json:"expires_at" gorm:"not null;default:0;index"`
 	CreatedAt            int64  `json:"created_at" gorm:"autoCreateTime;index"`
 	UpdatedAt            int64  `json:"updated_at" gorm:"autoUpdateTime"`
@@ -167,6 +173,10 @@ type TrainingSample struct {
 	SourceHash       string `json:"source_hash" gorm:"type:varchar(64);not null;default:'';index"`
 	RedactionStatus  string `json:"redaction_status" gorm:"type:varchar(32);not null;default:'';index"`
 	QualityScore     int    `json:"quality_score" gorm:"not null;default:0;index"`
+	ReviewStatus     string `json:"review_status" gorm:"type:varchar(32);not null;default:'pending';index"`
+	ReviewComment    string `json:"review_comment" gorm:"type:varchar(1024);not null;default:''"`
+	ReviewedBy       int    `json:"reviewed_by" gorm:"not null;default:0;index"`
+	ReviewedAt       int64  `json:"reviewed_at" gorm:"not null;default:0;index"`
 	TagsJson         string `json:"tags_json" gorm:"type:text"`
 	MetadataJson     string `json:"metadata_json" gorm:"type:text"`
 	CreatedAt        int64  `json:"created_at" gorm:"autoCreateTime;index"`
