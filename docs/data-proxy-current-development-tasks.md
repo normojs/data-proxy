@@ -237,6 +237,25 @@ scripts/data-proxy-focused-regression.sh --all --frontend
 
 2026-06-26：
 
+- 已提交 P0 发布基线 README / `.env.example` 文档，补齐 GitHub Docker
+  workflow、镜像 tag/digest、回滚镜像和生产 smoke 记录要求。
+- 已提交 fusion-benchmark 工具增强，验证命令：
+
+```bash
+scripts/fusion-benchmark-check.sh
+node tools/fusion-benchmark.mjs self-test
+```
+
+- 当前 P1/P2/P3 聚焦回归均已通过，验证命令：
+
+```bash
+scripts/data-proxy-focused-regression.sh --p1
+scripts/data-proxy-focused-regression.sh --p2
+scripts/data-proxy-focused-regression.sh --p3
+go test ./controller ./service ./model ./middleware ./setting/operation_setting -run 'Test(TokenGroup|UserTokenGroups|ListModelsHonorsBoundTokenGroups|ListModelsReturnsEmptyForUnavailableTokenGroup|AddTokenRejectsBoundUnavailableGroup|GetAllTokensAnnotatesUnavailableGroup|ChannelFailoverTrace|ChannelHealth|ShouldRetryByStatusCode|FilterUserUsableGroups|GetUserAutoGroup)' -count=1
+go test ./service -run 'Test(RequestCapture|Training|TunnelBilling|ForwardTunnelHTTP|ForwardTunnelTCP)' -count=1
+```
+
 - 新增 `scripts/data-proxy-focused-regression.sh`，用于按 P1/P2/P3 维度
   跑渠道故障切换、用户分组限制、请求诊断、capture、训练数据 API、
   Tunnel、MCP Gateway、`dpa`、Bridge policy 和 HTTP/TCP Tunnel 回归。
@@ -287,30 +306,30 @@ git diff --check -- scripts/data-proxy-focused-regression.sh docs/data-proxy-cur
 - Tunnel Gateway、MCP Gateway、HTTP/TCP Tunnel MVP 和 `dpa` agent 单机加固；
 - 训练数据 review console；
 - 价格页平台实际成交均价和 billing event source matrix 补充。
+- P0 发布基线 README / `.env.example`；
+- benchmark 工具独立增强。
 
 这些功能后续只做生产 smoke、文档补充和窄回归修复，不再列为待拆提交。
 
 ## 剩余工作区拆分顺序
 
-当前工作区仍有发布基线、渠道设置 UI、协议转换停车场和 benchmark 工具差异。
-后续不要把它们一次性混进一个 commit，建议按下面顺序拆分和验证。
+当前工作区剩余差异主要是协议转换停车场、Responses/hosted-tools 渠道 UI
+和少量 i18n 混合翻译。P0 文档和 benchmark 工具已单独提交。
 
-### Commit A：P0 发布基线、README 和环境样例
+后续不要把协议转换长尾混入 P1/P2/P3。除非是生产窄回归修复，否则这些文件
+继续停放到 vNext 稳定之后：
 
-范围：
+- `dto/channel_settings.go`；
+- `web/default/src/features/channels/` 中的 Responses/hosted-tools 设置；
+- `dto/openai_response*`；
+- `relay/*`；
+- `service/openaicompat/*`；
+- `service/hosted_tool_executor*`；
+- `docs/23-responses-chat-compatibility.md`；
+- `docs/openai-hosted-tools-support-plan.md`；
+- `docs/responses-chat-completions-conversion-plan.md`。
 
-- `README.md`；
-- `.env.example`；
-- CI/Docker/部署/回滚文档中仍需补充的发布说明。
-
-验证：
-
-```bash
-scripts/data-proxy-release-gate.sh --scan-all
-scripts/data-proxy-release-gate.sh --with-docker-config
-```
-
-### Commit B：P1 渠道故障切换和用户分组限制收口
+### Commit A：P1 渠道故障切换和用户分组限制收口
 
 范围：
 
@@ -320,10 +339,8 @@ scripts/data-proxy-release-gate.sh --with-docker-config
 
 注意：
 
-当前工作区里 `dto/channel_settings.go` 和 `web/default/src/features/channels/`
-包含 hosted tools policy / Responses 设置相关改动。如果这些改动只是协议转换
-长尾 UI，不要放进 P1；除非确认它们是当前版本的窄回归修复，否则进入
-post-vNext 停车场。
+当前测试已经证明 P1 后端闭环可用。后续 P1 只做生产 smoke 和 UI/文案的窄
+收口；不要把 Responses/hosted-tools UI 当作 P1 failover 改动提交。
 
 验证：
 
@@ -331,7 +348,7 @@ post-vNext 停车场。
 scripts/data-proxy-focused-regression.sh --p1 --frontend
 ```
 
-### Commit C：P2 请求诊断、request trace、capture 安全性
+### Commit B：P2 请求诊断、request trace、capture 安全性
 
 范围：
 
@@ -346,7 +363,7 @@ scripts/data-proxy-focused-regression.sh --p1 --frontend
 scripts/data-proxy-focused-regression.sh --p2 --frontend
 ```
 
-### Commit D：P3 Tunnel、MCP Gateway、`dpa` 生产 smoke 和计费风险控制
+### Commit C：P3 Tunnel、MCP Gateway、`dpa` 生产 smoke 和计费风险控制
 
 范围：
 
@@ -363,7 +380,7 @@ scripts/data-proxy-focused-regression.sh --p2 --frontend
 scripts/data-proxy-focused-regression.sh --p3 --frontend
 ```
 
-### Commit E：可选清理，协议转换回归守护，不做长尾
+### Commit D：可选清理，协议转换回归守护，不做长尾
 
 范围：
 
@@ -391,26 +408,7 @@ scripts/data-proxy-focused-regression.sh --p3 --frontend
 go test ./service/openaicompat ./relay/channel/openai ./relay -count=1
 ```
 
-### Commit F：benchmark 工具差异确认
-
-范围：
-
-- `tools/fusion-benchmark.mjs`；
-- `tools/fusion-benchmark/config.json`。
-
-处理方式：
-
-- 如果是当前版本生产验证必须使用的 benchmark 工具，单独提交；
-- 如果只是后续性能评估工具，保留到 vNext 稳定后再处理；
-- 不要和发布基线、P1、协议转换停车场混提交。
-
-验证：
-
-```bash
-node tools/fusion-benchmark.mjs --help
-```
-
-### Commit G：部署和生产 smoke
+### Commit E：部署和生产 smoke
 
 范围：
 

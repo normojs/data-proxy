@@ -76,11 +76,6 @@ group_for_file() {
     echo "RC0_RELEASE_BASELINE"
     ;;
 
-  dto/channel_settings.go | \
-    web/default/src/features/channels/*)
-    echo "P1_CHANNEL_FAILOVER_GROUPS"
-    ;;
-
   docs/request-capture-* | \
     web/default/src/features/training-data/* | \
     web/default/src/routes/_authenticated/training-data/*)
@@ -103,9 +98,11 @@ group_for_file() {
     ;;
 
   relay/* | service/openaicompat/* | service/hosted_tool_executor* | \
-    dto/openai_response* | docs/23-responses-chat-compatibility.md | \
+    dto/openai_response* | dto/channel_settings.go | \
+    docs/23-responses-chat-compatibility.md | \
     docs/openai-hosted-tools-support-plan.md | \
-    docs/responses-chat-completions-conversion-plan.md)
+    docs/responses-chat-completions-conversion-plan.md | \
+    web/default/src/features/channels/*)
     echo "PROTOCOL_REGRESSION_GUARD_ONLY"
     ;;
 
@@ -139,7 +136,6 @@ secret_path_warning() {
 
 groups=(
   RC0_RELEASE_BASELINE
-  P1_CHANNEL_FAILOVER_GROUPS
   P2_P4_DIAGNOSTICS_CAPTURE_TRAINING
   P3_TUNNEL_MCP_DPA
   PRICING_BILLING
