@@ -52,6 +52,16 @@ curl -sS \
   -H 'Cookie: YOUR_ADMIN_SESSION_COOKIE'
 ```
 
+Useful filters:
+
+- `severity=error|warning`
+- `source=log_error|trace_meta|channel_failover|capture`
+- `model_name=deepseek` (substring match)
+- `channel_id=123`
+- `group=default`
+- `report_status=completed`
+- `user_id=123` or `token_id=456`
+
 Each item contains `request_id`, `severity`, `source`, `summary`,
 `last_seen_at`, log counters, and the latest diagnostic report status when one
 exists. `source` can include `log_error`, `trace_meta`, `channel_failover`, or
@@ -64,9 +74,12 @@ Open **Usage Logs -> Common**, then:
 
 1. Paste the request id into the **Request ID** filter, or click the filter
    button next to a request id in the table.
-2. Click the trace button next to a request id to open the log detail dialog
+2. Open **Diagnostic Candidates** to find suspicious requests in the selected
+   time range. Filter by severity, source, model, or channel id when many
+   requests are normal.
+3. Click the trace button next to a request id to open the log detail dialog
    directly, or open the row details from the Details column.
-3. Read the **Request Trace** section.
+4. Read the **Request Trace** section.
 
 The trace section shows:
 
