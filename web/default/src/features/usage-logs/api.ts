@@ -23,6 +23,8 @@ import type {
   GetLogsResponse,
   GetLogStatsParams,
   GetLogStatsResponse,
+  GetRequestDiagnosticCandidatesParams,
+  GetRequestDiagnosticCandidatesResponse,
   GetMidjourneyLogsParams,
   GetRequestDiagnosticReportResponse,
   GetRequestLogTraceResponse,
@@ -114,6 +116,24 @@ export async function generateRequestDiagnosticReport(
     `/api/log/request/${encodeURIComponent(requestId)}/diagnostic`
   )
   return res.data
+}
+
+export async function getRequestDiagnosticCandidates(
+  params: GetRequestDiagnosticCandidatesParams = {}
+): Promise<GetRequestDiagnosticCandidatesResponse> {
+  const queryParams = buildQueryParams({
+    limit: params.limit || 20,
+    start_timestamp: params.start_timestamp,
+    end_timestamp: params.end_timestamp,
+  })
+  const res = await api.get(
+    `/api/log/request-diagnostic-candidates?${queryParams}`
+  )
+  return res.data
+}
+
+export function getRequestDiagnosticBundleUrl(requestId: string): string {
+  return `/api/log/request/${encodeURIComponent(requestId)}/diagnostic/bundle`
 }
 
 export async function getUserInfo(

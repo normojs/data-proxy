@@ -33,10 +33,16 @@ import {
   UserCog,
   Info,
   Activity,
+  Download,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatTimestampToDate,
+  formatTokens,
+  formatUseTime,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { Button } from '@/components/ui/button'
@@ -54,6 +60,7 @@ import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import {
   generateRequestDiagnosticReport,
+  getRequestDiagnosticBundleUrl,
   getRequestDiagnosticReport,
   getRequestLogTrace,
 } from '../../api'
@@ -75,6 +82,7 @@ import {
   isTimingLogType,
 } from '../../lib/utils'
 import type {
+  ChannelFailoverEvent,
   LogOtherData,
   RequestDiagnosticReport,
   RequestConversionMeta,
@@ -196,9 +204,37 @@ function formatConversionToken(
     completed: t('Completed'),
     incomplete: t('Incomplete'),
     failed: t('Failed'),
+    ok: t('OK'),
+    error: t('Error'),
     unique_call_id: t('Unique Call ID'),
+    filter_and_direct_answer: t('Filter and direct answer'),
+    native_responses_required: t('Native Responses required'),
+    executor_bridge: t('Executor bridge'),
+    reject_with_clear_error: t('Reject with clear error'),
   }
   return labels[value] || value
+}
+
+function formatHostedWebSearchExecutorEvent(
+  event: NonNullable<
+    RequestConversionMeta['hosted_web_search_executor_events']
+  >[number],
+  index: number,
+  t: (key: string) => string
+): string {
+  const parts = [
+    `#${index + 1}`,
+    event.status ? formatConversionToken(event.status, t) : '',
+    event.duration_ms != null ? `${t('Duration')}: ${event.duration_ms}ms` : '',
+    event.results_count != null
+      ? `${t('Results')}: ${event.results_count}`
+      : '',
+    event.answer_chars != null
+      ? `${t('Answer Chars')}: ${event.answer_chars}`
+      : '',
+    event.error ? `${t('Error')}: ${event.error}` : '',
+  ].filter(Boolean)
+  return parts.join(' · ')
 }
 
 function ConversionMetaRows(props: {
@@ -309,12 +345,92 @@ function ConversionMetaRows(props: {
   }
 
   if (
+    Array.isArray(meta.hosted_tools_requested) &&
+    meta.hosted_tools_requested.length > 0
+  ) {
+    rows.push({
+      label: t('Requested Hosted Tools'),
+      value: meta.hosted_tools_requested.join(', '),
+      mono: true,
+    })
+  }
+
+  if (
     Array.isArray(meta.hosted_tools_filtered) &&
     meta.hosted_tools_filtered.length > 0
   ) {
     rows.push({
       label: t('Filtered Hosted Tools'),
       value: meta.hosted_tools_filtered.join(', '),
+      mono: true,
+    })
+  }
+
+  if (meta.hosted_tools_policy) {
+    rows.push({
+      label: t('Hosted Tools Policy'),
+      value: formatConversionToken(meta.hosted_tools_policy, t),
+      mono: true,
+    })
+  }
+
+  if (meta.hosted_tools_rejected) {
+    rows.push({
+      label: t('Hosted Tools Action'),
+      value: t('Rejected'),
+    })
+  }
+
+  if (meta.hosted_tools_executor_bridge_requested) {
+    rows.push({
+      label: t('Executor Bridge'),
+      value: meta.hosted_tools_executor_bridge_ready
+        ? t('Ready')
+        : t('Requested'),
+    })
+  }
+
+  if (
+    meta.hosted_web_search_executor_calls != null ||
+    meta.hosted_web_search_executor_error
+  ) {
+    const parts = [
+      meta.hosted_web_search_executor_calls != null
+        ? `${t('Calls')}: ${meta.hosted_web_search_executor_calls}`
+        : '',
+      meta.hosted_web_search_executor_error
+        ? `${t('Error')}: ${meta.hosted_web_search_executor_error}`
+        : '',
+    ].filter(Boolean)
+    rows.push({
+      label: t('Web Search Executor'),
+      value: parts.join(' · '),
+      mono: true,
+    })
+  }
+
+  if (
+    Array.isArray(meta.hosted_web_search_executor_events) &&
+    meta.hosted_web_search_executor_events.length > 0
+  ) {
+    const visibleEvents = meta.hosted_web_search_executor_events.slice(0, 4)
+    const moreEvents = meta.hosted_web_search_executor_events.length - 4
+    rows.push({
+      label: t('Executor Events'),
+      value: (
+        <div className='space-y-0.5'>
+          {visibleEvents.map((event, index) => (
+            <div key={`${event.tool_call_id || index}-${index}`}>
+              {formatHostedWebSearchExecutorEvent(event, index, t)}
+            </div>
+          ))}
+          {moreEvents > 0 && (
+            <div className='text-muted-foreground'>
+              {t('{{count}} more executor events', { count: moreEvents })}
+            </div>
+          )}
+        </div>
+      ),
       mono: true,
     })
   }
@@ -451,6 +567,165 @@ function safeTraceMeta(
   return meta as RequestConversionMeta
 }
 
+function safeChannelFailoverEvents(
+  adminInfo: RequestLogTrace['diagnostics']['admin_info']
+): ChannelFailoverEvent[] {
+  if (!adminInfo || typeof adminInfo !== 'object' || Array.isArray(adminInfo)) {
+    return []
+  }
+  const events = adminInfo.channel_failover
+  if (!Array.isArray(events)) return []
+  return events.filter(
+    (event): event is ChannelFailoverEvent =>
+      !!event && typeof event === 'object' && !Array.isArray(event)
+  )
+}
+
+function channelFailoverEventLabel(
+  event: ChannelFailoverEvent,
+  t: (key: string) => string
+): string {
+  if (event.event === 'selected') return t('Selected')
+  if (event.event === 'failed') return t('Failed')
+  return event.event || t('Unknown')
+}
+
+function channelFailoverEventVariant(
+  event: ChannelFailoverEvent
+): StatusBadgeProps['variant'] {
+  if (event.event === 'failed') return 'red'
+  if (event.event === 'selected') return 'green'
+  return 'neutral'
+}
+
+function channelFailoverChannelText(event: ChannelFailoverEvent): string {
+  const id = event.channel_id ? `#${event.channel_id}` : '#-'
+  return event.channel_name ? `${id} ${event.channel_name}` : id
+}
+
+function compactJoin(parts: Array<string | number | undefined | null>): string {
+  return parts
+    .filter((part) => part !== undefined && part !== null && `${part}` !== '')
+    .map((part) => `${part}`)
+    .join(' · ')
+}
+
+function ChannelFailoverTraceList(props: {
+  events: ChannelFailoverEvent[]
+}) {
+  const { t } = useTranslation()
+  const { events } = props
+  if (events.length === 0) return null
+
+  return (
+    <div className='border-border/70 space-y-1.5 border-t pt-2'>
+      <Label className='text-xs font-semibold'>{t('Channel Failover')}</Label>
+      <div className='space-y-1.5'>
+        {events.map((event, idx) => {
+          const statusText = compactJoin([
+            event.status_code,
+            event.error_code,
+            event.error_type,
+          ])
+          const healthText = compactJoin([
+            event.health_action,
+            event.runtime_status,
+            event.temporarily_unavailable ? t('Temporary Circuit') : undefined,
+          ])
+          const cooldownUntil =
+            event.cooldown_until || event.health_cooldown_until
+          const failureCount =
+            event.consecutive_failures || event.health_failure_count
+          const reason = event.reason || event.health_reason
+
+          return (
+            <div
+              key={`${event.ts ?? idx}-${event.event ?? 'event'}-${idx}`}
+              className='bg-background/60 min-w-0 space-y-1 rounded border p-2'
+            >
+              <div className='flex min-w-0 items-center justify-between gap-2'>
+                <div className='flex min-w-0 items-center gap-1.5'>
+                  <StatusBadge
+                    label={channelFailoverEventLabel(event, t)}
+                    variant={channelFailoverEventVariant(event)}
+                    size='sm'
+                    copyable={false}
+                  />
+                  <span className='min-w-0 truncate font-mono text-[11px]'>
+                    {channelFailoverChannelText(event)}
+                  </span>
+                </div>
+                {event.ts ? (
+                  <span className='text-muted-foreground shrink-0 font-mono text-[11px]'>
+                    {formatTimestampToDate(event.ts, 'seconds')}
+                  </span>
+                ) : null}
+              </div>
+
+              <DetailRow
+                label={t('Retry Index')}
+                value={event.retry_index ?? '-'}
+                mono
+              />
+              {event.remaining_retries != null && (
+                <DetailRow
+                  label={t('Remaining Retries')}
+                  value={event.remaining_retries}
+                  mono
+                />
+              )}
+              {event.selected_group && (
+                <DetailRow
+                  label={t('Group')}
+                  value={event.selected_group}
+                  mono
+                />
+              )}
+              {event.excluded_channel_ids &&
+                event.excluded_channel_ids.length > 0 && (
+                  <DetailRow
+                    label={t('Excluded Channels')}
+                    value={event.excluded_channel_ids
+                      .map((id) => `#${id}`)
+                      .join(' · ')}
+                    mono
+                  />
+                )}
+              {typeof event.retry_planned === 'boolean' && (
+                <DetailRow
+                  label={t('Retry Planned')}
+                  value={event.retry_planned ? t('Yes') : t('No Retry')}
+                />
+              )}
+              {statusText && (
+                <DetailRow label={t('Status')} value={statusText} mono />
+              )}
+              {healthText && (
+                <DetailRow label={t('Health Action')} value={healthText} />
+              )}
+              {failureCount != null && (
+                <DetailRow
+                  label={t('Failure Count')}
+                  value={failureCount}
+                  mono
+                />
+              )}
+              {cooldownUntil ? (
+                <DetailRow
+                  label={t('Cooldown Until')}
+                  value={formatTimestampToDate(cooldownUntil, 'seconds')}
+                  mono
+                />
+              ) : null}
+              {reason && <DetailRow label={t('Reason')} value={reason} />}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function traceTypeCountsText(
   trace: RequestLogTrace,
   t: (key: string) => string
@@ -512,6 +787,7 @@ function RequestDiagnosticSection(props: {
   copiedText?: string | null
   onCopy: (text: string) => void
   onGenerate: () => void
+  onDownload: () => void
 }) {
   const { t } = useTranslation()
   const {
@@ -522,6 +798,7 @@ function RequestDiagnosticSection(props: {
     copiedText,
     onCopy,
     onGenerate,
+    onDownload,
   } = props
 
   if (loading) {
@@ -640,19 +917,31 @@ function RequestDiagnosticSection(props: {
           </p>
         )}
 
-        <Button
-          variant='outline'
-          size='sm'
-          className='h-8 gap-1.5'
-          onClick={onGenerate}
-          disabled={generating}
-        >
-          <RefreshCw
-            className={cn('size-3.5', generating && 'animate-spin')}
-            aria-hidden='true'
-          />
-          {hasReport ? t('Regenerate Diagnostic') : t('Generate Diagnostic')}
-        </Button>
+        <div className='flex flex-wrap gap-2'>
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8 gap-1.5'
+            onClick={onGenerate}
+            disabled={generating}
+          >
+            <RefreshCw
+              className={cn('size-3.5', generating && 'animate-spin')}
+              aria-hidden='true'
+            />
+            {hasReport ? t('Regenerate Diagnostic') : t('Generate Diagnostic')}
+          </Button>
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8 gap-1.5'
+            onClick={onDownload}
+            disabled={!report}
+          >
+            <Download className='size-3.5' aria-hidden='true' />
+            {t('Download Bundle')}
+          </Button>
+        </div>
       </div>
     </DetailSection>
   )
@@ -701,6 +990,9 @@ function RequestTraceSection(props: {
 
   const traceCopyText = JSON.stringify(trace, null, 2)
   const meta = safeTraceMeta(trace.diagnostics.request_conversion_meta)
+  const failoverEvents = safeChannelFailoverEvents(
+    trace.diagnostics.admin_info
+  )
   const errors = Array.isArray(trace.diagnostics.errors)
     ? trace.diagnostics.errors.filter(Boolean)
     : []
@@ -795,6 +1087,8 @@ function RequestTraceSection(props: {
         </div>
 
         {meta && <ConversionMetaRows meta={meta} />}
+
+        <ChannelFailoverTraceList events={failoverEvents} />
 
         {errors.length > 0 && (
           <div className='border-border/70 border-t pt-2'>
@@ -1451,6 +1745,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 copiedText={copiedText}
                 onCopy={copyToClipboard}
                 onGenerate={() => generateDiagnosticMutation.mutate()}
+                onDownload={() => {
+                  window.open(
+                    getRequestDiagnosticBundleUrl(requestTraceId),
+                    '_blank',
+                    'noopener,noreferrer'
+                  )
+                }}
               />
             )}
 

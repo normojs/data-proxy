@@ -92,6 +92,37 @@ export interface ChannelAffinityInfo {
   using_group?: string
 }
 
+export interface ChannelFailoverEvent {
+  event?: 'selected' | 'failed' | string
+  ts?: number
+  retry_index?: number
+  remaining_retries?: number
+  retry_planned?: boolean
+  token_group?: string
+  selected_group?: string
+  model_name?: string
+  channel_id?: number
+  channel_name?: string
+  channel_type?: number
+  excluded_channel_ids?: number[]
+  auto_ban?: boolean
+  is_multi_key?: boolean
+  multi_key_index?: number
+  error_type?: string
+  error_code?: string
+  status_code?: number
+  reason?: string
+  health_action?: string
+  health_failure_count?: number
+  health_cooldown_until?: number
+  health_reason?: string
+  runtime_status?: string
+  temporarily_unavailable?: boolean
+  consecutive_failures?: number
+  cooldown_until?: number
+  [key: string]: unknown
+}
+
 export interface RequestConversionMeta {
   responses_protocol?: string
   upstream_protocol?: string
@@ -106,8 +137,25 @@ export interface RequestConversionMeta {
   reasoning_params?: string[]
   reasoning_effort_mapped?: string
   hosted_tools_functionized?: string[]
+  hosted_tools_requested?: string[]
   hosted_tools_filtered?: string[]
+  hosted_tools_policy?: string
+  hosted_tools_rejected?: boolean
+  hosted_tools_executor_bridge_requested?: boolean
+  hosted_tools_executor_bridge_ready?: boolean
   hosted_tools_direct_answer_hint?: boolean
+  hosted_web_search_executor_calls?: number
+  hosted_web_search_executor_error?: string
+  hosted_web_search_executor_events?: Array<{
+    status?: string
+    tool_name?: string
+    tool_call_id?: string
+    duration_ms?: number
+    results_count?: number
+    answer_chars?: number
+    query_present?: boolean
+    error?: string
+  }>
   unsupported_tools_filtered?: string[]
   history_restored_count?: number
   history_restore_sources?: string[]
@@ -130,6 +178,7 @@ export interface LogOtherData {
     use_channel?: number[]
     local_count_tokens?: boolean
     channel_affinity?: ChannelAffinityInfo
+    channel_failover?: ChannelFailoverEvent[]
     // Top-up audit fields (type=1, admin only)
     payment_method?: string
     callback_payment_method?: string
@@ -357,6 +406,7 @@ export interface RequestLogTraceDiagnostics extends Record<string, unknown> {
   request_path?: string
   request_conversion?: string[]
   request_conversion_meta?: RequestConversionMeta
+  admin_info?: LogOtherData['admin_info']
   stream_status?: LogOtherData['stream_status']
   billing_source?: string
   billing_preference?: string
@@ -486,6 +536,40 @@ export interface GetRequestDiagnosticReportResponse {
   success: boolean
   message?: string
   data?: RequestDiagnosticReport
+}
+
+export interface RequestDiagnosticCandidate {
+  request_id: string
+  severity: 'ok' | 'warning' | 'error' | 'info' | string
+  source: string
+  summary: string
+  last_seen_at: number
+  error_count: number
+  consume_count: number
+  user_id?: number
+  username?: string
+  token_id?: number
+  token_name?: string
+  model_name?: string
+  channel_id?: number
+  group?: string
+  report_status?: string
+  report_severity?: string
+}
+
+export interface GetRequestDiagnosticCandidatesParams {
+  limit?: number
+  start_timestamp?: number
+  end_timestamp?: number
+}
+
+export interface GetRequestDiagnosticCandidatesResponse {
+  success: boolean
+  message?: string
+  data?: {
+    total: number
+    items: RequestDiagnosticCandidate[]
+  }
 }
 
 // ============================================================================

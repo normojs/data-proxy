@@ -48,6 +48,7 @@ import {
   LogsFilterInput,
   LogsFilterToolbar,
 } from './logs-filter-toolbar'
+import { RequestDiagnosticCandidatesDialog } from './request-diagnostic-candidates-dialog'
 import { useUsageLogsContext } from './usage-logs-provider'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
@@ -82,6 +83,7 @@ export function CommonLogsFilterBar<TData>(
 
   useEffect(() => {
     const { start, end } = getDefaultTimeRange()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- keep filter form synchronized with route search params.
     setFilters({
       startTime: searchParams.startTime
         ? new Date(searchParams.startTime)
@@ -159,6 +161,31 @@ export function CommonLogsFilterBar<TData>(
     queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
   }, [navigate, queryClient])
 
+  const handleDiagnosticCandidateSelect = useCallback(
+    (requestId: string) => {
+      const filterParams = buildSearchParams(
+        {
+          ...filters,
+          requestId,
+          upstreamRequestId: undefined,
+        },
+        'common'
+      )
+      navigate({
+        to: '/usage-logs/$section',
+        params: { section: 'common' },
+        search: {
+          ...filterParams,
+          type: [logType],
+          page: 1,
+        },
+      })
+      queryClient.invalidateQueries({ queryKey: ['logs'] })
+      queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
+    },
+    [filters, logType, navigate, queryClient]
+  )
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter') handleApply()
@@ -195,10 +222,23 @@ export function CommonLogsFilterBar<TData>(
   )
   const logTypeLabel =
     logTypeItems.find((type) => type.value === logType)?.label ?? t('All Types')
+  const candidateStartTimestamp = filters.startTime
+    ? Math.floor(filters.startTime.getTime() / 1000)
+    : undefined
+  const candidateEndTimestamp = filters.endTime
+    ? Math.floor(filters.endTime.getTime() / 1000)
+    : undefined
 
   const statsBar = (
     <div className='flex flex-wrap items-center gap-2'>
       <CommonLogsStats />
+      {isAdmin && (
+        <RequestDiagnosticCandidatesDialog
+          startTimestamp={candidateStartTimestamp}
+          endTimestamp={candidateEndTimestamp}
+          onSelectRequest={handleDiagnosticCandidateSelect}
+        />
+      )}
       <Tooltip>
         <TooltipTrigger
           render={
