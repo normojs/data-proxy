@@ -261,10 +261,11 @@
     "temperature": 0,
     "fastLaneTimeoutMs": 30000,
     "fastLaneRetries": 0,
-    "directRepairModels": ["qwen/qwen3.7-plus", "deepseek/deepseek-v4-pro"],
+    "directRepairModels": ["qwen/qwen3.6-flash", "qwen/qwen3.7-plus"],
     "directRepairMaxCandidates": 1,
     "directRepairMaxAttempts": 2,
-    "directRepairTimeoutMs": 45000
+    "directRepairTimeoutMs": 30000,
+    "directRepairEarlyExitDifficulties": ["hard"]
   },
   "pricing": {
     "qwen/qwen3.7-plus": { "prompt": 0.00000032, "completion": 0.00000128 },

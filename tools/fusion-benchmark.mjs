@@ -838,6 +838,20 @@ function verifiedCodingDirectRepairModels(preset, config) {
     .slice(0, cfg.maxAttempts);
 }
 
+function verifiedCodingDirectRepairEarlyExitEnabled(config, context = {}) {
+  const cfg = config.verifiedCoding || {};
+  const nested = cfg.directRepair && typeof cfg.directRepair === "object" ? cfg.directRepair : {};
+  const enabled = cfg.directRepairEarlyExit ?? nested.earlyExit ?? true;
+  if (enabled === false) return false;
+  const allowedDifficulties = Array.isArray(cfg.directRepairEarlyExitDifficulties)
+    ? cfg.directRepairEarlyExitDifficulties.map((item) => String(item).toLowerCase())
+    : Array.isArray(nested.earlyExitDifficulties)
+      ? nested.earlyExitDifficulties.map((item) => String(item).toLowerCase())
+      : [];
+  const difficulty = String(context.difficulty || "").toLowerCase();
+  return allowedDifficulties.length === 0 || allowedDifficulties.includes(difficulty);
+}
+
 function verifiedCodingDirectRepairTargets(candidateVerifications, config) {
   const cfg = verifiedCodingDirectRepairConfig(config);
   if (!cfg.enabled || cfg.maxCandidates <= 0) return [];
@@ -1469,6 +1483,7 @@ async function runFusion(body, config, options = {}) {
     const err = new Error("All Fusion panel calls failed");
     err.status = 502;
     err.panelResults = panelResults;
+    err.failure = classifyPanelFailure(panelResults);
     throw err;
   }
 
@@ -2260,7 +2275,7 @@ async function freshRun(argv) {
           error: emptyContent ? "Empty model response" : undefined
         };
       } catch (err) {
-        const failure = classifyRequestFailure(err.message);
+        const failure = err.failure || classifyRequestFailure(err.message);
         record = {
           run_type: "fresh_eval",
           run_id: runId,
@@ -2746,6 +2761,7 @@ async function runVerifiedCodingPanelStage({
   retries,
   apiBaseOverride,
   apiKeyOverride,
+  earlyReturnOnRepairableFailure = false,
   signal
 }) {
   const linked = linkedAbortController(signal);
@@ -2802,6 +2818,27 @@ async function runVerifiedCodingPanelStage({
           candidateVerifications,
           passing,
           earlyExit: cancelledPendingCount > 0,
+          repairableEarlyExit: false,
+          cancelledPendingCount,
+          latency_ms: Date.now() - stageStarted,
+          verifier_latency_ms: verificationLatencyMs
+        };
+      }
+
+      if (earlyReturnOnRepairableFailure && verifiedCodingDirectRepairTargets([verification], config).length > 0) {
+        const cancelledPendingCount = pending.size;
+        if (cancelledPendingCount > 0) {
+          linked.controller.abort(new Error("Verified coding early exit after repairable failed candidate"));
+          const remaining = await Promise.all([...pending.values()]);
+          pending.clear();
+          for (const item of remaining) panelResults.push(item.result);
+        }
+        return {
+          panelResults,
+          candidateVerifications,
+          passing: [],
+          earlyExit: false,
+          repairableEarlyExit: true,
           cancelledPendingCount,
           latency_ms: Date.now() - stageStarted,
           verifier_latency_ms: verificationLatencyMs
@@ -2814,6 +2851,7 @@ async function runVerifiedCodingPanelStage({
       candidateVerifications,
       passing: rankVerifiedCodeCandidates(candidateVerifications),
       earlyExit: false,
+      repairableEarlyExit: false,
       cancelledPendingCount: 0,
       latency_ms: Date.now() - stageStarted,
       verifier_latency_ms: verificationLatencyMs
@@ -2884,6 +2922,7 @@ async function runVerifiedCodingFusion({
       successful: stage.panelResults.filter((r) => r.ok && r.content.trim()).length,
       verified: stage.candidateVerifications.length,
       early_exit: stage.earlyExit,
+      repairable_early_exit: Boolean(stage.repairableEarlyExit),
       cancelled_pending: stage.cancelledPendingCount,
       latency_ms: stage.latency_ms,
       verifier_latency_ms: stage.verifier_latency_ms
@@ -3022,6 +3061,7 @@ async function runVerifiedCodingFusion({
       artifactRoot,
       panelModels: primaryPanel,
       attempt: "primary",
+      earlyReturnOnRepairableFailure: verifiedCodingDirectRepairEarlyExitEnabled(config, fusionContext),
       apiBaseOverride,
       apiKeyOverride,
       signal
@@ -3056,6 +3096,7 @@ async function runVerifiedCodingFusion({
     const err = new Error("All Fusion panel calls failed");
     err.status = 502;
     err.panelResults = panelResults;
+    err.failure = classifyPanelFailure(panelResults);
     throw err;
   }
 
@@ -3499,6 +3540,8 @@ function selfTest() {
   });
   const directRepairCfg = verifiedCodingDirectRepairConfig(config);
   const directRepairModels = verifiedCodingDirectRepairModels(config.fusionPresets["fusion-cn-budget"], config);
+  const hardDirectRepairEarlyExit = verifiedCodingDirectRepairEarlyExitEnabled(config, { difficulty: "hard" });
+  const veryHardDirectRepairEarlyExit = verifiedCodingDirectRepairEarlyExitEnabled(config, { difficulty: "very_hard" });
   const directRepairTargets = verifiedCodingDirectRepairTargets(
     [
       {
@@ -3535,6 +3578,10 @@ function selfTest() {
     ],
     config
   );
+  const timeoutPanelFailure = classifyPanelFailure([
+    { model: "a", ok: false, error: "Request timed out after 30000ms" },
+    { model: "b", ok: false, error: "Request timed out after 60000ms" }
+  ]);
   const checks = [
     objectiveRouter.panel.length >= 2,
     codingRouter.panel.length >= 2,
@@ -3548,9 +3595,11 @@ function selfTest() {
     repairPayload.verifier_failure_log.includes("AssertionError"),
     summarizedVerification.passed === true && summarizedVerification.content === undefined,
     directRepairCfg.enabled && directRepairCfg.maxCandidates === 1 && directRepairCfg.maxAttempts === 2,
-    directRepairModels.join(",") === "qwen/qwen3.7-plus,deepseek/deepseek-v4-pro",
+    directRepairModels.join(",") === "qwen/qwen3.6-flash,qwen/qwen3.7-plus",
     !directRepairModels.includes("openai/gpt-5.5"),
+    hardDirectRepairEarlyExit === true && veryHardDirectRepairEarlyExit === false,
     directRepairTargets.length === 1 && directRepairTargets[0].model === "test-fail",
+    timeoutPanelFailure.score_reason === "request_timeout" && timeoutPanelFailure.failure_type === "timeout",
     truncateText("abc", 10) === "abc" && truncateText("x".repeat(100), 30).includes("[... truncated")
   ];
   if (checks.every(Boolean)) {
@@ -3618,6 +3667,21 @@ function classifyRequestFailure(message) {
     return { score_reason: "provider_error", failure_type: "provider_error" };
   }
   return { score_reason: "runner_error", failure_type: "runner_error" };
+}
+
+function classifyPanelFailure(panelResults) {
+  const failures = (panelResults || []).map((panel) => classifyRequestFailure(panel?.error || panel?.score_reason || ""));
+  if (failures.length === 0) return { score_reason: "provider_error", failure_type: "provider_error" };
+  if (failures.every((failure) => failure.failure_type === "timeout")) {
+    return { score_reason: "request_timeout", failure_type: "timeout" };
+  }
+  if (failures.some((failure) => failure.failure_type === "provider_error")) {
+    return { score_reason: "provider_error", failure_type: "provider_error" };
+  }
+  if (failures.some((failure) => failure.failure_type === "timeout")) {
+    return { score_reason: "request_timeout", failure_type: "timeout" };
+  }
+  return failures[0];
 }
 
 function isProviderErrorRecord(record) {
@@ -3920,7 +3984,7 @@ async function codeRun(argv) {
         };
       } catch (err) {
         const errorMessage = String(err.message || "");
-        const failure = classifyRequestFailure(errorMessage);
+        const failure = err.failure || classifyRequestFailure(errorMessage);
         fs.mkdirSync(artifactDir, { recursive: true });
         fs.writeFileSync(path.join(artifactDir, "error.txt"), `${err.stack || err.message}\n`);
         record = {
