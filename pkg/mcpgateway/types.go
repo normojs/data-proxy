@@ -3,13 +3,14 @@ package mcpgateway
 import "encoding/json"
 
 const (
-	MethodInitialize    = "initialize"
-	MethodToolsList     = "tools/list"
-	MethodToolsCall     = "tools/call"
-	MethodResourcesList = "resources/list"
-	MethodResourcesRead = "resources/read"
-	MethodPromptsList   = "prompts/list"
-	MethodPromptsGet    = "prompts/get"
+	MethodInitialize             = "initialize"
+	MethodToolsList              = "tools/list"
+	MethodToolsCall              = "tools/call"
+	MethodResourcesList          = "resources/list"
+	MethodResourcesRead          = "resources/read"
+	MethodResourcesTemplatesList = "resources/templates/list"
+	MethodPromptsList            = "prompts/list"
+	MethodPromptsGet             = "prompts/get"
 )
 
 const (

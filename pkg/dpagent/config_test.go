@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -82,6 +83,17 @@ func TestCLISelfTest(t *testing.T) {
 	}
 }
 
+func TestCLIProgramNameNormalizesWindowsExecutable(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := RunCLIWithProgram("dpa.exe", []string{"version"}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("version failed with code %d: %s", code, errOut.String())
+	}
+	if strings.TrimSpace(out.String()) != "dpa test-version" {
+		t.Fatalf("unexpected version output: %s", out.String())
+	}
+}
+
 func TestCLIConfigShowRedactsToken(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := tmp + "/config.yaml"
@@ -102,6 +114,95 @@ func TestCLIConfigShowRedactsToken(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "sk-s...alue") {
 		t.Fatalf("config show did not include masked token: %s", out.String())
+	}
+}
+
+func TestCLIStatusJSON(t *testing.T) {
+	configPath := t.TempDir() + "/config.yaml"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	cfg.Agent.Token = "sk-status-secret"
+	cfg.Agent.Workspace = t.TempDir()
+	cfg.MCPServers = []MCPServer{{Name: "coding", Transport: "streamable_http", Endpoint: "http://127.0.0.1:30837/mcp"}}
+	cfg.HTTPRoutes = []HTTPRoute{{Name: "local-web", Target: "http://127.0.0.1:3000"}}
+	cfg.TCPRoutes = []TCPRoute{{Name: "local-ssh", TargetHost: "127.0.0.1", TargetPort: 22}}
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{"status", "--json", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("status --json failed with code %d: %s", code, errOut.String())
+	}
+	if strings.Contains(out.String(), "sk-status-secret") {
+		t.Fatalf("status --json leaked token: %s", out.String())
+	}
+
+	var summary AgentStatusSummary
+	if err := json.Unmarshal(out.Bytes(), &summary); err != nil {
+		t.Fatalf("status --json output is invalid JSON: %s\n%s", err, out.String())
+	}
+	if !summary.ConfigLoaded || summary.ClientID == "" || summary.BridgeWSURL != "wss://dp.example.com/bridge/ws" {
+		t.Fatalf("unexpected status summary: %#v", summary)
+	}
+	if !summary.TokenConfigured || summary.TokenSource != "agent.token" {
+		t.Fatalf("unexpected token summary: %#v", summary)
+	}
+	if summary.MCPServers != 1 || summary.HTTPRoutes != 1 || summary.TCPRoutes != 1 {
+		t.Fatalf("unexpected route counts: %#v", summary)
+	}
+	if len(summary.Routes) != 3 {
+		t.Fatalf("unexpected route summaries: %#v", summary.Routes)
+	}
+	for _, expected := range []string{BridgeCapabilityMCPProxy, BridgeCapabilityHTTPTunnel, BridgeCapabilityTCPTunnel} {
+		if !containsString(summary.Capabilities, expected) {
+			t.Fatalf("status capabilities missing %s: %#v", expected, summary.Capabilities)
+		}
+	}
+}
+
+func TestCLIStatusJSONWithHealth(t *testing.T) {
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer local.Close()
+	tcpListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcpListener.Close()
+
+	configPath := t.TempDir() + "/config.yaml"
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	cfg.Agent.Token = "sk-status-health"
+	cfg.Agent.Workspace = t.TempDir()
+	cfg.Logging.LocalAuditJSONL = t.TempDir() + "/audit.jsonl"
+	cfg.MCPServers = []MCPServer{{Name: "coding", Transport: "streamable_http", Endpoint: local.URL + "/mcp"}}
+	cfg.HTTPRoutes = []HTTPRoute{{Name: "local-web", Target: local.URL}}
+	cfg.TCPRoutes = []TCPRoute{{Name: "local-ssh", TargetHost: "127.0.0.1", TargetPort: tcpListener.Addr().(*net.TCPAddr).Port}}
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{"status", "--json", "--health", "--timeout", "2s", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("status --json --health failed with code %d: %s", code, errOut.String())
+	}
+
+	var summary AgentStatusSummary
+	if err := json.Unmarshal(out.Bytes(), &summary); err != nil {
+		t.Fatalf("status --json --health output is invalid JSON: %s\n%s", err, out.String())
+	}
+	if len(summary.LocalHealth) == 0 {
+		t.Fatalf("expected local health checks: %#v", summary)
+	}
+	for _, name := range []string{"workspace", "local_audit", "http_route.local-web", "tcp_route.local-ssh", "mcp_server.coding"} {
+		if got := statusForHealthCheck(summary.LocalHealth, name); got != HealthStatusOK {
+			t.Fatalf("unexpected health for %s: %#v", name, summary.LocalHealth)
+		}
 	}
 }
 
@@ -231,11 +332,30 @@ func TestCLITunnelRouteAddListRemove(t *testing.T) {
 
 	out.Reset()
 	errOut.Reset()
+	code = RunCLI([]string{
+		"tunnel", "route", "add", "tcp", "local-ssh",
+		"--host", "127.0.0.1",
+		"--port", "22",
+		"--config", configPath,
+	}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("tcp tunnel route add failed with code %d: %s", code, errOut.String())
+	}
+	loaded, _, err = LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.TCPRoutes) != 1 || loaded.TCPRoutes[0].Name != "local-ssh" || loaded.TCPRoutes[0].TargetPort != 22 {
+		t.Fatalf("unexpected tcp routes: %#v", loaded.TCPRoutes)
+	}
+
+	out.Reset()
+	errOut.Reset()
 	code = RunCLI([]string{"tunnel", "route", "list", "--config", configPath}, &out, &errOut, "test-version")
 	if code != 0 {
 		t.Fatalf("tunnel route list failed with code %d: %s", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "local-web") {
+	if !strings.Contains(out.String(), "local-web") || !strings.Contains(out.String(), "local-ssh") {
 		t.Fatalf("tunnel route list did not include route: %s", out.String())
 	}
 
@@ -251,6 +371,71 @@ func TestCLITunnelRouteAddListRemove(t *testing.T) {
 	}
 	if len(loaded.HTTPRoutes) != 0 {
 		t.Fatalf("route was not removed: %#v", loaded.HTTPRoutes)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = RunCLI([]string{"tunnel", "route", "remove", "local-ssh", "--config", configPath}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("tcp tunnel route remove failed with code %d: %s", code, errOut.String())
+	}
+	loaded, _, err = LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.TCPRoutes) != 0 {
+		t.Fatalf("tcp route was not removed: %#v", loaded.TCPRoutes)
+	}
+}
+
+func TestCLITunnelRouteTest(t *testing.T) {
+	configPath := t.TempDir() + "/config.yaml"
+	localHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer localHTTP.Close()
+	localTCP, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer localTCP.Close()
+
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://dp.example.com"
+	cfg.HTTPRoutes = []HTTPRoute{{Name: "local-web", Target: localHTTP.URL}}
+	cfg.TCPRoutes = []TCPRoute{{Name: "local-tcp", TargetHost: "127.0.0.1", TargetPort: localTCP.Addr().(*net.TCPAddr).Port}}
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := RunCLI([]string{"tunnel", "route", "test", "local-web", "--config", configPath, "--timeout", "2s"}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("http route test failed with code %d: %s\n%s", code, errOut.String(), out.String())
+	}
+	if !strings.Contains(out.String(), "http_route.local-web: ok:") {
+		t.Fatalf("unexpected http route test output: %s", out.String())
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = RunCLI([]string{"tunnel", "route", "test", "local-tcp", "--config", configPath, "--timeout", "2s", "--json"}, &out, &errOut, "test-version")
+	if code != 0 {
+		t.Fatalf("tcp route test failed with code %d: %s\n%s", code, errOut.String(), out.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("route test json invalid: %s\n%s", err, out.String())
+	}
+	if payload["type"] != "tcp" || payload["status"] != HealthStatusOK {
+		t.Fatalf("unexpected tcp route test payload: %#v", payload)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = RunCLI([]string{"tunnel", "route", "test", "missing", "--config", configPath}, &out, &errOut, "test-version")
+	if code == 0 || !strings.Contains(errOut.String(), "tunnel route not found") {
+		t.Fatalf("missing route test should fail, code=%d out=%s err=%s", code, out.String(), errOut.String())
 	}
 }
 
@@ -563,6 +748,19 @@ func TestCLIReportWritesRedactedDiagnosticZip(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer local.Close()
+	assetName := "data-proxy-agent-v1.2.4-" + runtime.GOOS + "-" + runtime.GOARCH + agentTestArchiveExt(runtime.GOOS)
+	manifest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(agentUpdateManifest{
+			Version: "v1.2.4",
+			Assets: []agentUpdateAsset{{
+				Name: assetName,
+				URL:  serverURLFromRequest(r) + "/" + assetName,
+				OS:   runtime.GOOS,
+				Arch: runtime.GOARCH,
+			}},
+		})
+	}))
+	defer manifest.Close()
 	cfg := DefaultConfig()
 	cfg.Server.BaseURL = "https://dp.example.com"
 	cfg.Agent.ClientID = "report-agent"
@@ -576,7 +774,7 @@ func TestCLIReportWritesRedactedDiagnosticZip(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := RunCLI([]string{"report", "--config", configPath, "--output", reportPath, "--skip-network"}, &out, &errOut, "test-version")
+	code := RunCLI([]string{"report", "--config", configPath, "--output", reportPath, "--skip-network", "--check-update", "--manifest-url", manifest.URL}, &out, &errOut, "v1.2.3")
 	if code != 0 {
 		t.Fatalf("report failed with code %d: %s", code, errOut.String())
 	}
@@ -592,6 +790,11 @@ func TestCLIReportWritesRedactedDiagnosticZip(t *testing.T) {
 	if !strings.Contains(combined, "config.redacted.yaml") {
 		t.Fatalf("report did not include config entry names: %s", combined)
 	}
+	for _, want := range []string{"status.json", "local_health.json", "route: http local-web", "route: mcp coding"} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("report missing %q: %s", want, combined)
+		}
+	}
 	if strings.Contains(combined, "sk-report-token-secret") {
 		t.Fatalf("report leaked token: %s", combined)
 	}
@@ -602,6 +805,9 @@ func TestCLIReportWritesRedactedDiagnosticZip(t *testing.T) {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("report missing health check %q: %s", want, combined)
 		}
+	}
+	if !strings.Contains(combined, `"name": "update"`) || !strings.Contains(combined, "v1.2.4 available") {
+		t.Fatalf("report missing update check: %s", combined)
 	}
 }
 

@@ -25,6 +25,7 @@ on:
       - "README.md"
       - "docs/data-proxy-agent-cli-design.md"
       - "scripts/install-data-proxy-agent.sh"
+      - "scripts/generate-data-proxy-agent-manifest.sh"
       - "scripts/notarize-data-proxy-agent.sh"
       - "packaging/data-proxy-agent/**"
   pull_request:
@@ -44,6 +45,7 @@ on:
       - "README.md"
       - "docs/data-proxy-agent-cli-design.md"
       - "scripts/install-data-proxy-agent.sh"
+      - "scripts/generate-data-proxy-agent-manifest.sh"
       - "scripts/notarize-data-proxy-agent.sh"
       - "packaging/data-proxy-agent/**"
   workflow_dispatch:
@@ -91,6 +93,44 @@ jobs:
 
       - name: Check whitespace
         run: git diff --check
+
+      - name: Validate release manifest script
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            asset="data-proxy-agent-v0.0.0-${target}.tar.gz"
+            touch "$tmp/${asset}"
+            printf '%064d  %s\n' 1 "${asset}" > "$tmp/${asset}.sha256"
+          done
+          for target in windows-amd64 windows-arm64; do
+            asset="data-proxy-agent-v0.0.0-${target}.zip"
+            touch "$tmp/${asset}"
+            printf '%064d  %s\n' 1 "${asset}" > "$tmp/${asset}.sha256"
+          done
+          mkdir -p "$tmp/fake/data-proxy-agent-v0.0.0-linux-amd64"
+          cat > "$tmp/fake/data-proxy-agent-v0.0.0-linux-amd64/dpa" <<'EOS'
+          #!/usr/bin/env sh
+          case "${1:-}" in
+            self-test) exit 0 ;;
+            version) echo "v0.0.0"; exit 0 ;;
+            *) echo "fake dpa"; exit 0 ;;
+          esac
+          EOS
+          chmod +x "$tmp/fake/data-proxy-agent-v0.0.0-linux-amd64/dpa"
+          cp "$tmp/fake/data-proxy-agent-v0.0.0-linux-amd64/dpa" "$tmp/fake/data-proxy-agent-v0.0.0-linux-amd64/data-proxy-agent"
+          tar -czf "$tmp/data-proxy-agent-v0.0.0-linux-amd64.tar.gz" -C "$tmp/fake" data-proxy-agent-v0.0.0-linux-amd64
+          sha256sum "$tmp/data-proxy-agent-v0.0.0-linux-amd64.tar.gz" > "$tmp/data-proxy-agent-v0.0.0-linux-amd64.tar.gz.sha256"
+          DATA_PROXY_AGENT_RELEASE_BASE_URL="file://$tmp" \
+            scripts/generate-data-proxy-agent-manifest.sh "$tmp" v0.0.0 normojs/data-proxy "$tmp/manifest.json"
+          grep -q '"version": "v0.0.0"' "$tmp/manifest.json"
+          grep -q '"os": "linux"' "$tmp/manifest.json"
+          grep -q '"arch": "arm64"' "$tmp/manifest.json"
+          DATA_PROXY_AGENT_MANIFEST_URL="file://$tmp/manifest.json" \
+            DATA_PROXY_AGENT_INSTALL_DIR="$tmp/install" \
+            sh scripts/install-data-proxy-agent.sh
+          "$tmp/install/dpa" self-test
 
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
@@ -444,6 +484,9 @@ jobs:
       contents: write
       id-token: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -451,10 +494,14 @@ jobs:
           pattern: data-proxy-agent-*
           merge-multiple: true
 
-      - name: Generate checksum index
+      - name: Generate release manifest and checksum index
         shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          scripts/generate-data-proxy-agent-manifest.sh dist "${TAG}" "${GITHUB_REPOSITORY}" dist/data-proxy-agent-manifest.json
+          sha256sum dist/data-proxy-agent-manifest.json > dist/data-proxy-agent-manifest.json.sha256
           cd dist
           cat ./*.sha256 > checksums.txt
 
@@ -480,6 +527,7 @@ jobs:
             dist/*.rpm
             dist/*.msi
             dist/*.sha256
+            dist/data-proxy-agent-manifest.json
             dist/data-proxy-agent.rb
             dist/checksums.txt
             dist/checksums.txt.sig

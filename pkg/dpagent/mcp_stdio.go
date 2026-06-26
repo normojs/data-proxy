@@ -29,6 +29,12 @@ type mcpStdioSessionStatus struct {
 	Initialized bool
 	PID         int
 	ExitError   string
+	StderrClass string
+}
+
+type mcpStdioWatchdogSummary struct {
+	Reaped int
+	Keys   []string
 }
 
 func newMCPStdioSessionCache() *mcpStdioSessionCache {
@@ -70,6 +76,7 @@ func (c *mcpStdioSessionCache) Status(key string) mcpStdioSessionStatus {
 		Initialized: session.Initialized(),
 		PID:         session.pid,
 		ExitError:   session.waitErrorMessage(),
+		StderrClass: session.stderrClass(),
 	}
 }
 
@@ -96,6 +103,41 @@ func (c *mcpStdioSessionCache) Forget(key string) {
 	if session != nil {
 		session.Close()
 	}
+}
+
+func (c *mcpStdioSessionCache) ReapExited() mcpStdioWatchdogSummary {
+	if c == nil {
+		return mcpStdioWatchdogSummary{}
+	}
+	type reapedSession struct {
+		key     string
+		session *mcpStdioSession
+	}
+	var reaped []reapedSession
+	c.mu.Lock()
+	for key, session := range c.sessions {
+		if session == nil || session.Alive() {
+			continue
+		}
+		delete(c.sessions, key)
+		reaped = append(reaped, reapedSession{key: key, session: session})
+	}
+	c.mu.Unlock()
+
+	summary := mcpStdioWatchdogSummary{Reaped: len(reaped), Keys: make([]string, 0, len(reaped))}
+	for _, item := range reaped {
+		summary.Keys = append(summary.Keys, item.key)
+		metadata := map[string]any{
+			"session_key": item.key,
+			"pid":         item.session.pid,
+			"exit_error":  item.session.waitErrorMessage(),
+		}
+		if stderrClass := item.session.stderrClass(); stderrClass != "" {
+			metadata["stderr_class"] = stderrClass
+		}
+		_ = auditMCPStdioEventAtPath(item.session.auditPath, item.session.server, "mcp_stdio.watchdog_reap", true, nil, metadata)
+	}
+	return summary
 }
 
 type mcpStdioSession struct {
@@ -174,11 +216,15 @@ func startMCPStdioSession(key string, server MCPServer, cfg Config) (*mcpStdioSe
 	go func() {
 		waitErr := cmd.Wait()
 		session.setWaitErr(waitErr)
-		_ = auditMCPStdioEventAtPath(session.auditPath, session.server, "mcp_stdio.exit", waitErr == nil, waitErr, map[string]any{
+		metadata := map[string]any{
 			"session_key": key,
 			"pid":         session.pid,
 			"exit_error":  session.waitErrorMessage(),
-		})
+		}
+		if stderrClass := session.stderrClass(); stderrClass != "" {
+			metadata["stderr_class"] = stderrClass
+		}
+		_ = auditMCPStdioEventAtPath(session.auditPath, session.server, "mcp_stdio.exit", waitErr == nil, waitErr, metadata)
 		close(session.done)
 	}()
 	return session, nil
@@ -225,6 +271,13 @@ func (s *mcpStdioSession) waitErrorMessage() string {
 		return ""
 	}
 	return truncateString(s.waitErr.Error(), 256)
+}
+
+func (s *mcpStdioSession) stderrClass() string {
+	if s == nil || s.stderr == nil {
+		return ""
+	}
+	return classifyMCPStdioStderr(s.stderr.String())
 }
 
 func (s *mcpStdioSession) Close() {
@@ -306,6 +359,44 @@ func (s *mcpStdioSession) exitMessage() string {
 		message += ": " + truncateString(stderr, 512)
 	}
 	return message
+}
+
+func classifyMCPStdioStderr(stderr string) string {
+	normalized := strings.ToLower(strings.TrimSpace(stderr))
+	if normalized == "" {
+		return ""
+	}
+	switch {
+	case strings.Contains(normalized, "permission denied"),
+		strings.Contains(normalized, "operation not permitted"),
+		strings.Contains(normalized, "eacces"),
+		strings.Contains(normalized, "eperm"):
+		return "permission"
+	case strings.Contains(normalized, "command not found"),
+		strings.Contains(normalized, "not recognized as an internal or external command"),
+		strings.Contains(normalized, "executable file not found"),
+		strings.Contains(normalized, "enoent"):
+		return "command_not_found"
+	case strings.Contains(normalized, "cannot find module"),
+		strings.Contains(normalized, "module not found"),
+		strings.Contains(normalized, "package not found"),
+		strings.Contains(normalized, "could not resolve"):
+		return "dependency"
+	case strings.Contains(normalized, "address already in use"),
+		strings.Contains(normalized, "eaddrinuse"):
+		return "port_in_use"
+	case strings.Contains(normalized, "unauthorized"),
+		strings.Contains(normalized, "forbidden"),
+		strings.Contains(normalized, "invalid api key"),
+		strings.Contains(normalized, "authentication"):
+		return "auth"
+	case strings.Contains(normalized, "panic:"),
+		strings.Contains(normalized, "fatal error"),
+		strings.Contains(normalized, "segmentation fault"):
+		return "crash"
+	default:
+		return "stderr"
+	}
 }
 
 func auditMCPStdioEventAtPath(path string, server MCPServer, event string, success bool, eventErr error, metadata map[string]any) error {

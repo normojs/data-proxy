@@ -5,6 +5,7 @@ REPO="${DATA_PROXY_AGENT_REPO:-normojs/data-proxy}"
 VERSION="${DATA_PROXY_AGENT_VERSION:-latest}"
 INSTALL_DIR="${DATA_PROXY_AGENT_INSTALL_DIR:-}"
 GITHUB_API="${DATA_PROXY_AGENT_GITHUB_API:-https://api.github.com}"
+MANIFEST_URL="${DATA_PROXY_AGENT_MANIFEST_URL:-}"
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -83,9 +84,55 @@ verify_sha256() {
   fi
 }
 
+json_string_value() {
+  sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$1" | head -n 1
+}
+
+manifest_asset() {
+  manifest_file="$1"
+  want_os="$2"
+  want_arch="$3"
+  awk -v want_os="$want_os" -v want_arch="$want_arch" '
+    function value(line) {
+      sub(/^[^:]*:[[:space:]]*"/, "", line)
+      sub(/",?[[:space:]]*$/, "", line)
+      return line
+    }
+    /{/ {
+      in_asset = 1
+      name = ""
+      url = ""
+      os = ""
+      arch = ""
+      sha256 = ""
+    }
+    in_asset && /"name"[[:space:]]*:/ { name = value($0) }
+    in_asset && /"url"[[:space:]]*:/ { url = value($0) }
+    in_asset && /"os"[[:space:]]*:/ { os = value($0) }
+    in_asset && /"arch"[[:space:]]*:/ { arch = value($0) }
+    in_asset && /"sha256"[[:space:]]*:/ { sha256 = value($0) }
+    in_asset && /}/ {
+      if (os == want_os && arch == want_arch && name != "" && url != "" && sha256 != "") {
+        print name
+        print url
+        print sha256
+        found = 1
+        exit
+      }
+      in_asset = 0
+    }
+    END {
+      if (!found) {
+        exit 1
+      }
+    }
+  ' "$manifest_file"
+}
+
 OS="$(detect_os)"
 ARCH="$(detect_arch)"
-if [ "$VERSION" = "latest" ]; then
+REQUESTED_VERSION="$VERSION"
+if [ -z "$MANIFEST_URL" ] && [ "$VERSION" = "latest" ]; then
   VERSION="$(resolve_latest_version)"
 fi
 
@@ -99,15 +146,45 @@ else
   LEGACY_BINARY="data-proxy-agent"
 fi
 
-ASSET="data-proxy-agent-${VERSION}-${OS}-${ARCH}.${EXT}"
-BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
+ASSET_URL=""
+EXPECTED_SHA256=""
+if [ -n "$MANIFEST_URL" ]; then
+  MANIFEST="$TMP_DIR/data-proxy-agent-manifest.json"
+  download "$MANIFEST_URL" "$MANIFEST"
+  MANIFEST_VERSION="$(json_string_value "$MANIFEST" version)"
+  if [ -z "$MANIFEST_VERSION" ]; then
+    echo "manifest version is missing: $MANIFEST_URL" >&2
+    exit 1
+  fi
+  if [ "$REQUESTED_VERSION" != "latest" ] && [ "$REQUESTED_VERSION" != "$MANIFEST_VERSION" ]; then
+    echo "manifest version mismatch: requested $REQUESTED_VERSION, got $MANIFEST_VERSION" >&2
+    exit 1
+  fi
+  VERSION="$MANIFEST_VERSION"
+  ASSET_INFO="$(manifest_asset "$MANIFEST" "$OS" "$ARCH")" || {
+    echo "manifest has no asset for ${OS}/${ARCH}: $MANIFEST_URL" >&2
+    exit 1
+  }
+  ASSET="$(printf '%s\n' "$ASSET_INFO" | sed -n '1p')"
+  ASSET_URL="$(printf '%s\n' "$ASSET_INFO" | sed -n '2p')"
+  EXPECTED_SHA256="$(printf '%s\n' "$ASSET_INFO" | sed -n '3p')"
+else
+  ASSET="data-proxy-agent-${VERSION}-${OS}-${ARCH}.${EXT}"
+  BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+  ASSET_URL="$BASE_URL/$ASSET"
+fi
+
 ARCHIVE="$TMP_DIR/$ASSET"
 CHECKSUM="$TMP_DIR/$ASSET.sha256"
-download "$BASE_URL/$ASSET" "$ARCHIVE"
-download "$BASE_URL/$ASSET.sha256" "$CHECKSUM"
+download "$ASSET_URL" "$ARCHIVE"
+if [ -n "$EXPECTED_SHA256" ]; then
+  printf '%s  %s\n' "$EXPECTED_SHA256" "$ASSET" > "$CHECKSUM"
+else
+  download "$BASE_URL/$ASSET.sha256" "$CHECKSUM"
+fi
 verify_sha256 "$ARCHIVE" "$CHECKSUM"
 
 EXTRACT_DIR="$TMP_DIR/extract"

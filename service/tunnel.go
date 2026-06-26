@@ -165,8 +165,8 @@ func CreateTunnelConnectionForUser(appId int64, userId int, req dto.TunnelConnec
 	if err != nil {
 		return dto.TunnelConnectionCreateResponse{}, err
 	}
-	if app.AppType != model.TunnelAppTypeMCPCode && app.AppType != model.TunnelAppTypeHTTP {
-		return dto.TunnelConnectionCreateResponse{}, errors.New("tunnel connections are currently supported for MCP code and HTTP tunnel apps")
+	if app.AppType != model.TunnelAppTypeMCPCode && app.AppType != model.TunnelAppTypeHTTP && app.AppType != model.TunnelAppTypeTCP {
+		return dto.TunnelConnectionCreateResponse{}, errors.New("tunnel connections are currently supported for MCP code, HTTP tunnel, and TCP tunnel apps")
 	}
 	if app.Status != model.TunnelAppStatusApproved {
 		return dto.TunnelConnectionCreateResponse{}, errors.New("tunnel app must be approved before creating a connection")
@@ -577,7 +577,7 @@ func syncTunnelAppBridgePolicy(app model.TunnelApp) error {
 	if err != nil {
 		return err
 	}
-	if app.AppType != model.TunnelAppTypeMCPCode && app.AppType != model.TunnelAppTypeHTTP {
+	if app.AppType != model.TunnelAppTypeMCPCode && app.AppType != model.TunnelAppTypeHTTP && app.AppType != model.TunnelAppTypeTCP {
 		return nil
 	}
 	existingPolicy, err := bridgepolicy.Parse(client.Policy)
@@ -909,6 +909,9 @@ func tunnelBridgePolicyFromApp(app model.TunnelApp, existing bridgepolicy.Policy
 	if app.AppType == model.TunnelAppTypeHTTP {
 		return tunnelHTTPBridgePolicy(existing, appPolicy)
 	}
+	if app.AppType == model.TunnelAppTypeTCP {
+		return tunnelTCPBridgePolicy(existing, appPolicy)
+	}
 	return tunnelBridgePolicyFromMode(app.PermissionMode, existing, appPolicy)
 }
 
@@ -963,6 +966,19 @@ func tunnelHTTPBridgePolicy(existing bridgepolicy.Policy, appPolicy bridgepolicy
 	}
 	if len(appPolicy.HTTPDeniedPorts) > 0 {
 		next.HTTPDeniedPorts = appPolicy.HTTPDeniedPorts
+	}
+	if len(appPolicy.MCPAllowedTargets) > 0 {
+		next.MCPAllowedTargets = appPolicy.MCPAllowedTargets
+	}
+	return bridgepolicy.Normalize(next)
+}
+
+func tunnelTCPBridgePolicy(existing bridgepolicy.Policy, appPolicy bridgepolicy.Policy) bridgepolicy.Policy {
+	next := existing
+	base := existing.AllowedTools
+	next.AllowedTools = mergeTunnelAllowedTools(base, []string{"tcp_tunnel"})
+	if appPolicy.MaxResultBytes > 0 {
+		next.MaxResultBytes = appPolicy.MaxResultBytes
 	}
 	if len(appPolicy.MCPAllowedTargets) > 0 {
 		next.MCPAllowedTargets = appPolicy.MCPAllowedTargets
@@ -1065,6 +1081,9 @@ func tunnelConnectionEndpointPath(key string, app model.TunnelApp) string {
 	}
 	if app.AppType == model.TunnelAppTypeHTTP {
 		return "/t/" + key + "/tunnel/http/" + app.PublicSlug
+	}
+	if app.AppType == model.TunnelAppTypeTCP {
+		return "/t/" + key + "/tunnel/tcp/" + app.PublicSlug
 	}
 	return "/t/" + key + "/tunnel/mcp/" + app.PublicSlug
 }

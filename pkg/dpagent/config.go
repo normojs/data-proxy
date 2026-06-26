@@ -33,6 +33,7 @@ type Config struct {
 	Policy     PolicyConfig  `json:"policy" yaml:"policy"`
 	MCPServers []MCPServer   `json:"mcp_servers,omitempty" yaml:"mcp_servers,omitempty"`
 	HTTPRoutes []HTTPRoute   `json:"http_routes,omitempty" yaml:"http_routes,omitempty"`
+	TCPRoutes  []TCPRoute    `json:"tcp_routes,omitempty" yaml:"tcp_routes,omitempty"`
 	Logging    LoggingConfig `json:"logging" yaml:"logging"`
 	Runtime    RuntimeConfig `json:"runtime" yaml:"runtime"`
 }
@@ -60,6 +61,7 @@ type PolicyConfig struct {
 	AllowWrite           bool       `json:"allow_write" yaml:"allow_write"`
 	AllowNonLoopbackHTTP bool       `json:"allow_non_loopback_http" yaml:"allow_non_loopback_http"`
 	AllowNonLoopbackMCP  bool       `json:"allow_non_loopback_mcp" yaml:"allow_non_loopback_mcp"`
+	AllowNonLoopbackTCP  bool       `json:"allow_non_loopback_tcp" yaml:"allow_non_loopback_tcp"`
 	AllowedWorkspaces    []string   `json:"allowed_workspaces,omitempty" yaml:"allowed_workspaces,omitempty"`
 	DeniedPaths          []string   `json:"denied_paths,omitempty" yaml:"denied_paths,omitempty"`
 	Exec                 ExecPolicy `json:"exec" yaml:"exec"`
@@ -86,6 +88,13 @@ type HTTPRoute struct {
 	AllowSSE         bool   `json:"allow_sse" yaml:"allow_sse"`
 	MaxRequestBytes  int64  `json:"max_request_bytes,omitempty" yaml:"max_request_bytes,omitempty"`
 	MaxResponseBytes int64  `json:"max_response_bytes,omitempty" yaml:"max_response_bytes,omitempty"`
+}
+
+type TCPRoute struct {
+	Name        string `json:"name" yaml:"name"`
+	TargetHost  string `json:"target_host" yaml:"target_host"`
+	TargetPort  int    `json:"target_port" yaml:"target_port"`
+	AllowPublic bool   `json:"allow_public" yaml:"allow_public"`
 }
 
 type LoggingConfig struct {
@@ -322,6 +331,17 @@ func ValidateConfig(cfg Config, requireToken bool) ValidationResult {
 			result.Errors = append(result.Errors, fmt.Sprintf("http route %q target is invalid", route.Name))
 		}
 	}
+	for _, route := range cfg.TCPRoutes {
+		if strings.TrimSpace(route.Name) == "" {
+			result.Errors = append(result.Errors, "tcp_routes[].name is required")
+		}
+		if strings.TrimSpace(route.TargetHost) == "" {
+			result.Errors = append(result.Errors, fmt.Sprintf("tcp route %q target_host is required", route.Name))
+		}
+		if route.TargetPort <= 0 || route.TargetPort > 65535 {
+			result.Errors = append(result.Errors, fmt.Sprintf("tcp route %q target_port is invalid", route.Name))
+		}
+	}
 	for _, server := range cfg.MCPServers {
 		if strings.TrimSpace(server.Name) == "" {
 			result.Errors = append(result.Errors, "mcp_servers[].name is required")
@@ -465,6 +485,9 @@ func EffectiveCapabilities(cfg Config) []string {
 	}
 	if len(cfg.HTTPRoutes) > 0 {
 		add(BridgeCapabilityHTTPTunnel)
+	}
+	if len(cfg.TCPRoutes) > 0 {
+		add(BridgeCapabilityTCPTunnel)
 	}
 	if len(cfg.MCPServers) > 0 {
 		add(BridgeCapabilityMCPProxy)

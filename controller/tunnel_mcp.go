@@ -217,6 +217,9 @@ func handleTunnelMCPToolsList(c *gin.Context, req dto.MCPRequest) dto.MCPRespons
 		if errors.Is(err, service.ErrTunnelRateLimited) {
 			return mcpErrorResponse(req.ID, dto.MCPErrorCodeInvalidRequest, "MCP gateway rate limit exceeded", err.Error())
 		}
+		if errors.Is(err, service.ErrTunnelBillingInsufficient) {
+			return mcpErrorResponse(req.ID, dto.MCPErrorCodeInvalidRequest, "MCP gateway billing insufficient balance", err.Error())
+		}
 		return mcpErrorResponse(req.ID, dto.MCPErrorCodeInternalError, "Internal error", err.Error())
 	}
 	return dto.MCPResponse{
@@ -250,6 +253,9 @@ func handleTunnelMCPToolCall(c *gin.Context, req dto.MCPRequest) dto.MCPResponse
 		if errors.Is(err, service.ErrTunnelRateLimited) {
 			return mcpErrorResponse(req.ID, dto.MCPErrorCodeInvalidRequest, "MCP gateway rate limit exceeded", err.Error())
 		}
+		if errors.Is(err, service.ErrTunnelBillingInsufficient) {
+			return mcpErrorResponse(req.ID, dto.MCPErrorCodeInvalidRequest, "MCP gateway billing insufficient balance", err.Error())
+		}
 		return mcpErrorResponse(req.ID, dto.MCPErrorCodeInternalError, "Internal error", err.Error())
 	}
 	if resp != nil && resp.Result != nil {
@@ -278,6 +284,12 @@ func handleTunnelMCPRawForward(c *gin.Context, req dto.MCPRequest) dto.MCPRespon
 		Params:        req.Params,
 	})
 	if err != nil {
+		if errors.Is(err, service.ErrTunnelMCPPolicyDenied) {
+			return mcpErrorResponse(req.ID, dto.MCPErrorCodeInvalidRequest, "MCP gateway policy denied raw request", err.Error())
+		}
+		if errors.Is(err, service.ErrTunnelBillingInsufficient) {
+			return mcpErrorResponse(req.ID, dto.MCPErrorCodeInvalidRequest, "MCP gateway billing insufficient balance", err.Error())
+		}
 		return mcpErrorResponse(req.ID, dto.MCPErrorCodeInternalError, "Internal error", err.Error())
 	}
 	return dto.MCPResponse{

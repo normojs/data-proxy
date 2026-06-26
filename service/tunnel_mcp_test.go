@@ -279,6 +279,52 @@ func TestCallTunnelMCPToolDeniesWriteInReadOnlyMode(t *testing.T) {
 	require.Contains(t, audit.MetadataJson, "argument_hash")
 }
 
+func TestCallTunnelMCPToolRejectsInsufficientBalanceBeforeProxy(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	seedTunnelBillingUser(t, 100, 0)
+	app := seedTunnelMCPApp(t, model.TunnelApp{
+		PermissionMode: model.TunnelPermissionWrite,
+		BillingJson:    `{"settlement":{"enabled":true,"quota_per_call":25,"require_positive_balance":true}}`,
+	})
+	connection := seedTunnelMCPConnection(t, app, "")
+	client := &fakeTunnelMCPProxyClient{
+		tools: []mcpproxy.ToolDefinition{
+			{Name: "write_file", Description: "write file content", InputSchema: map[string]any{"type": "object"}},
+		},
+	}
+	restore := setTunnelMCPProxyClientForTest(client)
+	defer restore()
+
+	resp, err := CallTunnelMCPTool(TunnelMCPToolCallRequest{
+		UserId:        100,
+		TokenId:       10,
+		Slug:          "local-user-mcp",
+		ConnectionKey: "tc_test_connection_key_100",
+		RequestId:     "call-billing-insufficient",
+		Params: dto.MCPToolCallParams{
+			Name:      "write_file",
+			Arguments: map[string]any{"path": "main.go", "content": "x"},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Nil(t, resp.Result)
+	require.Equal(t, dto.MCPErrorCodeInvalidRequest, resp.ErrorCode)
+	require.Contains(t, resp.ErrorMessage, "billing")
+	require.Equal(t, 0, client.listCalled)
+	require.Equal(t, 0, client.callCalled)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "call-billing-insufficient").Error)
+	require.Equal(t, model.TunnelAuditActionBillingDeny, audit.Action)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, tunnelBillingReasonInsufficient, audit.Reason)
+	require.Equal(t, "write_file", audit.ToolName)
+	require.Equal(t, connection.Id, audit.ConnectionId)
+	require.Contains(t, audit.MetadataJson, `"current_quota":0`)
+	require.Contains(t, audit.MetadataJson, `"require_positive_balance":true`)
+}
+
 func TestCallTunnelMCPToolForwardsAllowedToolAndAudits(t *testing.T) {
 	db := setupTunnelTestDB(t)
 	app := seedTunnelMCPApp(t, model.TunnelApp{
@@ -436,4 +482,191 @@ func TestCallTunnelMCPRawForwardsResourcesAndAudits(t *testing.T) {
 	require.Equal(t, "tmcp-raw-session", audit.SessionId)
 	require.Contains(t, audit.MetadataJson, `"bridge_session_id":"bridge-session-raw"`)
 	require.Contains(t, audit.MetadataJson, `"target_client":"bridge-client-1"`)
+}
+
+func TestCallTunnelMCPRawFiltersResourcesListByPolicy(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelMCPApp(t, model.TunnelApp{
+		PolicyJson: `{"mcp_gateway":{"allowed_resource_uri_prefixes":["file:///workspace/"],"denied_resource_uri_prefixes":["file:///workspace/secrets"]}}`,
+	})
+	connection := seedTunnelMCPConnection(t, app, "")
+	seedTunnelMCPSession(t, app, connection, "tmcp-resource-list-session")
+	client := &fakeTunnelMCPProxyClient{
+		rawResult: mcpproxy.RawResult{
+			Result: json.RawMessage(`{"resources":[{"uri":"file:///workspace/README.md","name":"README"},{"uri":"file:///workspace/secrets.env","name":"Secrets"},{"uri":"file:///tmp/outside.txt","name":"Outside"}],"nextCursor":"next"}`),
+		},
+	}
+	restore := setTunnelMCPProxyClientForTest(client)
+	defer restore()
+
+	result, err := CallTunnelMCPRaw(TunnelMCPRawRequest{
+		Context:       context.Background(),
+		UserId:        100,
+		TokenId:       10,
+		Slug:          "local-user-mcp",
+		ConnectionKey: "tc_test_connection_key_100",
+		RequestId:     "raw-resource-list-filter",
+		SessionId:     "tmcp-resource-list-session",
+		Method:        dto.MCPMethodResourcesList,
+		Params:        json.RawMessage(`{}`),
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"resources":[{"uri":"file:///workspace/README.md","name":"README"}],"nextCursor":"next"}`, string(result))
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "raw-resource-list-filter").Error)
+	require.Equal(t, "resources_list", audit.Action)
+	require.Equal(t, "allow", audit.Decision)
+	require.Contains(t, audit.MetadataJson, `"raw_filter_applied":true`)
+	require.Contains(t, audit.MetadataJson, `"raw_filter_kind":"resources"`)
+	require.Contains(t, audit.MetadataJson, `"filtered_count":2`)
+	require.Equal(t, int64(len(result)), audit.BytesOut)
+}
+
+func TestCallTunnelMCPRawDeniesResourceReadByPolicy(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelMCPApp(t, model.TunnelApp{
+		PolicyJson: `{"mcp_gateway":{"allowed_resource_uri_prefixes":["file:///workspace/"]}}`,
+	})
+	connection := seedTunnelMCPConnection(t, app, "")
+	seedTunnelMCPSession(t, app, connection, "tmcp-resource-deny-session")
+	client := &fakeTunnelMCPProxyClient{}
+	restore := setTunnelMCPProxyClientForTest(client)
+	defer restore()
+
+	_, err := CallTunnelMCPRaw(TunnelMCPRawRequest{
+		Context:       context.Background(),
+		UserId:        100,
+		TokenId:       10,
+		Slug:          "local-user-mcp",
+		ConnectionKey: "tc_test_connection_key_100",
+		RequestId:     "raw-resource-deny",
+		SessionId:     "tmcp-resource-deny-session",
+		Method:        dto.MCPMethodResourcesRead,
+		Params:        json.RawMessage(`{"uri":"file:///tmp/outside.txt"}`),
+	})
+	require.ErrorIs(t, err, ErrTunnelMCPPolicyDenied)
+	require.Equal(t, 0, client.rawCalled)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "raw-resource-deny").Error)
+	require.Equal(t, model.TunnelAuditActionPolicyDeny, audit.Action)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, dto.MCPMethodResourcesRead, audit.Method)
+	require.Equal(t, connection.Id, audit.ConnectionId)
+	require.Contains(t, audit.MetadataJson, `"reason":"resource URI is denied by gateway policy"`)
+	require.Contains(t, audit.MetadataJson, `"matched_policy":"allowed_resource_prefix_required"`)
+	require.Contains(t, audit.MetadataJson, `"resource_uri_hash":`)
+}
+
+func TestCallTunnelMCPRawFiltersResourceTemplatesListByPolicy(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelMCPApp(t, model.TunnelApp{
+		PolicyJson: `{"mcp_gateway":{"allowed_resource_uri_prefixes":["file:///workspace/"],"denied_resource_uri_prefixes":["file:///workspace/secrets"]}}`,
+	})
+	connection := seedTunnelMCPConnection(t, app, "")
+	seedTunnelMCPSession(t, app, connection, "tmcp-resource-template-list-session")
+	client := &fakeTunnelMCPProxyClient{
+		rawResult: mcpproxy.RawResult{
+			Result: json.RawMessage(`{"resourceTemplates":[{"uriTemplate":"file:///workspace/{path}","name":"Workspace"},{"uri_template":"file:///workspace/secrets/{path}","name":"Secrets"},{"template":"file:///tmp/{path}","name":"Outside"}],"nextCursor":"next"}`),
+		},
+	}
+	restore := setTunnelMCPProxyClientForTest(client)
+	defer restore()
+
+	result, err := CallTunnelMCPRaw(TunnelMCPRawRequest{
+		Context:       context.Background(),
+		UserId:        100,
+		TokenId:       10,
+		Slug:          "local-user-mcp",
+		ConnectionKey: "tc_test_connection_key_100",
+		RequestId:     "raw-resource-template-list-filter",
+		SessionId:     "tmcp-resource-template-list-session",
+		Method:        dto.MCPMethodResourcesTemplatesList,
+		Params:        json.RawMessage(`{}`),
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"resourceTemplates":[{"uriTemplate":"file:///workspace/{path}","name":"Workspace"}],"nextCursor":"next"}`, string(result))
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "raw-resource-template-list-filter").Error)
+	require.Equal(t, "resources_templates_list", audit.Action)
+	require.Equal(t, "allow", audit.Decision)
+	require.Contains(t, audit.MetadataJson, `"raw_filter_applied":true`)
+	require.Contains(t, audit.MetadataJson, `"raw_filter_kind":"resource_templates"`)
+	require.Contains(t, audit.MetadataJson, `"filtered_count":2`)
+	require.Equal(t, int64(len(result)), audit.BytesOut)
+}
+
+func TestCallTunnelMCPRawFiltersPromptsListByPolicy(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelMCPApp(t, model.TunnelApp{
+		PolicyJson: `{"mcp_gateway":{"allowed_prompt_names":["summarize"],"denied_prompt_names":["danger"]}}`,
+	})
+	connection := seedTunnelMCPConnection(t, app, "")
+	seedTunnelMCPSession(t, app, connection, "tmcp-prompts-list-session")
+	client := &fakeTunnelMCPProxyClient{
+		rawResult: mcpproxy.RawResult{
+			Result: json.RawMessage(`{"prompts":[{"name":"summarize","description":"Summarize"},{"name":"danger","description":"Danger"},{"name":"other","description":"Other"}]}`),
+		},
+	}
+	restore := setTunnelMCPProxyClientForTest(client)
+	defer restore()
+
+	result, err := CallTunnelMCPRaw(TunnelMCPRawRequest{
+		Context:       context.Background(),
+		UserId:        100,
+		TokenId:       10,
+		Slug:          "local-user-mcp",
+		ConnectionKey: "tc_test_connection_key_100",
+		RequestId:     "raw-prompts-list-filter",
+		SessionId:     "tmcp-prompts-list-session",
+		Method:        dto.MCPMethodPromptsList,
+		Params:        json.RawMessage(`{}`),
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"prompts":[{"name":"summarize","description":"Summarize"}]}`, string(result))
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "raw-prompts-list-filter").Error)
+	require.Equal(t, "prompts_list", audit.Action)
+	require.Equal(t, "allow", audit.Decision)
+	require.Contains(t, audit.MetadataJson, `"raw_filter_kind":"prompts"`)
+	require.Contains(t, audit.MetadataJson, `"filtered_count":2`)
+}
+
+func TestCallTunnelMCPRawDeniesPromptGetByPolicy(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelMCPApp(t, model.TunnelApp{
+		PolicyJson: `{"mcp_gateway":{"allowed_prompt_names":["summarize"]}}`,
+	})
+	connection := seedTunnelMCPConnection(t, app, "")
+	seedTunnelMCPSession(t, app, connection, "tmcp-prompt-deny-session")
+	client := &fakeTunnelMCPProxyClient{}
+	restore := setTunnelMCPProxyClientForTest(client)
+	defer restore()
+
+	_, err := CallTunnelMCPRaw(TunnelMCPRawRequest{
+		Context:       context.Background(),
+		UserId:        100,
+		TokenId:       10,
+		Slug:          "local-user-mcp",
+		ConnectionKey: "tc_test_connection_key_100",
+		RequestId:     "raw-prompt-deny",
+		SessionId:     "tmcp-prompt-deny-session",
+		Method:        dto.MCPMethodPromptsGet,
+		Params:        json.RawMessage(`{"name":"danger"}`),
+	})
+	require.ErrorIs(t, err, ErrTunnelMCPPolicyDenied)
+	require.Equal(t, 0, client.rawCalled)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "raw-prompt-deny").Error)
+	require.Equal(t, model.TunnelAuditActionPolicyDeny, audit.Action)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, dto.MCPMethodPromptsGet, audit.Method)
+	require.Equal(t, connection.Id, audit.ConnectionId)
+	require.Contains(t, audit.MetadataJson, `"reason":"prompt is denied by gateway policy"`)
+	require.Contains(t, audit.MetadataJson, `"matched_policy":"allowed_prompt_required"`)
+	require.Contains(t, audit.MetadataJson, `"prompt_name":"danger"`)
 }

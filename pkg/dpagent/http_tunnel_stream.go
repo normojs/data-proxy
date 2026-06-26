@@ -99,6 +99,10 @@ func (c BridgeClient) handleHTTPTunnelHTTPStream(ctx context.Context, input http
 		if reqCtx.Err() != nil {
 			return dto.BridgeToolCallResult{}, ToolError{Code: "HTTP_TUNNEL_TIMEOUT", Message: fmt.Sprintf("HTTP tunnel request timed out after %s", timeout)}
 		}
+		var toolErr ToolError
+		if errors.As(err, &toolErr) {
+			return dto.BridgeToolCallResult{}, toolErr
+		}
 		return dto.BridgeToolCallResult{}, ToolError{Code: "HTTP_TUNNEL_REQUEST_FAILED", Message: err.Error()}
 	}
 	defer response.Body.Close()

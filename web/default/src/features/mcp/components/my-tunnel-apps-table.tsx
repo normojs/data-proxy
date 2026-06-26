@@ -68,7 +68,7 @@ const route = getRouteApi('/_authenticated/mcp/$section')
 type TunnelAppCreateForm = {
   name: string
   description: string
-  appType: 'mcp_code' | 'http_tunnel'
+  appType: 'mcp_code' | 'http_tunnel' | 'tcp_tunnel'
   bridgeClientId: string
   permissionMode: string
   targetHost: string
@@ -159,6 +159,9 @@ function buildInitialBridgeAgentSetupForm(): BridgeAgentSetupForm {
 
 function getAppTarget(app: TunnelApp): string {
   if (app.app_type === 'mcp_code') return app.target_path || '/mcp'
+  if (app.app_type === 'tcp_tunnel') {
+    return `${app.target_host || '127.0.0.1'}:${app.target_port}`
+  }
   return `${app.target_host || '127.0.0.1'}:${app.target_port}${app.target_path || '/'}`
 }
 
@@ -183,6 +186,20 @@ function isOptionalPositiveInteger(value: string) {
 }
 
 function buildTunnelAppCreatePayload(form: TunnelAppCreateForm) {
+  if (form.appType === 'tcp_tunnel') {
+    return {
+      name: form.name.trim(),
+      description: form.description.trim(),
+      app_type: 'tcp_tunnel',
+      permission_mode: 'traffic',
+      bridge_client_id: form.bridgeClientId,
+      target_host: form.targetHost.trim() || '127.0.0.1',
+      target_port: Number(form.targetPort),
+      target_path: '',
+      policy: {},
+      route: {},
+    }
+  }
   if (form.appType === 'http_tunnel') {
     const route: Record<string, unknown> = {
       auth_mode: form.httpAuthMode,
@@ -657,17 +674,19 @@ function CreateTunnelAppDialog(props: {
   })
 
   const targetPort = Number(form.targetPort)
+  const isTrafficApp =
+    form.appType === 'http_tunnel' || form.appType === 'tcp_tunnel'
+  const hasValidTargetPort =
+    Number.isInteger(targetPort) && targetPort > 0 && targetPort <= 65535
   const hasValidRouteLimits =
     isOptionalPositiveInteger(form.maxRequestBytes) &&
     isOptionalPositiveInteger(form.maxResponseBytes)
   const canSubmit =
     form.name.trim().length > 0 &&
     form.bridgeClientId.trim().length > 0 &&
+    (!isTrafficApp || hasValidTargetPort) &&
     (form.appType !== 'http_tunnel' ||
-      (Number.isInteger(targetPort) &&
-        targetPort > 0 &&
-        targetPort <= 65535 &&
-        hasValidRouteLimits &&
+      (hasValidRouteLimits &&
         (form.httpAuthMode !== 'token' ||
           form.httpAuthToken.trim().length > 0))) &&
     !mutation.isPending
@@ -679,7 +698,7 @@ function CreateTunnelAppDialog(props: {
           <DialogTitle>{t('New Tunnel App Request')}</DialogTitle>
           <DialogDescription>
             {t(
-              'Request an MCP code tunnel or HTTP tunnel for a local Bridge client. An administrator must approve it before connection keys can be created.'
+              'Request an MCP code tunnel, HTTP tunnel, or TCP tunnel for a local Bridge client. An administrator must approve it before connection keys can be created.'
             )}
           </DialogDescription>
         </DialogHeader>
@@ -711,19 +730,30 @@ function CreateTunnelAppDialog(props: {
                   ...current,
                   appType,
                   permissionMode:
-                    appType === 'http_tunnel'
+                    appType === 'http_tunnel' || appType === 'tcp_tunnel'
                       ? 'traffic'
                       : current.permissionMode === 'traffic'
                         ? 'read_only'
                         : current.permissionMode,
+                  targetPort:
+                    appType === 'tcp_tunnel' &&
+                    (!current.targetPort || current.targetPort === '8080')
+                      ? '22'
+                      : appType === 'http_tunnel' &&
+                          (!current.targetPort || current.targetPort === '22')
+                        ? '8080'
+                        : current.targetPort,
                   targetPath:
-                    appType === 'http_tunnel'
-                      ? current.targetPath === '/mcp'
-                        ? '/'
-                        : current.targetPath || '/'
-                      : current.targetPath === '/'
-                        ? '/mcp'
-                        : current.targetPath || '/mcp',
+                    appType === 'tcp_tunnel'
+                      ? ''
+                      : appType === 'http_tunnel'
+                        ? current.targetPath === '/mcp'
+                          ? '/'
+                          : current.targetPath || '/'
+                        : current.targetPath === '/' ||
+                            current.targetPath === ''
+                          ? '/mcp'
+                          : current.targetPath || '/mcp',
                 }))
               }}
               className='w-full'
@@ -733,6 +763,9 @@ function CreateTunnelAppDialog(props: {
               </NativeSelectOption>
               <NativeSelectOption value='http_tunnel'>
                 {t('HTTP Tunnel')}
+              </NativeSelectOption>
+              <NativeSelectOption value='tcp_tunnel'>
+                {t('TCP Tunnel')}
               </NativeSelectOption>
             </NativeSelect>
           </div>
@@ -759,7 +792,7 @@ function CreateTunnelAppDialog(props: {
                 ))}
               </NativeSelect>
             </div>
-          ) : (
+          ) : form.appType === 'http_tunnel' ? (
             <div className='space-y-1.5'>
               <Label htmlFor='mcp-my-tunnel-http-auth'>{t('Auth Mode')}</Label>
               <NativeSelect
@@ -784,6 +817,17 @@ function CreateTunnelAppDialog(props: {
                   {t('Public')}
                 </NativeSelectOption>
               </NativeSelect>
+            </div>
+          ) : (
+            <div className='space-y-1.5'>
+              <Label htmlFor='mcp-my-tunnel-tcp-permission'>
+                {t('Permission')}
+              </Label>
+              <Input
+                id='mcp-my-tunnel-tcp-permission'
+                value={t('Traffic')}
+                readOnly
+              />
             </div>
           )}
           <div className='space-y-1.5 sm:col-span-2'>
@@ -820,14 +864,14 @@ function CreateTunnelAppDialog(props: {
               </p>
             )}
           </div>
-          {form.appType === 'http_tunnel' ? (
+          {isTrafficApp ? (
             <>
               <div className='space-y-1.5'>
-                <Label htmlFor='mcp-my-tunnel-http-target-host'>
+                <Label htmlFor='mcp-my-tunnel-target-host'>
                   {t('Target Host')}
                 </Label>
                 <Input
-                  id='mcp-my-tunnel-http-target-host'
+                  id='mcp-my-tunnel-target-host'
                   value={form.targetHost}
                   onChange={(event) =>
                     setForm((current) => ({
@@ -839,11 +883,11 @@ function CreateTunnelAppDialog(props: {
                 />
               </div>
               <div className='space-y-1.5'>
-                <Label htmlFor='mcp-my-tunnel-http-target-port'>
+                <Label htmlFor='mcp-my-tunnel-target-port'>
                   {t('Target Port')}
                 </Label>
                 <Input
-                  id='mcp-my-tunnel-http-target-port'
+                  id='mcp-my-tunnel-target-port'
                   type='number'
                   min={1}
                   max={65535}
@@ -854,27 +898,29 @@ function CreateTunnelAppDialog(props: {
                       targetPort: event.target.value,
                     }))
                   }
-                  placeholder='8080'
+                  placeholder={form.appType === 'tcp_tunnel' ? '22' : '8080'}
                 />
               </div>
             </>
           ) : null}
-          <div className='space-y-1.5'>
-            <Label htmlFor='mcp-my-tunnel-app-target-path'>
-              {t('Target Path')}
-            </Label>
-            <Input
-              id='mcp-my-tunnel-app-target-path'
-              value={form.targetPath}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  targetPath: event.target.value,
-                }))
-              }
-              placeholder={form.appType === 'http_tunnel' ? '/' : '/mcp'}
-            />
-          </div>
+          {form.appType !== 'tcp_tunnel' ? (
+            <div className='space-y-1.5'>
+              <Label htmlFor='mcp-my-tunnel-app-target-path'>
+                {t('Target Path')}
+              </Label>
+              <Input
+                id='mcp-my-tunnel-app-target-path'
+                value={form.targetPath}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    targetPath: event.target.value,
+                  }))
+                }
+                placeholder={form.appType === 'http_tunnel' ? '/' : '/mcp'}
+              />
+            </div>
+          ) : null}
           {form.appType === 'http_tunnel' ? (
             <>
               <div className='space-y-1.5'>
@@ -1345,7 +1391,7 @@ export function MyTunnelAppsTable() {
         isFetching={isFetching || loadingBridgeClients}
         emptyTitle={t('No Tunnel App Requests')}
         emptyDescription={t(
-          'Request an MCP code tunnel or HTTP tunnel for a local Bridge client before creating connection keys.'
+          'Request an MCP code tunnel, HTTP tunnel, or TCP tunnel for a local Bridge client before creating connection keys.'
         )}
         emptyAction={
           <Button onClick={() => setCreateOpen(true)}>
@@ -1377,6 +1423,7 @@ export function MyTunnelAppsTable() {
               options: [
                 { label: t('MCP Code Tunnel'), value: 'mcp_code' },
                 { label: t('HTTP Tunnel'), value: 'http_tunnel' },
+                { label: t('TCP Tunnel'), value: 'tcp_tunnel' },
               ],
               singleSelect: true,
             },

@@ -63,12 +63,13 @@ type BridgeToolCallError struct {
 }
 
 type BridgeAgentHealthReport struct {
-	GeneratedAt int64                    `json:"generated_at"`
-	Version     string                   `json:"version,omitempty"`
-	Platform    string                   `json:"platform,omitempty"`
-	Workspace   string                   `json:"workspace,omitempty"`
-	Summary     BridgeAgentHealthSummary `json:"summary"`
-	Checks      []BridgeAgentHealthCheck `json:"checks"`
+	GeneratedAt  int64                    `json:"generated_at"`
+	Version      string                   `json:"version,omitempty"`
+	Platform     string                   `json:"platform,omitempty"`
+	Workspace    string                   `json:"workspace,omitempty"`
+	Summary      BridgeAgentHealthSummary `json:"summary"`
+	Checks       []BridgeAgentHealthCheck `json:"checks"`
+	MCPProcesses []BridgeAgentMCPProcess  `json:"mcp_processes,omitempty"`
 }
 
 type BridgeAgentHealthSummary struct {
@@ -83,6 +84,17 @@ type BridgeAgentHealthCheck struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
+}
+
+type BridgeAgentMCPProcess struct {
+	Name        string `json:"name"`
+	Transport   string `json:"transport"`
+	Status      string `json:"status"`
+	PID         int    `json:"pid,omitempty"`
+	Initialized bool   `json:"initialized,omitempty"`
+	StderrClass string `json:"stderr_class,omitempty"`
+	ExitError   string `json:"exit_error,omitempty"`
+	Detail      string `json:"detail,omitempty"`
 }
 
 type BridgeClientUpdateRequest struct {

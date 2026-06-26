@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,6 +56,27 @@ type AgentUpdateResult struct {
 	BackupPath  string
 	StagedPath  string
 	DryRun      bool
+}
+
+type AgentUpdateCheckOptions struct {
+	CurrentVersion  string
+	Version         string
+	Repo            string
+	ManifestURL     string
+	GitHubAPIBase   string
+	Platform        string
+	Arch            string
+	AllowPrerelease bool
+	Timeout         time.Duration
+	HTTPClient      *http.Client
+}
+
+type AgentUpdateCheckResult struct {
+	CurrentVersion  string `json:"current_version"`
+	LatestVersion   string `json:"latest_version"`
+	UpdateAvailable bool   `json:"update_available"`
+	AssetName       string `json:"asset_name,omitempty"`
+	AssetURL        string `json:"asset_url,omitempty"`
 }
 
 type agentUpdateAsset struct {
@@ -204,6 +226,38 @@ func UpdateAgent(ctx context.Context, opts AgentUpdateOptions) (AgentUpdateResul
 	return result, nil
 }
 
+func CheckAgentUpdate(ctx context.Context, opts AgentUpdateCheckOptions) (AgentUpdateCheckResult, error) {
+	updateOpts := normalizeAgentUpdateOptions(AgentUpdateOptions{
+		CurrentVersion:  opts.CurrentVersion,
+		Version:         opts.Version,
+		Repo:            opts.Repo,
+		ManifestURL:     opts.ManifestURL,
+		GitHubAPIBase:   opts.GitHubAPIBase,
+		Platform:        opts.Platform,
+		Arch:            opts.Arch,
+		AllowPrerelease: opts.AllowPrerelease,
+		Timeout:         opts.Timeout,
+		HTTPClient:      opts.HTTPClient,
+	})
+	ctx, cancel := context.WithTimeout(ctx, updateOpts.Timeout)
+	defer cancel()
+	asset, version, err := resolveAgentUpdateAsset(ctx, updateOpts)
+	if err != nil {
+		return AgentUpdateCheckResult{}, err
+	}
+	current := strings.TrimSpace(updateOpts.CurrentVersion)
+	if current == "" {
+		current = DefaultAgentVersion
+	}
+	return AgentUpdateCheckResult{
+		CurrentVersion:  current,
+		LatestVersion:   version,
+		UpdateAvailable: agentVersionIsNewer(current, version),
+		AssetName:       asset.Name,
+		AssetURL:        asset.URL,
+	}, nil
+}
+
 func normalizeAgentUpdateOptions(opts AgentUpdateOptions) AgentUpdateOptions {
 	if strings.TrimSpace(opts.Version) == "" {
 		opts.Version = "latest"
@@ -233,6 +287,64 @@ func normalizeAgentUpdateOptions(opts AgentUpdateOptions) AgentUpdateOptions {
 		opts.Err = io.Discard
 	}
 	return opts
+}
+
+func agentVersionIsNewer(current string, candidate string) bool {
+	current = strings.TrimSpace(current)
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false
+	}
+	if strings.EqualFold(normalizeAgentVersionTag(current), normalizeAgentVersionTag(candidate)) {
+		return false
+	}
+	if current == "" || strings.Contains(strings.ToLower(current), "dev") {
+		return true
+	}
+	currentParts, currentOK := parseAgentSemver(current)
+	candidateParts, candidateOK := parseAgentSemver(candidate)
+	if currentOK && candidateOK {
+		for index := 0; index < len(currentParts); index++ {
+			if candidateParts[index] > currentParts[index] {
+				return true
+			}
+			if candidateParts[index] < currentParts[index] {
+				return false
+			}
+		}
+		return false
+	}
+	return !strings.EqualFold(current, candidate)
+}
+
+func normalizeAgentVersionTag(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.TrimPrefix(value, "v")
+	value = strings.TrimSuffix(value, ".0.0")
+	return value
+}
+
+func parseAgentSemver(value string) ([3]int, bool) {
+	var out [3]int
+	value = normalizeAgentVersionTag(value)
+	if cut, _, ok := strings.Cut(value, "+"); ok {
+		value = cut
+	}
+	if cut, _, ok := strings.Cut(value, "-"); ok {
+		value = cut
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) == 0 || len(parts) > 3 {
+		return out, false
+	}
+	for index, part := range parts {
+		parsed, err := strconv.Atoi(part)
+		if err != nil || parsed < 0 {
+			return out, false
+		}
+		out[index] = parsed
+	}
+	return out, true
 }
 
 func resolveAgentUpdateAsset(ctx context.Context, opts AgentUpdateOptions) (agentUpdateAsset, string, error) {

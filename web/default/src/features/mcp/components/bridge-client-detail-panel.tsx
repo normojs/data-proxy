@@ -43,7 +43,11 @@ import {
   updateBridgeClient,
 } from '../api'
 import { mcpQueryError, mcpQueryErrorMessage } from '../lib/query-errors'
-import type { BridgeClientUpdatePayload, BridgeSession } from '../types'
+import type {
+  BridgeAgentMCPProcess,
+  BridgeClientUpdatePayload,
+  BridgeSession,
+} from '../types'
 import { BridgeClientEditDialog } from './bridge-client-edit-dialog'
 import {
   CallStatusBadge,
@@ -126,6 +130,59 @@ function agentHealthLabel(status?: string) {
   if (status === 'warn') return 'Warn'
   if (status === 'ok') return 'OK'
   return 'Unknown'
+}
+
+function mcpProcessVariant(status?: string) {
+  if (status === 'running') return 'success' as const
+  if (status === 'exited' || status === 'config_error')
+    return 'warning' as const
+  if (status === 'not_started') return 'neutral' as const
+  return 'neutral' as const
+}
+
+function mcpProcessLabel(status?: string) {
+  if (status === 'running') return 'Running'
+  if (status === 'exited') return 'Exited'
+  if (status === 'config_error') return 'Config Error'
+  if (status === 'not_started') return 'Not Started'
+  return 'Unknown'
+}
+
+function MCPProcessCard(props: { process: BridgeAgentMCPProcess }) {
+  const { t } = useTranslation()
+  const process = props.process
+  const details = [
+    process.pid ? `${t('PID')}: ${process.pid}` : '',
+    process.initialized ? t('Initialized') : '',
+    process.stderr_class ? `${t('Stderr Class')}: ${process.stderr_class}` : '',
+    process.exit_error ? `${t('Exit Error')}: ${process.exit_error}` : '',
+    process.detail || '',
+  ].filter(Boolean)
+
+  return (
+    <div className='bg-muted/35 min-w-0 rounded-md px-2 py-1.5'>
+      <div className='flex min-w-0 items-center gap-2'>
+        <StatusBadge
+          label={t(mcpProcessLabel(process.status))}
+          variant={mcpProcessVariant(process.status)}
+          copyable={false}
+        />
+        <span className='min-w-0 truncate font-mono text-xs font-medium'>
+          {process.name || '-'}
+        </span>
+        {process.transport && (
+          <span className='text-muted-foreground shrink-0 font-mono text-[11px]'>
+            {process.transport}
+          </span>
+        )}
+      </div>
+      {details.length > 0 && (
+        <div className='text-muted-foreground mt-1 truncate text-xs'>
+          {details.join(' · ')}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function SessionRow(props: {
@@ -635,6 +692,23 @@ export function BridgeClientDetailPanel(props: BridgeClientDetailPanelProps) {
                 </span>
               )}
             </div>
+            {(health.agent_health.mcp_processes?.length ?? 0) > 0 && (
+              <div className='mt-3'>
+                <div className='text-muted-foreground mb-1 text-xs font-medium'>
+                  {t('MCP Processes')}
+                </div>
+                <div className='grid gap-2 lg:grid-cols-2'>
+                  {health.agent_health.mcp_processes
+                    ?.slice(0, 8)
+                    .map((process, index) => (
+                      <MCPProcessCard
+                        key={`${process.name}-${index}`}
+                        process={process}
+                      />
+                    ))}
+                </div>
+              </div>
+            )}
             {health.agent_health.checks.length > 0 && (
               <div className='mt-2 grid gap-2 lg:grid-cols-2'>
                 {health.agent_health.checks.slice(0, 8).map((check, index) => (

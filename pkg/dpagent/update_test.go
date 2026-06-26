@@ -50,6 +50,47 @@ func TestCLIUpdateDryRunFromManifest(t *testing.T) {
 	}
 }
 
+func TestCheckAgentUpdateFromManifest(t *testing.T) {
+	assetName := "data-proxy-agent-v1.2.4-" + runtime.GOOS + "-" + runtime.GOARCH + agentTestArchiveExt(runtime.GOOS)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/manifest.json" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(agentUpdateManifest{
+			Version: "v1.2.4",
+			Assets: []agentUpdateAsset{{
+				Name: assetName,
+				URL:  serverURLFromRequest(r) + "/" + assetName,
+				OS:   runtime.GOOS,
+				Arch: runtime.GOARCH,
+			}},
+		})
+	}))
+	defer server.Close()
+
+	result, err := CheckAgentUpdate(t.Context(), AgentUpdateCheckOptions{
+		CurrentVersion: "v1.2.3",
+		ManifestURL:    server.URL + "/manifest.json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.UpdateAvailable || result.LatestVersion != "v1.2.4" || result.AssetName != assetName {
+		t.Fatalf("unexpected update check result: %#v", result)
+	}
+
+	current, err := CheckAgentUpdate(t.Context(), AgentUpdateCheckOptions{
+		CurrentVersion: "v1.2.4",
+		ManifestURL:    server.URL + "/manifest.json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.UpdateAvailable {
+		t.Fatalf("same version should not be marked as update available: %#v", current)
+	}
+}
+
 func TestUpdateAgentInstallsFromManifestWithChecksum(t *testing.T) {
 	archiveBytes := buildAgentTarGz(t, "new agent bytes")
 	checksum := sha256Hex(archiveBytes)

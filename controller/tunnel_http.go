@@ -209,6 +209,8 @@ func writeTunnelHTTPError(c *gin.Context, err error) {
 		status = http.StatusRequestEntityTooLarge
 	case errors.Is(err, service.ErrTunnelRateLimited):
 		status = http.StatusTooManyRequests
+	case errors.Is(err, service.ErrTunnelBillingInsufficient):
+		status = http.StatusPaymentRequired
 	case errors.Is(err, bridge.ErrClientNotFound), errors.Is(err, bridge.ErrClientUnavailable), errors.Is(err, bridge.ErrClientDisconnected):
 		status = http.StatusBadGateway
 	case bridgepolicy.ErrorCode(err) == bridgepolicy.ErrorCodeToolNotAllowed,

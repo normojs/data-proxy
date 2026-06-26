@@ -142,6 +142,7 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			logf(c.Out, "INFO", "registered bridge client", "client_id", clientID, "session_id", sessionID)
 			healthReporterOnce.Do(func() {
 				startBridgeHealthReporter(ctx, c.Config, writeJSON, c.Err)
+				startMCPStdioWatchdog(ctx, c.Config, c.Err)
 			})
 		case "pong":
 		case "close":
@@ -165,7 +166,7 @@ func (c BridgeClient) runOnce(ctx context.Context, attempt int) (BridgeRunResult
 			toolName := bridgeToolName(msg.Data)
 			args := bridgeToolArguments(msg.Data)
 			var inputQueue *bridgeStreamInputQueue
-			if toolName == BridgeToolHTTPTunnelRequest && httpTunnelRequiresStream(args) && (boolFromMap(args, "stream_request") || boolFromMap(args, "websocket")) {
+			if shouldRegisterBridgeStreamInputQueue(toolName, args) {
 				inputQueue = streamInputs.Register(requestID)
 			}
 			go func(message dto.BridgeWSMessage) {
@@ -238,6 +239,55 @@ func startBridgeHealthReporter(ctx context.Context, cfg Config, writeJSON func(d
 	}()
 }
 
+func startMCPStdioWatchdog(ctx context.Context, cfg Config, errOut io.Writer) {
+	if !configHasStdioMCPServer(cfg) {
+		return
+	}
+	interval := mcpStdioWatchdogInterval(cfg)
+	if interval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				summary := defaultMCPStdioSessions.ReapExited()
+				if summary.Reaped > 0 {
+					logf(errOut, "INFO", "reaped exited stdio MCP sessions", "count", summary.Reaped, "sessions", strings.Join(summary.Keys, ","))
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func mcpStdioWatchdogInterval(cfg Config) time.Duration {
+	if cfg.Runtime.HealthIntervalMS < 0 {
+		return 0
+	}
+	intervalMS := cfg.Runtime.HealthIntervalMS
+	if intervalMS == 0 {
+		intervalMS = DefaultHealthIntervalMS
+	}
+	interval := time.Duration(intervalMS) * time.Millisecond
+	if interval < 5*time.Second {
+		return 5 * time.Second
+	}
+	return interval
+}
+
+func configHasStdioMCPServer(cfg Config) bool {
+	for _, server := range cfg.MCPServers {
+		if normalizeMCPTransport(server.Transport, server.Endpoint, server.Command) == "stdio" {
+			return true
+		}
+	}
+	return false
+}
+
 func bridgeHealthReportTimeout(cfg Config) time.Duration {
 	timeout := time.Duration(cfg.Runtime.HTTPTimeoutMS) * time.Millisecond
 	if timeout <= 0 || timeout > 5*time.Second {
@@ -247,10 +297,22 @@ func bridgeHealthReportTimeout(cfg Config) time.Duration {
 }
 
 func (c BridgeClient) handleBridgeToolCall(ctx context.Context, toolName string, args map[string]any, inputQueue *bridgeStreamInputQueue, emit bridgeStreamChunkEmitter) (dto.BridgeToolCallResult, error) {
+	if toolName == BridgeToolTCPTunnelConnect {
+		return c.handleTCPTunnelStream(ctx, args, emit, inputQueue)
+	}
 	if toolName != BridgeToolHTTPTunnelRequest || !httpTunnelRequiresStream(args) {
 		return c.handleToolCall(ctx, toolName, args)
 	}
 	return c.handleHTTPTunnelStreamRequest(ctx, args, emit, inputQueue)
+}
+
+func shouldRegisterBridgeStreamInputQueue(toolName string, args map[string]any) bool {
+	if toolName == BridgeToolTCPTunnelConnect {
+		return true
+	}
+	return toolName == BridgeToolHTTPTunnelRequest &&
+		httpTunnelRequiresStream(args) &&
+		(boolFromMap(args, "stream_request") || boolFromMap(args, "websocket"))
 }
 
 func bridgeRequestID(msg dto.BridgeWSMessage) string {

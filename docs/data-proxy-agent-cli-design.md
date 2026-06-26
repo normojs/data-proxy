@@ -73,12 +73,16 @@ dpa / data-proxy-agent
 
 ```bash
 dpa version
-dpa enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
-dpa enroll --server https://dp.app.mbu.ltd --access-token <dashboard-access-token> --user-id <id>
+dpa enroll --server https://<data-proxy-host> --setup-token <one-time-token>
+dpa enroll --server https://<data-proxy-host> --access-token <dashboard-access-token> --user-id <id>
 dpa run
 dpa status
+dpa status --json
 dpa doctor
+dpa doctor --json
+dpa doctor --check-update
 dpa report --output ./agent-diagnostic.zip
+dpa report --check-update --output ./agent-diagnostic.zip
 ```
 
 当前 `enroll` 支持两种绑定方式：
@@ -89,14 +93,14 @@ dpa report --output ./agent-diagnostic.zip
 setup token 只保存 hash，默认 10 分钟过期，只能消费一次。控制台的一键命令可以收敛为：
 
 ```bash
-dpa enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
+dpa enroll --server https://<data-proxy-host> --setup-token <one-time-token>
 ```
 
 用户在控制台复制的一键命令应该接近：
 
 ```bash
-curl -fsSL https://dp.app.mbu.ltd/agent/install.sh | sh
-dpa enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
+curl -fsSL https://<data-proxy-host>/agent/install.sh | sh
+dpa enroll --server https://<data-proxy-host> --setup-token <one-time-token>
 dpa service install
 dpa service start
 ```
@@ -109,6 +113,26 @@ curl -fsSL https://raw.githubusercontent.com/normojs/data-proxy/main/scripts/ins
 dpa update --dry-run
 dpa update
 ```
+
+如果服务器或对象存储已经镜像了 release asset 和 manifest，安装脚本也可以直接走
+manifest，不依赖 GitHub Release API：
+
+```bash
+curl -fsSL https://<data-proxy-host>/agent/install-data-proxy-agent.sh | \
+  DATA_PROXY_AGENT_MANIFEST_URL=https://<data-proxy-host>/agent/releases/data-proxy-agent-manifest.json sh
+```
+
+正式 tag 发布时，`Data Proxy Agent` workflow 会同时上传
+`data-proxy-agent-manifest.json`。这个 manifest 是机器可读的更新清单，
+包含各平台 tar/zip 资产 URL 和 sha256，可用于控制台代理、自建下载源或灰度发布：
+
+```bash
+dpa update --manifest-url https://<data-proxy-host>/agent/releases/data-proxy-agent-manifest.json --dry-run
+dpa update --manifest-url https://<data-proxy-host>/agent/releases/data-proxy-agent-manifest.json
+```
+
+默认 GitHub Release 更新路径仍然可用；manifest 路径适合服务器先缓存 release
+资产，再由国内用户从 Data Proxy 域名下载。
 
 ### 配置命令
 
@@ -126,10 +150,11 @@ dpa tunnel list
 dpa tunnel run <name>
 dpa tunnel route add http <name> --url http://127.0.0.1:3000
 dpa tunnel route add tcp <name> --host 127.0.0.1 --port 5432
+dpa tunnel route test <name>
 dpa tunnel route remove <name>
 ```
 
-第一版只实现 HTTP/WebSocket/SSE。`tcp` 命令可以先保留设计，不暴露或标记 experimental。
+当前单机版已实现 HTTP/WebSocket/SSE route 和 TCP-over-WebSocket route；`route test` 可在暴露隧道前主动探测本地目标是否可连。
 
 ### MCP 命令
 
@@ -167,15 +192,33 @@ dpa service status
 ### 诊断命令
 
 ```bash
+dpa status --json
 dpa doctor
+dpa doctor --json
+dpa doctor --check-update
 dpa logs path
 dpa logs tail --lines 100
 dpa logs tail --follow
 dpa self-test
 dpa report --output ./agent-diagnostic.zip
+dpa report --check-update --output ./agent-diagnostic.zip
 ```
 
-当前 `report` 会生成脱敏 zip，包含版本/平台、配置路径、脱敏配置、校验结果、状态摘要、可选网络检查结果、远端 Bridge token 握手校验结果、系统服务状态诊断，以及 `doctor` 同源的本地健康检查结果。
+`status --json` 默认不做网络请求，只输出脱敏的本地配置摘要，包括 client id、
+Bridge URL、token 是否配置、token 来源、能力列表、MCP/HTTP/TCP route 数量和静态 route 列表。
+加上 `--health` 后会额外探测本地 HTTP/TCP/MCP 目标，把结果放进 `local_health`，
+适合安装脚本、控制台采集和用户排障第一步使用。
+
+`doctor --json` 输出结构化诊断结果，包含配置是否加载、配置校验结果、DNS、
+Bridge token 握手、本地 workspace、本地审计路径、HTTP/MCP route、系统服务状态和可选更新检查。
+它不输出 agent token，适合控制台或脚本采集后做自动排障。
+
+`doctor --check-update` 和 `report --check-update` 会查询 GitHub Release 或自定义
+manifest 的 release metadata，只解析当前平台资产名称和版本，不下载或安装包。发现新
+版本时记录为 `warn`，不让本地健康检查失败；离线环境可以不传该参数。
+
+当前 `report` 会生成脱敏 zip，包含版本/平台、配置路径、脱敏配置、`status.json`、`status.txt`、
+`local_health.json`、校验结果、可选网络检查结果、远端 Bridge token 握手校验结果、系统服务状态诊断，以及 `doctor` 同源的本地健康检查结果。
 它不采集原始用户请求、响应、MCP 工具参数或本地文件内容。
 `logs path/tail` 读取 `logging.local_audit_jsonl`，`logs tail --follow` 可持续打印新增 JSONL 行。该本地审计只记录 bridge tool 调用的 request id、tool name、成功/失败、耗时、结果大小、错误码和少量 allowlist metadata，不写原始参数、响应正文或本地文件内容。
 
@@ -191,11 +234,11 @@ dpa report --output ./agent-diagnostic.zip
 - 当前版本是否过旧。
 
 当前 `doctor` 已覆盖配置校验、token 是否配置、`/bridge/ws` 远端 Bearer token 握手校验、Bridge DNS、Data Proxy
-`/api/status`、系统服务状态、workspace、本地审计文件路径、HTTP route TCP 连通性、HTTP MCP
-endpoint TCP 连通性，以及 stdio MCP 的 shell/命令前缀和已启动进程状态检查。stdio 检查不会主动启动
+`/api/status`、系统服务状态、workspace、本地审计文件路径、HTTP route TCP 连通性、TCP route TCP 连通性、HTTP MCP
+endpoint TCP 连通性、可选 release metadata 更新检查，以及 stdio MCP 的 shell/命令前缀和已启动进程状态检查。stdio 检查不会主动启动
 MCP 进程；真正的协议握手继续使用 `dpa mcp test <name>`。stdio MCP 进程启动、退出和退出后下次调用自动重启会写入本地审计 JSONL，但不会记录完整 command、工具参数或响应正文。
 
-其中系统服务安装/启停命令、版本更新命令、agent 在线健康上报和控制台健康摘要展示已具备基础能力；stdio MCP 的 stderr 分级、长期 watchdog 和 UI 侧进程事件聚合仍属于后续产品化阶段。
+其中系统服务安装/启停命令、版本更新命令、agent 在线健康上报和控制台健康摘要展示已具备基础能力；stdio MCP 已具备基础 stderr 分类，并会在本地审计和 health detail 中标记 `stderr_class`；注册成功后会启动轻量 watchdog，按 `runtime.health_interval_ms` 节奏清理已退出的缓存 stdio MCP 会话，并写入 `mcp_stdio.watchdog_reap` 本地审计事件。watchdog 只做清理和审计，不主动重启本地 MCP 进程；agent health report 现在会附带 `mcp_processes` 结构化摘要，服务端 Bridge Client health API 和控制台详情可展示 stdio MCP 的 running/exited/config_error/not_started、PID、初始化状态、stderr 分类和退出错误。更完整的历史事件聚合仍属于后续产品化阶段。
 
 ## 配置文件
 
@@ -211,8 +254,8 @@ MCP 进程；真正的协议握手继续使用 `dpa mcp test <name>`。stdio MCP
 
 ```yaml
 server:
-  base_url: https://dp.app.mbu.ltd
-  bridge_ws_url: wss://dp.app.mbu.ltd/bridge/ws
+  base_url: https://<data-proxy-host>
+  bridge_ws_url: wss://<data-proxy-host>/bridge/ws
 
 agent:
   client_id: macbook-pro-dev
@@ -225,6 +268,7 @@ policy:
   allow_write: false
   allow_non_loopback_http: false
   allow_non_loopback_mcp: false
+  allow_non_loopback_tcp: false
   allowed_workspaces:
     - /Users/me/workspace
   denied_paths:
@@ -250,6 +294,11 @@ http_routes:
     allow_sse: true
     max_request_bytes: 8388608
     max_response_bytes: 2097152
+
+tcp_routes:
+  - name: local-ssh
+    target_host: 127.0.0.1
+    target_port: 22
 
 logging:
   level: info
@@ -385,10 +434,11 @@ Data Proxy 控制台需要提供：
 2. 控制台生成一次性 setup token 和安装命令。
 3. 用户本机执行安装命令。
 4. Agent `enroll` 成功后自动注册为 Bridge Client。
-5. 用户在控制台申请 MCP Code Tunnel 或 HTTP Tunnel。
+5. 用户在控制台申请 MCP Code Tunnel、HTTP Tunnel 或 TCP Tunnel。
 6. 管理员审批。
 7. 用户创建 connection key。
-8. 外部网页 AI 或 HTTP 调用方使用 connection endpoint。
+8. HTTP/TCP Tunnel 用户从控制台复制 `dpa tunnel route add ...` 本地路由命令，并在运行 agent 的机器上执行；部署前可用 `dpa tunnel route test <name>` 验证本地目标连通性。
+9. 外部网页 AI、HTTP 调用方或 TCP-over-WebSocket 客户端使用 connection endpoint。
 
 ## 打包与发布
 
@@ -439,6 +489,9 @@ docker run -d --name data-proxy-agent --restart unless-stopped \
 
 - 默认来源：GitHub Release API，仓库为 `normojs/data-proxy`，按当前 OS/ARCH 选择资产，并下载同名 `.sha256` 校验。
 - 自定义来源：`--manifest-url`，适合未来由 Data Proxy 控制台、企业内网镜像或对象存储下发。
+
+安装脚本也支持同一个 manifest：设置 `DATA_PROXY_AGENT_MANIFEST_URL` 后会按当前
+OS/ARCH 选择资产 URL，并使用 manifest 内的 sha256 校验下载文件。
 
 manifest 格式：
 
@@ -501,20 +554,20 @@ Go 版 `dpa` 已开始落地：
 
 - 已新增 `cmd/dpa` 主入口，并保留 `cmd/data-proxy-agent` 兼容入口。
 - 已新增 `pkg/dpagent`，封装配置、CLI runner 和 Bridge WebSocket 客户端骨架。
-- 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`doctor`、`self-test`、`update`、`run`，并补齐 `config`、`mcp`、`tunnel`、`logs`、`service` 命令组的 `--help` 输出。
-- `doctor` 已能检查本地 workspace、本地审计路径、远端 Bridge token 握手、系统服务状态、HTTP route TCP 连通性、MCP HTTP endpoint 连通性、stdio MCP shell/命令前缀和已启动进程状态。
+- 已实现 `version`、`help`、`config path`、`config show`、`config validate`、`config export`、`status`、`status --json`、`status --health`、`doctor`、`doctor --json`、`self-test`、`update`、`run`，并补齐 `config`、`mcp`、`tunnel`、`logs`、`service` 命令组的 `--help` 输出。
+- `doctor` 已能检查本地 workspace、本地审计路径、远端 Bridge token 握手、系统服务状态、HTTP route TCP 连通性、TCP route TCP 连通性、MCP HTTP endpoint 连通性、stdio MCP shell/命令前缀和已启动进程状态。
 - 已实现 `enroll`，支持 `/api/bridge/agent-setup/consume` 一次性 setup token 绑定，也可兼容调用 `/api/bridge/agent-setup` 注册 Bridge Client，并默认通过 `--token-store auto` 把 agent token 写入系统 keyring；无可用 keyring 时回退到权限收紧的 secret-file，也可显式用 `--token-store config` 保持兼容。
 - 已实现 `report`，可生成脱敏诊断 zip，并记录远端 Bridge token 握手校验结果和系统服务状态。
 - 已实现 `logs path/tail`，读取本地 `logging.local_audit_jsonl` 审计 JSONL。
 - 已实现 `service install/uninstall/start/stop/restart/status/print`，可生成并管理 Linux systemd、macOS launchd、Windows Service 配置。
 - 已实现 `mcp list/add/test/remove`，用于管理本地 Streamable HTTP MCP endpoint 配置。
-- 已实现 `tunnel route list/add/remove`，用于管理本地 HTTP/WebSocket/SSE route 配置。
+- 已实现 `tunnel route list/add/test/remove`，用于管理并探测本地 HTTP/WebSocket/SSE 和 TCP route 配置。
 - `run` 已能读取配置和环境变量，连接 `/bridge/ws`，携带 Bearer token，发送 `register`，处理 `registered`、`pong`、`close` 和服务端 `error`。
 - 已实现心跳 `ping` 和重连退避。
 - 已实现 agent 在线健康上报：注册成功后立即通过 Bridge WebSocket 发送 `health` 摘要，之后按 `runtime.health_interval_ms` 定时上报；缺省为 60 秒，设为负数可禁用；服务端仅保存最新一份元数据级健康 JSON，并在 Bridge Client 健康详情 API/控制台展示。
 - 已实现敏感 token 脱敏、私有权限配置文件写入和基础配置校验。
 - 已实现 `http_tunnel.request` 普通/流式/SSE/WebSocket 转发：目标校验、loopback 默认限制、header 过滤、body base64、流式上传/下载、WebSocket frame 转发、响应截断和服务端兼容的 `http_response` metadata。
-- 已实现 MCP bridge 基础能力：`mcp_proxy.test`、`mcp_proxy.tools_list`、`mcp_proxy.tools_call` 和 `mcp_proxy.rpc`，支持 Streamable HTTP 目标、`Mcp-Session-Id` 会话复用、SSE `data:` 响应解析、loopback 默认限制，以及本地 stdio MCP 子进程桥接。stdio command 仅从本机配置读取，远端请求只能按本地 MCP server 名称选择；stdio 子进程启动、退出和退出后下次调用自动重启会写入本地审计 JSONL。
+- 已实现 MCP bridge 基础能力：`mcp_proxy.test`、`mcp_proxy.tools_list`、`mcp_proxy.tools_call` 和 `mcp_proxy.rpc`，支持 Streamable HTTP 目标、`Mcp-Session-Id` 会话复用、SSE `data:` 响应解析、loopback 默认限制，以及本地 stdio MCP 子进程桥接。stdio command 仅从本机配置读取，远端请求只能按本地 MCP server 名称选择；stdio 子进程启动、退出、退出后下次调用自动重启，以及 watchdog 清理已退出缓存会话，都会写入本地审计 JSONL，退出 stderr 会做基础分类并写入 `stderr_class`。
 - 已实现本地文件和项目只读工具：`remote_read`、`remote_tree`、`remote_glob`、`remote_grep`、`remote_env_info`、`remote_project_info`、`remote_get_related_files`、`remote_git_status`、`remote_git_diff`、`remote_git_log` 默认启用；Git 工具只运行固定只读 argv，并关闭外部 diff、pager 和交互提示。写入 `remote_write`、`remote_edit` 已实现但默认关闭，必须本机配置 `policy.allow_write=true` 才会上报和执行。所有路径默认限制在 `agent.workspace` 内，支持 `policy.allowed_workspaces`、`policy.denied_paths`、symlink 防逃逸、常见目录忽略、服务端 policy 限额收紧、本地结果截断和写入大小限制。
 - 已实现 `remote_run_tests` 安全测试命令：默认关闭，必须本机配置 `policy.exec.enabled=true` 且命令精确命中 `policy.exec.safe_commands`；执行目录仍限制在 workspace 内，输出受 `max_result_bytes` 限制，非零退出会作为工具结果返回给调用方。
 - 已实现 `update` 自动升级命令：支持 GitHub Release 和自定义 manifest，下载后校验 sha256、运行 `self-test`、替换前生成 `.new`、成功后保留 `.bak`。Windows 自替换先 staging，停止服务后再覆盖。
@@ -572,10 +625,10 @@ Go 版 `dpa` 已开始落地：
 
 - 已实现自动更新命令、release/checksum/image 签名、deb/rpm、MSI、Homebrew formula 和可选 macOS notarization，后续可补 Windows helper 与 Homebrew tap 自动提交。
 - 已实现本地诊断包基础命令，后续可接控制台上传和版本建议。
-- 已实现控制台健康摘要展示、远端 token 校验、系统服务状态诊断和 stdio MCP 子进程健康摘要。
+- 已实现控制台健康摘要展示、远端 token 校验、系统服务状态诊断、stdio MCP 子进程健康摘要、`mcp_processes` 结构化进程状态展示，以及本地 watchdog 清理已退出 stdio MCP 缓存会话。
 - 多 Agent 管理。
 - 策略版本和配置下发。
-- MCP stdio 的 stderr 分级、长期 watchdog 和 UI 侧进程事件聚合。
+- MCP stdio 的历史事件聚合和更细生命周期视图。
 - Windows ConPTY、终端信号处理和更接近云 IDE 的交互式 shell 体验。
 
 ## 第一版不做的事情
@@ -584,7 +637,7 @@ Go 版 `dpa` 已开始落地：
 - 不默认开启写文件和命令执行。
 - 不把所有 MCP Server 内置进 Agent。
 - 不要求用户必须使用 `coding-tools-mcp`，只要符合 MCP 协议即可。
-- 不在第一版实现 TCP Tunnel，先把 HTTP/MCP 做稳定。
+- 不在第一版实现 raw TCP listener/端口池；当前先提供 TCP-over-WebSocket MVP。
 
 ## 参考资料
 

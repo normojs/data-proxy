@@ -22,9 +22,9 @@ const (
 )
 
 type AgentHealthCheck struct {
-	Name   string
-	Status string
-	Detail string
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
 }
 
 func AgentLocalHealthChecks(cfg Config, timeout time.Duration) []AgentHealthCheck {
@@ -33,6 +33,9 @@ func AgentLocalHealthChecks(cfg Config, timeout time.Duration) []AgentHealthChec
 	checks = append(checks, checkAgentAuditLog(cfg)...)
 	for _, route := range cfg.HTTPRoutes {
 		checks = append(checks, checkHTTPRoute(cfg, route, timeout))
+	}
+	for _, route := range cfg.TCPRoutes {
+		checks = append(checks, checkTCPRoute(cfg, route, timeout))
 	}
 	for _, server := range cfg.MCPServers {
 		checks = append(checks, checkMCPServer(cfg, server, timeout))
@@ -70,13 +73,58 @@ func BuildAgentHealthReport(cfg Config, timeout time.Duration) dto.BridgeAgentHe
 		summary.Status = HealthStatusWarn
 	}
 	return dto.BridgeAgentHealthReport{
-		GeneratedAt: time.Now().Unix(),
-		Version:     agentVersion(cfg),
-		Platform:    agentPlatform(),
-		Workspace:   cfg.Agent.Workspace,
-		Summary:     summary,
-		Checks:      reportChecks,
+		GeneratedAt:  time.Now().Unix(),
+		Version:      agentVersion(cfg),
+		Platform:     agentPlatform(),
+		Workspace:    cfg.Agent.Workspace,
+		Summary:      summary,
+		Checks:       reportChecks,
+		MCPProcesses: AgentMCPProcessHealth(cfg),
 	}
+}
+
+func AgentMCPProcessHealth(cfg Config) []dto.BridgeAgentMCPProcess {
+	var processes []dto.BridgeAgentMCPProcess
+	for _, server := range cfg.MCPServers {
+		transport := normalizeMCPTransport(server.Transport, server.Endpoint, server.Command)
+		if transport != "stdio" {
+			continue
+		}
+		name := safeHealthName(server.Name)
+		process := dto.BridgeAgentMCPProcess{
+			Name:      name,
+			Transport: "stdio",
+			Status:    "not_started",
+		}
+		command := strings.TrimSpace(server.Command)
+		if command == "" {
+			process.Status = "config_error"
+			process.Detail = "stdio command is empty"
+			processes = append(processes, process)
+			continue
+		}
+		if prefix, ok := stdioCommandPrefix(command); ok {
+			process.Detail = "command_prefix=" + prefix
+		} else {
+			process.Detail = "shell command configured"
+		}
+		status := defaultMCPStdioSessions.Status("stdio:" + server.Name)
+		if !status.Exists {
+			processes = append(processes, process)
+			continue
+		}
+		process.PID = status.PID
+		process.Initialized = status.Initialized
+		process.StderrClass = status.StderrClass
+		process.ExitError = status.ExitError
+		if status.Alive {
+			process.Status = "running"
+		} else {
+			process.Status = "exited"
+		}
+		processes = append(processes, process)
+	}
+	return processes
 }
 
 func normalizeAgentHealthStatus(status string) string {
@@ -144,6 +192,21 @@ func checkHTTPRoute(cfg Config, route HTTPRoute, timeout time.Duration) AgentHea
 	return AgentHealthCheck{Name: name, Status: HealthStatusOK, Detail: target}
 }
 
+func checkTCPRoute(cfg Config, route TCPRoute, timeout time.Duration) AgentHealthCheck {
+	name := "tcp_route." + safeHealthName(route.Name)
+	target, err := allowedTCPTarget(cfg, tcpTunnelArgs{
+		TargetHost: route.TargetHost,
+		TargetPort: route.TargetPort,
+	})
+	if err != nil {
+		return AgentHealthCheck{Name: name, Status: HealthStatusFail, Detail: err.Error()}
+	}
+	if err := checkTCPAddress(target, timeout); err != nil {
+		return AgentHealthCheck{Name: name, Status: HealthStatusFail, Detail: err.Error()}
+	}
+	return AgentHealthCheck{Name: name, Status: HealthStatusOK, Detail: target}
+}
+
 func checkMCPServer(cfg Config, server MCPServer, timeout time.Duration) AgentHealthCheck {
 	name := "mcp_server." + safeHealthName(server.Name)
 	transport := normalizeMCPTransport(server.Transport, server.Endpoint, server.Command)
@@ -194,7 +257,13 @@ func checkStdioMCPServer(name string, server MCPServer) AgentHealthCheck {
 		return AgentHealthCheck{Name: name, Status: HealthStatusOK, Detail: fmt.Sprintf("%s; process running pid=%d %s", detail, status.PID, initialized)}
 	}
 	if status.ExitError != "" {
+		if status.StderrClass != "" {
+			detail += "; stderr_class=" + status.StderrClass
+		}
 		return AgentHealthCheck{Name: name, Status: HealthStatusWarn, Detail: detail + "; previous process exited: " + status.ExitError}
+	}
+	if status.StderrClass != "" {
+		detail += "; stderr_class=" + status.StderrClass
 	}
 	return AgentHealthCheck{Name: name, Status: HealthStatusWarn, Detail: detail + "; previous process exited; next call will restart"}
 }
@@ -277,6 +346,10 @@ func checkTCPURL(rawURL string, timeout time.Duration) error {
 		}
 	}
 	address := net.JoinHostPort(host, port)
+	return checkTCPAddress(address, timeout)
+}
+
+func checkTCPAddress(address string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var dialer net.Dialer

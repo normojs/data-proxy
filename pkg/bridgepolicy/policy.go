@@ -124,6 +124,9 @@ func ValidateTool(policy Policy, toolName string) error {
 		if allowed == "http_tunnel" && strings.HasPrefix(toolName, "http_tunnel.") {
 			return nil
 		}
+		if allowed == "tcp_tunnel" && strings.HasPrefix(toolName, "tcp_tunnel.") {
+			return nil
+		}
 		if strings.HasSuffix(allowed, ".*") && strings.HasPrefix(toolName, strings.TrimSuffix(allowed, "*")) {
 			return nil
 		}

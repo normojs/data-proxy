@@ -2,6 +2,7 @@ package service
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -276,6 +277,24 @@ func TestUpdateBridgeClientHealthReturnedByHealthAPI(t *testing.T) {
 			{Name: "workspace", Status: "ok", Detail: "/tmp/project"},
 			{Name: "mcp_server.coding", Status: "warning", Detail: "not reachable"},
 		},
+		MCPProcesses: []dto.BridgeAgentMCPProcess{
+			{
+				Name:        "coding",
+				Transport:   "stdio",
+				Status:      "running",
+				PID:         2345,
+				Initialized: true,
+				StderrClass: "crash",
+				ExitError:   strings.Repeat("x", 400),
+				Detail:      "command_prefix=npx",
+			},
+			{
+				Name:      "broken",
+				Transport: "stdio",
+				Status:    "invalid",
+				Detail:    "stdio command is empty",
+			},
+		},
 	})
 	require.NoError(t, err)
 
@@ -293,6 +312,12 @@ func TestUpdateBridgeClientHealthReturnedByHealthAPI(t *testing.T) {
 	require.Equal(t, 1, health.AgentHealth.Summary.OK)
 	require.Equal(t, 1, health.AgentHealth.Summary.Warn)
 	require.Equal(t, "warn", health.AgentHealth.Checks[1].Status)
+	require.Len(t, health.AgentHealth.MCPProcesses, 2)
+	require.Equal(t, "running", health.AgentHealth.MCPProcesses[0].Status)
+	require.Equal(t, 2345, health.AgentHealth.MCPProcesses[0].PID)
+	require.True(t, health.AgentHealth.MCPProcesses[0].Initialized)
+	require.Equal(t, "config_error", health.AgentHealth.MCPProcesses[1].Status)
+	require.LessOrEqual(t, len(health.AgentHealth.MCPProcesses[0].ExitError), 256)
 }
 
 func TestCloseOldBridgeSessionKeepsReconnectedClientOnline(t *testing.T) {

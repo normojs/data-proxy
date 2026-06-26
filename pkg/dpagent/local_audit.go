@@ -124,6 +124,7 @@ func localAuditMetadata(metadata map[string]any) map[string]any {
 		"exit_code":      true,
 		"timed_out":      true,
 		"truncated":      true,
+		"stderr_class":   true,
 	}
 	result := map[string]any{}
 	for key, value := range metadata {

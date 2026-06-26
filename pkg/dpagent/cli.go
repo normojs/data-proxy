@@ -114,11 +114,11 @@ Usage:
   %[1]s config path|show|validate|export [--config <path>]
   %[1]s config token status|store|migrate|delete [--config <path>]
   %[1]s mcp list|add|test|remove [--config <path>]
-  %[1]s tunnel route list|add|remove [--config <path>]
-  %[1]s status [--config <path>]
-  %[1]s doctor [--config <path>]
+  %[1]s tunnel route list|add|test|remove [--config <path>]
+  %[1]s status [--config <path>] [--json] [--health] [--timeout 5s]
+  %[1]s doctor [--config <path>] [--json] [--check-update]
   %[1]s logs path|tail [--config <path>]
-  %[1]s report [--config <path>] [--output <zip>]
+  %[1]s report [--config <path>] [--output <zip>] [--check-update]
   %[1]s service install|uninstall|start|stop|restart|status [--config <path>]
   %[1]s update [--version latest|vX.Y.Z] [--dry-run]
   %[1]s self-test
@@ -126,7 +126,7 @@ Usage:
 
 Environment:
   DATA_PROXY_AGENT_CONFIG      Config path override.
-  DATA_PROXY_BASE_URL          Data Proxy base URL, for example https://dp.app.mbu.ltd.
+  DATA_PROXY_BASE_URL          Data Proxy base URL, for example https://<data-proxy-host>.
   DATA_PROXY_BRIDGE_WS_URL     Bridge WebSocket URL.
   DATA_PROXY_API_KEY           Agent API key used for /bridge/ws.
   DATA_PROXY_ACCESS_TOKEN      Dashboard access token used by enroll.
@@ -166,9 +166,11 @@ func (c CLI) printTunnelHelp() {
 	fmt.Fprintf(c.Out, `Usage:
   %[1]s tunnel route list [--config <path>] [--json]
   %[1]s tunnel route add http <name> --url <local-url> [--allow-websocket] [--allow-sse] [--config <path>]
+  %[1]s tunnel route add tcp <name> --host <local-host> --port <local-port> [--config <path>]
+  %[1]s tunnel route test <name> [--config <path>] [--timeout 5s] [--json]
   %[1]s tunnel route remove <name> [--config <path>]
 
-Tunnel routes expose local HTTP/SSE/WebSocket services through an approved Data Proxy tunnel connection.
+Tunnel routes expose local HTTP/SSE/WebSocket or TCP services through an approved Data Proxy tunnel connection.
 `, program)
 }
 
@@ -177,6 +179,8 @@ func (c CLI) printTunnelRouteHelp() {
 	fmt.Fprintf(c.Out, `Usage:
   %[1]s tunnel route list [--config <path>] [--json]
   %[1]s tunnel route add http <name> --url <local-url> [--allow-websocket] [--allow-sse]
+  %[1]s tunnel route add tcp <name> --host <local-host> --port <local-port>
+  %[1]s tunnel route test <name> [--config <path>] [--timeout 5s] [--json]
   %[1]s tunnel route remove <name> [--config <path>]
 `, program)
 }
@@ -621,6 +625,8 @@ func (c CLI) runTunnelRoute(args []string) int {
 		return c.runTunnelRouteList(args[1:])
 	case "add":
 		return c.runTunnelRouteAdd(args[1:])
+	case "test":
+		return c.runTunnelRouteTest(args[1:])
 	case "remove", "rm":
 		return c.runTunnelRouteRemove(args[1:])
 	default:
@@ -644,7 +650,10 @@ func (c CLI) runTunnelRouteList(args []string) int {
 		return 1
 	}
 	if *jsonOutput {
-		bytes, err := json.MarshalIndent(cfg.HTTPRoutes, "", "  ")
+		bytes, err := json.MarshalIndent(map[string]any{
+			"http_routes": cfg.HTTPRoutes,
+			"tcp_routes":  cfg.TCPRoutes,
+		}, "", "  ")
 		if err != nil {
 			fmt.Fprintln(c.Err, err)
 			return 1
@@ -652,12 +661,15 @@ func (c CLI) runTunnelRouteList(args []string) int {
 		fmt.Fprintln(c.Out, string(bytes))
 		return 0
 	}
-	if len(cfg.HTTPRoutes) == 0 {
+	if len(cfg.HTTPRoutes) == 0 && len(cfg.TCPRoutes) == 0 {
 		fmt.Fprintln(c.Out, "no tunnel routes configured")
 		return 0
 	}
 	for _, route := range cfg.HTTPRoutes {
 		fmt.Fprintf(c.Out, "%s\thttp\t%s\twebsocket=%t\tsse=%t\n", route.Name, route.Target, route.AllowWebSocket, route.AllowSSE)
+	}
+	for _, route := range cfg.TCPRoutes {
+		fmt.Fprintf(c.Out, "%s\ttcp\t%s:%d\tallow_public=%t\n", route.Name, route.TargetHost, route.TargetPort, route.AllowPublic)
 	}
 	return 0
 }
@@ -669,7 +681,7 @@ func (c CLI) runTunnelRouteAdd(args []string) int {
 	}
 	routeType := strings.TrimSpace(strings.ToLower(args[0]))
 	name := strings.TrimSpace(args[1])
-	if routeType != "http" {
+	if routeType != "http" && routeType != "tcp" {
 		fmt.Fprintf(c.Err, "unsupported tunnel route type: %s\n", routeType)
 		return 2
 	}
@@ -678,6 +690,9 @@ func (c CLI) runTunnelRouteAdd(args []string) int {
 	configPath := fs.String("config", "", "config path")
 	target := fs.String("url", "", "local HTTP target URL")
 	targetAlias := fs.String("target", "", "local HTTP target URL")
+	host := fs.String("host", "127.0.0.1", "local TCP target host")
+	port := fs.Int("port", 0, "local TCP target port")
+	allowPublic := fs.Bool("allow-public", false, "document that this TCP route may be exposed after server-side approval")
 	allowWebSocket := fs.Bool("allow-websocket", false, "allow WebSocket upgrade")
 	allowSSE := fs.Bool("allow-sse", true, "allow SSE responses")
 	maxRequestBytes := fs.Int64("max-request-bytes", 0, "max request bytes")
@@ -685,23 +700,33 @@ func (c CLI) runTunnelRouteAdd(args []string) int {
 	if err := fs.Parse(args[2:]); err != nil {
 		return 2
 	}
-	if *target == "" {
-		*target = *targetAlias
-	}
-	route := HTTPRoute{
-		Name:             name,
-		Target:           strings.TrimSpace(*target),
-		AllowWebSocket:   *allowWebSocket,
-		AllowSSE:         *allowSSE,
-		MaxRequestBytes:  *maxRequestBytes,
-		MaxResponseBytes: *maxResponseBytes,
-	}
 	cfg, _, err := LoadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintln(c.Err, err)
 		return 1
 	}
-	cfg.HTTPRoutes = upsertHTTPRoute(cfg.HTTPRoutes, route)
+	if routeType == "tcp" {
+		route := TCPRoute{
+			Name:        name,
+			TargetHost:  strings.TrimSpace(*host),
+			TargetPort:  *port,
+			AllowPublic: *allowPublic,
+		}
+		cfg.TCPRoutes = upsertTCPRoute(cfg.TCPRoutes, route)
+	} else {
+		if *target == "" {
+			*target = *targetAlias
+		}
+		route := HTTPRoute{
+			Name:             name,
+			Target:           strings.TrimSpace(*target),
+			AllowWebSocket:   *allowWebSocket,
+			AllowSSE:         *allowSSE,
+			MaxRequestBytes:  *maxRequestBytes,
+			MaxResponseBytes: *maxResponseBytes,
+		}
+		cfg.HTTPRoutes = upsertHTTPRoute(cfg.HTTPRoutes, route)
+	}
 	if result := ValidateConfig(cfg, false); !result.OK() {
 		printValidation(c.Err, result)
 		return 1
@@ -711,6 +736,58 @@ func (c CLI) runTunnelRouteAdd(args []string) int {
 		return 1
 	}
 	fmt.Fprintf(c.Out, "tunnel route saved: %s\n", name)
+	return 0
+}
+
+func (c CLI) runTunnelRouteTest(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.Err, "tunnel route test requires a name")
+		return 2
+	}
+	name := strings.TrimSpace(args[0])
+	fs := flag.NewFlagSet("tunnel route test", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	configPath := fs.String("config", "", "config path")
+	timeout := fs.Duration("timeout", 5*time.Second, "route probe timeout")
+	jsonOutput := fs.Bool("json", false, "print JSON")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	cfg, _, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return 1
+	}
+	routeType := ""
+	var check AgentHealthCheck
+	if route, ok := findHTTPRoute(cfg.HTTPRoutes, name); ok {
+		routeType = "http"
+		check = checkHTTPRoute(cfg, route, *timeout)
+	} else if route, ok := findTCPRoute(cfg.TCPRoutes, name); ok {
+		routeType = "tcp"
+		check = checkTCPRoute(cfg, route, *timeout)
+	} else {
+		fmt.Fprintf(c.Err, "tunnel route not found: %s\n", name)
+		return 1
+	}
+	if *jsonOutput {
+		bytes, err := json.MarshalIndent(map[string]any{
+			"name":    name,
+			"type":    routeType,
+			"status":  check.Status,
+			"message": check.Detail,
+		}, "", "  ")
+		if err != nil {
+			fmt.Fprintln(c.Err, err)
+			return 1
+		}
+		fmt.Fprintln(c.Out, string(bytes))
+	} else {
+		printAgentHealthCheck(c.Out, check)
+	}
+	if normalizeAgentHealthStatus(check.Status) == HealthStatusFail {
+		return 1
+	}
 	return 0
 }
 
@@ -731,12 +808,15 @@ func (c CLI) runTunnelRouteRemove(args []string) int {
 		fmt.Fprintln(c.Err, err)
 		return 1
 	}
-	next, removed := removeHTTPRoute(cfg.HTTPRoutes, name)
+	nextHTTP, removedHTTP := removeHTTPRoute(cfg.HTTPRoutes, name)
+	nextTCP, removedTCP := removeTCPRoute(cfg.TCPRoutes, name)
+	removed := removedHTTP || removedTCP
 	if !removed {
 		fmt.Fprintf(c.Err, "tunnel route not found: %s\n", name)
 		return 1
 	}
-	cfg.HTTPRoutes = next
+	cfg.HTTPRoutes = nextHTTP
+	cfg.TCPRoutes = nextTCP
 	if err := SaveConfig(*configPath, cfg); err != nil {
 		fmt.Fprintln(c.Err, err)
 		return 1
@@ -749,6 +829,9 @@ func (c CLI) runStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
 	configPath := fs.String("config", "", "config path")
+	jsonOutput := fs.Bool("json", false, "print JSON")
+	includeHealth := fs.Bool("health", false, "include local route health checks")
+	timeout := fs.Duration("timeout", 5*time.Second, "local health probe timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -757,17 +840,17 @@ func (c CLI) runStatus(args []string) int {
 		fmt.Fprintln(c.Err, err)
 		return 1
 	}
-	bridgeURL, _ := EffectiveBridgeWSURL(cfg)
-	fmt.Fprintf(c.Out, "config_loaded: %t\n", loaded)
-	fmt.Fprintf(c.Out, "client_id: %s\n", cfg.Agent.ClientID)
-	fmt.Fprintf(c.Out, "name: %s\n", cfg.Agent.Name)
-	fmt.Fprintf(c.Out, "version: %s\n", cfg.Agent.Version)
-	fmt.Fprintf(c.Out, "workspace: %s\n", cfg.Agent.Workspace)
-	fmt.Fprintf(c.Out, "bridge_ws_url: %s\n", bridgeURL)
-	fmt.Fprintf(c.Out, "token_configured: %t\n", ResolveToken(cfg) != "")
-	fmt.Fprintf(c.Out, "capabilities: %s\n", strings.Join(EffectiveCapabilities(cfg), ","))
-	fmt.Fprintf(c.Out, "mcp_servers: %d\n", len(cfg.MCPServers))
-	fmt.Fprintf(c.Out, "http_routes: %d\n", len(cfg.HTTPRoutes))
+	summary := BuildAgentStatusSummaryWithHealth(cfg, loaded, *includeHealth, *timeout)
+	if *jsonOutput {
+		bytes, err := json.MarshalIndent(summary, "", "  ")
+		if err != nil {
+			fmt.Fprintln(c.Err, err)
+			return 1
+		}
+		fmt.Fprintln(c.Out, string(bytes))
+		return 0
+	}
+	fmt.Fprint(c.Out, RenderAgentStatusText(summary))
 	return 0
 }
 
@@ -776,6 +859,12 @@ func (c CLI) runDoctor(args []string) int {
 	fs.SetOutput(c.Err)
 	configPath := fs.String("config", "", "config path")
 	timeout := fs.Duration("timeout", 5*time.Second, "network check timeout")
+	jsonOutput := fs.Bool("json", false, "print JSON")
+	checkUpdate := fs.Bool("check-update", false, "check latest dpa release metadata")
+	updateManifestURL := fs.String("manifest-url", "", "custom update manifest URL for --check-update")
+	updateRepo := fs.String("repo", DefaultAgentUpdateRepo, "GitHub repo in owner/name form for --check-update")
+	updateGitHubAPI := fs.String("github-api", DefaultAgentUpdateGitHubAPI, "GitHub API base URL for --check-update")
+	allowPrerelease := fs.Bool("allow-prerelease", false, "allow prerelease versions for --check-update")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -784,63 +873,109 @@ func (c CLI) runDoctor(args []string) int {
 		fmt.Fprintln(c.Err, err)
 		return 1
 	}
-	fmt.Fprintf(c.Out, "config_loaded: %t\n", loaded)
 	result := ValidateConfig(cfg, false)
-	printValidation(c.Out, result)
-	ok := result.OK()
+	report := AgentDoctorReport{
+		OK:           result.OK(),
+		Version:      c.Version,
+		ConfigLoaded: loaded,
+		Validation:   result,
+	}
+	if !*jsonOutput {
+		fmt.Fprintf(c.Out, "config_loaded: %t\n", loaded)
+		printValidation(c.Out, result)
+	}
+	emitCheck := func(name string, status string, message string) {
+		report.addCheck(name, status, message)
+		if *jsonOutput {
+			return
+		}
+		if strings.TrimSpace(message) == "" {
+			fmt.Fprintf(c.Out, "%s: %s\n", name, status)
+			return
+		}
+		fmt.Fprintf(c.Out, "%s: %s: %s\n", name, status, message)
+	}
+	emitHealthCheck := func(check AgentHealthCheck) {
+		report.addHealthCheck(check)
+		if !*jsonOutput {
+			printAgentHealthCheck(c.Out, check)
+		}
+	}
 	bridgeURL := ""
 	bridgeURLValid := false
 	if resolvedBridgeURL, err := EffectiveBridgeWSURL(cfg); err == nil {
 		bridgeURL = resolvedBridgeURL
 		bridgeURLValid = true
 		if err := checkDNS(bridgeURL, *timeout); err != nil {
-			fmt.Fprintf(c.Out, "dns: fail: %s\n", err)
-			ok = false
+			emitCheck("dns", HealthStatusFail, err.Error())
 		} else {
-			fmt.Fprintln(c.Out, "dns: ok")
+			emitCheck("dns", HealthStatusOK, "")
 		}
 	} else {
-		fmt.Fprintf(c.Out, "bridge_url: fail: %s\n", err)
-		ok = false
+		emitCheck("bridge_url", HealthStatusFail, err.Error())
 	}
 	if cfg.Server.BaseURL != "" {
 		if err := checkBaseURL(cfg.Server.BaseURL, *timeout); err != nil {
-			fmt.Fprintf(c.Out, "base_url: warn: %s\n", err)
+			emitCheck("base_url", HealthStatusWarn, err.Error())
 		} else {
-			fmt.Fprintln(c.Out, "base_url: ok")
+			emitCheck("base_url", HealthStatusOK, "")
 		}
 	}
 	token := ResolveToken(cfg)
 	if token == "" {
-		fmt.Fprintln(c.Out, "token: missing")
-		fmt.Fprintln(c.Out, "bridge_auth: skipped: token missing")
-		ok = false
+		emitCheck("token", "missing", "")
+		emitCheck("bridge_auth", "skipped", "token missing")
 	} else {
-		fmt.Fprintln(c.Out, "token: configured")
+		emitCheck("token", "configured", "")
 		if bridgeURLValid {
 			if err := checkBridgeWebSocketAuth(bridgeURL, token, *timeout); err != nil {
-				fmt.Fprintf(c.Out, "bridge_auth: fail: %s\n", err)
-				ok = false
+				emitCheck("bridge_auth", HealthStatusFail, err.Error())
 			} else {
-				fmt.Fprintln(c.Out, "bridge_auth: ok")
+				emitCheck("bridge_auth", HealthStatusOK, "")
 			}
 		}
 	}
 	for _, check := range AgentLocalHealthChecks(cfg, *timeout) {
-		printAgentHealthCheck(c.Out, check)
-		if check.Status == HealthStatusFail {
-			ok = false
-		}
+		emitHealthCheck(check)
 	}
 	serviceCheck := CheckServiceStatus(context.Background(), ServiceHealthOptions{
 		ConfigPath: *configPath,
 		Timeout:    *timeout,
 	})
-	printAgentHealthCheck(c.Out, serviceCheck)
-	if serviceCheck.Status == HealthStatusFail {
-		ok = false
+	emitHealthCheck(serviceCheck)
+	if *checkUpdate {
+		updateCheck, err := CheckAgentUpdate(context.Background(), AgentUpdateCheckOptions{
+			CurrentVersion:  c.Version,
+			Version:         "latest",
+			Repo:            *updateRepo,
+			ManifestURL:     *updateManifestURL,
+			GitHubAPIBase:   *updateGitHubAPI,
+			AllowPrerelease: *allowPrerelease,
+			Timeout:         *timeout,
+		})
+		if err != nil {
+			emitCheck("update", HealthStatusWarn, err.Error())
+		} else if updateCheck.UpdateAvailable {
+			emitCheck("update", HealthStatusWarn, fmt.Sprintf("%s available (current %s, asset %s)", updateCheck.LatestVersion, updateCheck.CurrentVersion, updateCheck.AssetName))
+		} else {
+			emitCheck("update", HealthStatusOK, updateCheck.CurrentVersion+" is current")
+		}
+	} else {
+		emitCheck("update", "skipped", "pass --check-update to query release metadata")
 	}
-	if ok {
+	if *jsonOutput {
+		bytes, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			fmt.Fprintln(c.Err, err)
+			return 1
+		}
+		fmt.Fprintln(c.Out, string(bytes))
+		if report.OK {
+			return 0
+		}
+		return 1
+	}
+	if report.OK {
 		fmt.Fprintln(c.Out, "doctor: ok")
 		return 0
 	}
@@ -1049,8 +1184,50 @@ func upsertHTTPRoute(items []HTTPRoute, route HTTPRoute) []HTTPRoute {
 	return append(append([]HTTPRoute(nil), items...), route)
 }
 
+func upsertTCPRoute(items []TCPRoute, route TCPRoute) []TCPRoute {
+	for index, item := range items {
+		if item.Name == route.Name {
+			next := append([]TCPRoute(nil), items...)
+			next[index] = route
+			return next
+		}
+	}
+	return append(append([]TCPRoute(nil), items...), route)
+}
+
+func findHTTPRoute(items []HTTPRoute, name string) (HTTPRoute, bool) {
+	for _, item := range items {
+		if item.Name == name {
+			return item, true
+		}
+	}
+	return HTTPRoute{}, false
+}
+
+func findTCPRoute(items []TCPRoute, name string) (TCPRoute, bool) {
+	for _, item := range items {
+		if item.Name == name {
+			return item, true
+		}
+	}
+	return TCPRoute{}, false
+}
+
 func removeHTTPRoute(items []HTTPRoute, name string) ([]HTTPRoute, bool) {
 	next := make([]HTTPRoute, 0, len(items))
+	removed := false
+	for _, item := range items {
+		if item.Name == name {
+			removed = true
+			continue
+		}
+		next = append(next, item)
+	}
+	return next, removed
+}
+
+func removeTCPRoute(items []TCPRoute, name string) ([]TCPRoute, bool) {
+	next := make([]TCPRoute, 0, len(items))
 	removed := false
 	for _, item := range items {
 		if item.Name == name {

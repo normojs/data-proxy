@@ -19,6 +19,7 @@ func setupTunnelTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
+		&model.User{},
 		&model.Token{},
 		&model.BridgeClient{},
 		&model.BridgeAuditLog{},
@@ -626,6 +627,34 @@ func TestTrafficTunnelRequiresTargetPortAndUsesTrafficPermission(t *testing.T) {
 	require.Equal(t, model.TunnelRouteAuthPrivate, item.Route["auth_mode"])
 }
 
+func TestTCPTunnelConnectionEndpointAndBridgePolicy(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	item, err := CreateTunnelAppForUser(100, dto.TunnelAppCreateRequest{
+		Name:           "Local SSH",
+		AppType:        model.TunnelAppTypeTCP,
+		BridgeClientId: "bridge-tcp",
+		TargetPort:     22,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.TunnelAppTypeTCP, item.AppType)
+	require.Equal(t, model.TunnelPermissionTraffic, item.PermissionMode)
+	item = approveTunnelAppForTest(t, item)
+
+	resp, err := CreateTunnelConnectionForUser(item.Id, 100, dto.TunnelConnectionCreateRequest{Name: "TCP client"})
+	require.NoError(t, err)
+	require.Contains(t, resp.EndpointPath, "/t/"+resp.ConnectionKey+"/tunnel/tcp/"+item.PublicSlug)
+	connections, total, err := ListTunnelConnections(TunnelConnectionListParams{UserId: 100, AppId: item.Id})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Contains(t, connections[0].EndpointPath, "/t/<connection_key>/tunnel/tcp/"+item.PublicSlug)
+
+	var client model.BridgeClient
+	require.NoError(t, db.First(&client, "client_id = ?", "bridge-tcp").Error)
+	policy, err := bridgepolicy.Parse(client.Policy)
+	require.NoError(t, err)
+	require.Contains(t, policy.AllowedTools, "tcp_tunnel")
+}
+
 func TestTrafficTunnelRejectsCodePermissionMode(t *testing.T) {
 	_ = setupTunnelTestDB(t)
 
@@ -663,6 +692,9 @@ func TestTunnelBridgePolicyPermissionModes(t *testing.T) {
 	require.Contains(t, httpPolicy.AllowedTools, "http_tunnel")
 	require.Equal(t, []string{"169.254.169.254"}, httpPolicy.HTTPDeniedTargets)
 	require.Equal(t, []int{3306, 6379}, httpPolicy.HTTPDeniedPorts)
+
+	tcpPolicy := tunnelTCPBridgePolicy(existing, bridgepolicy.Policy{})
+	require.Contains(t, tcpPolicy.AllowedTools, "tcp_tunnel")
 
 	execSafe := tunnelBridgePolicyFromMode(model.TunnelPermissionExecSafe, existing, bridgepolicy.Policy{})
 	require.True(t, execSafe.AllowWrite)

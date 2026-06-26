@@ -93,7 +93,7 @@ export const MCP_SECTIONS = [
     id: 'my-tunnel-apps',
     titleKey: 'My Tunnel Apps',
     descriptionKey:
-      'Request MCP code tunnel or HTTP tunnel apps for local Bridge clients and track administrator review.',
+      'Request MCP code tunnel, HTTP tunnel, or TCP tunnel apps for local Bridge clients and track administrator review.',
     build: () => <MyTunnelAppsTable />,
   },
   {

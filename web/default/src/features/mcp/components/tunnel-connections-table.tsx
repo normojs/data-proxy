@@ -35,6 +35,7 @@ import {
   Plus,
   RefreshCw,
   ShieldAlert,
+  Terminal,
   Trash2,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -132,6 +133,7 @@ function tunnelLabel(value: string, t: (key: string) => string): string {
     expired: t('Expired'),
     http_tunnel: t('HTTP Tunnel'),
     mcp_code: t('MCP Code Tunnel'),
+    tcp_tunnel: t('TCP Tunnel'),
     read_only: t('Read Only'),
     traffic: t('Traffic'),
     write: t('Write'),
@@ -160,9 +162,138 @@ function formatExpiry(value: number, t: (key: string) => string): string {
   return isExpired(value) ? t('Expired') : ''
 }
 
-function formatFullEndpoint(endpointPath: string): string {
+function formatFullEndpoint(
+  endpointPath: string,
+  app?: TunnelApp | null
+): string {
   if (typeof window === 'undefined') return endpointPath
-  return `${window.location.origin}${endpointPath}`
+  const origin =
+    app?.app_type === 'tcp_tunnel'
+      ? window.location.origin
+          .replace(/^https:/, 'wss:')
+          .replace(/^http:/, 'ws:')
+      : window.location.origin
+  return `${origin}${endpointPath}`
+}
+
+function isTrafficTunnelApp(app?: TunnelApp | null): boolean {
+  return (
+    app?.app_type === 'http_tunnel' ||
+    app?.app_type === 'tcp_tunnel' ||
+    app?.permission_mode === 'traffic'
+  )
+}
+
+function tunnelEndpointType(app?: TunnelApp | null): 'mcp' | 'http' | 'tcp' {
+  if (app?.app_type === 'http_tunnel') return 'http'
+  if (app?.app_type === 'tcp_tunnel') return 'tcp'
+  return 'mcp'
+}
+
+function tunnelEndpointPath(app?: TunnelApp | null, connectionKey?: string) {
+  const key = connectionKey?.trim() || '<connection_key>'
+  const slug = app?.public_slug || '<slug>'
+  return `/t/${key}/tunnel/${tunnelEndpointType(app)}/${slug}`
+}
+
+function tunnelEndpointLabel(
+  app: TunnelApp | null | undefined,
+  t: (key: string) => string
+) {
+  if (app?.app_type === 'http_tunnel') return t('HTTP Endpoint')
+  if (app?.app_type === 'tcp_tunnel') return t('TCP Endpoint')
+  return t('MCP Endpoint')
+}
+
+function normalizeTunnelPath(value: string | undefined): string {
+  const path = value?.trim() || '/'
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  return path.startsWith('/') ? path : `/${path}`
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value
+  return `'${value.replace(/'/g, `'"'"'`)}'`
+}
+
+function dpaRouteName(app: TunnelApp | null | undefined): string {
+  const raw = app?.public_slug || app?.name || 'local-tunnel'
+  const sanitized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return sanitized || 'local-tunnel'
+}
+
+function routeNumber(route: Record<string, unknown> | undefined, key: string) {
+  const value = route?.[key]
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.trunc(value)
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed > 0) return Math.trunc(parsed)
+  }
+  return 0
+}
+
+function localHTTPRouteTarget(app: TunnelApp): string {
+  const targetPath = normalizeTunnelPath(app.target_path)
+  if (targetPath.startsWith('http://') || targetPath.startsWith('https://')) {
+    return targetPath
+  }
+  const host = app.target_host?.trim() || '127.0.0.1'
+  const port = Number(app.target_port)
+  if (!Number.isFinite(port) || port <= 0) return ''
+  return `http://${host}:${Math.trunc(port)}${targetPath}`
+}
+
+function buildDpaRouteCommand(app?: TunnelApp | null): string {
+  if (!app) return ''
+  const routeName = dpaRouteName(app)
+  if (app.app_type === 'http_tunnel') {
+    const target = localHTTPRouteTarget(app)
+    if (!target) return ''
+    const parts = [
+      'dpa',
+      'tunnel',
+      'route',
+      'add',
+      'http',
+      shellQuote(routeName),
+      '--url',
+      shellQuote(target),
+      '--allow-websocket',
+    ]
+    const maxRequestBytes = routeNumber(app.route, 'max_request_bytes')
+    const maxResponseBytes = routeNumber(app.route, 'max_response_bytes')
+    if (maxRequestBytes > 0) {
+      parts.push('--max-request-bytes', String(maxRequestBytes))
+    }
+    if (maxResponseBytes > 0) {
+      parts.push('--max-response-bytes', String(maxResponseBytes))
+    }
+    return parts.join(' ')
+  }
+  if (app.app_type === 'tcp_tunnel') {
+    const host = app.target_host?.trim() || '127.0.0.1'
+    const port = Number(app.target_port)
+    if (!Number.isFinite(port) || port <= 0) return ''
+    return [
+      'dpa',
+      'tunnel',
+      'route',
+      'add',
+      'tcp',
+      shellQuote(routeName),
+      '--host',
+      shellQuote(host),
+      '--port',
+      String(Math.trunc(port)),
+    ].join(' ')
+  }
+  return ''
 }
 
 function formatJSON(value: unknown): string {
@@ -170,7 +301,7 @@ function formatJSON(value: unknown): string {
 }
 
 function getPermissionOptions(app?: TunnelApp | null) {
-  if (app?.app_type === 'http_tunnel' || app?.permission_mode === 'traffic') {
+  if (isTrafficTunnelApp(app)) {
     return ['traffic']
   }
   const maxIndex = Math.max(
@@ -197,8 +328,14 @@ function editExpiryToTimestamp(form: TunnelConnectionEditForm): number {
 }
 
 function buildInitialForm(app?: TunnelApp | null): TunnelConnectionCreateForm {
+  const defaultName =
+    app?.app_type === 'http_tunnel'
+      ? 'HTTP Client'
+      : app?.app_type === 'tcp_tunnel'
+        ? 'TCP Client'
+        : 'Desktop MCP'
   return {
-    name: app?.app_type === 'http_tunnel' ? 'HTTP Client' : 'Desktop MCP',
+    name: defaultName,
     permissionMode: getPermissionOptions(app)[0] ?? 'read_only',
     expiryPreset: 'never',
     maxRequestsPerMinute: '',
@@ -377,6 +514,42 @@ function SecretField(props: { label: string; value: string }) {
   )
 }
 
+function DpaRouteCommandPanel(props: { app: TunnelApp | null }) {
+  const { t } = useTranslation()
+  const command = buildDpaRouteCommand(props.app)
+  if (!command) return null
+
+  return (
+    <div className='bg-muted/30 space-y-2 rounded-lg border p-3'>
+      <div className='flex min-w-0 items-start justify-between gap-3'>
+        <div className='min-w-0 space-y-0.5'>
+          <div className='flex items-center gap-2'>
+            <Terminal className='text-muted-foreground size-4' />
+            <Label>{t('Local Route Command')}</Label>
+          </div>
+          <p className='text-muted-foreground text-xs leading-5'>
+            {t(
+              'Run this on the machine where dpa is installed so the agent can reach the approved local target.'
+            )}
+          </p>
+        </div>
+        <CopyButton
+          value={command}
+          variant='outline'
+          size='sm'
+          tooltip={t('Copy Route Command')}
+          className='h-8'
+        >
+          {t('Copy')}
+        </CopyButton>
+      </div>
+      <pre className='bg-background text-foreground overflow-x-auto rounded-md border px-3 py-2 font-mono text-xs leading-5'>
+        {command}
+      </pre>
+    </div>
+  )
+}
+
 function TunnelAgentSetupDialog(props: {
   app: TunnelApp | null
   connection: TunnelConnection | null
@@ -387,6 +560,7 @@ function TunnelAgentSetupDialog(props: {
   const { t } = useTranslation()
   const [setup, setSetup] = useState<TunnelAgentSetupResponse | null>(null)
   const [rotate, setRotate] = useState(false)
+  const supportsAgentSetup = props.app?.app_type === 'mcp_code'
 
   useEffect(() => {
     if (props.open) return
@@ -437,15 +611,23 @@ function TunnelAgentSetupDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className='max-w-[calc(100%-2rem)] sm:max-w-3xl'>
         <DialogHeader>
-          <DialogTitle>{t('Tunnel Agent Setup')}</DialogTitle>
+          <DialogTitle>
+            {t(
+              supportsAgentSetup ? 'Tunnel Agent Setup' : 'Tunnel Route Setup'
+            )}
+          </DialogTitle>
           <DialogDescription>
             {setup
               ? t(
                   'Copy the API key now if it is shown. Full keys are only returned after creation or rotation.'
                 )
-              : t(
-                  'Generate the local agent configuration for this tunnel connection.'
-                )}
+              : !supportsAgentSetup
+                ? t(
+                    'Copy the local route command for this traffic tunnel and run it on the dpa machine.'
+                  )
+                : t(
+                    'Generate the local agent configuration for this tunnel connection.'
+                  )}
           </DialogDescription>
         </DialogHeader>
 
@@ -456,7 +638,10 @@ function TunnelAgentSetupDialog(props: {
                 label={t('Bridge WebSocket')}
                 value={setup.bridge_ws_url}
               />
-              <SecretField label={t('Tunnel MCP URL')} value={setup.mcp_url} />
+              <SecretField
+                label={tunnelEndpointLabel(props.app, t)}
+                value={setup.mcp_url}
+              />
               <SecretField
                 label={t('Bridge Client ID')}
                 value={setup.client_id}
@@ -466,6 +651,7 @@ function TunnelAgentSetupDialog(props: {
                 value={setup.api_key || setup.token_masked_key}
               />
             </div>
+            <DpaRouteCommandPanel app={props.app} />
             <div className='grid gap-3 lg:grid-cols-2'>
               <div className='space-y-1.5'>
                 <Label>{t('Environment')}</Label>
@@ -551,29 +737,36 @@ function TunnelAgentSetupDialog(props: {
                 />
               </div>
             </div>
-            <label className='flex items-start gap-2 rounded-lg border p-3 text-sm'>
-              <input
-                type='checkbox'
-                checked={rotate}
-                onChange={(event) => setRotate(event.target.checked)}
-                className='mt-0.5'
-              />
-              <span className='space-y-0.5'>
-                <span className='block font-medium'>
-                  {t('Rotate existing agent API key')}
+            <DpaRouteCommandPanel app={props.app} />
+            {supportsAgentSetup ? (
+              <label className='flex items-start gap-2 rounded-lg border p-3 text-sm'>
+                <input
+                  type='checkbox'
+                  checked={rotate}
+                  onChange={(event) => setRotate(event.target.checked)}
+                  className='mt-0.5'
+                />
+                <span className='space-y-0.5'>
+                  <span className='block font-medium'>
+                    {t('Rotate existing agent API key')}
+                  </span>
+                  <span className='text-muted-foreground block text-xs'>
+                    {t(
+                      'Rotation disables the previous agent key and returns a new full key once.'
+                    )}
+                  </span>
                 </span>
-                <span className='text-muted-foreground block text-xs'>
-                  {t(
-                    'Rotation disables the previous agent key and returns a new full key once.'
-                  )}
-                </span>
-              </span>
-            </label>
+              </label>
+            ) : null}
           </div>
         )}
 
         <DialogFooter>
           {setup ? (
+            <Button onClick={() => props.onOpenChange(false)}>
+              {t('Done')}
+            </Button>
+          ) : !supportsAgentSetup ? (
             <Button onClick={() => props.onOpenChange(false)}>
               {t('Done')}
             </Button>
@@ -658,23 +851,26 @@ function CreateTunnelConnectionDialog(props: {
   const permissionOptions = getPermissionOptions(props.app)
   const endpoint = created
     ? formatFullEndpoint(
-        created.endpoint_path || created.connection.endpoint_path
+        created.endpoint_path || created.connection.endpoint_path,
+        props.app
       )
     : ''
   const configSnippet = created
     ? props.app?.app_type === 'http_tunnel'
-      ? `curl ${endpoint}`
-      : JSON.stringify(
-          {
-            mcpServers: {
-              [props.app?.name || 'data-proxy-tunnel']: {
-                url: endpoint,
+      ? `curl ${shellQuote(endpoint)}`
+      : props.app?.app_type === 'tcp_tunnel'
+        ? `wscat -c ${shellQuote(endpoint)}`
+        : JSON.stringify(
+            {
+              mcpServers: {
+                [props.app?.name || 'data-proxy-tunnel']: {
+                  url: endpoint,
+                },
               },
             },
-          },
-          null,
-          2
-        )
+            null,
+            2
+          )
     : ''
 
   return (
@@ -703,16 +899,21 @@ function CreateTunnelConnectionDialog(props: {
               label={t(
                 props.app?.app_type === 'http_tunnel'
                   ? 'HTTP Endpoint'
-                  : 'MCP Endpoint'
+                  : props.app?.app_type === 'tcp_tunnel'
+                    ? 'TCP Endpoint'
+                    : 'MCP Endpoint'
               )}
               value={endpoint}
             />
+            <DpaRouteCommandPanel app={props.app} />
             <div className='space-y-1.5'>
               <Label>
                 {t(
                   props.app?.app_type === 'http_tunnel'
                     ? 'Curl Example'
-                    : 'Client Config'
+                    : props.app?.app_type === 'tcp_tunnel'
+                      ? 'WebSocket Example'
+                      : 'Client Config'
                 )}
               </Label>
               <div className='relative'>
@@ -1329,6 +1530,7 @@ function TunnelAuditLogRow(props: {
 }
 
 function useTunnelConnectionColumns(options: {
+  app: TunnelApp | null
   onOpenAgentSetup: (connection: TunnelConnection) => void
   onOpenAudit: (connection: TunnelConnection) => void
   onOpenEdit: (connection: TunnelConnection) => void
@@ -1423,10 +1625,16 @@ function useTunnelConnectionColumns(options: {
       {
         accessorKey: 'endpoint_path',
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title={t('MCP Endpoint')} />
+          <DataTableColumnHeader
+            column={column}
+            title={tunnelEndpointLabel(options.app, t)}
+          />
         ),
         cell: ({ row }) => {
-          const endpoint = formatFullEndpoint(row.original.endpoint_path)
+          const endpoint = formatFullEndpoint(
+            row.original.endpoint_path,
+            options.app
+          )
           return (
             <div className='flex min-w-[240px] items-center gap-1.5'>
               <LongTextCell
@@ -1436,12 +1644,12 @@ function useTunnelConnectionColumns(options: {
               <CopyButton
                 value={endpoint}
                 size='icon'
-                tooltip={t('Copy MCP Endpoint')}
+                tooltip={t('Copy Endpoint')}
               />
             </div>
           )
         },
-        meta: { label: t('MCP Endpoint') },
+        meta: { label: tunnelEndpointLabel(options.app, t) },
       },
       {
         accessorKey: 'last_request_id',
@@ -1704,6 +1912,7 @@ export function TunnelConnectionsTable() {
   }, [connectionsError, isConnectionsError, t])
 
   const columns = useTunnelConnectionColumns({
+    app: selectedApp,
     onOpenAgentSetup: (connection) => setSetupTarget(connection),
     onOpenAudit: (connection) => setAuditTarget(connection),
     onOpenEdit: (connection) => setEditTarget(connection),
@@ -1825,7 +2034,8 @@ export function TunnelConnectionsTable() {
               <span className='font-mono'>{selectedApp.public_slug}</span>
               <CopyButton
                 value={formatFullEndpoint(
-                  `/t/<connection_key>/tunnel/mcp/${selectedApp.public_slug}`
+                  tunnelEndpointPath(selectedApp),
+                  selectedApp
                 )}
                 variant='ghost'
                 size='sm'

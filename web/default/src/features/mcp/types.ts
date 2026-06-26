@@ -968,6 +968,17 @@ export type BridgeAgentHealthCheck = {
   detail?: string
 }
 
+export type BridgeAgentMCPProcess = {
+  name: string
+  transport: string
+  status: string
+  pid?: number
+  initialized?: boolean
+  stderr_class?: string
+  exit_error?: string
+  detail?: string
+}
+
 export type BridgeAgentHealthReport = {
   generated_at: number
   version?: string
@@ -975,6 +986,7 @@ export type BridgeAgentHealthReport = {
   workspace?: string
   summary: BridgeAgentHealthSummary
   checks: BridgeAgentHealthCheck[]
+  mcp_processes?: BridgeAgentMCPProcess[]
 }
 
 export type BridgeClientHealth = {

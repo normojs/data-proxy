@@ -6,15 +6,16 @@ const MCPJSONRPCVersion = "2.0"
 const MCPProtocolVersion = "2025-06-18"
 
 const (
-	MCPMethodInitialize    = "initialize"
-	MCPMethodInitialized   = "notifications/initialized"
-	MCPMethodPing          = "ping"
-	MCPMethodToolsList     = "tools/list"
-	MCPMethodToolsCall     = "tools/call"
-	MCPMethodResourcesList = "resources/list"
-	MCPMethodResourcesRead = "resources/read"
-	MCPMethodPromptsList   = "prompts/list"
-	MCPMethodPromptsGet    = "prompts/get"
+	MCPMethodInitialize             = "initialize"
+	MCPMethodInitialized            = "notifications/initialized"
+	MCPMethodPing                   = "ping"
+	MCPMethodToolsList              = "tools/list"
+	MCPMethodToolsCall              = "tools/call"
+	MCPMethodResourcesList          = "resources/list"
+	MCPMethodResourcesRead          = "resources/read"
+	MCPMethodResourcesTemplatesList = "resources/templates/list"
+	MCPMethodPromptsList            = "prompts/list"
+	MCPMethodPromptsGet             = "prompts/get"
 )
 
 const (

@@ -57,6 +57,7 @@ const (
 	TunnelAuditActionMCPToolCall  = "mcp_tool_call"
 	TunnelAuditActionPolicyDeny   = "policy_deny"
 	TunnelAuditActionRateLimit    = "rate_limit"
+	TunnelAuditActionBillingDeny  = "billing_deny"
 )
 
 type TunnelApp struct {

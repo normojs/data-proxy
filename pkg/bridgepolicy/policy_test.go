@@ -59,6 +59,17 @@ func TestValidateToolHTTPFamily(t *testing.T) {
 	}
 }
 
+func TestValidateToolTCPFamily(t *testing.T) {
+	policy := Policy{AllowedTools: []string{"tcp_tunnel"}}
+	if err := ValidateTool(policy, "tcp_tunnel.connect"); err != nil {
+		t.Fatalf("tcp_tunnel.connect should be allowed by family entry: %v", err)
+	}
+	err := ValidateTool(policy, "http_tunnel.request")
+	if ErrorCode(err) != ErrorCodeToolNotAllowed {
+		t.Fatalf("other tool families should be denied, got %v code=%s", err, ErrorCode(err))
+	}
+}
+
 func TestValidateMCPTargetDefaultsLoopback(t *testing.T) {
 	for _, target := range []string{
 		"http://localhost:3001/mcp",

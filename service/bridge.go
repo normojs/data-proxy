@@ -181,6 +181,7 @@ const (
 	minBridgeAgentSetupTokenTTLSeconds     = 60
 	maxBridgeAgentSetupTokenTTLSeconds     = 60 * 60
 	maxBridgeAgentHealthChecks             = 100
+	maxBridgeAgentMCPProcesses             = 50
 	maxBridgeAgentHealthJSONBytes          = 60 * 1024
 )
 
@@ -922,13 +923,37 @@ func normalizeBridgeAgentHealthReport(report dto.BridgeAgentHealthReport) dto.Br
 	if len(report.Checks) > maxBridgeAgentHealthChecks {
 		report.Checks = report.Checks[:maxBridgeAgentHealthChecks]
 	}
+	if len(report.MCPProcesses) > maxBridgeAgentMCPProcesses {
+		report.MCPProcesses = report.MCPProcesses[:maxBridgeAgentMCPProcesses]
+	}
 	for i := range report.Checks {
 		report.Checks[i].Name = truncateBridgeString(report.Checks[i].Name, 128)
 		report.Checks[i].Status = normalizeBridgeAgentHealthStatus(report.Checks[i].Status)
 		report.Checks[i].Detail = truncateBridgeString(report.Checks[i].Detail, 512)
 	}
+	for i := range report.MCPProcesses {
+		report.MCPProcesses[i].Name = truncateBridgeString(report.MCPProcesses[i].Name, 128)
+		report.MCPProcesses[i].Transport = truncateBridgeString(report.MCPProcesses[i].Transport, 32)
+		report.MCPProcesses[i].Status = normalizeBridgeAgentMCPProcessStatus(report.MCPProcesses[i].Status)
+		report.MCPProcesses[i].StderrClass = truncateBridgeString(report.MCPProcesses[i].StderrClass, 64)
+		report.MCPProcesses[i].ExitError = truncateBridgeString(report.MCPProcesses[i].ExitError, 256)
+		report.MCPProcesses[i].Detail = truncateBridgeString(report.MCPProcesses[i].Detail, 256)
+	}
 	report.Summary = summarizeBridgeAgentHealthChecks(report.Checks)
 	return report
+}
+
+func normalizeBridgeAgentMCPProcessStatus(status string) string {
+	switch strings.TrimSpace(strings.ToLower(status)) {
+	case "running":
+		return "running"
+	case "exited", "exit":
+		return "exited"
+	case "config_error", "config-error", "invalid":
+		return "config_error"
+	default:
+		return "not_started"
+	}
 }
 
 func summarizeBridgeAgentHealthChecks(checks []dto.BridgeAgentHealthCheck) dto.BridgeAgentHealthSummary {

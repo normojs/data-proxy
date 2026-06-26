@@ -193,6 +193,51 @@ func TestForwardTunnelHTTPRequestForwardsThroughBridge(t *testing.T) {
 	require.Contains(t, event.Metadata, `"usage_kind":"tunnel"`)
 }
 
+func TestForwardTunnelHTTPRequestRejectsInsufficientBalanceBeforeBridge(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	seedTunnelBillingUser(t, 100, 0)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{
+		BillingJson: `{"settlement":{"enabled":true,"quota_per_request":3,"require_positive_balance":true}}`,
+	}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	connection := seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+
+	_, err := ForwardTunnelHTTPRequest(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodPost,
+		ProxyPath:     "/hello",
+		Headers:       http.Header{"Content-Type": []string{"application/json"}},
+		Body:          []byte(`{"name":"dp"}`),
+		RequestId:     "http-billing-insufficient",
+		ClientIP:      "127.0.0.1",
+	})
+	require.ErrorIs(t, err, ErrTunnelBillingInsufficient)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-billing-insufficient").Error)
+	require.Equal(t, model.TunnelAuditActionBillingDeny, audit.Action)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, tunnelBillingReasonInsufficient, audit.Reason)
+	require.Equal(t, connection.Id, audit.ConnectionId)
+	require.Equal(t, connection.KeyPrefix, audit.ConnectionKeyPrefix)
+	require.Equal(t, int64(len(`{"name":"dp"}`)), audit.BytesIn)
+	require.Contains(t, audit.MetadataJson, `"current_quota":0`)
+	require.Contains(t, audit.MetadataJson, `"target_url":"http://127.0.0.1:8080/api/hello"`)
+
+	var bridgeAuditCount int64
+	require.NoError(t, db.Model(&model.BridgeAuditLog{}).Where("request_id = ?", "http-billing-insufficient").Count(&bridgeAuditCount).Error)
+	require.Equal(t, int64(0), bridgeAuditCount)
+}
+
 func TestForwardTunnelHTTPStreamForwardsBridgeChunks(t *testing.T) {
 	db := setupTunnelTestDB(t)
 	app := seedTunnelHTTPApp(t, model.TunnelApp{
@@ -256,6 +301,7 @@ func TestForwardTunnelHTTPStreamForwardsBridgeChunks(t *testing.T) {
 	var body bytes.Buffer
 	var headers http.Header
 	var statusCode int
+	var flushes []bool
 	resp, err := ForwardTunnelHTTPStream(TunnelHTTPForwardRequest{
 		Context:       context.Background(),
 		ConnectionKey: "tc_test_http_connection_key",
@@ -265,6 +311,7 @@ func TestForwardTunnelHTTPStreamForwardsBridgeChunks(t *testing.T) {
 		RequestId:     "http-stream-1",
 		ClientIP:      "127.0.0.1",
 	}, func(event TunnelHTTPStreamEvent) error {
+		flushes = append(flushes, event.Flush)
 		if event.StatusCode > 0 {
 			statusCode = event.StatusCode
 			headers = event.Headers
@@ -278,6 +325,7 @@ func TestForwardTunnelHTTPStreamForwardsBridgeChunks(t *testing.T) {
 	require.Equal(t, 202, resp.StatusCode)
 	require.Equal(t, "text/event-stream", headers.Get("Content-Type"))
 	require.Equal(t, "data: one\n\ndata: two\n\n", body.String())
+	require.Equal(t, []bool{true, true, true}, flushes)
 	require.Equal(t, "http-stream-session", resp.BridgeSessionId)
 
 	var audit model.TunnelAuditLog
@@ -286,6 +334,236 @@ func TestForwardTunnelHTTPStreamForwardsBridgeChunks(t *testing.T) {
 	require.Equal(t, "allow", audit.Decision)
 	require.Equal(t, connection.Id, audit.ConnectionId)
 	require.Contains(t, audit.MetadataJson, `"streamed":true`)
+}
+
+func TestForwardTunnelHTTPStreamForwardsLargeResponseChunks(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{
+		RouteJson: `{"max_response_bytes":300000}`,
+	}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	connection := seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 128)
+	hub.Register(bridge.Session{
+		SessionId:    "http-large-stream-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+
+	chunks := make([]string, 64)
+	var expected bytes.Buffer
+	for i := range chunks {
+		chunks[i] = strings.Repeat(string(byte('a'+i%26)), 4096)
+		expected.WriteString(chunks[i])
+	}
+	expectedSize := expected.Len()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		call := msg.Data.(dto.BridgeToolCallRequest)
+		require.Equal(t, BridgeToolHTTPTunnelRequest, call.ToolName)
+		require.Equal(t, true, call.Arguments["stream_response"])
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			StatusCode: http.StatusOK,
+			Headers: map[string]any{
+				"Content-Type": []any{"application/octet-stream"},
+			},
+		}))
+		for _, chunk := range chunks {
+			require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+				BodyBase64: base64.StdEncoding.EncodeToString([]byte(chunk)),
+				Bytes:      len(chunk),
+			}))
+		}
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{Done: true, Bytes: expectedSize}))
+		require.True(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{
+			ResultSize: expectedSize,
+			Metadata: map[string]any{
+				"http_response": map[string]any{
+					"status_code": http.StatusOK,
+					"streamed":    true,
+				},
+			},
+		}))
+	}()
+
+	var body bytes.Buffer
+	resp, err := ForwardTunnelHTTPStream(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodGet,
+		ProxyPath:     "/large.bin",
+		RequestId:     "http-stream-large",
+		ClientIP:      "127.0.0.1",
+	}, func(event TunnelHTTPStreamEvent) error {
+		_, _ = body.Write(event.Body)
+		return nil
+	})
+	require.NoError(t, err)
+	<-done
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, expected.String(), body.String())
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-stream-large").Error)
+	require.Equal(t, model.TunnelAuditActionProxyRequest, audit.Action)
+	require.Equal(t, "allow", audit.Decision)
+	require.Equal(t, connection.Id, audit.ConnectionId)
+	require.Equal(t, int64(expectedSize), audit.BytesOut)
+	require.Contains(t, audit.MetadataJson, `"streamed":true`)
+}
+
+func TestForwardTunnelHTTPStreamRejectsLargeResponseAndCancelsBridge(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{
+		RouteJson: `{"max_response_bytes":8}`,
+	}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 8)
+	hub.Register(bridge.Session{
+		SessionId:    "http-large-stream-cancel-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+	returned := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{StatusCode: http.StatusOK}))
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			BodyBase64: base64.StdEncoding.EncodeToString([]byte("1234")),
+			Bytes:      len("1234"),
+		}))
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			BodyBase64: base64.StdEncoding.EncodeToString([]byte("56789")),
+			Bytes:      len("56789"),
+		}))
+		<-returned
+		require.False(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{Done: true}))
+		require.False(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{}))
+	}()
+
+	var body bytes.Buffer
+	_, err := ForwardTunnelHTTPStream(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodGet,
+		ProxyPath:     "/too-large.bin",
+		RequestId:     "http-stream-too-large-out",
+		ClientIP:      "127.0.0.1",
+	}, func(event TunnelHTTPStreamEvent) error {
+		_, _ = body.Write(event.Body)
+		return nil
+	})
+	close(returned)
+	require.ErrorIs(t, err, ErrTunnelHTTPResponseTooLarge)
+	<-done
+	require.Equal(t, "1234", body.String())
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-stream-too-large-out").Error)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, "response_too_large", audit.Reason)
+	require.Equal(t, int64(len("1234")), audit.BytesOut)
+	require.Contains(t, audit.MetadataJson, `"max_response_bytes":8`)
+}
+
+func TestForwardTunnelHTTPStreamCancelsBridgeWhenWriterFails(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{
+		RouteJson: `{"max_response_bytes":64}`,
+	}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 8)
+	hub.Register(bridge.Session{
+		SessionId:    "http-stream-writer-fail-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+	returned := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{StatusCode: http.StatusOK}))
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			BodyBase64: base64.StdEncoding.EncodeToString([]byte("partial")),
+			Bytes:      len("partial"),
+		}))
+		<-returned
+		require.False(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{Done: true}))
+		require.False(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{}))
+	}()
+
+	writerErr := errors.New("client stream writer failed")
+	_, err := ForwardTunnelHTTPStream(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodGet,
+		ProxyPath:     "/events",
+		RequestId:     "http-stream-writer-failed",
+		ClientIP:      "127.0.0.1",
+	}, func(event TunnelHTTPStreamEvent) error {
+		if len(event.Body) > 0 {
+			return writerErr
+		}
+		return nil
+	})
+	close(returned)
+	require.ErrorIs(t, err, writerErr)
+	<-done
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-stream-writer-failed").Error)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, tunnelHTTPReasonClientWriteFailed, audit.Reason)
+	require.Equal(t, int64(len("partial")), audit.BytesOut)
+	require.Contains(t, audit.MetadataJson, `"error":"client stream writer failed"`)
+
+	var bridgeAudit model.BridgeAuditLog
+	require.NoError(t, db.First(&bridgeAudit, "request_id = ?", "http-stream-writer-failed").Error)
+	require.Equal(t, model.BridgeAuditStatusError, bridgeAudit.Status)
+	require.Contains(t, bridgeAudit.ErrorMessage, "client stream writer failed")
 }
 
 func TestForwardTunnelHTTPStreamForwardsRequestBodyChunks(t *testing.T) {
@@ -451,6 +729,7 @@ func TestForwardTunnelHTTPStreamFallsBackToToolResult(t *testing.T) {
 type fakeTunnelWebSocketPeer struct {
 	reads     chan fakeTunnelWebSocketRead
 	writes    chan TunnelHTTPWebSocketFrame
+	writeErr  error
 	closeOnce sync.Once
 	closed    chan struct{}
 }
@@ -478,6 +757,9 @@ func (p *fakeTunnelWebSocketPeer) ReadFrame() (TunnelHTTPWebSocketFrame, error) 
 }
 
 func (p *fakeTunnelWebSocketPeer) WriteFrame(frame TunnelHTTPWebSocketFrame) error {
+	if p.writeErr != nil {
+		return p.writeErr
+	}
 	select {
 	case p.writes <- frame:
 		return nil
@@ -576,6 +858,173 @@ func TestForwardTunnelHTTPWebSocketProxiesFrames(t *testing.T) {
 	require.Contains(t, audit.MetadataJson, `"websocket":true`)
 	require.Equal(t, int64(len("hello")), audit.BytesIn)
 	require.Equal(t, int64(len("echo: hello")), audit.BytesOut)
+}
+
+func TestForwardTunnelHTTPWebSocketProxiesBinaryFrames(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	connection := seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 4)
+	hub.Register(bridge.Session{
+		SessionId:    "http-ws-binary-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+	inputBody := []byte{0x01, 0x02, 0x03, 0x04}
+	outputBody := []byte{0x04, 0x03, 0x02, 0x01}
+	peer := newFakeTunnelWebSocketPeer()
+	peer.reads <- fakeTunnelWebSocketRead{
+		frame: TunnelHTTPWebSocketFrame{FrameType: TunnelWebSocketFrameBinary, Data: inputBody},
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		call := msg.Data.(dto.BridgeToolCallRequest)
+		require.Equal(t, true, call.Arguments["websocket"])
+		require.Equal(t, true, call.Arguments["stream_response"])
+
+		inputMsg := <-outbound
+		require.Equal(t, bridge.MessageTypeToolStreamInput, inputMsg.Type)
+		input := inputMsg.Data.(dto.BridgeToolStreamInput)
+		require.Equal(t, TunnelWebSocketFrameBinary, input.FrameType)
+		require.Equal(t, base64.StdEncoding.EncodeToString(inputBody), input.BodyBase64)
+
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			FrameType:  TunnelWebSocketFrameBinary,
+			BodyBase64: base64.StdEncoding.EncodeToString(outputBody),
+			Bytes:      len(outputBody),
+		}))
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			FrameType:   TunnelWebSocketFrameClose,
+			Done:        true,
+			CloseCode:   1000,
+			CloseReason: "done",
+		}))
+		require.True(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{ResultSize: len(outputBody)}))
+	}()
+
+	resp, err := ForwardTunnelHTTPWebSocket(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodGet,
+		ProxyPath:     "/socket",
+		RequestId:     "http-ws-binary",
+		ClientIP:      "127.0.0.1",
+	}, peer)
+	require.NoError(t, err)
+	<-done
+	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
+
+	firstWrite := <-peer.writes
+	require.Equal(t, TunnelWebSocketFrameBinary, firstWrite.FrameType)
+	require.Equal(t, outputBody, firstWrite.Data)
+	secondWrite := <-peer.writes
+	require.Equal(t, TunnelWebSocketFrameClose, secondWrite.FrameType)
+	require.Equal(t, 1000, secondWrite.CloseCode)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-ws-binary").Error)
+	require.Equal(t, model.TunnelAuditActionProxyRequest, audit.Action)
+	require.Equal(t, "allow", audit.Decision)
+	require.Equal(t, connection.Id, audit.ConnectionId)
+	require.Contains(t, audit.MetadataJson, `"websocket":true`)
+	require.Equal(t, int64(len(inputBody)), audit.BytesIn)
+	require.Equal(t, int64(len(outputBody)), audit.BytesOut)
+}
+
+func TestForwardTunnelHTTPWebSocketProxiesControlFrames(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	connection := seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 4)
+	hub.Register(bridge.Session{
+		SessionId:    "http-ws-control-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+	peer := newFakeTunnelWebSocketPeer()
+	peer.reads <- fakeTunnelWebSocketRead{
+		frame: TunnelHTTPWebSocketFrame{FrameType: TunnelWebSocketFramePing, Data: []byte("pulse")},
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		call := msg.Data.(dto.BridgeToolCallRequest)
+		require.Equal(t, true, call.Arguments["websocket"])
+
+		inputMsg := <-outbound
+		require.Equal(t, bridge.MessageTypeToolStreamInput, inputMsg.Type)
+		input := inputMsg.Data.(dto.BridgeToolStreamInput)
+		require.Equal(t, TunnelWebSocketFramePing, input.FrameType)
+		require.Equal(t, base64.StdEncoding.EncodeToString([]byte("pulse")), input.BodyBase64)
+
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			FrameType:  TunnelWebSocketFramePong,
+			BodyBase64: base64.StdEncoding.EncodeToString([]byte("pulse")),
+			Bytes:      len("pulse"),
+		}))
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			FrameType:   TunnelWebSocketFrameClose,
+			Done:        true,
+			CloseCode:   1000,
+			CloseReason: "done",
+		}))
+		require.True(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{ResultSize: len("pulse")}))
+	}()
+
+	resp, err := ForwardTunnelHTTPWebSocket(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodGet,
+		ProxyPath:     "/socket",
+		RequestId:     "http-ws-control",
+		ClientIP:      "127.0.0.1",
+	}, peer)
+	require.NoError(t, err)
+	<-done
+	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
+
+	firstWrite := <-peer.writes
+	require.Equal(t, TunnelWebSocketFramePong, firstWrite.FrameType)
+	require.Equal(t, "pulse", string(firstWrite.Data))
+	secondWrite := <-peer.writes
+	require.Equal(t, TunnelWebSocketFrameClose, secondWrite.FrameType)
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-ws-control").Error)
+	require.Equal(t, model.TunnelAuditActionProxyRequest, audit.Action)
+	require.Equal(t, "allow", audit.Decision)
+	require.Equal(t, connection.Id, audit.ConnectionId)
+	require.Equal(t, int64(len("pulse")), audit.BytesIn)
+	require.Equal(t, int64(len("pulse")), audit.BytesOut)
 }
 
 func TestForwardTunnelHTTPWebSocketRejectsRequestTooLarge(t *testing.T) {
@@ -704,6 +1153,74 @@ func TestForwardTunnelHTTPWebSocketRejectsResponseTooLarge(t *testing.T) {
 	require.Equal(t, int64(0), audit.BytesOut)
 	require.Contains(t, audit.MetadataJson, `"websocket":true`)
 	require.Contains(t, audit.MetadataJson, `"max_response_bytes":4`)
+}
+
+func TestForwardTunnelHTTPWebSocketCancelsBridgeWhenPeerWriteFails(t *testing.T) {
+	db := setupTunnelTestDB(t)
+	app := seedTunnelHTTPApp(t, model.TunnelApp{}, bridgepolicy.Policy{
+		AllowedTools: []string{"http_tunnel"},
+	})
+	seedTunnelHTTPConnection(t, app, "")
+	hub := bridge.NewHub()
+	previousHub := bridge.DefaultHub
+	bridge.DefaultHub = hub
+	t.Cleanup(func() {
+		bridge.DefaultHub = previousHub
+	})
+	outbound := make(chan bridge.OutboundMessage, 4)
+	hub.Register(bridge.Session{
+		SessionId:    "http-ws-writer-fail-session",
+		ClientId:     app.BridgeClientId,
+		UserId:       app.UserId,
+		Capabilities: []string{BridgeCapabilityHTTPTunnel},
+		Send:         outbound,
+		ConnectedAt:  time.Now(),
+		LastSeenAt:   time.Now(),
+	})
+	peer := newFakeTunnelWebSocketPeer()
+	writeErr := errors.New("websocket client write failed")
+	peer.writeErr = writeErr
+	returned := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msg := <-outbound
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{StatusCode: http.StatusSwitchingProtocols}))
+		require.True(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{
+			FrameType:  TunnelWebSocketFrameText,
+			BodyBase64: base64.StdEncoding.EncodeToString([]byte("server-push")),
+			Bytes:      len("server-push"),
+		}))
+		<-returned
+		require.False(t, hub.PushToolStreamChunk(msg.Id, dto.BridgeToolStreamChunk{FrameType: TunnelWebSocketFrameClose, Done: true}))
+		require.False(t, hub.CompleteToolCall(msg.Id, dto.BridgeToolCallResult{}))
+	}()
+
+	_, err := ForwardTunnelHTTPWebSocket(TunnelHTTPForwardRequest{
+		Context:       context.Background(),
+		ConnectionKey: "tc_test_http_connection_key",
+		Slug:          app.PublicSlug,
+		Method:        http.MethodGet,
+		ProxyPath:     "/socket",
+		RequestId:     "http-ws-writer-failed",
+		ClientIP:      "127.0.0.1",
+	}, peer)
+	close(returned)
+	require.ErrorIs(t, err, writeErr)
+	<-done
+
+	var audit model.TunnelAuditLog
+	require.NoError(t, db.First(&audit, "request_id = ?", "http-ws-writer-failed").Error)
+	require.Equal(t, "deny", audit.Decision)
+	require.Equal(t, tunnelHTTPReasonClientWriteFailed, audit.Reason)
+	require.Equal(t, int64(len("server-push")), audit.BytesOut)
+	require.Contains(t, audit.MetadataJson, `"websocket":true`)
+	require.Contains(t, audit.MetadataJson, `"error":"websocket client write failed"`)
+
+	var bridgeAudit model.BridgeAuditLog
+	require.NoError(t, db.First(&bridgeAudit, "request_id = ?", "http-ws-writer-failed").Error)
+	require.Equal(t, model.BridgeAuditStatusError, bridgeAudit.Status)
+	require.Contains(t, bridgeAudit.ErrorMessage, "websocket client write failed")
 }
 
 func TestForwardTunnelHTTPWebSocketRejectsResponseRateLimit(t *testing.T) {

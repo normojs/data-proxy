@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -151,6 +152,87 @@ func TestHandleHTTPTunnelStreamResponse(t *testing.T) {
 	}
 }
 
+func TestHandleHTTPTunnelStreamLargeResponseChunks(t *testing.T) {
+	payload := strings.Repeat("x", httpTunnelStreamChunkBytes*3+123)
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer local.Close()
+
+	cfg := DefaultConfig()
+	cfg.Runtime.HTTPTimeoutMS = 5000
+	client := BridgeClient{Config: cfg}
+	var chunks []dto.BridgeToolStreamChunk
+	result, err := client.handleHTTPTunnelStreamRequest(context.Background(), map[string]any{
+		"target":             local.URL,
+		"method":             "GET",
+		"stream_response":    true,
+		"max_response_bytes": len(payload),
+	}, func(chunk dto.BridgeToolStreamChunk) error {
+		chunks = append(chunks, chunk)
+		return nil
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bodyChunkCount int
+	for _, chunk := range chunks {
+		if strings.TrimSpace(chunk.BodyBase64) != "" {
+			bodyChunkCount++
+		}
+	}
+	if bodyChunkCount < 3 {
+		t.Fatalf("expected multiple body chunks, got %d chunks=%#v", bodyChunkCount, chunks)
+	}
+	if body := joinedStreamBody(t, chunks); body != payload {
+		t.Fatalf("unexpected streamed body length: got %d want %d", len(body), len(payload))
+	}
+	if result.ResultSize != len(payload) {
+		t.Fatalf("unexpected result size: got %d want %d", result.ResultSize, len(payload))
+	}
+	response := httpPayloadFromResult(t, result)
+	if response["streamed"] != true || response["truncated"] == true {
+		t.Fatalf("unexpected large stream payload: %#v", response)
+	}
+}
+
+func TestHandleHTTPTunnelStreamEmitterFailureReturns(t *testing.T) {
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("chunk-one"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		_, _ = w.Write([]byte("chunk-two"))
+	}))
+	defer local.Close()
+
+	cfg := DefaultConfig()
+	cfg.Runtime.HTTPTimeoutMS = 5000
+	client := BridgeClient{Config: cfg}
+	emitErr := errors.New("bridge stream emit failed")
+	var emitCalls int
+	_, err := client.handleHTTPTunnelStreamRequest(context.Background(), map[string]any{
+		"target":             local.URL,
+		"method":             "GET",
+		"stream_response":    true,
+		"max_response_bytes": 1024,
+	}, func(chunk dto.BridgeToolStreamChunk) error {
+		emitCalls++
+		if strings.TrimSpace(chunk.BodyBase64) != "" {
+			return emitErr
+		}
+		return nil
+	}, nil)
+	if !errors.Is(err, emitErr) {
+		t.Fatalf("expected emitter error, got %v", err)
+	}
+	if emitCalls < 2 {
+		t.Fatalf("expected header and body emit attempts, got %d", emitCalls)
+	}
+}
+
 func TestHandleHTTPTunnelStreamRequestBody(t *testing.T) {
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -195,6 +277,51 @@ func TestHandleHTTPTunnelStreamRequestBody(t *testing.T) {
 	payload := httpPayloadFromResult(t, result)
 	if payload["stream_request"] != true {
 		t.Fatalf("unexpected result payload: %#v", payload)
+	}
+}
+
+func TestHandleHTTPTunnelStreamRequestBodyErrorFrame(t *testing.T) {
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err == nil {
+			t.Fatal("expected request body read to fail")
+		}
+	}))
+	defer local.Close()
+
+	queue := newBridgeStreamInputQueue()
+	if !queue.Push(dto.BridgeToolStreamInput{
+		FrameType:    "http_request_body",
+		ErrorCode:    "CLIENT_ABORTED",
+		ErrorMessage: "client upload aborted",
+	}) {
+		t.Fatal("failed to queue request body error")
+	}
+
+	cfg := DefaultConfig()
+	cfg.Runtime.HTTPTimeoutMS = 5000
+	client := BridgeClient{Config: cfg}
+	_, err := client.handleHTTPTunnelStreamRequest(context.Background(), map[string]any{
+		"target":             local.URL,
+		"method":             "POST",
+		"stream_response":    true,
+		"stream_request":     true,
+		"max_response_bytes": 1024,
+	}, func(chunk dto.BridgeToolStreamChunk) error {
+		t.Fatalf("unexpected stream chunk: %#v", chunk)
+		return nil
+	}, queue)
+	if err == nil {
+		t.Fatal("expected stream request body error")
+	}
+	var toolErr ToolError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("expected ToolError, got %T: %v", err, err)
+	}
+	if toolErr.Code != "CLIENT_ABORTED" {
+		t.Fatalf("unexpected tool error: %#v", toolErr)
+	}
+	if !strings.Contains(toolErr.Message, "client upload aborted") {
+		t.Fatalf("unexpected tool error message: %#v", toolErr)
 	}
 }
 
@@ -249,6 +376,93 @@ func TestHandleHTTPTunnelWebSocket(t *testing.T) {
 	}
 	if chunks[len(chunks)-1].FrameType != "close" || !chunks[len(chunks)-1].Done {
 		t.Fatalf("missing websocket close chunk: %#v", chunks)
+	}
+	payload := httpPayloadFromResult(t, result)
+	if payload["websocket"] != true {
+		t.Fatalf("unexpected websocket payload: %#v", payload)
+	}
+}
+
+func TestHandleHTTPTunnelWebSocketBinaryAndPing(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	pingReceived := make(chan string, 1)
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		conn.SetPingHandler(func(appData string) error {
+			pingReceived <- appData
+			return conn.WriteControl(websocket.PongMessage, []byte(appData), nowPlusSecond())
+		})
+		messageType, payload, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if messageType != websocket.BinaryMessage {
+			t.Fatalf("expected binary websocket message, got %d", messageType)
+		}
+		if string(payload) != "bin-input" {
+			t.Fatalf("unexpected websocket payload: %q", payload)
+		}
+		if err := conn.WriteMessage(websocket.BinaryMessage, []byte("bin-output")); err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "done"), nowPlusSecond())
+	}))
+	defer local.Close()
+
+	queue := newBridgeStreamInputQueue()
+	if !queue.Push(dto.BridgeToolStreamInput{
+		FrameType:  tunnelWebSocketFramePing,
+		BodyBase64: base64.StdEncoding.EncodeToString([]byte("pulse")),
+	}) {
+		t.Fatal("failed to queue websocket ping")
+	}
+	if !queue.Push(dto.BridgeToolStreamInput{
+		FrameType:  tunnelWebSocketFrameBinary,
+		BodyBase64: base64.StdEncoding.EncodeToString([]byte("bin-input")),
+	}) {
+		t.Fatal("failed to queue websocket binary input")
+	}
+
+	cfg := DefaultConfig()
+	cfg.Runtime.HTTPTimeoutMS = 5000
+	client := BridgeClient{Config: cfg}
+	var chunks []dto.BridgeToolStreamChunk
+	result, err := client.handleHTTPTunnelStreamRequest(context.Background(), map[string]any{
+		"target":          local.URL + "/ws",
+		"method":          "GET",
+		"stream_response": true,
+		"websocket":       true,
+	}, func(chunk dto.BridgeToolStreamChunk) error {
+		chunks = append(chunks, chunk)
+		return nil
+	}, queue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case value := <-pingReceived:
+		if value != "pulse" {
+			t.Fatalf("unexpected ping payload: %q", value)
+		}
+	default:
+		t.Fatal("expected local websocket server to receive ping")
+	}
+	if body := joinedStreamBody(t, chunks); body != "bin-output" {
+		t.Fatalf("unexpected websocket body: %q chunks=%#v", body, chunks)
+	}
+	var sawBinary bool
+	for _, chunk := range chunks {
+		if chunk.FrameType == tunnelWebSocketFrameBinary {
+			sawBinary = true
+			break
+		}
+	}
+	if !sawBinary {
+		t.Fatalf("missing binary output frame: %#v", chunks)
 	}
 	payload := httpPayloadFromResult(t, result)
 	if payload["websocket"] != true {
