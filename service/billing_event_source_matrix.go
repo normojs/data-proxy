@@ -42,9 +42,9 @@ func GetBillingEventSourceMatrix() dto.BillingEventSourceMatrixResponse {
 			Status:            BillingEventSourceCapabilityRecordOnly,
 			SupportsRecording: true,
 			Notes: []string{
-				"Tunnel MCP gateway audit logs are mirrored into billing_events as audit-only records.",
-				"Successful tools/call records use per_call as price unit so future quota settlement can stay count-based.",
-				"Quota deduction, backfill, and reconciliation are intentionally pending until Tunnel billing policy is finalized.",
+				"Tunnel MCP gateway audit logs are mirrored into billing_events; settlement debit events are created only when billing.settlement.enabled is explicitly enabled.",
+				"Successful tools/call records use per_call as price unit and quota_per_call for single-node settlement.",
+				"Direct balance deduction is supported for single-node settlement; backfill, reconciliation, and prepaid reservation remain future work.",
 			},
 		},
 		{
@@ -54,9 +54,21 @@ func GetBillingEventSourceMatrix() dto.BillingEventSourceMatrixResponse {
 			Status:            BillingEventSourceCapabilityRecordOnly,
 			SupportsRecording: true,
 			Notes: []string{
-				"HTTP Tunnel proxy_request audit logs are mirrored into billing_events as audit-only records.",
-				"Events include bytes, duration, status metadata, and request id for later traffic billing analysis.",
-				"Quota deduction, backfill, and reconciliation are intentionally pending until Tunnel traffic pricing is configured.",
+				"HTTP Tunnel proxy_request audit logs are mirrored into billing_events; settlement debit events are created only when billing.settlement.enabled is explicitly enabled.",
+				"Events include bytes, duration, status metadata, and request id for traffic billing analysis.",
+				"Direct balance deduction is supported for single-node settlement; backfill, reconciliation, and prepaid reservation remain future work.",
+			},
+		},
+		{
+			Source:            model.BillingEventSourceTunnelTCP,
+			EventSource:       model.BillingEventSourceTunnelTCP,
+			Label:             "TCP Tunnel",
+			Status:            BillingEventSourceCapabilityRecordOnly,
+			SupportsRecording: true,
+			Notes: []string{
+				"TCP Tunnel proxy_request audit logs are mirrored into billing_events with usage_kind=tunnel.",
+				"Single-node WebSocket-based TCP MVP records bytes, duration, target metadata, and request id.",
+				"Settlement debit events use the same Tunnel billing.settlement policy path when explicitly enabled.",
 			},
 		},
 		{

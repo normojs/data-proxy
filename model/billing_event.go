@@ -13,6 +13,7 @@ const (
 	BillingEventSourceMCPToolCall  = "mcp_tool_call"
 	BillingEventSourceTunnelMCP    = "tunnel_mcp"
 	BillingEventSourceTunnelHTTP   = "tunnel_http"
+	BillingEventSourceTunnelTCP    = "tunnel_tcp"
 	BillingEventSourceModelRequest = "model_request"
 	BillingEventSourceAsyncTask    = "async_task"
 	BillingEventSourceViolationFee = "violation_fee"
@@ -272,6 +273,8 @@ func normalizeBillingEventUsageKindFilter(usageKind string) string {
 		return BillingEventUsageKindRealtime
 	case BillingEventUsageKindMidjourney:
 		return BillingEventUsageKindMidjourney
+	case BillingEventUsageKindTunnel:
+		return BillingEventUsageKindTunnel
 	default:
 		return ""
 	}

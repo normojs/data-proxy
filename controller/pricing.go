@@ -35,6 +35,7 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 
 func GetPricing(c *gin.Context) {
 	pricing := model.GetPricing()
+	pricing = clonePricingForResponse(pricing)
 	userId, exists := c.Get("id")
 	usableGroup := map[string]string{}
 	groupRatio := map[string]float64{}
@@ -57,6 +58,7 @@ func GetPricing(c *gin.Context) {
 
 	usableGroup = service.GetUserUsableGroups(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
+	attachPlatformActualPricing(pricing)
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
@@ -74,6 +76,35 @@ func GetPricing(c *gin.Context) {
 		"auto_groups":        service.GetUserAutoGroup(group),
 		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
+}
+
+func clonePricingForResponse(pricing []model.Pricing) []model.Pricing {
+	if len(pricing) == 0 {
+		return pricing
+	}
+	cloned := make([]model.Pricing, len(pricing))
+	copy(cloned, pricing)
+	return cloned
+}
+
+func attachPlatformActualPricing(pricing []model.Pricing) {
+	if len(pricing) == 0 {
+		return
+	}
+	byModel, byGroup, err := service.GetPlatformPricingActualPrices(3600)
+	if err != nil {
+		common.SysLog("failed to attach platform actual pricing: " + err.Error())
+		return
+	}
+	for i := range pricing {
+		modelName := pricing[i].ModelName
+		if actual, ok := byModel[modelName]; ok {
+			pricing[i].ActualPrice = &actual
+		}
+		if groupActuals, ok := byGroup[modelName]; ok && len(groupActuals) > 0 {
+			pricing[i].ActualPriceByGroup = groupActuals
+		}
+	}
 }
 
 func ResetModelRatio(c *gin.Context) {

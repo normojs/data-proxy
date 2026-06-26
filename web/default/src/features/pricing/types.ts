@@ -56,6 +56,10 @@ export type PricingModel = {
   billing_expr?: string
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
+  /** Platform-wide actual settlement price calculated from recent billing events. */
+  actual_price?: PricingActualPrice
+  /** Recent actual settlement price split by group. */
+  actual_price_by_group?: Record<string, PricingActualPrice>
   /**
    * Optional model metadata fields. These are not yet returned by the backend
    * and are populated client-side from {@link inferModelMetadata}.
@@ -70,6 +74,26 @@ export type PricingModel = {
   input_modalities?: Modality[]
   output_modalities?: Modality[]
   capabilities?: ModelCapability[]
+}
+
+export type PricingActualPrice = {
+  window_seconds: number
+  started_at: number
+  ended_at: number
+  request_count: number
+  amount_quota: number
+  cost: number
+  prompt_tokens: number
+  completion_tokens: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
+  cache_creation_tokens: number
+  total_billable_tokens: number
+  effective_price_per_1m_tokens?: number
+  effective_price_per_1k_tokens?: number
+  effective_price_per_request?: number
+  price_unit: string
 }
 
 /** Input/output modalities supported by a model. */

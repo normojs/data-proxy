@@ -30,6 +30,13 @@ import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge, StatusBadgeList } from '@/components/status-badge'
 import { DEFAULT_TOKEN_UNIT, QUOTA_TYPE_VALUES } from '../constants'
 import {
+  actualPriceAmount,
+  actualPriceUnitLabel,
+  actualPriceWindowLabel,
+  formatActualPriceCount,
+  formatActualPriceValue,
+} from '../lib/actual-price'
+import {
   getDynamicDisplayGroupRatio,
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
@@ -83,6 +90,87 @@ function renderLimitedGroupBadges(
   )
 }
 
+function ActualPriceCell(props: { model: PricingModel; tokenUnit: TokenUnit }) {
+  const { t } = useTranslation()
+  const actual = props.model.actual_price
+  const amount = actualPriceAmount(actual, props.model, props.tokenUnit)
+  const unitLabel = actualPriceUnitLabel(
+    props.model,
+    props.tokenUnit,
+    t('request')
+  )
+
+  if (
+    !actual ||
+    !actual.request_count ||
+    amount == null ||
+    !Number.isFinite(amount)
+  ) {
+    return (
+      <span className='text-muted-foreground/30 text-xs'>
+        {t('No recent usage')}
+      </span>
+    )
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger render={<div />}>
+          <div className='min-w-[130px]'>
+            <span className='font-mono text-sm tabular-nums'>
+              {formatActualPriceValue(amount)}
+            </span>
+            <div className='text-muted-foreground/50 text-[10px]'>
+              / {unitLabel} · {actualPriceWindowLabel(actual, t('Recent 1h'))}
+            </div>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side='top' className='max-w-[300px] p-2.5'>
+          <div className='space-y-1 text-xs'>
+            <div className='font-medium'>{t('Platform actual price')}</div>
+            <div className='text-muted-foreground'>
+              {t('Blended from settled platform usage in the recent window.')}
+            </div>
+            <div className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1'>
+              <span className='text-muted-foreground'>{t('Requests')}</span>
+              <span className='text-right font-mono'>
+                {formatActualPriceCount(actual.request_count)}
+              </span>
+              <span className='text-muted-foreground'>
+                {t('Billable tokens')}
+              </span>
+              <span className='text-right font-mono'>
+                {formatActualPriceCount(actual.total_billable_tokens)}
+              </span>
+              <span className='text-muted-foreground'>{t('Input')}</span>
+              <span className='text-right font-mono'>
+                {formatActualPriceCount(actual.input_tokens)}
+              </span>
+              <span className='text-muted-foreground'>{t('Output')}</span>
+              <span className='text-right font-mono'>
+                {formatActualPriceCount(actual.output_tokens)}
+              </span>
+              <span className='text-muted-foreground'>{t('Cache')}</span>
+              <span className='text-right font-mono'>
+                {formatActualPriceCount(actual.cache_tokens)}
+              </span>
+              <span className='text-muted-foreground'>{t('Cache write')}</span>
+              <span className='text-right font-mono'>
+                {formatActualPriceCount(actual.cache_creation_tokens)}
+              </span>
+              <span className='text-muted-foreground'>{t('Actual cost')}</span>
+              <span className='text-right font-mono'>
+                {formatActualPriceValue(actual.cost)}
+              </span>
+            </div>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 export function usePricingColumns(
   options: PricingColumnsOptions = {}
 ): ColumnDef<PricingModel>[] {
@@ -107,9 +195,7 @@ export function usePricingColumns(
       cell: ({ row }) => {
         const model = row.original
         const modelIconKey = model.icon || model.vendor_icon
-        const modelIcon = modelIconKey
-          ? getLobeIcon(modelIconKey, 14)
-          : null
+        const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 14) : null
 
         return (
           <div className='flex min-w-[200px] items-center gap-2'>
@@ -265,6 +351,18 @@ export function usePricingColumns(
         )
       },
       size: 180,
+      enableSorting: false,
+    },
+
+    // Actual transaction price column
+    {
+      id: 'actual_price',
+      meta: { label: t('Recent effective price') },
+      header: t('Recent effective price'),
+      cell: ({ row }) => (
+        <ActualPriceCell model={row.original} tokenUnit={tokenUnit} />
+      ),
+      size: 160,
       enableSorting: false,
     },
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 )
 
@@ -91,6 +92,49 @@ func RecordFundingBillingEventIfNotExists(tx *gorm.DB, input FundingBillingEvent
 		Metadata:      string(metadataBytes),
 		CreatedAt:     createdAt,
 	})
+}
+
+func RecordFundingDebitEventAndDecreaseUserQuotaIfNotExists(input FundingBillingEventInput) (bool, error) {
+	if input.EventType == "" {
+		input.EventType = BillingEventTypeDebit
+	}
+	if input.EventType != BillingEventTypeDebit || input.AmountQuota <= 0 || input.UserId <= 0 {
+		return RecordFundingBillingEventIfNotExists(nil, input)
+	}
+	created := false
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		nextCreated, err := RecordFundingBillingEventIfNotExists(tx, input)
+		if err != nil {
+			return err
+		}
+		if !nextCreated {
+			return nil
+		}
+		result := tx.Model(&User{}).Where("id = ?", input.UserId).Updates(map[string]any{
+			"quota":         gorm.Expr("quota - ?", input.AmountQuota),
+			"used_quota":    gorm.Expr("used_quota + ?", input.AmountQuota),
+			"request_count": gorm.Expr("request_count + ?", 1),
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		created = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	if created {
+		gopool.Go(func() {
+			if err := cacheDecrUserQuota(input.UserId, int64(input.AmountQuota)); err != nil {
+				common.SysLog("failed to decrease user quota after billing event settlement: " + err.Error())
+			}
+		})
+	}
+	return created, nil
 }
 
 func FundingBillingEventExists(tx *gorm.DB, source string, sourceId string, phase string) (bool, error) {

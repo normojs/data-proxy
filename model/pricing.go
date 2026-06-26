@@ -15,26 +15,48 @@ import (
 )
 
 type Pricing struct {
-	ModelName              string                  `json:"model_name"`
-	Description            string                  `json:"description,omitempty"`
-	Icon                   string                  `json:"icon,omitempty"`
-	Tags                   string                  `json:"tags,omitempty"`
-	VendorID               int                     `json:"vendor_id,omitempty"`
-	QuotaType              int                     `json:"quota_type"`
-	ModelRatio             float64                 `json:"model_ratio"`
-	ModelPrice             float64                 `json:"model_price"`
-	OwnerBy                string                  `json:"owner_by"`
-	CompletionRatio        float64                 `json:"completion_ratio"`
-	CacheRatio             *float64                `json:"cache_ratio,omitempty"`
-	CreateCacheRatio       *float64                `json:"create_cache_ratio,omitempty"`
-	ImageRatio             *float64                `json:"image_ratio,omitempty"`
-	AudioRatio             *float64                `json:"audio_ratio,omitempty"`
-	AudioCompletionRatio   *float64                `json:"audio_completion_ratio,omitempty"`
-	EnableGroup            []string                `json:"enable_groups"`
-	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
-	BillingMode            string                  `json:"billing_mode,omitempty"`
-	BillingExpr            string                  `json:"billing_expr,omitempty"`
-	PricingVersion         string                  `json:"pricing_version,omitempty"`
+	ModelName              string                        `json:"model_name"`
+	Description            string                        `json:"description,omitempty"`
+	Icon                   string                        `json:"icon,omitempty"`
+	Tags                   string                        `json:"tags,omitempty"`
+	VendorID               int                           `json:"vendor_id,omitempty"`
+	QuotaType              int                           `json:"quota_type"`
+	ModelRatio             float64                       `json:"model_ratio"`
+	ModelPrice             float64                       `json:"model_price"`
+	OwnerBy                string                        `json:"owner_by"`
+	CompletionRatio        float64                       `json:"completion_ratio"`
+	CacheRatio             *float64                      `json:"cache_ratio,omitempty"`
+	CreateCacheRatio       *float64                      `json:"create_cache_ratio,omitempty"`
+	ImageRatio             *float64                      `json:"image_ratio,omitempty"`
+	AudioRatio             *float64                      `json:"audio_ratio,omitempty"`
+	AudioCompletionRatio   *float64                      `json:"audio_completion_ratio,omitempty"`
+	EnableGroup            []string                      `json:"enable_groups"`
+	SupportedEndpointTypes []constant.EndpointType       `json:"supported_endpoint_types"`
+	BillingMode            string                        `json:"billing_mode,omitempty"`
+	BillingExpr            string                        `json:"billing_expr,omitempty"`
+	ActualPrice            *PricingActualPrice           `json:"actual_price,omitempty"`
+	ActualPriceByGroup     map[string]PricingActualPrice `json:"actual_price_by_group,omitempty"`
+	PricingVersion         string                        `json:"pricing_version,omitempty"`
+}
+
+type PricingActualPrice struct {
+	WindowSeconds             int64   `json:"window_seconds"`
+	StartedAt                 int64   `json:"started_at"`
+	EndedAt                   int64   `json:"ended_at"`
+	RequestCount              int64   `json:"request_count"`
+	AmountQuota               int64   `json:"amount_quota"`
+	Cost                      float64 `json:"cost"`
+	PromptTokens              int64   `json:"prompt_tokens"`
+	CompletionTokens          int64   `json:"completion_tokens"`
+	InputTokens               int64   `json:"input_tokens"`
+	OutputTokens              int64   `json:"output_tokens"`
+	CacheTokens               int64   `json:"cache_tokens"`
+	CacheCreationTokens       int64   `json:"cache_creation_tokens"`
+	TotalBillableTokens       int64   `json:"total_billable_tokens"`
+	EffectivePricePer1MTokens float64 `json:"effective_price_per_1m_tokens,omitempty"`
+	EffectivePricePer1KTokens float64 `json:"effective_price_per_1k_tokens,omitempty"`
+	EffectivePricePerRequest  float64 `json:"effective_price_per_request,omitempty"`
+	PriceUnit                 string  `json:"price_unit"`
 }
 
 type PricingVendor struct {

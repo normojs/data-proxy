@@ -41,6 +41,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { CopyButton } from '@/components/copy-button'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
@@ -53,6 +59,13 @@ import {
 } from '@/features/performance-metrics/lib/format'
 import { DEFAULT_TOKEN_UNIT, QUOTA_TYPE_VALUES } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
+import {
+  actualPriceAmount,
+  actualPriceUnitLabel,
+  actualPriceWindowLabel,
+  formatActualPriceCount,
+  formatActualPriceValue,
+} from '../lib/actual-price'
 import {
   getDynamicPriceEntries,
   getDynamicPricingSummary,
@@ -67,6 +80,7 @@ import type {
   Modality,
   ModelCapability,
   PriceType,
+  PricingActualPrice,
   PricingModel,
   TokenUnit,
 } from '../types'
@@ -269,9 +283,7 @@ function ModelHeader(props: { model: PricingModel }) {
   const { t } = useTranslation()
   const model = props.model
   const modelIconKey = model.icon || model.vendor_icon
-  const modelIcon = modelIconKey
-    ? getLobeIcon(modelIconKey, 20)
-    : null
+  const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 20) : null
   const description = model.description || model.vendor_description || null
   const tags = parseTags(model.tags)
   const isSpecialExpression =
@@ -590,6 +602,70 @@ function AutoGroupChain(props: { model: PricingModel; autoGroups: string[] }) {
 // Group pricing table
 // ----------------------------------------------------------------------------
 
+function GroupActualPriceCell(props: {
+  actual?: PricingActualPrice
+  model: PricingModel
+  tokenUnit: TokenUnit
+}) {
+  const { t } = useTranslation()
+  const amount = actualPriceAmount(props.actual, props.model, props.tokenUnit)
+  const unitLabel = actualPriceUnitLabel(
+    props.model,
+    props.tokenUnit,
+    t('request')
+  )
+
+  if (
+    !props.actual ||
+    !props.actual.request_count ||
+    amount == null ||
+    !Number.isFinite(amount)
+  ) {
+    return <span className='text-muted-foreground/30'>—</span>
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger render={<span />}>
+          <span className='inline-flex flex-col items-end leading-tight'>
+            <span className='text-foreground font-mono tabular-nums'>
+              {formatActualPriceValue(amount)}
+            </span>
+            <span className='text-muted-foreground/50 text-[10px]'>
+              / {unitLabel}
+            </span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side='top' className='max-w-[280px] p-2.5'>
+          <div className='space-y-1 text-xs'>
+            <div className='font-medium'>
+              {t('Recent effective price')} ·{' '}
+              {actualPriceWindowLabel(props.actual, t('Recent 1h'))}
+            </div>
+            <div className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1'>
+              <span className='text-muted-foreground'>{t('Requests')}</span>
+              <span className='text-right font-mono'>
+                {formatActualPriceCount(props.actual.request_count)}
+              </span>
+              <span className='text-muted-foreground'>
+                {t('Billable tokens')}
+              </span>
+              <span className='text-right font-mono'>
+                {formatActualPriceCount(props.actual.total_billable_tokens)}
+              </span>
+              <span className='text-muted-foreground'>{t('Actual cost')}</span>
+              <span className='text-right font-mono'>
+                {formatActualPriceValue(props.actual.cost)}
+              </span>
+            </div>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 function GroupPricingSection(props: {
   model: PricingModel
   groupRatio: Record<string, number>
@@ -699,13 +775,21 @@ function GroupPricingSection(props: {
         <div className='space-y-3'>
           {availableGroups.map((group) => {
             const ratio = props.groupRatio[group] || 1
+            const actual = props.model.actual_price_by_group?.[group]
             return (
               <div key={group} className='overflow-hidden rounded-lg border'>
                 <div className='bg-muted/20 flex items-center justify-between gap-3 border-b px-3 py-2'>
                   <GroupBadge group={group} size='sm' />
-                  <span className='text-muted-foreground font-mono text-xs'>
-                    {ratio}x
-                  </span>
+                  <div className='flex items-center gap-3'>
+                    <GroupActualPriceCell
+                      actual={actual}
+                      model={props.model}
+                      tokenUnit={props.tokenUnit}
+                    />
+                    <span className='text-muted-foreground font-mono text-xs'>
+                      {ratio}x
+                    </span>
+                  </div>
                 </div>
                 <div className='overflow-x-auto'>
                   <Table className='text-sm'>
@@ -778,6 +862,9 @@ function GroupPricingSection(props: {
             <TableRow className='hover:bg-transparent'>
               <TableHead className={thClass}>{t('Group')}</TableHead>
               <TableHead className={thClass}>{t('Ratio')}</TableHead>
+              <TableHead className={`${thClass} text-right`}>
+                {t('Recent effective price')}
+              </TableHead>
               {isTokenBased ? (
                 <>
                   <TableHead className={`${thClass} text-right`}>
@@ -805,6 +892,7 @@ function GroupPricingSection(props: {
           <TableBody>
             {availableGroups.map((group) => {
               const ratio = props.groupRatio[group] || 1
+              const actual = props.model.actual_price_by_group?.[group]
               return (
                 <TableRow key={group}>
                   <TableCell className='py-2.5'>
@@ -812,6 +900,13 @@ function GroupPricingSection(props: {
                   </TableCell>
                   <TableCell className='text-muted-foreground py-2.5 font-mono'>
                     {ratio}x
+                  </TableCell>
+                  <TableCell className='py-2.5 text-right'>
+                    <GroupActualPriceCell
+                      actual={actual}
+                      model={props.model}
+                      tokenUnit={props.tokenUnit}
+                    />
                   </TableCell>
                   {isTokenBased ? (
                     <>
