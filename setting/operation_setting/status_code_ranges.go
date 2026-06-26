@@ -28,6 +28,12 @@ var AutomaticRetryStatusCodeRanges = []StatusCodeRange{
 	{Start: 525, End: 599},
 }
 
+var ChannelHealthTransientStatusCodeRanges = []StatusCodeRange{
+	{Start: 408, End: 408},
+	{Start: 429, End: 429},
+	{Start: 500, End: 599},
+}
+
 var alwaysSkipRetryStatusCodes = map[int]struct{}{
 	504: {},
 	524: {},
@@ -52,6 +58,23 @@ func AutomaticDisableStatusCodesFromString(s string) error {
 
 func ShouldDisableByStatusCode(code int) bool {
 	return shouldMatchStatusCodeRanges(AutomaticDisableStatusCodeRanges, code)
+}
+
+func ChannelHealthTransientStatusCodesToString() string {
+	return statusCodeRangesToString(ChannelHealthTransientStatusCodeRanges)
+}
+
+func ChannelHealthTransientStatusCodesFromString(s string) error {
+	ranges, err := ParseHTTPStatusCodeRanges(s)
+	if err != nil {
+		return err
+	}
+	ChannelHealthTransientStatusCodeRanges = ranges
+	return nil
+}
+
+func ShouldTreatTransientByStatusCode(code int) bool {
+	return shouldMatchStatusCodeRanges(ChannelHealthTransientStatusCodeRanges, code)
 }
 
 func AutomaticRetryStatusCodesToString() string {

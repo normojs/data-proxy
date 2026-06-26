@@ -32,13 +32,16 @@ type tokenPageResponse struct {
 }
 
 type tokenResponseItem struct {
-	ID                    int    `json:"id"`
-	Name                  string `json:"name"`
-	Key                   string `json:"key"`
-	Status                int    `json:"status"`
-	RemainQuota           int    `json:"remain_quota"`
-	UnlimitedQuota        bool   `json:"unlimited_quota"`
-	QuotaHardLimitEnabled bool   `json:"quota_hard_limit_enabled"`
+	ID                     int    `json:"id"`
+	Name                   string `json:"name"`
+	Key                    string `json:"key"`
+	Status                 int    `json:"status"`
+	RemainQuota            int    `json:"remain_quota"`
+	UnlimitedQuota         bool   `json:"unlimited_quota"`
+	QuotaHardLimitEnabled  bool   `json:"quota_hard_limit_enabled"`
+	Group                  string `json:"group"`
+	GroupAvailable         bool   `json:"group_available"`
+	GroupUnavailableReason string `json:"group_unavailable_reason"`
 }
 
 type tokenKeyResponse struct {
@@ -179,6 +182,16 @@ func openTokenControllerExternalDB(t *testing.T, dialect string, dsn string) (*g
 
 func seedToken(t *testing.T, db *gorm.DB, userID int, name string, rawKey string) *model.Token {
 	t.Helper()
+
+	user := model.User{
+		Id:       userID,
+		Username: fmt.Sprintf("token-owner-%d", userID),
+		Status:   common.UserStatusEnabled,
+		AffCode:  fmt.Sprintf("token-owner-aff-%d", userID),
+	}
+	if err := db.Where("id = ?", userID).FirstOrCreate(&user).Error; err != nil {
+		t.Fatalf("failed to ensure token owner user: %v", err)
+	}
 
 	token := &model.Token{
 		UserId:         userID,
@@ -534,6 +547,49 @@ func TestGetTokenMasksKeyInResponse(t *testing.T) {
 	}
 }
 
+func TestGetAllTokensAnnotatesUnavailableGroup(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	if err := db.Create(&model.User{
+		Id:          1,
+		Username:    "bound-user",
+		Status:      common.UserStatusEnabled,
+		Group:       "vip",
+		TokenGroups: `["default"]`,
+		AffCode:     "bound-user-aff",
+	}).Error; err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+	token := seedToken(t, db, 1, "legacy-vip-token", "legacy1234vip5678")
+	if err := db.Model(token).Update("group", "vip").Error; err != nil {
+		t.Fatalf("failed to update token group: %v", err)
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/?p=1&size=10", nil, 1)
+	GetAllTokens(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+
+	var page tokenPageResponse
+	if err := common.Unmarshal(response.Data, &page); err != nil {
+		t.Fatalf("failed to decode token page response: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("expected exactly one token, got %d", len(page.Items))
+	}
+	if page.Items[0].Group != "vip" {
+		t.Fatalf("expected token group vip, got %q", page.Items[0].Group)
+	}
+	if page.Items[0].GroupAvailable {
+		t.Fatal("expected token group to be marked unavailable")
+	}
+	if !strings.Contains(page.Items[0].GroupUnavailableReason, "vip") {
+		t.Fatalf("expected unavailable reason to mention vip, got %q", page.Items[0].GroupUnavailableReason)
+	}
+}
+
 func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	token := seedToken(t, db, 1, "editable-token", "yzab1234cdef5678")
@@ -635,6 +691,41 @@ func TestAddAndUpdateTokenQuotaHardLimit(t *testing.T) {
 	}
 	if detail.RemainQuota != 456 {
 		t.Fatalf("expected update response quota 456, got %d", detail.RemainQuota)
+	}
+}
+
+func TestAddTokenRejectsBoundUnavailableGroup(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	if err := db.Create(&model.User{
+		Id:          1,
+		Username:    "bound-token-user",
+		Status:      common.UserStatusEnabled,
+		Group:       "vip",
+		TokenGroups: `["default"]`,
+		AffCode:     "bound-token-user-aff",
+	}).Error; err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+
+	body := map[string]any{
+		"name":                 "bad-group-token",
+		"expired_time":         -1,
+		"remain_quota":         100,
+		"unlimited_quota":      true,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "vip",
+		"cross_group_retry":    false,
+	}
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", body, 1)
+	AddToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if response.Success {
+		t.Fatal("expected unavailable token group to be rejected")
+	}
+	if !strings.Contains(response.Message, "vip") {
+		t.Fatalf("expected error message to mention vip, got %q", response.Message)
 	}
 }
 

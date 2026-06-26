@@ -304,6 +304,24 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "ChannelHealthTransientStatusCodes":
+		_, err = operation_setting.ParseHTTPStatusCodeRanges(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	case "ChannelHealthFailureThreshold", "ChannelHealthFailureWindowMinutes", "ChannelHealthCooldownMinutes", "ChannelHealthMaxCooldownMinutes":
+		value, parseErr := strconv.Atoi(strings.TrimSpace(option.Value.(string)))
+		if parseErr != nil || value < 1 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "渠道健康配置必须为不小于 1 的整数",
+			})
+			return
+		}
 	case "AutomaticRetryStatusCodes":
 		_, err = operation_setting.ParseHTTPStatusCodeRanges(option.Value.(string))
 		if err != nil {

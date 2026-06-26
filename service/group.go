@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -36,6 +37,25 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 	return groupsCopy
 }
 
+func FilterUserUsableGroupsByBindings(groups map[string]string, boundGroups []string) map[string]string {
+	boundGroups = model.NormalizeTokenGroups(boundGroups)
+	if len(boundGroups) == 0 {
+		return groups
+	}
+
+	filtered := make(map[string]string, len(boundGroups))
+	for _, group := range boundGroups {
+		if desc, ok := groups[group]; ok {
+			filtered[group] = desc
+		}
+	}
+	return filtered
+}
+
+func GetUserUsableGroupsWithBindings(userGroup string, boundGroups []string) map[string]string {
+	return FilterUserUsableGroupsByBindings(GetUserUsableGroups(userGroup), boundGroups)
+}
+
 func GroupInUserUsableGroups(userGroup, groupName string) bool {
 	_, ok := GetUserUsableGroups(userGroup)[groupName]
 	return ok
@@ -43,7 +63,11 @@ func GroupInUserUsableGroups(userGroup, groupName string) bool {
 
 // GetUserAutoGroup 根据用户分组获取自动分组设置
 func GetUserAutoGroup(userGroup string) []string {
-	groups := GetUserUsableGroups(userGroup)
+	return GetUserAutoGroupWithBindings(userGroup, nil)
+}
+
+func GetUserAutoGroupWithBindings(userGroup string, boundGroups []string) []string {
+	groups := GetUserUsableGroupsWithBindings(userGroup, boundGroups)
 	autoGroups := make([]string, 0)
 	for _, group := range setting.GetAutoGroups() {
 		if _, ok := groups[group]; ok {

@@ -9,6 +9,18 @@ type ChannelSettings struct {
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
 }
 
+type ChannelRuntimeHealth struct {
+	Status                 string `json:"status"`
+	TemporarilyUnavailable bool   `json:"temporarily_unavailable"`
+	ConsecutiveFailures    int    `json:"consecutive_failures,omitempty"`
+	FirstFailureAt         int64  `json:"first_failure_at,omitempty"`
+	LastFailureAt          int64  `json:"last_failure_at,omitempty"`
+	CooldownUntil          int64  `json:"cooldown_until,omitempty"`
+	LastStatusCode         int    `json:"last_status_code,omitempty"`
+	LastErrorCode          string `json:"last_error_code,omitempty"`
+	LastReason             string `json:"last_reason,omitempty"`
+}
+
 type VertexKeyType string
 
 const (

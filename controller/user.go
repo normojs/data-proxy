@@ -442,6 +442,7 @@ func GetSelf(c *gin.Context) {
 		"inviter_id":        user.InviterId,
 		"linux_do_id":       user.LinuxDOId,
 		"setting":           user.Setting,
+		"token_groups":      user.TokenGroups,
 		"stripe_customer":   user.StripeCustomer,
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,                // 新增权限字段
@@ -555,7 +556,7 @@ func GetUserModels(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	groups := service.GetUserUsableGroups(user.Group)
+	groups := service.GetUserUsableGroupsWithBindings(user.Group, user.GetTokenGroups())
 	var models []string
 	for group := range groups {
 		for _, g := range model.GetGroupEnabledModels(group) {
@@ -572,9 +573,47 @@ func GetUserModels(c *gin.Context) {
 	return
 }
 
+func parseUserTokenGroupsPayload(raw json.RawMessage) ([]string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return []string{}, nil
+	}
+	var groups []string
+	if err := json.Unmarshal(raw, &groups); err == nil {
+		return model.NormalizeTokenGroups(groups), nil
+	}
+	var groupsText string
+	if err := json.Unmarshal(raw, &groupsText); err == nil {
+		return model.ParseTokenGroups(groupsText), nil
+	}
+	return nil, errors.New("token_groups must be a string array or JSON string")
+}
+
 func UpdateUser(c *gin.Context) {
+	requestData := map[string]json.RawMessage{}
+	if err := common.DecodeJson(c.Request.Body, &requestData); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	tokenGroupsProvided := false
+	var tokenGroups []string
+	if raw, ok := requestData["token_groups"]; ok {
+		var err error
+		tokenGroupsProvided = true
+		tokenGroups, err = parseUserTokenGroupsPayload(raw)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		delete(requestData, "token_groups")
+	}
+
+	requestDataBytes, err := common.Marshal(requestData)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
 	var updatedUser model.User
-	err := common.DecodeJson(c.Request.Body, &updatedUser)
+	err = common.Unmarshal(requestDataBytes, &updatedUser)
 	if err != nil || updatedUser.Id == 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -582,13 +621,18 @@ func UpdateUser(c *gin.Context) {
 	if updatedUser.Password == "" {
 		updatedUser.Password = "$I_LOVE_U" // make Validator happy :)
 	}
-	if err := common.Validate.Struct(&updatedUser); err != nil {
-		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
-		return
-	}
 	originUser, err := model.GetUserById(updatedUser.Id, false)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	if tokenGroupsProvided {
+		updatedUser.SetTokenGroups(tokenGroups)
+	} else {
+		updatedUser.TokenGroups = originUser.TokenGroups
+	}
+	if err := common.Validate.Struct(&updatedUser); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
 	myRole := c.GetInt("role")

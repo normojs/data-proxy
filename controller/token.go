@@ -10,27 +10,72 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-func buildMaskedTokenResponse(token *model.Token) *model.Token {
+func buildMaskedTokenResponse(token *model.Token, userCache *model.UserBase) *model.Token {
 	if token == nil {
 		return nil
 	}
 	maskedToken := *token
 	maskedToken.Key = token.GetMaskedKey()
+	annotateTokenGroupAvailability(&maskedToken, userCache)
 	return &maskedToken
 }
 
-func buildMaskedTokenResponses(tokens []*model.Token) []*model.Token {
+func buildMaskedTokenResponses(tokens []*model.Token, userCache *model.UserBase) []*model.Token {
 	maskedTokens := make([]*model.Token, 0, len(tokens))
 	for _, token := range tokens {
-		maskedTokens = append(maskedTokens, buildMaskedTokenResponse(token))
+		maskedTokens = append(maskedTokens, buildMaskedTokenResponse(token, userCache))
 	}
 	return maskedTokens
+}
+
+func tokenEffectiveGroup(tokenGroup string, userGroup string) string {
+	tokenGroup = strings.TrimSpace(tokenGroup)
+	if tokenGroup != "" {
+		return tokenGroup
+	}
+	return strings.TrimSpace(userGroup)
+}
+
+func tokenGroupUnavailableReason(tokenGroup string, userCache *model.UserBase) string {
+	if userCache == nil {
+		return ""
+	}
+	effectiveGroup := tokenEffectiveGroup(tokenGroup, userCache.Group)
+	if effectiveGroup == "" {
+		return ""
+	}
+	usableGroups := service.GetUserUsableGroupsWithBindings(userCache.Group, userCache.GetTokenGroups())
+	if _, ok := usableGroups[effectiveGroup]; ok {
+		return ""
+	}
+	return fmt.Sprintf("分组 %s 不可用", effectiveGroup)
+}
+
+func annotateTokenGroupAvailability(token *model.Token, userCache *model.UserBase) {
+	if token == nil {
+		return
+	}
+	reason := tokenGroupUnavailableReason(token.Group, userCache)
+	token.GroupAvailable = reason == ""
+	token.GroupUnavailableReason = reason
+}
+
+func validateTokenGroupForUser(userId int, tokenGroup string) error {
+	userCache, err := model.GetUserCache(userId)
+	if err != nil {
+		return err
+	}
+	if reason := tokenGroupUnavailableReason(tokenGroup, userCache); reason != "" {
+		return errors.New(reason)
+	}
+	return nil
 }
 
 func GetAllTokens(c *gin.Context) {
@@ -43,7 +88,12 @@ func GetAllTokens(c *gin.Context) {
 	}
 	total, _ := model.CountUserTokens(userId)
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	userCache, err := model.GetUserCache(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetItems(buildMaskedTokenResponses(tokens, userCache))
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -59,8 +109,13 @@ func SearchTokens(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	userCache, err := model.GetUserCache(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	pageInfo.SetItems(buildMaskedTokenResponses(tokens, userCache))
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -76,7 +131,12 @@ func GetToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, buildMaskedTokenResponse(token))
+	userCache, err := model.GetUserCache(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, buildMaskedTokenResponse(token, userCache))
 }
 
 func GetTokenKey(c *gin.Context) {
@@ -178,6 +238,10 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if err := validateTokenGroupForUser(c.GetInt("id"), token.Group); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := validateUserDefaultProject(c.GetInt("id"), token.DefaultProjectId); err != nil {
 		common.ApiError(c, err)
 		return
@@ -271,6 +335,10 @@ func UpdateToken(c *gin.Context) {
 		return
 	}
 	if statusOnly == "" {
+		if err := validateTokenGroupForUser(userId, token.Group); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 		if err := validateUserDefaultProject(userId, token.DefaultProjectId); err != nil {
 			common.ApiError(c, err)
 			return
@@ -333,10 +401,15 @@ func UpdateToken(c *gin.Context) {
 		return
 	}
 	recordTokenDefaultProjectAudit(c, beforeToken, cleanToken)
+	userCache, err := model.GetUserCache(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    buildMaskedTokenResponse(cleanToken),
+		"data":    buildMaskedTokenResponse(cleanToken, userCache),
 	})
 }
 

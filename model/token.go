@@ -30,6 +30,8 @@ type Token struct {
 	Group                 string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry       bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	DefaultProjectId      int            `json:"default_project_id" gorm:"index"`
+	GroupAvailable        bool           `json:"group_available" gorm:"-"`
+	GroupUnavailableReason string         `json:"group_unavailable_reason,omitempty" gorm:"-"`
 	DeletedAt             gorm.DeletedAt `gorm:"index"`
 }
 

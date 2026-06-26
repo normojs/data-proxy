@@ -104,43 +104,109 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 }
 
 func GetChannel(group string, model string, retry int) (*Channel, error) {
+	return GetChannelExcluding(group, model, retry, nil)
+}
+
+func GetChannelExcluding(group string, model string, retry int, excludeChannelIds map[int]bool) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
-	channelQuery, err := getChannelQuery(group, model, retry)
-	if err != nil {
-		return nil, err
-	}
-	if common.UsingSQLite || common.UsingPostgreSQL {
+	if len(excludeChannelIds) == 0 {
+		channelQuery, err := getChannelQuery(group, model, retry)
+		if err != nil {
+			return nil, err
+		}
 		err = channelQuery.Order("weight DESC").Find(&abilities).Error
 	} else {
-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
+		err = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+			Order("priority DESC").
+			Order("weight DESC").
+			Find(&abilities).Error
 	}
 	if err != nil {
 		return nil, err
+	}
+	abilities = filterExcludedAbilities(abilities, excludeChannelIds)
+	if len(excludeChannelIds) > 0 {
+		abilities = selectAbilitiesForRetryPriority(abilities, retry)
 	}
 	channel := Channel{}
 	if len(abilities) > 0 {
-		// Randomly choose one
-		weightSum := uint(0)
-		for _, ability_ := range abilities {
-			weightSum += ability_.Weight + 10
-		}
-		// Randomly choose one
-		weight := common.GetRandomInt(int(weightSum))
-		for _, ability_ := range abilities {
-			weight -= int(ability_.Weight) + 10
-			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
-			if weight <= 0 {
-				channel.Id = ability_.ChannelId
-				break
-			}
-		}
+		channel.Id = weightedRandomAbilityChannelId(abilities)
 	} else {
 		return nil, nil
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+func filterExcludedAbilities(abilities []Ability, excludeChannelIds map[int]bool) []Ability {
+	if len(excludeChannelIds) == 0 || len(abilities) == 0 {
+		return abilities
+	}
+	filtered := abilities[:0]
+	for _, ability := range abilities {
+		if excludeChannelIds[ability.ChannelId] {
+			continue
+		}
+		filtered = append(filtered, ability)
+	}
+	return filtered
+}
+
+func selectAbilitiesForRetryPriority(abilities []Ability, retry int) []Ability {
+	if len(abilities) <= 1 {
+		return abilities
+	}
+	priorities := make([]int64, 0)
+	seen := map[int64]bool{}
+	for _, ability := range abilities {
+		priority := int64(0)
+		if ability.Priority != nil {
+			priority = *ability.Priority
+		}
+		if seen[priority] {
+			continue
+		}
+		seen[priority] = true
+		priorities = append(priorities, priority)
+	}
+	if len(priorities) == 0 {
+		return nil
+	}
+	if retry >= len(priorities) {
+		retry = len(priorities) - 1
+	}
+	if retry < 0 {
+		retry = 0
+	}
+	targetPriority := priorities[retry]
+	filtered := abilities[:0]
+	for _, ability := range abilities {
+		priority := int64(0)
+		if ability.Priority != nil {
+			priority = *ability.Priority
+		}
+		if priority == targetPriority {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
+}
+
+func weightedRandomAbilityChannelId(abilities []Ability) int {
+	weightSum := uint(0)
+	for _, ability := range abilities {
+		weightSum += ability.Weight + 10
+	}
+	weight := common.GetRandomInt(int(weightSum))
+	for _, ability := range abilities {
+		weight -= int(ability.Weight) + 10
+		if weight <= 0 {
+			return ability.ChannelId
+		}
+	}
+	return abilities[len(abilities)-1].ChannelId
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {

@@ -51,6 +51,10 @@ func InitOptionMap() {
 	common.OptionMap["RegisterEnabled"] = strconv.FormatBool(common.RegisterEnabled)
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
 	common.OptionMap["AutomaticEnableChannelEnabled"] = strconv.FormatBool(common.AutomaticEnableChannelEnabled)
+	common.OptionMap["ChannelHealthFailureThreshold"] = strconv.Itoa(common.ChannelHealthFailureThreshold)
+	common.OptionMap["ChannelHealthFailureWindowMinutes"] = strconv.Itoa(common.ChannelHealthFailureWindowMinutes)
+	common.OptionMap["ChannelHealthCooldownMinutes"] = strconv.Itoa(common.ChannelHealthCooldownMinutes)
+	common.OptionMap["ChannelHealthMaxCooldownMinutes"] = strconv.Itoa(common.ChannelHealthMaxCooldownMinutes)
 	common.OptionMap["LogConsumeEnabled"] = strconv.FormatBool(common.LogConsumeEnabled)
 	common.OptionMap["DisplayInCurrencyEnabled"] = strconv.FormatBool(common.DisplayInCurrencyEnabled)
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
@@ -192,6 +196,8 @@ func InitOptionMap() {
 	common.OptionMap["StreamCacheQueueLength"] = strconv.Itoa(setting.StreamCacheQueueLength)
 	common.OptionMap["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
+	common.OptionMap["ChannelHealthTransientKeywords"] = operation_setting.ChannelHealthTransientKeywordsToString()
+	common.OptionMap["ChannelHealthTransientStatusCodes"] = operation_setting.ChannelHealthTransientStatusCodesToString()
 	common.OptionMap["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	common.OptionMap["ExposeRatioEnabled"] = strconv.FormatBool(ratio_setting.IsExposeRatioEnabled())
 
@@ -617,8 +623,20 @@ func updateOptionMap(key string, value string) (err error) {
 		operation_setting.AutomaticDisableKeywordsFromString(value)
 	case "AutomaticDisableStatusCodes":
 		err = operation_setting.AutomaticDisableStatusCodesFromString(value)
+	case "ChannelHealthTransientKeywords":
+		operation_setting.ChannelHealthTransientKeywordsFromString(value)
+	case "ChannelHealthTransientStatusCodes":
+		err = operation_setting.ChannelHealthTransientStatusCodesFromString(value)
 	case "AutomaticRetryStatusCodes":
 		err = operation_setting.AutomaticRetryStatusCodesFromString(value)
+	case "ChannelHealthFailureThreshold":
+		common.ChannelHealthFailureThreshold, _ = strconv.Atoi(value)
+	case "ChannelHealthFailureWindowMinutes":
+		common.ChannelHealthFailureWindowMinutes, _ = strconv.Atoi(value)
+	case "ChannelHealthCooldownMinutes":
+		common.ChannelHealthCooldownMinutes, _ = strconv.Atoi(value)
+	case "ChannelHealthMaxCooldownMinutes":
+		common.ChannelHealthMaxCooldownMinutes, _ = strconv.Atoi(value)
 	case "StreamCacheQueueLength":
 		setting.StreamCacheQueueLength, _ = strconv.Atoi(value)
 	case "PayMethods":

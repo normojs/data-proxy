@@ -39,20 +39,22 @@ const (
 	ContextKeyChannelIsMultiKey        ContextKey = "channel_is_multi_key"
 	ContextKeyChannelMultiKeyIndex     ContextKey = "channel_multi_key_index"
 	ContextKeyChannelKey               ContextKey = "channel_key"
+	ContextKeyChannelFailoverTrace     ContextKey = "channel_failover_trace"
 
 	ContextKeyAutoGroup           ContextKey = "auto_group"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"
 	ContextKeyAutoGroupRetryIndex ContextKey = "auto_group_retry_index"
 
 	/* user related keys */
-	ContextKeyUserId      ContextKey = "id"
-	ContextKeyUserSetting ContextKey = "user_setting"
-	ContextKeyUserQuota   ContextKey = "user_quota"
-	ContextKeyUserStatus  ContextKey = "user_status"
-	ContextKeyUserEmail   ContextKey = "user_email"
-	ContextKeyUserGroup   ContextKey = "user_group"
-	ContextKeyUsingGroup  ContextKey = "group"
-	ContextKeyUserName    ContextKey = "username"
+	ContextKeyUserId          ContextKey = "id"
+	ContextKeyUserSetting     ContextKey = "user_setting"
+	ContextKeyUserQuota       ContextKey = "user_quota"
+	ContextKeyUserStatus      ContextKey = "user_status"
+	ContextKeyUserEmail       ContextKey = "user_email"
+	ContextKeyUserGroup       ContextKey = "user_group"
+	ContextKeyUserTokenGroups ContextKey = "user_token_groups"
+	ContextKeyUsingGroup      ContextKey = "group"
+	ContextKeyUserName        ContextKey = "username"
 
 	ContextKeyLocalCountTokens ContextKey = "local_count_tokens"
 

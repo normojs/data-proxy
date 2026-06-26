@@ -15,6 +15,19 @@ var AutomaticDisableKeywords = []string{
 	"Your account is not authorized",
 }
 
+var ChannelHealthTransientKeywords = []string{
+	"timeout",
+	"deadline exceeded",
+	"connection reset",
+	"connection refused",
+	"connection closed",
+	"no such host",
+	"eof",
+	"unexpected end",
+	"tls handshake",
+	"temporary failure",
+}
+
 func AutomaticDisableKeywordsToString() string {
 	return strings.Join(AutomaticDisableKeywords, "\n")
 }
@@ -27,6 +40,22 @@ func AutomaticDisableKeywordsFromString(s string) {
 		k = strings.ToLower(k)
 		if k != "" {
 			AutomaticDisableKeywords = append(AutomaticDisableKeywords, k)
+		}
+	}
+}
+
+func ChannelHealthTransientKeywordsToString() string {
+	return strings.Join(ChannelHealthTransientKeywords, "\n")
+}
+
+func ChannelHealthTransientKeywordsFromString(s string) {
+	ChannelHealthTransientKeywords = []string{}
+	keywords := strings.Split(s, "\n")
+	for _, k := range keywords {
+		k = strings.TrimSpace(k)
+		k = strings.ToLower(k)
+		if k != "" {
+			ChannelHealthTransientKeywords = append(ChannelHealthTransientKeywords, k)
 		}
 	}
 }

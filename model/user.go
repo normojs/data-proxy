@@ -42,6 +42,7 @@ type User struct {
 	UsedQuota        int            `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
 	RequestCount     int            `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group            string         `json:"group" gorm:"type:varchar(64);default:'default'"`
+	TokenGroups      string         `json:"token_groups,omitempty" gorm:"type:text;column:token_groups"` // JSON array of token groups this user may use; empty means unrestricted
 	AffCode          string         `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
 	AffCount         int            `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
 	AffQuota         int            `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
@@ -65,8 +66,87 @@ func (user *User) ToBaseUser() *UserBase {
 		Username: user.Username,
 		Setting:  user.Setting,
 		Email:    user.Email,
+		TokenGroups: user.TokenGroups,
 	}
 	return cache
+}
+
+func NormalizeTokenGroups(groups []string) []string {
+	seen := make(map[string]struct{}, len(groups))
+	normalized := make([]string, 0, len(groups))
+	for _, group := range groups {
+		group = strings.TrimSpace(group)
+		if group == "" {
+			continue
+		}
+		if _, ok := seen[group]; ok {
+			continue
+		}
+		seen[group] = struct{}{}
+		normalized = append(normalized, group)
+	}
+	return normalized
+}
+
+func ParseTokenGroups(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{}
+	}
+
+	var groups []string
+	if err := common.Unmarshal([]byte(raw), &groups); err == nil {
+		return NormalizeTokenGroups(groups)
+	}
+
+	splitGroups := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '，' || r == '\n'
+	})
+	return NormalizeTokenGroups(splitGroups)
+}
+
+func MarshalTokenGroups(groups []string) string {
+	groups = NormalizeTokenGroups(groups)
+	if len(groups) == 0 {
+		return ""
+	}
+	bytes, err := common.Marshal(groups)
+	if err != nil {
+		common.SysLog("failed to marshal token groups: " + err.Error())
+		return ""
+	}
+	return string(bytes)
+}
+
+func TokenGroupAllowedByBindings(boundGroups []string, group string) bool {
+	boundGroups = NormalizeTokenGroups(boundGroups)
+	if len(boundGroups) == 0 {
+		return true
+	}
+	group = strings.TrimSpace(group)
+	if group == "" {
+		return false
+	}
+	for _, boundGroup := range boundGroups {
+		if boundGroup == group {
+			return true
+		}
+	}
+	return false
+}
+
+func (user *User) GetTokenGroups() []string {
+	if user == nil {
+		return []string{}
+	}
+	return ParseTokenGroups(user.TokenGroups)
+}
+
+func (user *User) SetTokenGroups(groups []string) {
+	if user == nil {
+		return
+	}
+	user.TokenGroups = MarshalTokenGroups(groups)
 }
 
 func (user *User) GetAccessToken() string {
@@ -525,6 +605,7 @@ func (user *User) Edit(updatePassword bool) error {
 		"display_name": newUser.DisplayName,
 		"group":        newUser.Group,
 		"remark":       newUser.Remark,
+		"token_groups": MarshalTokenGroups(ParseTokenGroups(newUser.TokenGroups)),
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password

@@ -178,9 +178,16 @@ type modelListGroups struct {
 func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 	tokenGroup := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
 	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	boundGroups := common.GetContextKeyStringSlice(c, constant.ContextKeyUserTokenGroups)
+	boundGroups = model.NormalizeTokenGroups(boundGroups)
 	if userGroup == "" && (tokenGroup == "" || tokenGroup == "auto") {
 		var err error
-		userGroup, err = model.GetUserGroup(c.GetInt("id"), false)
+		if userCache, cacheErr := model.GetUserCache(c.GetInt("id")); cacheErr == nil && userCache != nil {
+			userGroup = userCache.Group
+			boundGroups = model.NormalizeTokenGroups(userCache.GetTokenGroups())
+		} else {
+			userGroup, err = model.GetUserGroup(c.GetInt("id"), false)
+		}
 		if err != nil {
 			return modelListGroups{}, err
 		}
@@ -190,13 +197,35 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 		return modelListGroups{
 			userGroup:   userGroup,
 			tokenGroup:  tokenGroup,
-			ownerGroups: service.GetUserAutoGroup(userGroup),
+			ownerGroups: service.GetUserAutoGroupWithBindings(userGroup, boundGroups),
+		}, nil
+	}
+
+	if tokenGroup == "" && len(boundGroups) > 0 {
+		usableGroups := service.GetUserUsableGroupsWithBindings(userGroup, boundGroups)
+		ownerGroups := make([]string, 0, len(usableGroups))
+		for _, group := range boundGroups {
+			if _, ok := usableGroups[group]; ok {
+				ownerGroups = append(ownerGroups, group)
+			}
+		}
+		return modelListGroups{
+			userGroup:   userGroup,
+			tokenGroup:  tokenGroup,
+			ownerGroups: ownerGroups,
 		}, nil
 	}
 
 	group := userGroup
 	if tokenGroup != "" {
 		group = tokenGroup
+	}
+	if !model.TokenGroupAllowedByBindings(boundGroups, group) {
+		return modelListGroups{
+			userGroup:   userGroup,
+			tokenGroup:  tokenGroup,
+			ownerGroups: []string{},
+		}, nil
 	}
 	return modelListGroups{
 		userGroup:   userGroup,
@@ -227,6 +256,10 @@ func ListModels(c *gin.Context, modelType int) {
 		return
 	}
 	ownerGroups := groups.ownerGroups
+	if len(ownerGroups) == 0 {
+		respondEmptyModelList(c, modelType)
+		return
+	}
 	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
 	if modelLimitEnable {
 		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
@@ -310,6 +343,29 @@ func ListModels(c *gin.Context, modelType int) {
 		c.JSON(200, gin.H{
 			"success": true,
 			"data":    userOpenAiModels,
+			"object":  "list",
+		})
+	}
+}
+
+func respondEmptyModelList(c *gin.Context, modelType int) {
+	switch modelType {
+	case constant.ChannelTypeAnthropic:
+		c.JSON(200, gin.H{
+			"data":     []dto.AnthropicModel{},
+			"first_id": "",
+			"has_more": false,
+			"last_id":  "",
+		})
+	case constant.ChannelTypeGemini:
+		c.JSON(200, gin.H{
+			"models":        []dto.GeminiModel{},
+			"nextPageToken": nil,
+		})
+	default:
+		c.JSON(200, gin.H{
+			"success": true,
+			"data":    []dto.OpenAIModels{},
 			"object":  "list",
 		})
 	}

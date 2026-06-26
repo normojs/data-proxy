@@ -241,3 +241,66 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	require.NotContains(t, ids, "zz-token-tiered-missing-expr-model")
 	require.NotContains(t, ids, "zz-token-unpriced-model")
 }
+
+func TestListModelsHonorsBoundTokenGroups(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredBillingConfig(t, map[string]string{
+		"zz-bound-default-model": "tiered_expr",
+		"zz-bound-vip-model":     "tiered_expr",
+	}, map[string]string{
+		"zz-bound-default-model": `tier("base", p + c)`,
+		"zz-bound-vip-model":     `tier("base", p + c)`,
+	})
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id:          1002,
+		Username:    "bound-model-user",
+		Password:    "password",
+		Group:       "vip",
+		TokenGroups: `["default"]`,
+		Status:      common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "zz-bound-default-model", ChannelId: 1, Enabled: true},
+		{Group: "vip", Model: "zz-bound-vip-model", ChannelId: 2, Enabled: true},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx.Set("id", 1002)
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "zz-bound-default-model")
+	require.NotContains(t, ids, "zz-bound-vip-model")
+}
+
+func TestListModelsReturnsEmptyForUnavailableTokenGroup(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id:          1003,
+		Username:    "unavailable-model-user",
+		Password:    "password",
+		Group:       "vip",
+		TokenGroups: `["default"]`,
+		Status:      common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: "vip", Model: "zz-hidden-vip-model", ChannelId: 1, Enabled: true,
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx.Set("id", 1003)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "vip")
+	common.SetContextKey(ctx, constant.ContextKeyUserTokenGroups, []string{"default"})
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "vip")
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Empty(t, ids)
+}

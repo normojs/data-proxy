@@ -245,6 +245,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
 			newAPIError = channelErr
+			if channel != nil {
+				addUsedChannel(c, channel.Id)
+				retryParam.AddExcludedChannel(channel.Id)
+				retryable := shouldRetry(c, channelErr, common.RetryTimes-retryParam.GetRetry())
+				updateChannelFailoverRetryDecision(c, retryParam, retryable && retryParam.GetRetry() < common.RetryTimes)
+				processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), channelErr)
+				if retryable {
+					continue
+				}
+			}
 			break
 		}
 
@@ -279,6 +289,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		c.Writer = originalWriter
 
 		if newAPIError == nil {
+			service.RecordChannelSuccess(channel.Id)
 			service.FinishRelayRequestCapture(requestCapture, nil)
 			relayInfo.LastError = nil
 			return
@@ -288,9 +299,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.LastError = newAPIError
 		service.FinishRelayRequestCapture(requestCapture, service.RelayRequestCaptureError(newAPIError))
 
+		retryable := shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry())
+		updateChannelFailoverRetryDecision(c, retryParam, retryable && retryParam.GetRetry() < common.RetryTimes)
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+		retryParam.AddExcludedChannel(channel.Id)
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+		if !retryable {
 			break
 		}
 	}
@@ -374,12 +388,14 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		if !autoBan {
 			autoBanInt = 0
 		}
-		return &model.Channel{
+		channel := &model.Channel{
 			Id:      c.GetInt("channel_id"),
 			Type:    c.GetInt("channel_type"),
 			Name:    c.GetString("channel_name"),
 			AutoBan: &autoBanInt,
-		}, nil
+		}
+		recordChannelFailoverSelection(c, info, retryParam, channel, info.UsingGroup)
+		return channel, nil
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 
@@ -392,9 +408,10 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
+	recordChannelFailoverSelection(c, info, retryParam, channel, selectGroup)
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 	if newAPIError != nil {
-		return nil, newAPIError
+		return channel, newAPIError
 	}
 	return channel, nil
 }
@@ -530,9 +547,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+	healthDecision := service.HandleChannelFailure(channelError, err)
+	recordChannelFailoverFailure(c, channelError, err, healthDecision)
+	if healthDecision.Action == service.ChannelErrorActionHardAutoDisabled && channelError.AutoBan {
 		gopool.Go(func() {
-			service.DisableChannel(channelError, err.ErrorWithStatusCode())
+			service.DisableChannel(channelError, healthDecision.Reason)
 		})
 	}
 
@@ -562,6 +581,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
+		service.AppendChannelFailoverAdminInfo(c, adminInfo)
 		other["admin_info"] = adminInfo
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
@@ -691,6 +711,7 @@ func RelayTask(c *gin.Context) {
 
 		if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
 			channel = lockedCh
+			recordChannelFailoverSelection(c, relayInfo, retryParam, channel, relayInfo.UsingGroup)
 			if retryParam.GetRetry() > 0 {
 				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
 					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
@@ -703,6 +724,19 @@ func RelayTask(c *gin.Context) {
 			if channelErr != nil {
 				logger.LogError(c, channelErr.Error())
 				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+				if channel != nil {
+					addUsedChannel(c, channel.Id)
+					retryParam.AddExcludedChannel(channel.Id)
+					retryable := shouldRetry(c, channelErr, common.RetryTimes-retryParam.GetRetry())
+					updateChannelFailoverRetryDecision(c, retryParam, retryable && retryParam.GetRetry() < common.RetryTimes)
+					processChannelError(c,
+						*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
+							common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
+						channelErr)
+					if retryable {
+						continue
+					}
+				}
 				break
 			}
 		}
@@ -721,17 +755,21 @@ func RelayTask(c *gin.Context) {
 
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		if taskErr == nil {
+			service.RecordChannelSuccess(channel.Id)
 			break
 		}
 
+		retryable := shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry())
 		if !taskErr.LocalError {
+			updateChannelFailoverRetryDecision(c, retryParam, retryable && retryParam.GetRetry() < common.RetryTimes)
 			processChannelError(c,
 				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
 					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
 				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
 		}
+		retryParam.AddExcludedChannel(channel.Id)
 
-		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
+		if !retryable {
 			break
 		}
 	}
