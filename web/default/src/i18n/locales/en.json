@@ -5154,6 +5154,7 @@
     "Key": "Key",
     "Bound Groups": "Bound Groups",
     "Bound Token Groups": "Bound Token Groups",
+    "Group Settings": "Group Settings",
     "Clear temporary circuit": "Clear temporary circuit",
     "Consecutive failures": "Consecutive failures",
     "Consecutive temporary failures before circuit breaking": "Consecutive temporary failures before circuit breaking",

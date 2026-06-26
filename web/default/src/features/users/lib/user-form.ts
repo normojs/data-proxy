@@ -99,13 +99,14 @@ export function transformFormDataToPayload(
     password: data.password || undefined,
   }
 
-  // For create: only send required fields
+  payload.group = data.group || DEFAULT_GROUP
+  payload.token_groups = data.token_groups || []
+
+  // For create: send initial role and group restrictions
   if (userId === undefined) {
     payload.role = data.role || 1 // Default to common user
   } else {
     // For update: quota is adjusted atomically via /api/user/manage, not sent here
-    payload.group = data.group
-    payload.token_groups = data.token_groups || []
     payload.remark = data.remark || undefined
     payload.id = userId
   }

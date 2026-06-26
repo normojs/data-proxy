@@ -56,6 +56,25 @@ func TestUpdateUserTokenGroupsPreserveAndClear(t *testing.T) {
 	require.Empty(t, afterClear.GetTokenGroups())
 }
 
+func TestCreateUserPersistsInitialGroupBindings(t *testing.T) {
+	setupUserTokenGroupsControllerTestDB(t)
+
+	resp := requestCreateUserForTokenGroupsTest(t, map[string]any{
+		"username":     "tg-create-user",
+		"display_name": "TG Create User",
+		"password":     "password1",
+		"role":         common.RoleCommonUser,
+		"group":        "vip",
+		"token_groups": []string{"vip", "default", "vip", ""},
+	})
+	require.True(t, resp.Success, resp.Message)
+
+	var created model.User
+	require.NoError(t, model.DB.Where("username = ?", "tg-create-user").First(&created).Error)
+	require.Equal(t, "vip", created.Group)
+	require.Equal(t, []string{"vip", "default"}, created.GetTokenGroups())
+}
+
 type userTokenGroupsAPIResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
@@ -96,6 +115,25 @@ func requestUpdateUserForTokenGroupsTest(t *testing.T, body map[string]any) user
 	ctx.Set("role", common.RoleRootUser)
 
 	UpdateUser(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response userTokenGroupsAPIResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	return response
+}
+
+func requestCreateUserForTokenGroupsTest(t *testing.T, body map[string]any) userTokenGroupsAPIResponse {
+	t.Helper()
+	payload, err := common.Marshal(body)
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/user/", bytes.NewReader(payload))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Set("role", common.RoleRootUser)
+
+	CreateUser(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response userTokenGroupsAPIResponse

@@ -317,73 +317,75 @@ export function UsersMutateDrawer({
                 />
               </SideDrawerSection>
 
-              {/* Group & Quota Settings (Update only) */}
-              {isUpdate && (
-                <SideDrawerSection>
-                  <h3 className='text-sm font-medium'>{t('Group & Quota')}</h3>
+              {/* Group & Quota Settings */}
+              <SideDrawerSection>
+                <h3 className='text-sm font-medium'>
+                  {isUpdate ? t('Group & Quota') : t('Group Settings')}
+                </h3>
 
-                  <FormField
-                    control={form.control}
-                    name='group'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Group')}</FormLabel>
-                        <Select
-                          items={[
-                            ...groups.map((group) => ({
-                              value: group,
-                              label: group,
-                            })),
-                          ]}
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder={t('Select a group')} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent alignItemWithTrigger={false}>
-                            <SelectGroup>
-                              {groups.map((group) => (
-                                <SelectItem key={group} value={group}>
-                                  {group}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name='token_groups'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Bound Token Groups')}</FormLabel>
+                <FormField
+                  control={form.control}
+                  name='group'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Group')}</FormLabel>
+                      <Select
+                        items={[
+                          ...groups.map((group) => ({
+                            value: group,
+                            label: group,
+                          })),
+                        ]}
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
                         <FormControl>
-                          <MultiSelect
-                            options={groupOptions}
-                            selected={field.value || []}
-                            onChange={field.onChange}
-                            placeholder={t('No restriction')}
-                            emptyText={t('No groups found')}
-                            maxVisibleChips={4}
-                          />
+                          <SelectTrigger>
+                            <SelectValue placeholder={t('Select a group')} />
+                          </SelectTrigger>
                         </FormControl>
-                        <FormDescription>
-                          {t(
-                            'Leave empty to allow all usable groups. When set, this user can only create and use API keys in the selected groups.'
-                          )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            {groups.map((group) => (
+                              <SelectItem key={group} value={group}>
+                                {group}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
+                <FormField
+                  control={form.control}
+                  name='token_groups'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Bound Token Groups')}</FormLabel>
+                      <FormControl>
+                        <MultiSelect
+                          options={groupOptions}
+                          selected={field.value || []}
+                          onChange={field.onChange}
+                          placeholder={t('No restriction')}
+                          emptyText={t('No groups found')}
+                          maxVisibleChips={4}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Leave empty to allow all usable groups. When set, this user can only create and use API keys in the selected groups.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {isUpdate && (
                   <FormField
                     control={form.control}
                     name='quota_dollars'
@@ -422,7 +424,9 @@ export function UsersMutateDrawer({
                       </FormItem>
                     )}
                   />
+                )}
 
+                {isUpdate && (
                   <FormField
                     control={form.control}
                     name='remark'
@@ -442,8 +446,8 @@ export function UsersMutateDrawer({
                       </FormItem>
                     )}
                   />
-                </SideDrawerSection>
-              )}
+                )}
+              </SideDrawerSection>
 
               {/* Binding Information (Read-only) */}
               {isUpdate && (

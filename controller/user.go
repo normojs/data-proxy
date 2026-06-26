@@ -911,8 +911,31 @@ func DeleteSelf(c *gin.Context) {
 }
 
 func CreateUser(c *gin.Context) {
+	requestData := map[string]json.RawMessage{}
+	err := common.DecodeJson(c.Request.Body, &requestData)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	tokenGroupsProvided := false
+	var tokenGroups []string
+	if raw, ok := requestData["token_groups"]; ok {
+		tokenGroupsProvided = true
+		tokenGroups, err = parseUserTokenGroupsPayload(raw)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		delete(requestData, "token_groups")
+	}
+
+	requestDataBytes, err := common.Marshal(requestData)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
 	var user model.User
-	err := common.DecodeJson(c.Request.Body, &user)
+	err = common.Unmarshal(requestDataBytes, &user)
 	user.Username = strings.TrimSpace(user.Username)
 	if err != nil || user.Username == "" || user.Password == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
@@ -936,6 +959,15 @@ func CreateUser(c *gin.Context) {
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
 		Role:        user.Role, // 保持管理员设置的角色
+		Group:       strings.TrimSpace(user.Group),
+	}
+	if cleanUser.Group == "" {
+		cleanUser.Group = "default"
+	}
+	if tokenGroupsProvided {
+		cleanUser.SetTokenGroups(tokenGroups)
+	} else {
+		cleanUser.TokenGroups = model.MarshalTokenGroups(model.ParseTokenGroups(user.TokenGroups))
 	}
 	if err := cleanUser.Insert(0); err != nil {
 		common.ApiError(c, err)

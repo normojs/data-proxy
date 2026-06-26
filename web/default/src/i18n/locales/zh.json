@@ -5667,6 +5667,7 @@
     "Key": "密钥",
     "Bound Groups": "绑定分组",
     "Bound Token Groups": "绑定密钥分组",
+    "Group Settings": "分组设置",
     "Clear temporary circuit": "清除临时熔断",
     "Consecutive failures": "连续失败次数",
     "Consecutive temporary failures before circuit breaking": "触发熔断前允许的连续临时故障次数",
