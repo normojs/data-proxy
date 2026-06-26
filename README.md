@@ -39,7 +39,7 @@ Data Proxy 适合需要集中管理大模型 API 资产的团队：
 - 额度策略：支持 `request_count` 和 `quota`，可按企业、部门、分组或用户命中，支持 dry-run 与 hard reject。
 - 临时额度审批：用户提交、管理员审批、拒绝、撤回、过期和即将过期提醒。
 - 通知闭环：站内通知、企业审计事件、email/webhook outbox、通知偏好、投递结果查询、失败重试和 worker 指标。
-- Tunnel Apps：规划并开始实现 `mcp_code` 与 `http_tunnel` / `tcp_tunnel` 两类隧道应用，当前已具备申请/审批/审计/Bridge policy 同步、管理端列表、用户专属连接密钥和 MCP 网关入口。
+- Tunnel Apps：规划并开始实现 `mcp_code` 与 `http_tunnel` / `tcp_tunnel` 两类隧道应用，当前已具备申请/审批/审计/Bridge policy 同步、管理端列表、用户专属连接密钥、MCP 网关入口、HTTP 隧道和 TCP-over-WebSocket MVP。
 - HStation OAuth：登录、注册、绑定、解绑、管理员配置和自动化测试覆盖。
 - SSO 组织同步：支持 payload preview、dry-run、冲突列表、事务 apply 和同步审计。
 - 企业额度 Redis 计数：可选 Redis 原子 reserve/settle/refund，DB 降级和 DB/Redis 对账修复。
@@ -97,6 +97,9 @@ docker pull ghcr.io/normojs/data-proxy:v1.3.0
 
 生产服务器建议使用 `scripts/prod-deploy.sh` 和 `scripts/prod-compose.sh`，不要直接手写 Compose 文件组合。脚本会固定加载 `docker-compose.prod.yml` 与 `docker-compose.wechat-pay.yml`，确保微信支付商户私钥目录始终挂载到 `/run/secrets/data-proxy/wechatpay:ro`。
 
+GitHub tag 会触发 `Publish Data Proxy image` workflow，发布
+`ghcr.io/normojs/data-proxy:<tag>`、`sha-<short-sha>` 和可选 `latest`。部署时优先记录镜像 tag、digest、commit SHA 和上一个已验证镜像 digest。
+
 ```bash
 scripts/prod-deploy.sh ./data-proxy-<tag>.tar
 scripts/prod-deploy.sh ghcr.io/normojs/data-proxy:<tag>
@@ -106,6 +109,25 @@ scripts/prod-deploy.sh ghcr.io/normojs/data-proxy:<tag>
 
 ```bash
 scripts/prod-rollback.sh
+```
+
+部署后至少运行一次生产 smoke，并把 summary、request id、镜像 digest 和回滚镜像记录到发布证据中：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_API_KEY='sk-***' \
+DATA_PROXY_SMOKE_MODEL='gpt-4o-mini' \
+scripts/data-proxy-production-smoke.sh
+```
+
+需要同时验证 request trace 和诊断包时，传入管理员 header：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
+DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
+DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
+scripts/data-proxy-production-smoke.sh
 ```
 
 ## 常用配置
@@ -131,6 +153,9 @@ scripts/prod-rollback.sh
 | `CAPTURE_MAX_ARTIFACT_BYTES` | 单个请求/响应 artifact 的最大保存字节数，`0` 表示不限制；超出后只截断捕获数据，不影响主请求。 |
 | `CAPTURE_OBJECT_BACKEND` / `CAPTURE_S3_ENDPOINT` / `CAPTURE_S3_BUCKET` | 请求捕获私密数据包的 SeaweedFS/S3-compatible 存储配置。 |
 | `CAPTURE_BUNDLE_MASTER_KEY` | 请求捕获私密数据包 AES-256-GCM 加密主密钥，支持 `base64:` 或 `hex:` 前缀，必须解码为 32 字节。 |
+| `CAPTURE_RETENTION_DAYS` / `CAPTURE_SPOOL_RETENTION_DAYS` | 请求捕获对象和本地 spool 的留存天数，默认分别为 30 天和 7 天；设为 `0` 表示关闭对应清理维度。 |
+| `CAPTURE_CLEANUP_ENABLED` / `CAPTURE_CLEANUP_INTERVAL_SECONDS` / `CAPTURE_CLEANUP_LIMIT` | 请求捕获留存清理任务，默认跟随 capture 存储启用，只在 master/single-node 节点执行；管理员也可调用 `POST /api/log/request-capture/cleanup?dry_run=true` 先预览。 |
+| `DIAGNOSTIC_BUNDLE_MAX_RAW_TAR_BYTES` | 诊断包下载时 raw capture tar 的最大展开字节数，默认 256 MiB，`0` 表示不限制；超限只跳过 zip 内 raw 展开并写说明文件，不影响正常请求或对象存储原始包。 |
 
 完整部署说明见 [Data Proxy Operator Guide](./docs/data-proxy-operator-guide.md)。
 
@@ -190,15 +215,15 @@ GET /api/log/self/request?request_id=REQ_ID
 
 控制台可在 `Usage Logs -> Common` 按 request id 过滤，也可点击 request id 旁的追踪图标直接打开日志详情，并在 `Request Trace` 区块查看转换链、流状态、上游 request id 和关联错误。完整说明见 [Request ID Trace Troubleshooting](./docs/request-trace-troubleshooting.md)。
 
-### Tunnel MCP 连接
+### Tunnel Apps
 
-用户先在 `MCP -> My Tunnel Apps` 为本地 Bridge 客户端申请 `mcp_code` Tunnel App。管理员在 `MCP -> Tunnel Apps` 审批通过后，用户可在 `MCP -> Tunnel Connections` 为该应用创建专属连接。连接 key 只在创建成功时显示一次，MCP 客户端使用：
+用户先在 `MCP -> My Tunnel Apps` 为本地 Bridge 客户端申请 `mcp_code`、`http_tunnel` 或 `tcp_tunnel` Tunnel App。管理员在 `MCP -> Tunnel Apps` 审批通过后，用户可在 `MCP -> Tunnel Connections` 为该应用创建专属连接。连接 key 只在创建成功时显示一次，MCP 客户端使用：
 
 ```text
 https://<data-proxy-host>/t/<connection_key>/tunnel/mcp/<public_slug>
 ```
 
-每条连接都绑定当前用户和 Tunnel App，可单独撤销，并会写入 Tunnel audit log。控制台在 `MCP -> Tunnel Connections` 的连接行提供审计入口，可按 connection 查看 `tools/list`、`tools/call`、策略拒绝和撤销事件。完整架构见 [Tunnel Apps Architecture](./docs/tunnel-apps-architecture.md)。
+HTTP/TCP Tunnel 使用同样的 connection key 模型，入口分别是 `/t/<connection_key>/tunnel/http/<public_slug>` 和 `/t/<connection_key>/tunnel/tcp/<public_slug>`；控制台会按已审批 app 的目标地址给出对应的 `dpa tunnel route add ...` 本地路由命令。每条连接都绑定当前用户和 Tunnel App，可单独撤销，并会写入 Tunnel audit log。控制台在 `MCP -> Tunnel Connections` 的连接行提供审计入口，可按 connection 查看 `tools/list`、`tools/call`、HTTP/TCP proxy request、策略拒绝和撤销事件。完整架构见 [Tunnel Apps Architecture](./docs/tunnel-apps-architecture.md)。
 
 ### Data Proxy Agent
 
@@ -209,19 +234,20 @@ go run ./cmd/dpa --help
 go run ./cmd/dpa self-test
 ```
 
-当前 Go 版已具备 `enroll` 注册写配置、控制台一次性 setup token 绑定、`report` 脱敏诊断包、`logs path/tail` 本地审计查看、`service install/start/stop/status/uninstall`、`update` 升级、配置管理、`config token` 系统 keyring/secret-file 凭据管理、`doctor` 本地健康检查、远端 Bridge token 校验和系统服务状态诊断、agent 在线健康上报与 Bridge Client 详情展示、`/bridge/ws` 注册/心跳、本地文件工具 `remote_read` / `remote_tree` / `remote_glob` / `remote_grep` / `remote_env_info` / `remote_project_info` / `remote_get_related_files` / `remote_git_status` / `remote_git_diff` / `remote_git_log` / `remote_write` / `remote_edit`、安全测试命令 `remote_run_tests`、可信一次性命令 `remote_exec`、基础持久 shell `remote_shell_open` / `remote_shell_eval`、PTY shell 和 `remote_shell_resize`、可信依赖安装 `remote_install_package`、`http_tunnel.request` 普通/流式/SSE/WebSocket 转发，以及 MCP bridge 的 `mcp_proxy.test` / `mcp_proxy.tools_list` / `mcp_proxy.tools_call` / `mcp_proxy.rpc`；MCP bridge 支持本地 Streamable HTTP 和 stdio MCP，stdio 子进程具备启动/退出审计、进程健康展示和退出后下次调用自动重启。stdio 命令只从本机 agent 配置读取，服务端不能动态下发任意 command。其中写入工具默认关闭，需要本机配置 `policy.allow_write=true`；`remote_run_tests` 默认关闭，需要本机配置 `policy.exec.enabled=true` 和 `policy.exec.safe_commands`；`remote_exec`、PTY shell 与基础持久 shell 默认关闭，需要本机额外配置 `policy.exec.allow_arbitrary=true`；`remote_install_package` 还要求 `policy.allow_write=true`。Release checksum index 和 GHCR 镜像 digest 会通过 cosign 签名。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
+当前 Go 版已具备 `enroll` 注册写配置、控制台一次性 setup token 绑定、`report` 脱敏诊断包、`logs path/tail` 本地审计查看、`service install/start/stop/status/uninstall`、`update` 升级、配置管理、`config token` 系统 keyring/secret-file 凭据管理、`doctor` 本地健康检查、远端 Bridge token 校验和系统服务状态诊断、agent 在线健康上报与 Bridge Client 详情展示、`/bridge/ws` 注册/心跳、本地文件工具 `remote_read` / `remote_tree` / `remote_glob` / `remote_grep` / `remote_env_info` / `remote_project_info` / `remote_get_related_files` / `remote_git_status` / `remote_git_diff` / `remote_git_log` / `remote_write` / `remote_edit`、安全测试命令 `remote_run_tests`、可信一次性命令 `remote_exec`、基础持久 shell `remote_shell_open` / `remote_shell_eval`、PTY shell 和 `remote_shell_resize`、可信依赖安装 `remote_install_package`、`http_tunnel.request` 普通/流式/SSE/WebSocket 转发、`tcp_tunnel.connect` TCP-over-WebSocket 转发，以及 MCP bridge 的 `mcp_proxy.test` / `mcp_proxy.tools_list` / `mcp_proxy.tools_call` / `mcp_proxy.rpc`；MCP bridge 支持本地 Streamable HTTP 和 stdio MCP，stdio 子进程具备启动/退出审计、进程健康展示和退出后下次调用自动重启。stdio 命令只从本机 agent 配置读取，服务端不能动态下发任意 command。其中写入工具默认关闭，需要本机配置 `policy.allow_write=true`；`remote_run_tests` 默认关闭，需要本机配置 `policy.exec.enabled=true` 和 `policy.exec.safe_commands`；`remote_exec`、PTY shell 与基础持久 shell 默认关闭，需要本机额外配置 `policy.exec.allow_arbitrary=true`；`remote_install_package` 还要求 `policy.allow_write=true`；TCP 目标必须匹配本机 `tcp_routes`，非 loopback 目标还需要本机配置 `policy.allow_non_loopback_tcp=true`。Release checksum index 和 GHCR 镜像 digest 会通过 cosign 签名。完整设计和状态见 [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md)。
 
 常用本地配置命令：
 
 ```bash
-go run ./cmd/dpa enroll --server https://dp.app.mbu.ltd --setup-token <one-time-token>
-go run ./cmd/dpa enroll --server https://dp.app.mbu.ltd --access-token <dashboard-access-token> --user-id <id>
+go run ./cmd/dpa enroll --server https://<data-proxy-host> --setup-token <one-time-token>
+go run ./cmd/dpa enroll --server https://<data-proxy-host> --access-token <dashboard-access-token> --user-id <id>
 go run ./cmd/dpa config token status
 go run ./cmd/dpa config token migrate --store auto
 go run ./cmd/dpa mcp add coding --url http://127.0.0.1:30837/mcp
 go run ./cmd/dpa mcp add filesystem --transport stdio --command "npx -y @modelcontextprotocol/server-filesystem /Users/me/project"
 go run ./cmd/dpa mcp list
 go run ./cmd/dpa tunnel route add http local-web --url http://127.0.0.1:3000 --allow-websocket
+go run ./cmd/dpa tunnel route add tcp local-ssh --host 127.0.0.1 --port 22
 go run ./cmd/dpa tunnel route list
 go run ./cmd/dpa doctor
 go run ./cmd/dpa logs path
@@ -270,6 +296,7 @@ docker run -d --name data-proxy-agent --restart unless-stopped \
 | [Request Capture and Diagnostics Implementation Plan](./docs/request-capture-diagnostics-implementation-plan.md) | 请求捕获、诊断和训练数据湖的分阶段开发顺序与当前状态。 |
 | [Tunnel Apps Architecture](./docs/tunnel-apps-architecture.md) | MCP 代码隧道、HTTP/TCP 通用流量隧道、Cloudflare Remote MCP 对标和实施顺序。 |
 | [Data Proxy Agent CLI Design](./docs/data-proxy-agent-cli-design.md) | 跨平台本地 Agent CLI 设计，覆盖 cloudflared 类隧道、MCP bridge、配置、服务安装和发布计划。 |
+| [Single-Node Development Roadmap](./docs/data-proxy-single-node-development-roadmap.md) | 当前单服务器部署优先的后续开发顺序，暂不纳入多节点/分布式协调。 |
 | [Enterprise Governance Admin Guide](./docs/enterprise-governance-admin-guide.md) | 企业治理管理员操作手册。 |
 | [Post V1.3 TODO](./docs/data-proxy-post-v1.3-todo.md) | V1.3 之后的开发顺序和剩余任务。 |
 | [Branding and Release Policy](./docs/branding-and-release-policy.md) | Data Proxy 品牌边界和 new-api attribution 规则。 |
