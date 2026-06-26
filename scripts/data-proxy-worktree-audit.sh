@@ -72,6 +72,7 @@ group_for_file() {
     docs/data-proxy-near-term-development-plan.md | \
     docs/data-proxy-post-v1.3-todo.md | \
     docs/data-proxy-single-node-development-roadmap.md | \
+    docs/data-proxy-vnext-stabilization-task-plan.md | \
     scripts/data-proxy-worktree-audit.sh)
     echo "RC0_RELEASE_BASELINE"
     ;;
