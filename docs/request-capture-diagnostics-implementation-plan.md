@@ -164,8 +164,10 @@ Status: partially implemented for a single-node MVP.
   Sample `pending` / `approved` / `rejected` status and approve/reject admin
   APIs are implemented. Dataset export filters the generated shard to approved
   `source_hash` rows before returning it. Sample preview API is implemented by
-  loading the matching generated JSONL line by `source_hash`. Preview UI and
-  richer export policies remain pending.
+  loading the matching generated JSONL line by `source_hash`. The admin
+  training-data UI is wired into the authenticated console with dataset build,
+  sample preview, approve/reject, and approved-only export actions. Richer
+  export policies remain pending.
 
 ## Deployment Notes
 

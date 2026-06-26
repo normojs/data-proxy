@@ -20,6 +20,7 @@ import {
   Activity,
   Box,
   CreditCard,
+  Database,
   FileText,
   FlaskConical,
   Key,
@@ -154,6 +155,11 @@ export function useSidebarData(): SidebarData {
             title: t('Enterprise Governance'),
             url: '/enterprise',
             icon: ShieldCheck,
+          },
+          {
+            title: t('Training Data'),
+            url: '/training-data',
+            icon: Database,
           },
           {
             title: t('MCP'),
