@@ -57,6 +57,7 @@ const numericString = z.string().refine((value) => {
 
 const monitoringSchema = z
   .object({
+    RetryTimes: z.coerce.number().int().min(0).max(10),
     ChannelDisableThreshold: numericString,
     QuotaRemindThreshold: numericString,
     AutomaticDisableChannelEnabled: z.boolean(),
@@ -147,6 +148,7 @@ type MonitoringFormInput = z.input<typeof monitoringSchema>
 
 type MonitoringSettingsSectionProps = {
   defaultValues: {
+    RetryTimes: number
     ChannelDisableThreshold: string
     QuotaRemindThreshold: string
     AutomaticDisableChannelEnabled: boolean
@@ -170,6 +172,7 @@ function normalizeLineEndings(value: string) {
 }
 
 type NormalizedMonitoringValues = {
+  RetryTimes: number
   ChannelDisableThreshold: string
   QuotaRemindThreshold: string
   AutomaticDisableChannelEnabled: boolean
@@ -190,6 +193,7 @@ type NormalizedMonitoringValues = {
 const buildFormDefaults = (
   defaults: MonitoringSettingsSectionProps['defaultValues']
 ): MonitoringFormInput => ({
+  RetryTimes: defaults.RetryTimes ?? 0,
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   QuotaRemindThreshold: defaults.QuotaRemindThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
@@ -220,6 +224,7 @@ const buildFormDefaults = (
 const normalizeDefaults = (
   defaults: MonitoringSettingsSectionProps['defaultValues']
 ): NormalizedMonitoringValues => ({
+  RetryTimes: defaults.RetryTimes ?? 0,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   QuotaRemindThreshold: (defaults.QuotaRemindThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
@@ -253,6 +258,7 @@ const normalizeDefaults = (
 const normalizeFormValues = (
   values: MonitoringFormValues
 ): NormalizedMonitoringValues => ({
+  RetryTimes: values.RetryTimes,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   QuotaRemindThreshold: values.QuotaRemindThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
@@ -373,6 +379,33 @@ export function MonitoringSettingsSection({
               </div>
             </AlertDescription>
           </Alert>
+
+          <div className='grid gap-6 md:grid-cols-2'>
+            <FormField
+              control={form.control}
+              name='RetryTimes'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Retry Times')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      max={10}
+                      step={1}
+                      {...safeNumberFieldProps(field)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Number of extra attempts after the first channel fails. Set at least 1 to allow same-model backup failover.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
 
           <div className='grid gap-6 md:grid-cols-2'>
             <FormField

@@ -34,7 +34,6 @@ const OPERATIONS_SECTIONS = [
     build: (settings: OperationsSettings) => (
       <SystemBehaviorSection
         defaultValues={{
-          RetryTimes: settings.RetryTimes,
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
@@ -48,6 +47,7 @@ const OPERATIONS_SECTIONS = [
     build: (settings: OperationsSettings) => (
       <MonitoringSettingsSection
         defaultValues={{
+          RetryTimes: settings.RetryTimes,
           ChannelDisableThreshold: settings.ChannelDisableThreshold,
           QuotaRemindThreshold: settings.QuotaRemindThreshold,
           AutomaticDisableChannelEnabled:

@@ -108,12 +108,14 @@ run_frontend_typecheck() {
     (
       cd web/default
       PATH="$frontend_path" NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" ./node_modules/.bin/tsc -b
+      PATH="$frontend_path" node scripts/check-channel-failover-settings.mjs
       PATH="$frontend_path" node scripts/check-usage-log-detail-export.mjs
     )
   elif PATH="$frontend_path" command -v bun >/dev/null 2>&1; then
     (
       cd web/default
       PATH="$frontend_path" NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" bun run typecheck
+      PATH="$frontend_path" bun run smoke:channel-failover-settings
       PATH="$frontend_path" bun run smoke:usage-log-detail-export
     )
   else

@@ -5305,6 +5305,7 @@
     "Temporary faults keep the channel enabled": "Temporary faults keep the channel enabled",
     "Hard faults can disable the channel": "Hard faults can disable the channel",
     "Request trace records the routing decision": "Request trace records the routing decision",
+    "Number of extra attempts after the first channel fails. Set at least 1 to allow same-model backup failover.": "Number of extra attempts after the first channel fails. Set at least 1 to allow same-model backup failover.",
     "Enables hard auto-disable and temporary circuit tracking for failed channels.": "Enables hard auto-disable and temporary circuit tracking for failed channels.",
     "Hard failure keywords": "Hard failure keywords",
     "If an upstream error contains any of these keywords, it is treated as a hard fault and can auto-disable the channel.": "If an upstream error contains any of these keywords, it is treated as a hard fault and can auto-disable the channel.",

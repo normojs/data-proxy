@@ -5815,6 +5815,7 @@
     "Temporary faults keep the channel enabled": "临时故障不会禁用渠道",
     "Hard faults can disable the channel": "硬故障可禁用渠道",
     "Request trace records the routing decision": "请求追踪会记录路由决策",
+    "Number of extra attempts after the first channel fails. Set at least 1 to allow same-model backup failover.": "第一个渠道失败后的额外尝试次数。至少设为 1，才会尝试同模型备用渠道。",
     "Enables hard auto-disable and temporary circuit tracking for failed channels.": "开启后，失败渠道会按硬故障规则自动禁用，并按临时故障规则记录熔断状态。",
     "Hard failure keywords": "硬故障关键词",
     "If an upstream error contains any of these keywords, it is treated as a hard fault and can auto-disable the channel.": "如果上游错误包含任一关键词，则视为硬故障，并可能自动禁用该渠道。",

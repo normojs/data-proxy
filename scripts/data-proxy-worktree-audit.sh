@@ -59,6 +59,7 @@ group_for_file() {
     web/default/src/i18n/locales/zh.json | \
     router/api-router.go | \
     model/main.go | \
+    web/default/package.json | \
     web/default/src/routeTree.gen.ts | \
     web/default/src/hooks/use-sidebar-config.ts | \
     web/default/src/hooks/use-sidebar-data.ts)
@@ -88,7 +89,6 @@ group_for_file() {
   docs/request-capture-* | \
     controller/log.go | controller/log_diagnostic.go | controller/query_helper.go | \
     model/log.go | \
-    web/default/package.json | \
     web/default/scripts/check-usage-log-detail-export.mjs | \
     web/default/src/features/users/components/data-table-row-actions.tsx | \
     web/default/src/features/usage-logs/* | \
@@ -125,7 +125,11 @@ group_for_file() {
     web/default/src/features/dashboard/lib/* | \
     web/default/src/features/keys/* | \
     web/default/src/features/keys/components/* | \
-    web/default/src/features/keys/lib/*)
+    web/default/src/features/keys/lib/* | \
+    web/default/scripts/check-channel-failover-settings.mjs | \
+    web/default/src/features/system-settings/general/system-behavior-section.tsx | \
+    web/default/src/features/system-settings/integrations/monitoring-settings-section.tsx | \
+    web/default/src/features/system-settings/operations/section-registry.tsx)
     echo "P1_CHANNEL_FAILOVER_GROUPS_UI"
     ;;
 
