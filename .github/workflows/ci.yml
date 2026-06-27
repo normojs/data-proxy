@@ -110,6 +110,10 @@ jobs:
         working-directory: web/default
         run: bun run smoke:approval-notification-links
 
+      - name: Usage log detail export smoke
+        working-directory: web/default
+        run: bun run smoke:usage-log-detail-export
+
       - name: Build
         working-directory: web/default
         env:
