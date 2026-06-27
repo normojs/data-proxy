@@ -43,8 +43,8 @@ import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$model
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
 import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
-import { Route as AuthenticatedTrainingDataIndexRouteImport } from './routes/_authenticated/training-data/index'
 import { Route as AuthenticatedUiLabIndexRouteImport } from './routes/_authenticated/ui-lab/index'
+import { Route as AuthenticatedTrainingDataIndexRouteImport } from './routes/_authenticated/training-data/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
@@ -245,12 +245,6 @@ const AuthenticatedUsersIndexRoute = AuthenticatedUsersIndexRouteImport.update({
   path: '/users/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedTrainingDataIndexRoute =
-  AuthenticatedTrainingDataIndexRouteImport.update({
-    id: '/training-data/',
-    path: '/training-data/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
 const AuthenticatedUsageLogsIndexRoute =
   AuthenticatedUsageLogsIndexRouteImport.update({
     id: '/usage-logs/',
@@ -262,6 +256,12 @@ const AuthenticatedUiLabIndexRoute = AuthenticatedUiLabIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedUiLabRouteRoute,
 } as any)
+const AuthenticatedTrainingDataIndexRoute =
+  AuthenticatedTrainingDataIndexRouteImport.update({
+    id: '/training-data/',
+    path: '/training-data/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSystemSettingsIndexRoute =
   AuthenticatedSystemSettingsIndexRouteImport.update({
     id: '/',
@@ -509,8 +509,8 @@ export interface FileRoutesByFullPath {
   '/quota-requests/': typeof AuthenticatedQuotaRequestsIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
-  '/training-data/': typeof AuthenticatedTrainingDataIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
+  '/training-data/': typeof AuthenticatedTrainingDataIndexRoute
   '/ui-lab/': typeof AuthenticatedUiLabIndexRoute
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
@@ -577,8 +577,8 @@ export interface FileRoutesByTo {
   '/quota-requests': typeof AuthenticatedQuotaRequestsIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
-  '/training-data': typeof AuthenticatedTrainingDataIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
+  '/training-data': typeof AuthenticatedTrainingDataIndexRoute
   '/ui-lab': typeof AuthenticatedUiLabIndexRoute
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
@@ -650,8 +650,8 @@ export interface FileRoutesById {
   '/_authenticated/quota-requests/': typeof AuthenticatedQuotaRequestsIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
-  '/_authenticated/training-data/': typeof AuthenticatedTrainingDataIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
+  '/_authenticated/training-data/': typeof AuthenticatedTrainingDataIndexRoute
   '/_authenticated/ui-lab/': typeof AuthenticatedUiLabIndexRoute
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
@@ -722,8 +722,8 @@ export interface FileRouteTypes {
     | '/quota-requests/'
     | '/redemption-codes/'
     | '/subscriptions/'
-    | '/training-data/'
     | '/system-settings/'
+    | '/training-data/'
     | '/ui-lab/'
     | '/usage-logs/'
     | '/users/'
@@ -790,8 +790,8 @@ export interface FileRouteTypes {
     | '/quota-requests'
     | '/redemption-codes'
     | '/subscriptions'
-    | '/training-data'
     | '/system-settings'
+    | '/training-data'
     | '/ui-lab'
     | '/usage-logs'
     | '/users'
@@ -862,8 +862,8 @@ export interface FileRouteTypes {
     | '/_authenticated/quota-requests/'
     | '/_authenticated/redemption-codes/'
     | '/_authenticated/subscriptions/'
-    | '/_authenticated/training-data/'
     | '/_authenticated/system-settings/'
+    | '/_authenticated/training-data/'
     | '/_authenticated/ui-lab/'
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
@@ -1142,13 +1142,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsersIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/training-data/': {
-      id: '/_authenticated/training-data/'
-      path: '/training-data'
-      fullPath: '/training-data/'
-      preLoaderRoute: typeof AuthenticatedTrainingDataIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/usage-logs/': {
       id: '/_authenticated/usage-logs/'
       path: '/usage-logs'
@@ -1162,6 +1155,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/ui-lab/'
       preLoaderRoute: typeof AuthenticatedUiLabIndexRouteImport
       parentRoute: typeof AuthenticatedUiLabRouteRoute
+    }
+    '/_authenticated/training-data/': {
+      id: '/_authenticated/training-data/'
+      path: '/training-data'
+      fullPath: '/training-data/'
+      preLoaderRoute: typeof AuthenticatedTrainingDataIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/system-settings/': {
       id: '/_authenticated/system-settings/'
