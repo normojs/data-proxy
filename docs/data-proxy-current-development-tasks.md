@@ -235,6 +235,38 @@ scripts/data-proxy-focused-regression.sh --all --frontend
 
 ## 当前验证记录
 
+2026-06-27：
+
+- 已完成本轮工作区收口，当前 `scripts/data-proxy-worktree-audit.sh` 输出为空，
+  `git status --short` 无未提交/未跟踪文件。
+- 已按功能线拆分提交，避免把日志 UI、渠道多 key、connected app、topbar
+  和 i18n 混在一个提交里：
+
+```text
+f4d007ab chore: classify data proxy worktree changes
+d8764db5 feat: add shared filter combobox and token formatter
+8db0c47a feat: improve usage log filtering and exports
+02748469 feat: add load-aware multi-key channel routing
+f4ceb384 feat: add connected app management token flow
+3b48f0f6 fix: clarify admin-only service status nav setting
+87e603b8 chore: update ui translations for release changes
+```
+
+- 已通过发布门禁和完整聚焦回归：
+
+```bash
+scripts/data-proxy-release-gate.sh --scan-all
+scripts/data-proxy-release-gate.sh --with-tests --scan-all
+scripts/data-proxy-focused-regression.sh --all --frontend
+```
+
+- P1/P2/P3 当前本地证据：
+  - P1：渠道 failover / 用户分组限制 / 多 key 负载保护粘性分配测试通过；
+  - P2：request trace / diagnostic bundle / capture / 使用日志筛选导出测试通过；
+  - P3：Tunnel / MCP Gateway / `dpa` / HTTP/TCP Tunnel 聚焦回归通过。
+- 尚未完成：推送后 GitHub CI / Docker package 重新打包、服务器部署、生产
+  smoke 记录。
+
 2026-06-26：
 
 - 已提交 P0 发布基线 README / `.env.example` 文档，补齐 GitHub Docker

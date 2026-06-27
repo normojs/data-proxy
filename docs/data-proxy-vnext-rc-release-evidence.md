@@ -19,18 +19,22 @@ stash@{0}: On main: park protocol conversion longtail after vnext
 
 ## Git 状态
 
-- commit SHA: `00821cf5be1b07e1cff68bc7be57204d0b89027a`
-- commit short: `00821cf5`
+- current local commit SHA: `87e603b87d92da02aed9f058627c3a52801550b7`
+- current local commit short: `87e603b8`
 - branch: `main`
 - remote: `normojs/data-proxy`
-- pushed ref: `refs/heads/main`
+- pushed ref: 待推送；上一轮已推送 RC 为 `00821cf5`
 
 最近提交：
 
 ```text
-00821cf5 chore: track production compose template
-2c564ce9 docs: plan vnext stabilization tasks
-5824918e docs: record focused regression status
+87e603b8 chore: update ui translations for release changes
+3b48f0f6 fix: clarify admin-only service status nav setting
+f4ceb384 feat: add connected app management token flow
+02748469 feat: add load-aware multi-key channel routing
+8db0c47a feat: improve usage log filtering and exports
+d8764db5 feat: add shared filter combobox and token formatter
+f4d007ab chore: classify data proxy worktree changes
 ```
 
 ## 本地验证
@@ -39,9 +43,11 @@ stash@{0}: On main: park protocol conversion longtail after vnext
 
 ```bash
 TMPDIR=/tmp scripts/data-proxy-release-gate.sh --scan-all
+scripts/data-proxy-release-gate.sh --with-tests --scan-all
 scripts/data-proxy-focused-regression.sh --p1
 scripts/data-proxy-focused-regression.sh --p2
 scripts/data-proxy-focused-regression.sh --p3
+scripts/data-proxy-focused-regression.sh --all --frontend
 ```
 
 P1/P2/P3 聚焦回归覆盖：
@@ -56,7 +62,23 @@ P1/P2/P3 聚焦回归覆盖：
 TMPDIR=/tmp scripts/data-proxy-worktree-audit.sh
 ```
 
-结果为空，当前发布候选工作区干净；协议转换长尾保存在 stash，不在当前提交中。
+结果为空，当前发布候选工作区干净；协议转换长尾不进入当前提交线。
+
+2026-06-27 本轮本地 RC 增量：
+
+- 使用日志：筛选下拉选项、Token 统计、详情 PNG/SVG 导出、从用户列表跳转
+  common logs。
+- 渠道：多 key 负载保护粘性分配、请求生命周期计数释放、dashboard
+  按渠道/模型筛选。
+- Connected App：`codex-dp` 管理令牌流、客户端 token 创建/轮换/吊销/分组
+  更新接口。
+- Topbar：服务状态入口配置页明确“无论开关普通用户都不可见”。
+
+尚未完成的发布证据：
+
+- 推送 `87e603b8` 到 `normojs/data-proxy`。
+- 等待 GitHub CI 和 Docker package workflow 重新运行并记录 run URL。
+- 生成新镜像包后部署到服务器并补生产 smoke。
 
 ## GitHub Actions
 
