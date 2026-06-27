@@ -71,6 +71,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	}
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
+	AppendMultiKeyAffinityAdminInfo(ctx, adminInfo)
 	AppendChannelFailoverAdminInfo(ctx, adminInfo)
 
 	other["admin_info"] = adminInfo

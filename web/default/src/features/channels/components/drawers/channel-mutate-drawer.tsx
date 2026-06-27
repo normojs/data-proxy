@@ -123,6 +123,7 @@ import {
   FIELD_DESCRIPTIONS,
   FIELD_PLACEHOLDERS,
   MODEL_FETCHABLE_TYPES,
+  MULTI_KEY_MODES,
 } from '../../constants'
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
@@ -2176,7 +2177,8 @@ export function ChannelMutateDrawer({
                         />
                       )}
 
-                      {!isEditing && multiKeyMode === 'multi_to_single' && (
+                      {((!isEditing && multiKeyMode === 'multi_to_single') ||
+                        (isEditing && isMultiKeyChannel)) && (
                         <FormField
                           control={form.control}
                           name='multi_key_type'
@@ -2184,10 +2186,10 @@ export function ChannelMutateDrawer({
                             <FormItem>
                               <FormLabel>{t('Multi-Key Strategy')}</FormLabel>
                               <Select
-                                items={[
-                                  { value: 'random', label: t('Random') },
-                                  { value: 'polling', label: t('Polling') },
-                                ]}
+                                items={MULTI_KEY_MODES.map((option) => ({
+                                  value: option.value,
+                                  label: t(option.label),
+                                }))}
                                 onValueChange={field.onChange}
                                 value={field.value}
                               >
@@ -2198,17 +2200,23 @@ export function ChannelMutateDrawer({
                                 </FormControl>
                                 <SelectContent alignItemWithTrigger={false}>
                                   <SelectGroup>
-                                    <SelectItem value='random'>
-                                      {t('Random')}
-                                    </SelectItem>
-                                    <SelectItem value='polling'>
-                                      {t('Polling')}
-                                    </SelectItem>
+                                    {MULTI_KEY_MODES.map((option) => (
+                                      <SelectItem
+                                        key={option.value}
+                                        value={option.value}
+                                      >
+                                        {t(option.label)}
+                                      </SelectItem>
+                                    ))}
                                   </SelectGroup>
                                 </SelectContent>
                               </Select>
                               <FormDescription>
-                                {multiKeyType === 'polling' ? (
+                                {multiKeyType === 'sticky_hash_bounded' ? (
+                                  t(
+                                    'Keeps the same user or session on a stable upstream key when possible, and sends new sessions away from overloaded keys.'
+                                  )
+                                ) : multiKeyType === 'polling' ? (
                                   <span className='text-warning'>
                                     {t(
                                       'Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded'

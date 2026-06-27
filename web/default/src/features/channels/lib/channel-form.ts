@@ -172,7 +172,9 @@ export const channelFormSchema = z
     other: z.string().optional(),
     // Multi-key options (not sent to backend directly)
     multi_key_mode: z.enum(['single', 'batch', 'multi_to_single']).optional(),
-    multi_key_type: z.enum(['random', 'polling']).optional(),
+    multi_key_type: z
+      .enum(['random', 'polling', 'sticky_hash_bounded'])
+      .optional(),
     batch_add_set_key_prefix_2_name: z.boolean().optional(),
     key_mode: z.enum(['append', 'replace']).optional(), // For editing multi-key channels
     // Channel extra settings (stored in setting JSON, not sent directly)
@@ -650,7 +652,7 @@ function normalizeBaseUrl(value: string | undefined): string {
  */
 export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
   mode: 'single' | 'batch' | 'multi_to_single'
-  multi_key_mode?: 'random' | 'polling'
+  multi_key_mode?: 'random' | 'polling' | 'sticky_hash_bounded'
   batch_add_set_key_prefix_2_name?: boolean
   channel: Partial<Channel>
 } {
@@ -703,8 +705,12 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
 export function transformFormDataToUpdatePayload(
   formData: ChannelFormValues,
   channelId: number
-): Partial<Channel> {
-  const payload: Partial<Channel> = {
+): Partial<Channel> & {
+  multi_key_mode?: 'random' | 'polling' | 'sticky_hash_bounded'
+} {
+  const payload: Partial<Channel> & {
+    multi_key_mode?: 'random' | 'polling' | 'sticky_hash_bounded'
+  } = {
     id: channelId,
     name: formData.name,
     type: formData.type,
@@ -731,6 +737,9 @@ export function transformFormDataToUpdatePayload(
   // Only include key if it was changed (not empty)
   if (formData.key && formData.key.trim()) {
     payload.key = formData.key
+  }
+  if (formData.multi_key_type) {
+    payload.multi_key_mode = formData.multi_key_type
   }
 
   // Clean up empty strings to null for optional fields

@@ -29,7 +29,19 @@ export const channelInfoSchema = z.object({
   multi_key_disabled_reason: z.record(z.string(), z.string()).optional(),
   multi_key_disabled_time: z.record(z.string(), z.number()).optional(),
   multi_key_polling_index: z.number().default(0),
-  multi_key_mode: z.enum(['random', 'polling']).default('random'),
+  multi_key_mode: z
+    .enum(['random', 'polling', 'sticky_hash_bounded'])
+    .default('random'),
+  multi_key_affinity_policy: z
+    .object({
+      enabled: z.boolean().optional(),
+      binding_ttl_seconds: z.number().optional(),
+      move_cooldown_seconds: z.number().optional(),
+      soft_load_factor: z.number().optional(),
+      hard_load_factor: z.number().optional(),
+      existing_binding_stay_on_soft_overload: z.boolean().optional(),
+    })
+    .optional(),
 })
 
 export type ChannelInfo = z.infer<typeof channelInfoSchema>
@@ -49,6 +61,7 @@ export const channelRuntimeHealthSchema = z.object({
 })
 
 export type ChannelRuntimeHealth = z.infer<typeof channelRuntimeHealthSchema>
+export type MultiKeyStrategy = ChannelInfo['multi_key_mode']
 
 export const channelSchema = z.object({
   id: z.number(),
@@ -348,7 +361,7 @@ export interface ChannelFormData {
   other?: string
   // Multi-key specific
   multi_key_mode?: 'single' | 'batch' | 'multi_to_single'
-  multi_key_type?: 'random' | 'polling'
+  multi_key_type?: MultiKeyStrategy
   batch_add_set_key_prefix_2_name?: boolean
 }
 
@@ -358,7 +371,7 @@ export interface ChannelFormData {
 
 export interface AddChannelRequest {
   mode: 'single' | 'batch' | 'multi_to_single'
-  multi_key_mode?: 'random' | 'polling'
+  multi_key_mode?: MultiKeyStrategy
   batch_add_set_key_prefix_2_name?: boolean
   channel: Partial<Channel>
 }

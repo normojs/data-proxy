@@ -27,6 +27,7 @@ export interface QuotaDataItem {
   user_id?: number
   username?: string
   model_name?: string
+  channel_id?: number
   created_at: number
   token_used?: number
   count?: number
@@ -58,6 +59,8 @@ export interface DashboardFilters {
   end_timestamp?: Date
   time_granularity?: TimeGranularity
   username?: string
+  model_name?: string
+  channel_id?: string
 }
 
 export type ConsumptionDistributionChartType = 'bar' | 'area'

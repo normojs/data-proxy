@@ -25,6 +25,7 @@ import {
   ChevronDown,
   ChevronRight,
   ListOrdered,
+  Route,
   Shuffle,
   SlidersHorizontal,
 } from 'lucide-react'
@@ -628,11 +629,17 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
         const isMultiKey = isMultiKeyChannel(channel)
         const multiKeyMode = channel.channel_info?.multi_key_mode ?? 'random'
         const MultiKeyModeIcon =
-          multiKeyMode === 'random' ? Shuffle : ListOrdered
+          multiKeyMode === 'sticky_hash_bounded'
+            ? Route
+            : multiKeyMode === 'random'
+              ? Shuffle
+              : ListOrdered
         const multiKeyTooltip =
-          multiKeyMode === 'random'
-            ? t('Multi-key: Random rotation')
-            : t('Multi-key: Polling rotation')
+          multiKeyMode === 'sticky_hash_bounded'
+            ? t('Multi-key: Load-aware sticky assignment')
+            : multiKeyMode === 'random'
+              ? t('Multi-key: Random rotation')
+              : t('Multi-key: Polling rotation')
 
         const ionetMeta = parseIonetMeta(channel.other_info)
         const isIonet = ionetMeta?.source === 'ionet'

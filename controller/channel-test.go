@@ -218,6 +218,7 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			newAPIError: newAPIError,
 		}
 	}
+	defer service.FinishAllChannelMultiKeyRequests(c)
 
 	// Determine relay format based on endpoint type or request path
 	var relayFormat types.RelayFormat

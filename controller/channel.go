@@ -591,6 +591,16 @@ type AddChannelRequest struct {
 	Channel                   *model.Channel        `json:"channel"`
 }
 
+func normalizeChannelRequestMultiKeyMode(mode constant.MultiKeyMode) (constant.MultiKeyMode, error) {
+	if mode == "" {
+		return constant.MultiKeyModeRandom, nil
+	}
+	if !constant.IsValidMultiKeyMode(mode) {
+		return "", fmt.Errorf("不支持的多秘钥策略")
+	}
+	return mode, nil
+}
+
 func getVertexArrayKeys(keys string) ([]string, error) {
 	if keys == "" {
 		return nil, nil
@@ -645,7 +655,15 @@ func AddChannel(c *gin.Context) {
 	switch addChannelRequest.Mode {
 	case "multi_to_single":
 		addChannelRequest.Channel.ChannelInfo.IsMultiKey = true
-		addChannelRequest.Channel.ChannelInfo.MultiKeyMode = addChannelRequest.MultiKeyMode
+		multiKeyMode, err := normalizeChannelRequestMultiKeyMode(addChannelRequest.MultiKeyMode)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+		addChannelRequest.Channel.ChannelInfo.MultiKeyMode = multiKeyMode
 		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
 			array, err := getVertexArrayKeys(addChannelRequest.Channel.Key)
 			if err != nil {
@@ -930,7 +948,22 @@ func UpdateChannel(c *gin.Context) {
 
 	// If the request explicitly specifies a new MultiKeyMode, apply it on top of the original info.
 	if channel.MultiKeyMode != nil && *channel.MultiKeyMode != "" {
-		channel.ChannelInfo.MultiKeyMode = constant.MultiKeyMode(*channel.MultiKeyMode)
+		if !channel.ChannelInfo.IsMultiKey {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "只有多秘钥渠道可以修改多秘钥策略",
+			})
+			return
+		}
+		nextMode, err := normalizeChannelRequestMultiKeyMode(constant.MultiKeyMode(*channel.MultiKeyMode))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+		channel.ChannelInfo.MultiKeyMode = nextMode
 	}
 
 	// 处理多key模式下的密钥追加/覆盖逻辑

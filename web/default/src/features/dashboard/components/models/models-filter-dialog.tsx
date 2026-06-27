@@ -16,9 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Filter, RotateCcw, Calendar, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { getUserModels } from '@/lib/api'
 import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -43,6 +45,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { DateTimePicker } from '@/components/datetime-picker'
+import { FilterComboboxInput } from '@/components/filter-combobox-input'
+import { getChannels } from '@/features/channels/api'
+import { parseModelsList } from '@/features/channels/lib/channel-utils'
 import {
   TIME_GRANULARITY_OPTIONS,
   TIME_RANGE_PRESETS,
@@ -55,10 +60,12 @@ import type {
   DashboardChartPreferences,
   DashboardFilters,
 } from '@/features/dashboard/types'
+import { getModels } from '@/features/models/api'
 
 interface ModelsFilterProps {
   preferences: DashboardChartPreferences
   allowUsernameFilter?: boolean
+  allowSiteFilters?: boolean
   onFilterChange: (filters: DashboardFilters) => void
   onReset: () => void
 }
@@ -87,6 +94,62 @@ export function ModelsFilter(props: ModelsFilterProps) {
   const [selectedRange, setSelectedRange] = useState<number | null>(
     () => props.preferences.defaultTimeRangeDays
   )
+  const channelsQuery = useQuery({
+    queryKey: ['dashboard-filter-channels', props.allowSiteFilters],
+    queryFn: () => getChannels({ page_size: 1000 }),
+    enabled: Boolean(props.allowSiteFilters),
+    staleTime: 60 * 1000,
+  })
+  const modelsQuery = useQuery({
+    queryKey: ['dashboard-filter-models'],
+    queryFn: () => getModels({ page_size: 1000 }),
+    enabled: Boolean(props.allowSiteFilters),
+    staleTime: 60 * 1000,
+  })
+  const userModelsQuery = useQuery({
+    queryKey: ['dashboard-filter-user-models'],
+    queryFn: () => getUserModels(),
+    enabled: !props.allowSiteFilters,
+    staleTime: 60 * 1000,
+  })
+
+  const channelOptions = useMemo(
+    () =>
+      (channelsQuery.data?.data?.items ?? []).map((channel) => ({
+        value: String(channel.id),
+        label: channel.name
+          ? `${channel.name} (#${channel.id})`
+          : `#${channel.id}`,
+        description: channel.group || undefined,
+      })),
+    [channelsQuery.data]
+  )
+
+  const modelOptions = useMemo(() => {
+    const options = new Map<string, { value: string; label: string }>()
+    for (const model of modelsQuery.data?.data?.items ?? []) {
+      options.set(model.model_name, {
+        value: model.model_name,
+        label: model.model_name,
+      })
+    }
+    for (const modelName of userModelsQuery.data?.data ?? []) {
+      options.set(modelName, {
+        value: modelName,
+        label: modelName,
+      })
+    }
+    for (const channel of channelsQuery.data?.data?.items ?? []) {
+      for (const modelName of parseModelsList(channel.models)) {
+        if (!options.has(modelName)) {
+          options.set(modelName, { value: modelName, label: modelName })
+        }
+      }
+    }
+    return Array.from(options.values()).sort((a, b) =>
+      a.label.localeCompare(b.label)
+    )
+  }, [channelsQuery.data, modelsQuery.data, userModelsQuery.data])
 
   const resetFiltersFromPreferences = () => {
     setFilters(buildDefaultDashboardFilters(props.preferences))
@@ -209,6 +272,36 @@ export function ModelsFilter(props: ModelsFilterProps) {
                     handleChange('end_timestamp', date || undefined)
                   }
                   placeholder={t('Select end time')}
+                />
+              </div>
+            </div>
+
+            <SectionDivider label={t('Data Filters')} />
+
+            <div className='grid gap-3 sm:gap-4'>
+              {props.allowSiteFilters && (
+                <div className='grid gap-2'>
+                  <Label htmlFor='channel_id'>{t('Channel')}</Label>
+                  <FilterComboboxInput
+                    value={filters.channel_id || ''}
+                    onValueChange={(value) => handleChange('channel_id', value)}
+                    options={channelOptions}
+                    placeholder={t('Filter by channel')}
+                    searchPlaceholder={t('Search channels...')}
+                    emptyText={t('No channel found.')}
+                  />
+                </div>
+              )}
+
+              <div className='grid gap-2'>
+                <Label htmlFor='model_name'>{t('Model Name')}</Label>
+                <FilterComboboxInput
+                  value={filters.model_name || ''}
+                  onValueChange={(value) => handleChange('model_name', value)}
+                  options={modelOptions}
+                  placeholder={t('Filter by model')}
+                  searchPlaceholder={t('Search models...')}
+                  emptyText={t('No model found.')}
                 />
               </div>
             </div>

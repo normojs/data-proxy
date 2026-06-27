@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -41,6 +44,62 @@ func TestSettleTestQuotaUsesTieredBilling(t *testing.T) {
 	require.Equal(t, 1500, quota)
 	require.NotNil(t, result)
 	require.Equal(t, "stream", result.MatchedTier)
+}
+
+func TestNormalizeChannelRequestMultiKeyMode(t *testing.T) {
+	mode, err := normalizeChannelRequestMultiKeyMode("")
+	require.NoError(t, err)
+	require.Equal(t, constant.MultiKeyModeRandom, mode)
+
+	mode, err = normalizeChannelRequestMultiKeyMode(constant.MultiKeyModeStickyHashBounded)
+	require.NoError(t, err)
+	require.Equal(t, constant.MultiKeyModeStickyHashBounded, mode)
+
+	_, err = normalizeChannelRequestMultiKeyMode(constant.MultiKeyMode("bad-mode"))
+	require.ErrorContains(t, err, "不支持的多秘钥策略")
+}
+
+func TestUpdateChannelRejectsMultiKeyModeForSingleKeyChannel(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	channel := &model.Channel{
+		Id:        1001,
+		Type:      constant.ChannelTypeOpenAI,
+		Key:       "sk-test",
+		Name:      "single-key",
+		Status:    common.ChannelStatusEnabled,
+		Models:    "gpt-4o",
+		Group:     "default",
+		OtherInfo: "{}",
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	body, err := json.Marshal(map[string]interface{}{
+		"id":             channel.Id,
+		"type":           channel.Type,
+		"key":            channel.Key,
+		"name":           channel.Name,
+		"status":         channel.Status,
+		"models":         channel.Models,
+		"group":          channel.Group,
+		"multi_key_mode": string(constant.MultiKeyModeStickyHashBounded),
+	})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/", bytes.NewReader(body))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	UpdateChannel(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.False(t, response.Success)
+	require.Equal(t, "只有多秘钥渠道可以修改多秘钥策略", response.Message)
 }
 
 func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {

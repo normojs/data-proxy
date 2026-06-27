@@ -75,6 +75,18 @@ type MultiKeyManageDialogProps = {
   onOpenChange: (open: boolean) => void
 }
 
+function multiKeyModeLabel(mode?: string) {
+  switch (mode) {
+    case 'sticky_hash_bounded':
+      return '负载保护粘性分配'
+    case 'polling':
+      return 'Polling'
+    case 'random':
+    default:
+      return 'Random'
+  }
+}
+
 export function MultiKeyManageDialog({
   open,
   onOpenChange,
@@ -240,11 +252,9 @@ export function MultiKeyManageDialog({
               />
               {currentRow.channel_info?.multi_key_mode && (
                 <StatusBadge
-                  label={
-                    currentRow.channel_info.multi_key_mode === 'random'
-                      ? t('Random')
-                      : t('Polling')
-                  }
+                  label={t(
+                    multiKeyModeLabel(currentRow.channel_info.multi_key_mode)
+                  )}
                   variant='neutral'
                   copyable={false}
                 />

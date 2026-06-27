@@ -238,6 +238,7 @@ export function Dashboard() {
       <ModelsFilter
         preferences={chartPreferences}
         allowUsernameFilter={activeSection === 'site-models'}
+        allowSiteFilters={activeSection === 'site-models'}
         onFilterChange={handleFilterChange}
         onReset={handleResetFilters}
       />
