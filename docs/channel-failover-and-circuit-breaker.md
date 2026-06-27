@@ -81,6 +81,47 @@ Request trace:
 
 Temporary circuit state is in-memory and single-node only. A process restart clears runtime state. Hard auto-disabled channel status is persisted in the database.
 
+## Local smoke
+
+Use `scripts/data-proxy-local-channel-failover-smoke.sh` to simulate a
+production-style same-model failover on the developer machine without touching
+production services.
+
+The local smoke creates only temporary resources:
+
+- a temporary SQLite database;
+- a temporary admin user and API key;
+- two same-model OpenAI-compatible channels;
+- one local bad upstream returning HTTP 502;
+- one local backup upstream returning a valid Chat Completions response.
+
+It passes only when:
+
+- the client receives the backup response;
+- the bad upstream is hit exactly once;
+- the backup upstream is hit exactly once;
+- request trace contains `admin_info.channel_failover`;
+- the failed event has `retry_planned=true` and `status_code=502`;
+- the retry-selected event uses the backup channel with `retry_index > 0`;
+- diagnostic candidates include the request id with `channel_failover` source.
+
+Example:
+
+```bash
+scripts/data-proxy-local-channel-failover-smoke.sh
+```
+
+Optional summary output:
+
+```bash
+DATA_PROXY_LOCAL_FAILOVER_OUTPUT=/tmp/data-proxy-local-failover-smoke.md \
+scripts/data-proxy-local-channel-failover-smoke.sh
+```
+
+This smoke disables Redis and data export inside the test process and restores
+the runtime globals before exiting. It does not use production API keys,
+production Redis, or production database connections.
+
 ## Production smoke
 
 Use `scripts/data-proxy-channel-failover-smoke.sh` to prove the behavior without

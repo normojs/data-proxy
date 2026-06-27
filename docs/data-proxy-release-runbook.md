@@ -165,6 +165,15 @@ scripts/data-proxy-channel-failover-smoke.sh
 记录到发布证据里。不要把 API key、Cookie、诊断 zip 或原始 capture bundle
 提交到 Git。
 
+如果只需要在本地模拟“同模型坏渠道自动切备用”，先跑：
+
+```bash
+scripts/data-proxy-local-channel-failover-smoke.sh
+```
+
+本地版本只使用临时 SQLite、临时 key 和本地 httptest 上游，不依赖生产 API key、
+生产 Redis 或生产数据库。
+
 ## 版本和镜像
 
 标准版本 tag 建议使用：
