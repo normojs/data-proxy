@@ -108,7 +108,9 @@ group_for_file() {
     service/multi_key_affinity.go | \
     service/multi_key_affinity_test.go | \
     docs/channel-failover-and-circuit-breaker.md | \
+    docs/data-proxy-release-runbook.md | \
     docs/sub2api-key-affinity-cache-plan.md | \
+    scripts/data-proxy-channel-failover-smoke.sh | \
     web/default/src/features/channels/* | \
     web/default/src/features/channels/components/* | \
     web/default/src/features/channels/components/dialogs/* | \
