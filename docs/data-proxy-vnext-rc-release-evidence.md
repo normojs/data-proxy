@@ -19,8 +19,8 @@ stash@{0}: On main: park protocol conversion longtail after vnext
 
 ## Git 状态
 
-- current local commit SHA: `ba482284361e4bf2b4004b6061178ed2949dcd8d`
-- current local commit short: `ba482284`
+- current local commit SHA: `baf94f1865d03bbe881d5d69256698e8829fddde`
+- current local commit short: `baf94f18`
 - branch: `main`
 - remote: `normojs/data-proxy`
 - pushed ref: `normojs/main`
@@ -28,14 +28,14 @@ stash@{0}: On main: park protocol conversion longtail after vnext
 最近提交：
 
 ```text
+baf94f18 test: cover token group binding enforcement
+7c28ec20 chore: classify group restriction tests in worktree audit
+385c6a77 feat: clarify channel failover settings
+b3b746b5 docs: update rc evidence after smoke tooling
 ba482284 chore: support access-token admin production smoke
 394e3ab5 docs: record production deployment evidence
 45eb7774 docs: record current release validation status
 87e603b8 chore: update ui translations for release changes
-3b48f0f6 fix: clarify admin-only service status nav setting
-f4ceb384 feat: add connected app management token flow
-02748469 feat: add load-aware multi-key channel routing
-8db0c47a feat: improve usage log filtering and exports
 ```
 
 ## 本地验证
@@ -74,16 +74,31 @@ git status --short
 - Topbar：服务状态入口配置页明确“无论开关普通用户都不可见”。
 - 生产 smoke 脚本：支持管理员系统 access token + `New-Api-User` 方式验证
   request trace、diagnostic candidates、诊断报告和诊断包下载。
+- 渠道故障切换设置：管理端文案明确 `RetryTimes >= 1`、临时故障、硬故障、
+  熔断窗口、冷却时间和 request trace 观测关系。
+- 用户绑定分组：补充服务端回归，覆盖修改 Key 到不可用分组被拒绝，以及旧
+  Key 绑定分组失效后在 `TokenAuth` 请求入口被 403 拦截。
+
+2026-06-27 本轮增量验证：
+
+```bash
+go test ./controller -run 'Test(UpdateTokenRejectsBoundUnavailableGroup|AddTokenRejectsBoundUnavailableGroup|GetAllTokensAnnotatesUnavailableGroup|TokenGroupUnavailableReasonHonorsUserBindings)' -count=1
+go test ./middleware -run 'TestTokenAuthRejectsLegacyTokenOutsideUserBoundGroups' -count=1
+scripts/data-proxy-focused-regression.sh --p1 --frontend
+scripts/data-proxy-release-gate.sh --scan-all
+```
+
+结果：全部通过；工作区重新收口为空。
 
 ## GitHub Actions
 
 ### CI
 
 - workflow: `CI`
-- run: `https://github.com/normojs/data-proxy/actions/runs/28287148050`
+- run: `https://github.com/normojs/data-proxy/actions/runs/28288488588`
 - conclusion: `success`
-- head SHA: `ba482284361e4bf2b4004b6061178ed2949dcd8d`
-- completed at: `2026-06-27T10:59:50Z`
+- head SHA: `baf94f1865d03bbe881d5d69256698e8829fddde`
+- completed at: `2026-06-27T11:59:30Z`
 
 ### Data Proxy Agent
 
@@ -93,31 +108,37 @@ git status --short
 - head SHA: `ba482284361e4bf2b4004b6061178ed2949dcd8d`
 - completed at: `2026-06-27T10:58:36Z`
 
+本轮 `baf94f18` 未触发新的 Data Proxy Agent workflow；最近一次 agent
+workflow 仍为上述成功记录。
+
 ### Package Data Proxy Image
 
 - workflow: `Package Data Proxy image`
-- run: `https://github.com/normojs/data-proxy/actions/runs/28287148057`
+- run: `https://github.com/normojs/data-proxy/actions/runs/28288488581`
 - conclusion: `success`
-- head SHA: `ba482284361e4bf2b4004b6061178ed2949dcd8d`
-- completed at: `2026-06-27T11:00:56Z`
+- head SHA: `baf94f1865d03bbe881d5d69256698e8829fddde`
+- completed at: `2026-06-27T12:01:26Z`
 
-GitHub package workflow 已通过。线上仍运行已完成 smoke 的 `data-proxy:45eb7774`
-镜像；`394e3ab5` 和 `ba482284` 是发布证据与 smoke 脚本文档提交，不改变已部署
-业务代码。由于本次服务器侧 GitHub 下载速度不稳定，实际部署使用本地构建并通过
-Electerm SFTP 上传的等价 linux/amd64 镜像包。
+GitHub package workflow 已通过。由于服务器侧 GitHub 下载速度不稳定，实际部署
+继续使用本地构建并通过 Electerm SFTP 上传的等价 linux/amd64 镜像包。
 
 本地部署包：
 
 ```text
-/tmp/data-proxy-45eb7774-linux-amd64.tar.gz
-/tmp/data-proxy-45eb7774-linux-amd64.sha256
+/tmp/data-proxy-baf94f18-local-linux-amd64.tar.gz
+/tmp/data-proxy-baf94f18-local-linux-amd64.sha256
 ```
 
 sha256：
 
 ```text
-9ad97123f64e8e5b3bb37aed38cfa9831fb0b1f808f2dbc8918457072eeaf532
+3bf073f61105dfe0406053a06f48eae50f7e2ba9d23a3f39171aecf68d32a376
 ```
+
+说明：标准 Dockerfile 构建在容器内 `go mod download` 阶段长时间无输出，本轮
+改用本地前端构建 + 本地 linux/amd64 Go 交叉编译 + 仅 runtime Dockerfile
+打包。镜像仍包含 `/licenses/LICENSE`、`/licenses/NOTICE` 和
+`/licenses/THIRD-PARTY-LICENSES.md`。
 
 ## 部署状态
 
@@ -135,33 +156,33 @@ sha256：
 当前线上镜像：
 
 ```text
-data-proxy:45eb7774
+data-proxy:baf94f18
 ```
 
 远端镜像信息：
 
 ```text
-id=sha256:4c086fbd7210e5dd4d776aeeaf5720a383bf2f0d88cb24ef9110ce95aaa3493f
-created=2026-06-27T10:17:48.891298262Z
+id=sha256:b33450ff27d2e8dd9728af756c772f8f45ec5248028e143d9c3e3bdf21f46b8a
+created=2026-06-27T12:08:38.290379964Z
 ```
 
 容器状态：
 
 ```text
-data-proxy data-proxy:45eb7774 Up 8 minutes (healthy) 3000/tcp, 127.0.0.1:13002->13002/tcp
+data-proxy data-proxy:baf94f18 Up About a minute (healthy) 3000/tcp, 127.0.0.1:13002->13002/tcp
 ```
 
 Compose 镜像行：
 
 ```text
-docker-compose.prod.yml: image: data-proxy:45eb7774
+docker-compose.prod.yml: image: data-proxy:baf94f18
 ```
 
 回滚归档：
 
 ```text
-/root/workspace/dataproxy/image-archive/20260627-182613_data-proxy_70800ed0.tar
-/root/workspace/dataproxy/image-archive/20260627-182613_data-proxy_70800ed0.tar.meta
+/root/workspace/dataproxy/image-archive/20260627-201659_data-proxy_45eb7774.tar
+/root/workspace/dataproxy/image-archive/20260627-201659_data-proxy_45eb7774.tar.meta
 ```
 
 回滚提示保存在 `.tar.meta` 中；如需回滚，先 `docker load` 该归档，再把
@@ -176,7 +197,7 @@ docker-compose.prod.yml: image: data-proxy:45eb7774
 ```text
 curl http://127.0.0.1:13002/api/status
 success=true
-version=sha-45eb7774
+version=sha-baf94f18
 server_address=https://dp.app.mbu.ltd
 ```
 
@@ -185,7 +206,7 @@ server_address=https://dp.app.mbu.ltd
 ```text
 curl -k https://dp.app.mbu.ltd/api/status
 success=true
-version=sha-45eb7774
+version=sha-baf94f18
 server_address=https://dp.app.mbu.ltd
 ```
 
@@ -198,7 +219,7 @@ DATA_PROXY_BASE_URL='https://dp.app.mbu.ltd' \
 DATA_PROXY_API_KEY='sk-***' \
 DATA_PROXY_SMOKE_MODEL='deepseek-ai/DeepSeek-V4-Flash' \
 DATA_PROXY_SMOKE_TIMEOUT_SECONDS=60 \
-DATA_PROXY_SMOKE_OUTPUT='/tmp/data-proxy-smoke-45eb7774-domestic.md' \
+DATA_PROXY_SMOKE_OUTPUT='/tmp/data-proxy-smoke-baf94f18-domestic.md' \
 scripts/data-proxy-production-smoke.sh
 ```
 
@@ -208,14 +229,14 @@ scripts/data-proxy-production-smoke.sh
 api_status=passed
 chat_completions=passed
 responses=passed
-completed_at_utc=2026-06-27T10:29:47Z
+completed_at_utc=2026-06-27T12:20:06Z
 ```
 
 手动补充 request id：
 
 ```text
-chat_request_id=202606271030428481627518268d9d6XaLnnOAZ
-responses_request_id=20260627103047195310618268d9d6FXosDTVU
+chat_request_id=202606271220437615844868268d9d6zxJ9DZGp
+responses_request_id=202606271220479251847698268d9d6F87OTE9R
 ```
 
 ### 待管理员登录态补测
@@ -248,7 +269,7 @@ responses_request_id=20260627103047195310618268d9d6FXosDTVU
 DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_ADMIN_ACCESS_TOKEN='***' \
 DATA_PROXY_ADMIN_USER_ID='1' \
-DATA_PROXY_SMOKE_REQUEST_ID='20260627103047195310618268d9d6FXosDTVU' \
+DATA_PROXY_SMOKE_REQUEST_ID='202606271220479251847698268d9d6F87OTE9R' \
 DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
 DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE=1 \
 DATA_PROXY_SMOKE_CHAT=0 \
