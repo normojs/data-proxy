@@ -102,6 +102,53 @@ func TestUpdateChannelRejectsMultiKeyModeForSingleKeyChannel(t *testing.T) {
 	require.Equal(t, "只有多秘钥渠道可以修改多秘钥策略", response.Message)
 }
 
+func TestUpdateChannelAllowsDefaultMultiKeyModeForSingleKeyChannel(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	channel := &model.Channel{
+		Id:        1002,
+		Type:      constant.ChannelTypeOpenAI,
+		Key:       "sk-old",
+		Name:      "single-key-default-mode",
+		Status:    common.ChannelStatusEnabled,
+		Models:    "gpt-4o",
+		Group:     "default",
+		OtherInfo: "{}",
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	body, err := json.Marshal(map[string]interface{}{
+		"id":             channel.Id,
+		"type":           channel.Type,
+		"key":            "sk-new",
+		"name":           channel.Name,
+		"status":         channel.Status,
+		"models":         channel.Models,
+		"group":          channel.Group,
+		"multi_key_mode": string(constant.MultiKeyModeRandom),
+	})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPut, "/api/channel/", bytes.NewReader(body))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	UpdateChannel(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.True(t, response.Success, response.Message)
+
+	var updated model.Channel
+	require.NoError(t, db.First(&updated, "id = ?", channel.Id).Error)
+	require.Equal(t, "sk-new", updated.Key)
+	require.False(t, updated.ChannelInfo.IsMultiKey)
+}
+
 func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

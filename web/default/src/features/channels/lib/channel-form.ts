@@ -704,7 +704,8 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
  */
 export function transformFormDataToUpdatePayload(
   formData: ChannelFormValues,
-  channelId: number
+  channelId: number,
+  options?: { isMultiKeyChannel?: boolean }
 ): Partial<Channel> & {
   multi_key_mode?: 'random' | 'polling' | 'sticky_hash_bounded'
 } {
@@ -738,7 +739,7 @@ export function transformFormDataToUpdatePayload(
   if (formData.key && formData.key.trim()) {
     payload.key = formData.key
   }
-  if (formData.multi_key_type) {
+  if (options?.isMultiKeyChannel && formData.multi_key_type) {
     payload.multi_key_mode = formData.multi_key_type
   }
 

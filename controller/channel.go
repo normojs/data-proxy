@@ -947,15 +947,8 @@ func UpdateChannel(c *gin.Context) {
 	channel.ChannelInfo = originChannel.ChannelInfo
 
 	// If the request explicitly specifies a new MultiKeyMode, apply it on top of the original info.
-	if channel.MultiKeyMode != nil && *channel.MultiKeyMode != "" {
-		if !channel.ChannelInfo.IsMultiKey {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "只有多秘钥渠道可以修改多秘钥策略",
-			})
-			return
-		}
-		nextMode, err := normalizeChannelRequestMultiKeyMode(constant.MultiKeyMode(*channel.MultiKeyMode))
+	if channel.MultiKeyMode != nil && strings.TrimSpace(*channel.MultiKeyMode) != "" {
+		nextMode, err := normalizeChannelRequestMultiKeyMode(constant.MultiKeyMode(strings.TrimSpace(*channel.MultiKeyMode)))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -963,9 +956,21 @@ func UpdateChannel(c *gin.Context) {
 			})
 			return
 		}
-		channel.ChannelInfo.MultiKeyMode = nextMode
-	}
 
+		if !channel.ChannelInfo.IsMultiKey {
+			// Older web clients used to submit the default multi-key strategy while editing single-key channels.
+			// Treat that default as a no-op so key-only edits do not fail.
+			if nextMode != constant.MultiKeyModeRandom {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": "只有多秘钥渠道可以修改多秘钥策略",
+				})
+				return
+			}
+		} else {
+			channel.ChannelInfo.MultiKeyMode = nextMode
+		}
+	}
 	// 处理多key模式下的密钥追加/覆盖逻辑
 	if channel.KeyMode != nil && channel.ChannelInfo.IsMultiKey {
 		switch *channel.KeyMode {
