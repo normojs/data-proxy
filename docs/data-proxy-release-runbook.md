@@ -66,16 +66,31 @@ scripts/data-proxy-production-smoke.sh
 ```
 
 如果要同时验证 request trace、diagnostic candidates 和诊断报告生成，传入管理员
-header。`DATA_PROXY_ADMIN_HEADER` 使用完整 HTTP header，例如
-`Cookie: session=...` 或 `Authorization: Bearer ...`。默认不会下载诊断 zip；
-需要下载时再显式开启 `DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE=1`。
+认证。`DATA_PROXY_ADMIN_HEADER` 使用完整 HTTP header，例如
+`Cookie: session=...`；也可以用管理员系统 access token，并同时传
+`DATA_PROXY_ADMIN_USER_ID`。默认不会下载诊断 zip；需要下载时再显式开启
+`DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE=1`。
 
 ```bash
 DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_API_KEY='sk-***' \
 DATA_PROXY_SMOKE_MODEL='gpt-4o-mini' \
 DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
+DATA_PROXY_ADMIN_USER_ID='1' \
 DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
+scripts/data-proxy-production-smoke.sh
+```
+
+管理员 access token 方式：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
+DATA_PROXY_ADMIN_ACCESS_TOKEN='***' \
+DATA_PROXY_ADMIN_USER_ID='1' \
+DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
+DATA_PROXY_SMOKE_CHAT=0 \
+DATA_PROXY_SMOKE_RESPONSES=0 \
 scripts/data-proxy-production-smoke.sh
 ```
 
@@ -84,6 +99,7 @@ scripts/data-proxy-production-smoke.sh
 ```bash
 DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
+DATA_PROXY_ADMIN_USER_ID='1' \
 DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
 DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
 DATA_PROXY_SMOKE_CHAT=0 \

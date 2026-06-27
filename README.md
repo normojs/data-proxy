@@ -125,8 +125,23 @@ scripts/data-proxy-production-smoke.sh
 ```bash
 DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
+DATA_PROXY_ADMIN_USER_ID='1' \
 DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
 DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
+scripts/data-proxy-production-smoke.sh
+```
+
+也可以使用管理员系统 access token。该方式同样需要 `DATA_PROXY_ADMIN_USER_ID`，
+脚本不会打印 token：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_ADMIN_ACCESS_TOKEN='***' \
+DATA_PROXY_ADMIN_USER_ID='1' \
+DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
+DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
+DATA_PROXY_SMOKE_CHAT=0 \
+DATA_PROXY_SMOKE_RESPONSES=0 \
 scripts/data-proxy-production-smoke.sh
 ```
 

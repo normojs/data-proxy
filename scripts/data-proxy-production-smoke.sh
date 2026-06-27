@@ -30,6 +30,8 @@ Environment:
   DATA_PROXY_API_KEY=sk-...                         Optional; enables /v1 smoke.
   DATA_PROXY_SMOKE_MODEL=gpt-4o-mini                Model used for Chat/Responses.
   DATA_PROXY_ADMIN_HEADER='Cookie: session=...'     Optional; enables admin trace checks.
+  DATA_PROXY_ADMIN_ACCESS_TOKEN=...                 Optional; admin system access token.
+  DATA_PROXY_ADMIN_USER_ID=1                        Required with access token; also useful with session auth.
   DATA_PROXY_SMOKE_REQUEST_ID=REQ_ID                Optional trace/diagnostic request id.
   DATA_PROXY_SMOKE_DIAGNOSTIC=1                     Generate diagnostic report.
   DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE=1                Also download diagnostic zip.
@@ -54,6 +56,8 @@ BASE_URL="${DATA_PROXY_BASE_URL:-http://127.0.0.1:13002}"
 BASE_URL="${BASE_URL%/}"
 API_KEY="${DATA_PROXY_API_KEY:-}"
 ADMIN_HEADER="${DATA_PROXY_ADMIN_HEADER:-}"
+ADMIN_ACCESS_TOKEN="${DATA_PROXY_ADMIN_ACCESS_TOKEN:-}"
+ADMIN_USER_ID="${DATA_PROXY_ADMIN_USER_ID:-}"
 MODEL="${DATA_PROXY_SMOKE_MODEL:-gpt-4o-mini}"
 TIMEOUT_SECONDS="${DATA_PROXY_SMOKE_TIMEOUT_SECONDS:-30}"
 TRACE_WAIT_SECONDS="${DATA_PROXY_SMOKE_TRACE_WAIT_SECONDS:-2}"
@@ -102,8 +106,14 @@ curl_json() {
     [[ -n "$API_KEY" ]] || die "DATA_PROXY_API_KEY is required for $url"
     args+=(-H "Authorization: Bearer $API_KEY")
   elif [[ "$auth_kind" == "admin" ]]; then
-    [[ -n "$ADMIN_HEADER" ]] || die "DATA_PROXY_ADMIN_HEADER is required for $url"
-    args+=(-H "$ADMIN_HEADER")
+    require_admin_auth "$url"
+    if [[ -n "$ADMIN_HEADER" ]]; then
+      args+=(-H "$ADMIN_HEADER")
+    fi
+    if [[ -n "$ADMIN_ACCESS_TOKEN" ]]; then
+      args+=(-H "Authorization: Bearer $ADMIN_ACCESS_TOKEN")
+    fi
+    args+=(-H "New-Api-User: $ADMIN_USER_ID")
   fi
 
   if [[ -n "$body" ]]; then
@@ -120,6 +130,20 @@ curl_json() {
     log "$method $url failed with HTTP $status"
     jq -c '{error: .error?, message: .message?, success: .success?}' "$output" 2>/dev/null || cat "$output" >&2
     return 1
+  fi
+}
+
+has_admin_auth() {
+  [[ -n "$ADMIN_HEADER" || -n "$ADMIN_ACCESS_TOKEN" ]]
+}
+
+require_admin_auth() {
+  local url="$1"
+  if ! has_admin_auth; then
+    die "DATA_PROXY_ADMIN_HEADER or DATA_PROXY_ADMIN_ACCESS_TOKEN is required for $url"
+  fi
+  if [[ -z "$ADMIN_USER_ID" ]]; then
+    die "DATA_PROXY_ADMIN_USER_ID is required for admin smoke auth against $url"
   fi
 }
 
@@ -202,9 +226,9 @@ run_responses_smoke() {
 }
 
 run_admin_diagnostic_smoke() {
-  if [[ -z "$ADMIN_HEADER" ]]; then
-    summary_row "diagnostic_candidates" "skipped_no_admin_header"
-    summary_row "request_trace" "skipped_no_admin_header"
+  if ! has_admin_auth; then
+    summary_row "diagnostic_candidates" "skipped_no_admin_auth"
+    summary_row "request_trace" "skipped_no_admin_auth"
     return 0
   fi
 
@@ -249,7 +273,16 @@ run_admin_diagnostic_smoke() {
     local bundle_headers="$TMPDIR_SMOKE/request-diagnostic-bundle.headers"
     local status
     log "GET /api/log/request/$REQUEST_ID/diagnostic/bundle"
-    status="$(curl -sS --max-time "$TIMEOUT_SECONDS" -D "$bundle_headers" -o "$bundle" -w '%{http_code}' -X GET "$BASE_URL/api/log/request/$REQUEST_ID/diagnostic/bundle" -H "$ADMIN_HEADER")"
+    local bundle_args=(-sS --max-time "$TIMEOUT_SECONDS" -D "$bundle_headers" -o "$bundle" -w '%{http_code}' -X GET "$BASE_URL/api/log/request/$REQUEST_ID/diagnostic/bundle")
+    require_admin_auth "$BASE_URL/api/log/request/$REQUEST_ID/diagnostic/bundle"
+    if [[ -n "$ADMIN_HEADER" ]]; then
+      bundle_args+=(-H "$ADMIN_HEADER")
+    fi
+    if [[ -n "$ADMIN_ACCESS_TOKEN" ]]; then
+      bundle_args+=(-H "Authorization: Bearer $ADMIN_ACCESS_TOKEN")
+    fi
+    bundle_args+=(-H "New-Api-User: $ADMIN_USER_ID")
+    status="$(curl "${bundle_args[@]}")"
     if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
       die "diagnostic bundle download failed with HTTP $status"
     fi
