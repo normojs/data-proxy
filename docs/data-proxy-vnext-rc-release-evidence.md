@@ -19,8 +19,8 @@ stash@{0}: On main: park protocol conversion longtail after vnext
 
 ## Git 状态
 
-- current local commit SHA: `baf94f1865d03bbe881d5d69256698e8829fddde`
-- current local commit short: `baf94f18`
+- current local commit SHA: `f1526cadb990ca770f19a82538f10e365effc974`
+- current local commit short: `f1526cad`
 - branch: `main`
 - remote: `normojs/data-proxy`
 - pushed ref: `normojs/main`
@@ -28,14 +28,14 @@ stash@{0}: On main: park protocol conversion longtail after vnext
 最近提交：
 
 ```text
-baf94f18 test: cover token group binding enforcement
-7c28ec20 chore: classify group restriction tests in worktree audit
-385c6a77 feat: clarify channel failover settings
-b3b746b5 docs: update rc evidence after smoke tooling
-ba482284 chore: support access-token admin production smoke
-394e3ab5 docs: record production deployment evidence
-45eb7774 docs: record current release validation status
-87e603b8 chore: update ui translations for release changes
+f1526cad fix: capture lowercase request id headers in smoke scripts
+419d5e6d feat: clarify channel failover retry settings
+89a14252 ci: wire dpa status smoke into agent checks
+2112c11d test: add dpa status smoke
+654649f0 ci: check usage log detail export smoke
+023475fd chore: classify usage log export smoke
+2d8be136 test: cover usage log detail export affordances
+50cfb11c chore: classify failover smoke artifacts
 ```
 
 ## 本地验证
@@ -90,15 +90,45 @@ scripts/data-proxy-release-gate.sh --scan-all
 
 结果：全部通过；工作区重新收口为空。
 
+2026-06-27 smoke request id 解析修复验证：
+
+```bash
+bash -n scripts/data-proxy-production-smoke.sh scripts/data-proxy-channel-failover-smoke.sh
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_API_KEY='***' \
+DATA_PROXY_SMOKE_MODEL='deepseek-ai/DeepSeek-V4-Flash' \
+scripts/data-proxy-production-smoke.sh
+scripts/data-proxy-focused-regression.sh --p2
+scripts/data-proxy-release-gate.sh --scan-all
+scripts/data-proxy-worktree-audit.sh
+```
+
+结果：
+
+```text
+api_status=passed
+chat_completions=passed
+chat_request_id=202606271653506232905768268d9d67zmrUET1
+responses=passed
+responses_request_id=202606271653518524336168268d9d6SB8Qlcm3
+diagnostic_candidates=skipped_no_admin_auth
+request_trace=skipped_no_admin_auth
+P2 focused regression=passed
+release gate=passed
+```
+
+说明：生产服务返回的小写 `x-oneapi-request-id` 已能被生产 smoke 和同模型
+failover smoke 统一识别。该提交只修改本地验证脚本，不改变线上运行时行为。
+
 ## GitHub Actions
 
 ### CI
 
 - workflow: `CI`
-- run: `https://github.com/normojs/data-proxy/actions/runs/28288488588`
+- run: `https://github.com/normojs/data-proxy/actions/runs/28295743276`
 - conclusion: `success`
-- head SHA: `baf94f1865d03bbe881d5d69256698e8829fddde`
-- completed at: `2026-06-27T11:59:30Z`
+- head SHA: `f1526cadb990ca770f19a82538f10e365effc974`
+- completed at: `2026-06-27T17:00:39Z`
 
 ### Data Proxy Agent
 
@@ -114,10 +144,10 @@ workflow 仍为上述成功记录。
 ### Package Data Proxy Image
 
 - workflow: `Package Data Proxy image`
-- run: `https://github.com/normojs/data-proxy/actions/runs/28288488581`
+- run: `https://github.com/normojs/data-proxy/actions/runs/28295743275`
 - conclusion: `success`
-- head SHA: `baf94f1865d03bbe881d5d69256698e8829fddde`
-- completed at: `2026-06-27T12:01:26Z`
+- head SHA: `f1526cadb990ca770f19a82538f10e365effc974`
+- completed at: `2026-06-27T17:01:41Z`
 
 GitHub package workflow 已通过。由于服务器侧 GitHub 下载速度不稳定，实际部署
 继续使用本地构建并通过 Electerm SFTP 上传的等价 linux/amd64 镜像包。
