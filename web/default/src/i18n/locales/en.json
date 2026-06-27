@@ -91,6 +91,7 @@
     "Service Status · normal": "Service Status · normal",
     "Service status appears after channels receive real traffic. Active probes and connectivity checks are not connected yet.": "Service status appears after channels receive real traffic. Active probes and connectivity checks are not connected yet.",
     "Service status is temporarily unavailable.": "Service status is temporarily unavailable.",
+    "Admin-only service health entry in the top bar.": "Admin-only service health entry in the top bar.",
     "Signal sources": "Signal sources",
     "Updated {{time}}": "Updated {{time}}",
     "View Details": "View Details",

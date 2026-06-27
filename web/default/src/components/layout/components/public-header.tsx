@@ -21,9 +21,11 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
+import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useNotifications } from '@/hooks/use-notifications'
+import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { Button } from '@/components/ui/button'
@@ -99,6 +101,7 @@ export function PublicHeader(props: PublicHeaderProps) {
     loading,
     logoLoaded,
   } = useSystemConfig()
+  const { status } = useStatus()
   const dynamicLinks = useTopNavLinks()
   const notifications = useNotifications()
   const routerState = useRouterState()
@@ -109,6 +112,10 @@ export function PublicHeader(props: PublicHeaderProps) {
   const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
   const displaySiteName = customSiteName || systemName
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
+  const headerNavModules = parseHeaderNavModulesFromStatus(
+    status as Record<string, unknown> | null
+  )
+  const showServiceStatus = isAdmin && headerNavModules.serviceStatus !== false
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
@@ -270,7 +277,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                 )
               })}
 
-              {isAdmin && (
+              {showServiceStatus && (
                 <ServiceStatusIndicator
                   buttonClassName='max-w-none whitespace-nowrap'
                   labelClassName='hidden md:inline'
@@ -348,7 +355,7 @@ export function PublicHeader(props: PublicHeaderProps) {
 
             {/* Mobile: compact actions + hamburger */}
             <div className='flex items-center gap-2 sm:hidden'>
-              {isAdmin && (
+              {showServiceStatus && (
                 <ServiceStatusIndicator
                   buttonClassName='size-9 max-w-none px-0'
                   labelMode='title'
@@ -403,7 +410,7 @@ export function PublicHeader(props: PublicHeaderProps) {
       >
         <div className='flex h-full flex-col justify-between px-8 pt-20 pb-10'>
           <nav className='flex flex-col gap-1'>
-            {isAdmin && (
+            {showServiceStatus && (
               <Link
                 to='/status'
                 onClick={() => setMobileOpen(false)}

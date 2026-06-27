@@ -49,6 +49,7 @@ import {
 const headerNavSchema = z.object({
   home: z.boolean(),
   console: z.boolean(),
+  serviceStatus: z.boolean(),
   pricingEnabled: z.boolean(),
   pricingRequireAuth: z.boolean(),
   rankingsEnabled: z.boolean(),
@@ -72,6 +73,10 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.console === undefined
       ? HEADER_NAV_DEFAULT.console
       : Boolean(config.console),
+  serviceStatus:
+    config.serviceStatus === undefined
+      ? HEADER_NAV_DEFAULT.serviceStatus
+      : Boolean(config.serviceStatus),
   pricingEnabled:
     config.pricing?.enabled === undefined
       ? HEADER_NAV_DEFAULT.pricing.enabled
@@ -122,6 +127,7 @@ export function HeaderNavigationSection({
       ...config,
       home: values.home,
       console: values.console,
+      serviceStatus: values.serviceStatus,
       docs: values.docs,
       downloads: values.downloads,
       about: values.about,
@@ -166,6 +172,11 @@ export function HeaderNavigationSection({
       key: 'console',
       title: t('Console'),
       description: t('User dashboard and quota controls.'),
+    },
+    {
+      key: 'serviceStatus',
+      title: t('Service Status'),
+      description: t('Admin-only service health entry in the top bar.'),
     },
     {
       key: 'docs',

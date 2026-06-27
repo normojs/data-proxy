@@ -89,6 +89,7 @@
     "Service Status · normal": "服务状态 · 正常",
     "Service status appears after channels receive real traffic. Active probes and connectivity checks are not connected yet.": "渠道收到真实请求流量后会显示服务状态。主动探针和连通性检查暂未接入。",
     "Service status is temporarily unavailable.": "服务状态暂时不可用。",
+    "Admin-only service health entry in the top bar.": "仅管理员可见的顶部服务健康入口。",
     "Signal sources": "信号来源",
     "Updated {{time}}": "更新于 {{time}}",
     "View Details": "查看详情",

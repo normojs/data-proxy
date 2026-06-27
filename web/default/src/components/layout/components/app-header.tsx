@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useAuthStore } from '@/stores/auth-store'
+import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
+import { ROLE } from '@/lib/roles'
 import { useNotifications } from '@/hooks/use-notifications'
+import { useStatus } from '@/hooks/use-status'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { LanguageSwitcher } from '@/components/language-switcher'
@@ -109,6 +113,13 @@ export function AppHeader({
   // Prioritize dynamically generated links from backend
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
+  const userRole = useAuthStore((state) => state.auth.user?.role ?? 0)
+  const isAdmin = userRole >= ROLE.ADMIN
+  const { status } = useStatus()
+  const headerNavModules = parseHeaderNavModulesFromStatus(
+    status as Record<string, unknown> | null
+  )
+  const showServiceStatus = isAdmin && headerNavModules.serviceStatus !== false
 
   // Notifications hook
   const notifications = useNotifications()
@@ -129,7 +140,7 @@ export function AppHeader({
                 <TopNav links={links} />
               </div>
             )}
-            <ServiceStatusIndicator />
+            {showServiceStatus && <ServiceStatusIndicator />}
             {showSearch && <Search />}
             {showNotifications && (
               <NotificationPopover

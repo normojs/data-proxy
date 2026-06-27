@@ -16,7 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
+import { useAuthStore } from '@/stores/auth-store'
+import { ROLE } from '@/lib/roles'
 import { PublicLayout } from '@/components/layout'
 import { ServiceStatus } from '@/features/service-status'
 
@@ -31,5 +33,21 @@ function PublicServiceStatusPage() {
 }
 
 export const Route = createFileRoute('/status/')({
+  beforeLoad: () => {
+    const { auth } = useAuthStore.getState()
+
+    if (!auth.user) {
+      throw redirect({
+        to: '/sign-in',
+        search: { redirect: '/status' },
+      })
+    }
+
+    if (auth.user.role < ROLE.ADMIN) {
+      throw redirect({
+        to: '/403',
+      })
+    }
+  },
   component: PublicServiceStatusPage,
 })
