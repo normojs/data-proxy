@@ -365,6 +365,7 @@ export function Wallet(props: WalletProps) {
           if (!open) clearWechatPayQr()
         }}
         payment={wechatPayQr}
+        paymentMethodName={selectedPaymentMethod?.name}
         onRefresh={fetchUser}
         onOpenBilling={() => {
           clearWechatPayQr()

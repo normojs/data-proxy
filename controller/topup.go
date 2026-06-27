@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,20 +73,17 @@ func GetTopUpInfo(c *gin.Context) {
 	enableWechatPay := isWechatPayTopUpEnabled()
 	if enableWechatPay {
 		hasWechatPay := false
+		wechatPayMinTopup := getWechatPayMinTopup()
 		for _, method := range payMethods {
 			if method["type"] == model.PaymentMethodWechatPay {
+				method["min_topup"] = strconv.FormatInt(wechatPayMinTopup, 10)
 				hasWechatPay = true
 				break
 			}
 		}
 
 		if !hasWechatPay {
-			payMethods = append(payMethods, map[string]string{
-				"name":      "WeChat Pay",
-				"type":      model.PaymentMethodWechatPay,
-				"color":     "rgba(var(--semi-green-5), 1)",
-				"min_topup": strconv.FormatInt(getWechatPayMinTopup(), 10),
-			})
+			payMethods = append(payMethods, buildWechatPayTopUpMethod(wechatPayMinTopup))
 		}
 	}
 
@@ -161,6 +159,43 @@ func getBasePayMethodsForTopUp(complianceConfirmed bool) []map[string]string {
 		return []map[string]string{}
 	}
 	return clonePayMethods(operation_setting.PayMethods)
+}
+
+func buildWechatPayTopUpMethod(minTopup int64) map[string]string {
+	method := map[string]string{
+		"name":      "WeChat Pay",
+		"type":      model.PaymentMethodWechatPay,
+		"color":     "rgba(var(--semi-green-5), 1)",
+		"min_topup": strconv.FormatInt(minTopup, 10),
+	}
+
+	if configured, ok := findConfiguredPaymentMethod(model.PaymentMethodWechatPay); ok {
+		mergePaymentMethodDisplay(method, configured)
+	} else if configured, ok := findConfiguredPaymentMethod("wxpay"); ok {
+		mergePaymentMethodDisplay(method, configured)
+	}
+
+	method["type"] = model.PaymentMethodWechatPay
+	method["min_topup"] = strconv.FormatInt(minTopup, 10)
+	return method
+}
+
+func findConfiguredPaymentMethod(paymentType string) (map[string]string, bool) {
+	for _, method := range operation_setting.PayMethods {
+		if strings.TrimSpace(method["type"]) == paymentType {
+			return method, true
+		}
+	}
+	return nil, false
+}
+
+func mergePaymentMethodDisplay(target map[string]string, source map[string]string) {
+	for key, value := range source {
+		if key == "type" || key == "min_topup" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		target[key] = value
+	}
 }
 
 type EpayRequest struct {

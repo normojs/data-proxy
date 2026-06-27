@@ -34,6 +34,7 @@ interface WechatPayQRDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   payment: WechatPayPaymentData | null
+  paymentMethodName?: string
   onRefresh: () => void | Promise<void>
   onOpenBilling: () => void
 }
@@ -42,6 +43,7 @@ export function WechatPayQRDialog({
   open,
   onOpenChange,
   payment,
+  paymentMethodName,
   onRefresh,
   onOpenBilling,
 }: WechatPayQRDialogProps) {
@@ -68,7 +70,7 @@ export function WechatPayQRDialog({
     >
       <DialogContent className='max-sm:w-[calc(100vw-1.5rem)] sm:max-w-md'>
         <DialogHeader>
-          <DialogTitle>{t('WeChat Pay')}</DialogTitle>
+          <DialogTitle>{paymentMethodName || t('WeChat Pay')}</DialogTitle>
           <DialogDescription>{t('Scan the QR code to pay')}</DialogDescription>
         </DialogHeader>
 

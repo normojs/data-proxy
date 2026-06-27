@@ -21,6 +21,7 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
+import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useSystemConfig } from '@/hooks/use-system-config'
@@ -105,6 +106,7 @@ export function PublicHeader(props: PublicHeaderProps) {
 
   const user = auth.user
   const isAuthenticated = !!user
+  const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
   const displaySiteName = customSiteName || systemName
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
 
@@ -268,11 +270,13 @@ export function PublicHeader(props: PublicHeaderProps) {
                 )
               })}
 
-              <ServiceStatusIndicator
-                buttonClassName='max-w-none whitespace-nowrap'
-                labelClassName='hidden md:inline'
-                labelMode='title'
-              />
+              {isAdmin && (
+                <ServiceStatusIndicator
+                  buttonClassName='max-w-none whitespace-nowrap'
+                  labelClassName='hidden md:inline'
+                  labelMode='title'
+                />
+              )}
 
               {(showLanguageSwitcher ||
                 showThemeSwitch ||
@@ -344,10 +348,12 @@ export function PublicHeader(props: PublicHeaderProps) {
 
             {/* Mobile: compact actions + hamburger */}
             <div className='flex items-center gap-2 sm:hidden'>
-              <ServiceStatusIndicator
-                buttonClassName='size-9 max-w-none px-0'
-                labelMode='title'
-              />
+              {isAdmin && (
+                <ServiceStatusIndicator
+                  buttonClassName='size-9 max-w-none px-0'
+                  labelMode='title'
+                />
+              )}
               {showThemeSwitch && <ThemeSwitch />}
               {showAuthButtons && !loading && isAuthenticated && (
                 <ProfileDropdown />
@@ -397,19 +403,21 @@ export function PublicHeader(props: PublicHeaderProps) {
       >
         <div className='flex h-full flex-col justify-between px-8 pt-20 pb-10'>
           <nav className='flex flex-col gap-1'>
-            <Link
-              to='/status'
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                'text-muted-foreground flex items-center gap-3 py-3 text-base font-medium tracking-tight transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]',
-                mobileOpen
-                  ? 'translate-y-0 opacity-100'
-                  : 'translate-y-4 opacity-0'
-              )}
-              style={{ transitionDelay: mobileOpen ? '80ms' : '0ms' }}
-            >
-              {t('Service Status')}
-            </Link>
+            {isAdmin && (
+              <Link
+                to='/status'
+                onClick={() => setMobileOpen(false)}
+                className={cn(
+                  'text-muted-foreground flex items-center gap-3 py-3 text-base font-medium tracking-tight transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]',
+                  mobileOpen
+                    ? 'translate-y-0 opacity-100'
+                    : 'translate-y-4 opacity-0'
+                )}
+                style={{ transitionDelay: mobileOpen ? '80ms' : '0ms' }}
+              >
+                {t('Service Status')}
+              </Link>
+            )}
             {links.map((link, i) => {
               const isActive = pathname === link.href
               const linkClassName = cn(
