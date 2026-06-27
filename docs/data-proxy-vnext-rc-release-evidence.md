@@ -19,8 +19,8 @@ stash@{0}: On main: park protocol conversion longtail after vnext
 
 ## Git 状态
 
-- current local commit SHA: `45eb77749fb5173649a4ec35527fbbe2ee6ee2d1`
-- current local commit short: `45eb7774`
+- current local commit SHA: `ba482284361e4bf2b4004b6061178ed2949dcd8d`
+- current local commit short: `ba482284`
 - branch: `main`
 - remote: `normojs/data-proxy`
 - pushed ref: `normojs/main`
@@ -28,14 +28,14 @@ stash@{0}: On main: park protocol conversion longtail after vnext
 最近提交：
 
 ```text
+ba482284 chore: support access-token admin production smoke
+394e3ab5 docs: record production deployment evidence
 45eb7774 docs: record current release validation status
 87e603b8 chore: update ui translations for release changes
 3b48f0f6 fix: clarify admin-only service status nav setting
 f4ceb384 feat: add connected app management token flow
 02748469 feat: add load-aware multi-key channel routing
 8db0c47a feat: improve usage log filtering and exports
-d8764db5 feat: add shared filter combobox and token formatter
-f4d007ab chore: classify data proxy worktree changes
 ```
 
 ## 本地验证
@@ -72,27 +72,39 @@ git status --short
 - Connected App：`codex-dp` 管理令牌流、客户端 token 创建/轮换/吊销/分组
   更新接口。
 - Topbar：服务状态入口配置页明确“无论开关普通用户都不可见”。
+- 生产 smoke 脚本：支持管理员系统 access token + `New-Api-User` 方式验证
+  request trace、diagnostic candidates、诊断报告和诊断包下载。
 
 ## GitHub Actions
 
 ### CI
 
 - workflow: `CI`
-- run: `https://github.com/normojs/data-proxy/actions/runs/28285624221`
+- run: `https://github.com/normojs/data-proxy/actions/runs/28287148050`
 - conclusion: `success`
-- head SHA: `45eb77749fb5173649a4ec35527fbbe2ee6ee2d1`
-- completed at: `2026-06-27T09:50:18Z`
+- head SHA: `ba482284361e4bf2b4004b6061178ed2949dcd8d`
+- completed at: `2026-06-27T10:59:50Z`
+
+### Data Proxy Agent
+
+- workflow: `Data Proxy Agent`
+- run: `https://github.com/normojs/data-proxy/actions/runs/28287148059`
+- conclusion: `success`
+- head SHA: `ba482284361e4bf2b4004b6061178ed2949dcd8d`
+- completed at: `2026-06-27T10:58:36Z`
 
 ### Package Data Proxy Image
 
 - workflow: `Package Data Proxy image`
-- run: `https://github.com/normojs/data-proxy/actions/runs/28285624210`
+- run: `https://github.com/normojs/data-proxy/actions/runs/28287148057`
 - conclusion: `success`
-- head SHA: `45eb77749fb5173649a4ec35527fbbe2ee6ee2d1`
-- completed at: `2026-06-27T09:52:02Z`
+- head SHA: `ba482284361e4bf2b4004b6061178ed2949dcd8d`
+- completed at: `2026-06-27T11:00:56Z`
 
-GitHub package workflow 已通过。由于本次服务器侧 GitHub 下载速度不稳定，
-实际部署使用本地构建并通过 Electerm SFTP 上传的等价 linux/amd64 镜像包。
+GitHub package workflow 已通过。线上仍运行已完成 smoke 的 `data-proxy:45eb7774`
+镜像；`394e3ab5` 和 `ba482284` 是发布证据与 smoke 脚本文档提交，不改变已部署
+业务代码。由于本次服务器侧 GitHub 下载速度不稳定，实际部署使用本地构建并通过
+Electerm SFTP 上传的等价 linux/amd64 镜像包。
 
 本地部署包：
 
@@ -209,7 +221,9 @@ responses_request_id=20260627103047195310618268d9d6FXosDTVU
 ### 待管理员登录态补测
 
 以下接口需要管理员登录态或用户系统 access token，并且需要同时携带
-`New-Api-User`；普通 OpenAI API key 不能访问控制台诊断接口。
+`New-Api-User`；普通 OpenAI API key 不能访问控制台诊断接口。`ba482284`
+已让 `scripts/data-proxy-production-smoke.sh` 支持
+`DATA_PROXY_ADMIN_ACCESS_TOKEN` + `DATA_PROXY_ADMIN_USER_ID`。
 
 待补测项目：
 
@@ -220,6 +234,27 @@ responses_request_id=20260627103047195310618268d9d6FXosDTVU
 - common logs request id 快捷入口和详情 PNG/SVG 导出 UI。
 - 同模型坏渠道自动切备用的生产演练。
 - Tunnel / `dpa status --json` 生产演练。
+
+本次未直接在服务器生成临时管理员 access token，原因：
+
+- `data-proxy` 容器和宿主机没有现成 `mysql` / `mariadb` 客户端。
+- 宿主机 Python 没有 MySQL 驱动。
+- 尝试拉取临时工具镜像受 Docker Hub 网络超时影响失败。
+- 为避免直接改线上管理员账号凭据，本轮不通过数据库写入方式生成 token。
+
+可执行补测命令：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_ADMIN_ACCESS_TOKEN='***' \
+DATA_PROXY_ADMIN_USER_ID='1' \
+DATA_PROXY_SMOKE_REQUEST_ID='20260627103047195310618268d9d6FXosDTVU' \
+DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
+DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE=1 \
+DATA_PROXY_SMOKE_CHAT=0 \
+DATA_PROXY_SMOKE_RESPONSES=0 \
+scripts/data-proxy-production-smoke.sh
+```
 
 本地回归已经覆盖上述能力的代码路径；生产补测需要在管理员控制台会话中执行，
 或提供只用于 smoke 的临时管理员 access token 和对应 `New-Api-User`。
