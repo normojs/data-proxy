@@ -76,15 +76,16 @@ group_for_file() {
     docs/data-proxy-current-development-tasks.md | \
     docs/data-proxy-near-term-development-plan.md | \
     docs/data-proxy-post-v1.3-todo.md | \
+    docs/data-proxy-release-runbook.md | \
     docs/data-proxy-single-node-development-roadmap.md | \
     docs/data-proxy-vnext-rc-release-evidence.md | \
     docs/data-proxy-vnext-stabilization-task-plan.md | \
+    scripts/data-proxy-focused-regression.sh | \
     scripts/data-proxy-worktree-audit.sh)
     echo "RC0_RELEASE_BASELINE"
     ;;
 
   docs/request-capture-* | \
-    scripts/data-proxy-focused-regression.sh | \
     controller/log.go | controller/log_diagnostic.go | controller/query_helper.go | \
     model/log.go | \
     web/default/package.json | \
@@ -111,7 +112,6 @@ group_for_file() {
     service/multi_key_affinity.go | \
     service/multi_key_affinity_test.go | \
     docs/channel-failover-and-circuit-breaker.md | \
-    docs/data-proxy-release-runbook.md | \
     docs/sub2api-key-affinity-cache-plan.md | \
     scripts/data-proxy-channel-failover-smoke.sh | \
     web/default/src/features/channels/* | \
@@ -133,6 +133,7 @@ group_for_file() {
     pkg/bridgepolicy/* | pkg/dpagent/* | pkg/mcpgateway/* | router/tunnel-router.go | \
     service/tunnel* | service/bridge* | docs/tunnel-apps-architecture.md | \
     docs/data-proxy-agent-cli-design.md | scripts/install-data-proxy-agent.sh | \
+    scripts/data-proxy-agent-status-smoke.sh | \
     scripts/generate-data-proxy-agent-manifest.sh | \
     web/default/src/features/mcp/*)
     echo "P3_TUNNEL_MCP_DPA"

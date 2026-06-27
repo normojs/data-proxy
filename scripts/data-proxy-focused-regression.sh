@@ -121,6 +121,17 @@ run_frontend_typecheck() {
   fi
 }
 
+run_dpa_status_smoke() {
+  log "building dpa for status smoke"
+  local tmp_dir
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/data-proxy-dpa-smoke.XXXXXX")"
+  env "${go_env_parts[@]}" go build -trimpath -o "$tmp_dir/dpa" ./cmd/dpa
+  local status=0
+  DATA_PROXY_AGENT_BIN="$tmp_dir/dpa" scripts/data-proxy-agent-status-smoke.sh || status=$?
+  rm -rf "$tmp_dir"
+  return "$status"
+}
+
 if [[ "$RUN_P1" == "1" ]]; then
   log "P1: channel failover, circuit breaker, and user group restrictions"
   run_go_test ./service -run 'Test(Channel|Select|Group|UserToken|Circuit|Failover|FilterUserUsableGroups|GetUserAutoGroup)' -count=1
@@ -141,6 +152,7 @@ if [[ "$RUN_P3" == "1" ]]; then
   run_go_test ./controller -run 'Test(Bridge|MCP|Tunnel)' -count=1
   run_go_test ./router -run 'Test(SetTunnelRouter|RequestDiagnosticRoutes)' -count=1
   run_go_test ./pkg/dpagent -count=1
+  run_dpa_status_smoke
   run_go_test ./pkg/bridgepolicy ./pkg/mcp/executor ./pkg/mcp/proxy -run 'Test(Bridge|MCP|Remote|Validate|HTTPClient)' -count=1
 fi
 

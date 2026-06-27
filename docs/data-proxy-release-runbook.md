@@ -205,6 +205,34 @@ curl -fsSL https://dp.app.mbu.ltd/agent/install-data-proxy-agent.sh | \
 发布前需要确认 manifest 和 checksum 一起上传；如果使用自建 CDN 或对象存储镜像
 release asset，需要设置相同文件名并保持 manifest 中的 URL 与 sha256 对应。
 
+### dpa status smoke
+
+部署或升级 `dpa` 后，先跑非破坏式状态 smoke。脚本会生成临时配置，不读取或修改
+本机真实 agent 配置，也不会打印 token：
+
+```bash
+DATA_PROXY_AGENT_BIN=/usr/local/bin/dpa \
+DATA_PROXY_AGENT_SMOKE_BASE_URL=https://dp.app.mbu.ltd \
+scripts/data-proxy-agent-status-smoke.sh
+```
+
+如需同时验证本地诊断 JSON，可加 `DATA_PROXY_AGENT_SMOKE_DOCTOR=1`：
+
+```bash
+DATA_PROXY_AGENT_BIN=/usr/local/bin/dpa \
+DATA_PROXY_AGENT_SMOKE_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_AGENT_SMOKE_DOCTOR=1 \
+scripts/data-proxy-agent-status-smoke.sh
+```
+
+通过条件：
+
+- `dpa status --json` 返回合法 JSON；
+- JSON 中 `config_loaded=true`、`token_configured=true`；
+- MCP/HTTP/TCP route 计数和 capabilities 可见；
+- 输出不能包含临时 token 明文；
+- 开启 doctor smoke 时，`doctor --json` 至少返回 workspace 和 local audit 诊断项。
+
 ## 发布证据
 
 每次发布至少记录：

@@ -24,6 +24,7 @@ on:
       - "THIRD-PARTY-LICENSES.md"
       - "README.md"
       - "docs/data-proxy-agent-cli-design.md"
+      - "scripts/data-proxy-agent-status-smoke.sh"
       - "scripts/install-data-proxy-agent.sh"
       - "scripts/generate-data-proxy-agent-manifest.sh"
       - "scripts/notarize-data-proxy-agent.sh"
@@ -44,6 +45,7 @@ on:
       - "THIRD-PARTY-LICENSES.md"
       - "README.md"
       - "docs/data-proxy-agent-cli-design.md"
+      - "scripts/data-proxy-agent-status-smoke.sh"
       - "scripts/install-data-proxy-agent.sh"
       - "scripts/generate-data-proxy-agent-manifest.sh"
       - "scripts/notarize-data-proxy-agent.sh"
@@ -90,6 +92,7 @@ jobs:
           go build -trimpath -o /tmp/dpa ./cmd/dpa
           /tmp/dpa self-test
           /tmp/dpa version
+          DATA_PROXY_AGENT_BIN=/tmp/dpa scripts/data-proxy-agent-status-smoke.sh
 
       - name: Check whitespace
         run: git diff --check
