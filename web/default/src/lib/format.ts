@@ -177,6 +177,26 @@ export function formatTokens(tokens: number): string {
 }
 
 /**
+ * Format high-volume token counts with compact K/M/B/T suffixes.
+ */
+export function formatTokenVolume(tokens: number | null | undefined): string {
+  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return '0'
+  if (tokens >= 1_000_000_000_000) {
+    return `${(tokens / 1_000_000_000_000).toFixed(tokens >= 10_000_000_000_000 ? 1 : 2)}T`
+  }
+  if (tokens >= 1_000_000_000) {
+    return `${(tokens / 1_000_000_000).toFixed(tokens >= 10_000_000_000 ? 1 : 2)}B`
+  }
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 1 : 2)}M`
+  }
+  if (tokens >= 1_000) {
+    return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}K`
+  }
+  return tokens.toLocaleString()
+}
+
+/**
  * Format use time in seconds with appropriate unit
  */
 export function formatUseTime(seconds: number): string {
