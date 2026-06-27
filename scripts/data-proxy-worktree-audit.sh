@@ -57,6 +57,8 @@ group_for_file() {
   case "$file" in
   web/default/src/i18n/locales/en.json | \
     web/default/src/i18n/locales/zh.json | \
+    router/api-router.go | \
+    model/main.go | \
     web/default/src/routeTree.gen.ts | \
     web/default/src/hooks/use-sidebar-config.ts | \
     web/default/src/hooks/use-sidebar-data.ts)
@@ -82,9 +84,42 @@ group_for_file() {
     ;;
 
   docs/request-capture-* | \
+    controller/log.go | controller/log_diagnostic.go | controller/query_helper.go | \
+    model/log.go | \
+    web/default/src/features/users/components/data-table-row-actions.tsx | \
+    web/default/src/features/usage-logs/* | \
+    web/default/src/features/usage-logs/components/* | \
+    web/default/src/features/usage-logs/components/columns/* | \
+    web/default/src/features/usage-logs/components/dialogs/* | \
+    web/default/src/features/usage-logs/lib/* | \
     web/default/src/features/training-data/* | \
     web/default/src/routes/_authenticated/training-data/*)
     echo "P2_P4_DIAGNOSTICS_CAPTURE_TRAINING"
+    ;;
+
+  constant/multi_key_mode.go | controller/channel-test.go | controller/channel.go | \
+    controller/channel_test_internal_test.go | controller/usedata.go | \
+    controller/relay.go | \
+    middleware/distributor.go | model/channel.go | model/usedata.go | \
+    service/channel_failover_admin.go | service/channel_health.go | \
+    service/channel_select.go | service/group.go | service/log_info_generate.go | \
+    service/multi_key_affinity.go | \
+    service/multi_key_affinity_test.go | \
+    docs/channel-failover-and-circuit-breaker.md | \
+    docs/sub2api-key-affinity-cache-plan.md | \
+    web/default/src/features/channels/* | \
+    web/default/src/features/channels/components/* | \
+    web/default/src/features/channels/components/dialogs/* | \
+    web/default/src/features/channels/components/drawers/* | \
+    web/default/src/features/channels/lib/* | \
+    web/default/src/features/dashboard/* | \
+    web/default/src/features/dashboard/components/* | \
+    web/default/src/features/dashboard/components/models/* | \
+    web/default/src/features/dashboard/lib/* | \
+    web/default/src/features/keys/* | \
+    web/default/src/features/keys/components/* | \
+    web/default/src/features/keys/lib/*)
+    echo "P1_CHANNEL_FAILOVER_GROUPS_UI"
     ;;
 
   controller/tunnel_* | dto/bridge.go | dto/mcp.go | model/tunnel.go | \
@@ -106,9 +141,24 @@ group_for_file() {
     dto/openai_response* | dto/channel_settings.go | \
     docs/23-responses-chat-compatibility.md | \
     docs/openai-hosted-tools-support-plan.md | \
-    docs/responses-chat-completions-conversion-plan.md | \
-    web/default/src/features/channels/*)
+    docs/responses-chat-completions-conversion-plan.md)
     echo "PROTOCOL_REGRESSION_GUARD_ONLY"
+    ;;
+
+  controller/connected_app*.go | middleware/connected_app*.go | \
+    model/connected_app*.go | router/connected_app_test.go | router/snapless_test.go | \
+    docs/snapless-connected-app-* | docs/snapless-connected-app-integration.md)
+    echo "CONNECTED_APP_SNAPLESS_DPA"
+    ;;
+
+  web/default/src/features/system-settings/maintenance/header-navigation-section.tsx | \
+    middleware/header_nav.go | middleware/header_nav_test.go)
+    echo "TOPBAR_SITE_NAV"
+    ;;
+
+  web/default/src/components/filter-combobox-input.tsx | \
+    web/default/src/lib/format.ts)
+    echo "SHARED_UI_UTILS"
     ;;
 
   tools/fusion-benchmark*)
@@ -141,8 +191,12 @@ secret_path_warning() {
 
 groups=(
   RC0_RELEASE_BASELINE
+  P1_CHANNEL_FAILOVER_GROUPS_UI
   P2_P4_DIAGNOSTICS_CAPTURE_TRAINING
   P3_TUNNEL_MCP_DPA
+  CONNECTED_APP_SNAPLESS_DPA
+  TOPBAR_SITE_NAV
+  SHARED_UI_UTILS
   PRICING_BILLING
   PROTOCOL_REGRESSION_GUARD_ONLY
   BENCHMARK_TOOLS
@@ -187,6 +241,8 @@ metadata, or sidebar entries for multiple feature lines:
 
 - web/default/src/i18n/locales/en.json
 - web/default/src/i18n/locales/zh.json
+- router/api-router.go
+- model/main.go
 - web/default/src/routeTree.gen.ts
 - web/default/src/hooks/use-sidebar-config.ts
 - web/default/src/hooks/use-sidebar-data.ts
