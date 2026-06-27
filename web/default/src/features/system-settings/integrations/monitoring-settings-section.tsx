@@ -22,7 +22,10 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { AlertTriangle, Route } from 'lucide-react'
 import { parseHttpStatusCodeRules } from '@/lib/http-status-code-rules'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import {
   Form,
   FormControl,
@@ -347,6 +350,30 @@ export function MonitoringSettingsSection({
             isSaving={updateOption.isPending}
             saveLabel='Save monitoring rules'
           />
+
+          <Alert className='bg-muted/40'>
+            <Route className='text-muted-foreground' />
+            <AlertTitle>{t('Channel failover control chain')}</AlertTitle>
+            <AlertDescription className='space-y-2 text-pretty'>
+              <p>
+                {t(
+                  'A same-model backup channel is only tried when Retry Times is at least 1 and the upstream error is retryable.'
+                )}
+              </p>
+              <div className='flex flex-wrap gap-2'>
+                <Badge variant='outline'>
+                  {t('Temporary faults keep the channel enabled')}
+                </Badge>
+                <Badge variant='outline'>
+                  {t('Hard faults can disable the channel')}
+                </Badge>
+                <Badge variant='outline'>
+                  {t('Request trace records the routing decision')}
+                </Badge>
+              </div>
+            </AlertDescription>
+          </Alert>
+
           <div className='grid gap-6 md:grid-cols-2'>
             <FormField
               control={form.control}
@@ -451,7 +478,9 @@ export function MonitoringSettingsSection({
                   <SettingsSwitchContent>
                     <FormLabel>{t('Disable on failure')}</FormLabel>
                     <FormDescription>
-                      {t('Automatically disable channels when tests fail')}
+                      {t(
+                        'Enables hard auto-disable and temporary circuit tracking for failed channels.'
+                      )}
                     </FormDescription>
                   </SettingsSwitchContent>
                   <FormControl>
@@ -491,7 +520,12 @@ export function MonitoringSettingsSection({
             name='AutomaticDisableKeywords'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Failure keywords')}</FormLabel>
+                <FormLabel>
+                  <span className='inline-flex items-center gap-1.5'>
+                    <AlertTriangle className='text-muted-foreground size-3.5' />
+                    {t('Hard failure keywords')}
+                  </span>
+                </FormLabel>
                 <FormControl>
                   <Textarea
                     rows={6}
@@ -502,7 +536,7 @@ export function MonitoringSettingsSection({
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'If an upstream error contains any of these keywords (case insensitive), the channel will be disabled automatically.'
+                    'If an upstream error contains any of these keywords, it is treated as a hard fault and can auto-disable the channel.'
                   )}
                 </FormDescription>
                 <FormMessage />
@@ -526,7 +560,7 @@ export function MonitoringSettingsSection({
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Errors in these status codes count toward temporary circuit breaking.'
+                      'Temporary status codes are retried, counted toward circuit breaking, and do not hard-disable the channel.'
                     )}{' '}
                     {transientParsed.ok &&
                       transientParsed.normalized &&
@@ -557,7 +591,7 @@ export function MonitoringSettingsSection({
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'If an upstream error contains any of these keywords, it is treated as temporary and will not hard-disable the channel.'
+                      'Temporary keywords are retried, counted toward circuit breaking, and do not hard-disable the channel.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -672,7 +706,7 @@ export function MonitoringSettingsSection({
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Accepts comma-separated status codes and inclusive ranges.'
+                      'Hard status codes can auto-disable the channel; keep 5xx and 429 in temporary faults unless the provider uses them for permanent account errors.'
                     )}{' '}
                     {autoDisableParsed.ok &&
                       autoDisableParsed.normalized &&
@@ -702,7 +736,7 @@ export function MonitoringSettingsSection({
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Accepts comma-separated status codes and inclusive ranges.'
+                      'These status codes are retryable for the current request. With Retry Times at least 1, Data Proxy can select a same-model backup channel.'
                     )}{' '}
                     {autoRetryParsed.ok &&
                       autoRetryParsed.normalized &&

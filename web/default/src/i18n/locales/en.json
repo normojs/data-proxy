@@ -5299,6 +5299,18 @@
     "Avg RPM": "Avg RPM",
     "Avg Inflight": "Avg Inflight",
     "Soft overload": "Soft overload",
-    "Hard overload": "Hard overload"
+    "Hard overload": "Hard overload",
+    "Channel failover control chain": "Channel failover control chain",
+    "A same-model backup channel is only tried when Retry Times is at least 1 and the upstream error is retryable.": "A same-model backup channel is only tried when Retry Times is at least 1 and the upstream error is retryable.",
+    "Temporary faults keep the channel enabled": "Temporary faults keep the channel enabled",
+    "Hard faults can disable the channel": "Hard faults can disable the channel",
+    "Request trace records the routing decision": "Request trace records the routing decision",
+    "Enables hard auto-disable and temporary circuit tracking for failed channels.": "Enables hard auto-disable and temporary circuit tracking for failed channels.",
+    "Hard failure keywords": "Hard failure keywords",
+    "If an upstream error contains any of these keywords, it is treated as a hard fault and can auto-disable the channel.": "If an upstream error contains any of these keywords, it is treated as a hard fault and can auto-disable the channel.",
+    "Temporary status codes are retried, counted toward circuit breaking, and do not hard-disable the channel.": "Temporary status codes are retried, counted toward circuit breaking, and do not hard-disable the channel.",
+    "Temporary keywords are retried, counted toward circuit breaking, and do not hard-disable the channel.": "Temporary keywords are retried, counted toward circuit breaking, and do not hard-disable the channel.",
+    "Hard status codes can auto-disable the channel; keep 5xx and 429 in temporary faults unless the provider uses them for permanent account errors.": "Hard status codes can auto-disable the channel; keep 5xx and 429 in temporary faults unless the provider uses them for permanent account errors.",
+    "These status codes are retryable for the current request. With Retry Times at least 1, Data Proxy can select a same-model backup channel.": "These status codes are retryable for the current request. With Retry Times at least 1, Data Proxy can select a same-model backup channel."
   }
 }

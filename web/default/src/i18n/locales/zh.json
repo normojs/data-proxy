@@ -5809,6 +5809,18 @@
     "Avg RPM": "平均 RPM",
     "Avg Inflight": "平均并发",
     "Soft overload": "软过载",
-    "Hard overload": "硬过载"
+    "Hard overload": "硬过载",
+    "Channel failover control chain": "渠道故障切换控制链路",
+    "A same-model backup channel is only tried when Retry Times is at least 1 and the upstream error is retryable.": "只有当重试次数至少为 1，且上游错误属于可重试错误时，同模型备用渠道才会被尝试。",
+    "Temporary faults keep the channel enabled": "临时故障不会禁用渠道",
+    "Hard faults can disable the channel": "硬故障可禁用渠道",
+    "Request trace records the routing decision": "请求追踪会记录路由决策",
+    "Enables hard auto-disable and temporary circuit tracking for failed channels.": "开启后，失败渠道会按硬故障规则自动禁用，并按临时故障规则记录熔断状态。",
+    "Hard failure keywords": "硬故障关键词",
+    "If an upstream error contains any of these keywords, it is treated as a hard fault and can auto-disable the channel.": "如果上游错误包含任一关键词，则视为硬故障，并可能自动禁用该渠道。",
+    "Temporary status codes are retried, counted toward circuit breaking, and do not hard-disable the channel.": "这些临时状态码会参与当前请求重试，并计入临时熔断，但不会硬禁用渠道。",
+    "Temporary keywords are retried, counted toward circuit breaking, and do not hard-disable the channel.": "这些临时关键词会参与当前请求重试，并计入临时熔断，但不会硬禁用渠道。",
+    "Hard status codes can auto-disable the channel; keep 5xx and 429 in temporary faults unless the provider uses them for permanent account errors.": "这些硬故障状态码可能自动禁用渠道；除非上游用 5xx 或 429 表示永久账号错误，否则建议把它们放在临时故障中。",
+    "These status codes are retryable for the current request. With Retry Times at least 1, Data Proxy can select a same-model backup channel.": "这些状态码会在当前请求内重试；当重试次数至少为 1 时，Data Proxy 可以选择同模型备用渠道。"
   }
 }
