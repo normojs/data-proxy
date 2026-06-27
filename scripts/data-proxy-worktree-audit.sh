@@ -99,10 +99,12 @@ group_for_file() {
 
   constant/multi_key_mode.go | controller/channel-test.go | controller/channel.go | \
     controller/channel_test_internal_test.go | controller/usedata.go | \
-    controller/relay.go | \
-    middleware/distributor.go | model/channel.go | model/usedata.go | \
+    controller/relay.go | controller/token.go | controller/token_test.go | \
+    controller/token_group_availability_test.go | controller/user_token_groups_test.go | \
+    middleware/auth.go | middleware/auth_token_group_test.go | middleware/distributor.go | \
+    model/channel.go | model/usedata.go | model/user_token_groups_test.go | \
     service/channel_failover_admin.go | service/channel_health.go | \
-    service/channel_select.go | service/group.go | service/log_info_generate.go | \
+    service/channel_select.go | service/group.go | service/group_test.go | service/log_info_generate.go | \
     service/multi_key_affinity.go | \
     service/multi_key_affinity_test.go | \
     docs/channel-failover-and-circuit-breaker.md | \
