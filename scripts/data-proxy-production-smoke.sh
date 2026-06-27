@@ -33,6 +33,8 @@ Environment:
   DATA_PROXY_ADMIN_ACCESS_TOKEN=...                 Optional; admin system access token.
   DATA_PROXY_ADMIN_USER_ID=1                        Required with access token; also useful with session auth.
   DATA_PROXY_SMOKE_REQUEST_ID=REQ_ID                Optional trace/diagnostic request id.
+  DATA_PROXY_SMOKE_REQUIRE_ADMIN=1                  Fail instead of skipping admin trace checks.
+  DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID=1             Fail when no request id can be captured or supplied.
   DATA_PROXY_SMOKE_DIAGNOSTIC=1                     Generate diagnostic report.
   DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE=1                Also download diagnostic zip.
   DATA_PROXY_SMOKE_CHAT=0                           Skip /v1/chat/completions.
@@ -65,6 +67,8 @@ RUN_CHAT="${DATA_PROXY_SMOKE_CHAT:-1}"
 RUN_RESPONSES="${DATA_PROXY_SMOKE_RESPONSES:-1}"
 RUN_DIAGNOSTIC="${DATA_PROXY_SMOKE_DIAGNOSTIC:-0}"
 DOWNLOAD_BUNDLE="${DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE:-0}"
+REQUIRE_ADMIN="${DATA_PROXY_SMOKE_REQUIRE_ADMIN:-0}"
+REQUIRE_REQUEST_ID="${DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID:-0}"
 REQUEST_ID="${DATA_PROXY_SMOKE_REQUEST_ID:-}"
 OUTPUT="${DATA_PROXY_SMOKE_OUTPUT:-}"
 
@@ -74,6 +78,12 @@ fi
 if [[ ! "$TRACE_WAIT_SECONDS" =~ ^[0-9]+$ ]]; then
   die "invalid DATA_PROXY_SMOKE_TRACE_WAIT_SECONDS=$TRACE_WAIT_SECONDS"
 fi
+for boolean in RUN_CHAT RUN_RESPONSES RUN_DIAGNOSTIC DOWNLOAD_BUNDLE REQUIRE_ADMIN REQUIRE_REQUEST_ID; do
+  value="${!boolean}"
+  if [[ "$value" != "0" && "$value" != "1" ]]; then
+    die "invalid $boolean=$value; expected 0 or 1"
+  fi
+done
 
 TMPDIR_SMOKE="$(mktemp -d "${TMPDIR:-/tmp}/data-proxy-smoke.XXXXXX")"
 trap 'rm -rf "$TMPDIR_SMOKE"' EXIT
@@ -238,6 +248,9 @@ run_responses_smoke() {
 
 run_admin_diagnostic_smoke() {
   if ! has_admin_auth; then
+    if [[ "$REQUIRE_ADMIN" == "1" ]]; then
+      die "admin smoke was required but DATA_PROXY_ADMIN_HEADER or DATA_PROXY_ADMIN_ACCESS_TOKEN is not set"
+    fi
     summary_row "diagnostic_candidates" "skipped_no_admin_auth"
     summary_row "request_trace" "skipped_no_admin_auth"
     return 0
@@ -251,6 +264,9 @@ run_admin_diagnostic_smoke() {
   summary_row "diagnostic_candidates" "passed"
 
   if [[ -z "$REQUEST_ID" ]]; then
+    if [[ "$REQUIRE_ADMIN" == "1" || "$REQUIRE_REQUEST_ID" == "1" ]]; then
+      die "request trace was required but no request id was captured or supplied"
+    fi
     summary_row "request_trace" "skipped_no_request_id"
     return 0
   fi
@@ -306,6 +322,9 @@ run_admin_diagnostic_smoke() {
 run_status_smoke
 run_chat_smoke
 run_responses_smoke
+if [[ "$REQUIRE_REQUEST_ID" == "1" && -z "$REQUEST_ID" ]]; then
+  die "request id was required but no request id was captured or supplied"
+fi
 run_admin_diagnostic_smoke
 
 summary_row "completed_at_utc" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"

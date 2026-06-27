@@ -117,16 +117,21 @@ scripts/prod-rollback.sh
 DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_API_KEY='sk-***' \
 DATA_PROXY_SMOKE_MODEL='gpt-4o-mini' \
+DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID=1 \
 scripts/data-proxy-production-smoke.sh
 ```
 
-需要同时验证 request trace 和诊断包时，传入管理员 header：
+需要同时验证 request trace 和诊断包时，传入管理员 header。发布验收建议开启
+`DATA_PROXY_SMOKE_REQUIRE_ADMIN=1`，这样没有管理员认证、没有 request id 或 trace
+不可用时会直接失败，而不是在 summary 里标记 skipped：
 
 ```bash
 DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
 DATA_PROXY_ADMIN_USER_ID='1' \
 DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
+DATA_PROXY_SMOKE_REQUIRE_ADMIN=1 \
+DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID=1 \
 DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
 scripts/data-proxy-production-smoke.sh
 ```
@@ -139,6 +144,8 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_ADMIN_ACCESS_TOKEN='***' \
 DATA_PROXY_ADMIN_USER_ID='1' \
 DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
+DATA_PROXY_SMOKE_REQUIRE_ADMIN=1 \
+DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID=1 \
 DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
 DATA_PROXY_SMOKE_CHAT=0 \
 DATA_PROXY_SMOKE_RESPONSES=0 \

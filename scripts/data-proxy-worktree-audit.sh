@@ -82,6 +82,7 @@ group_for_file() {
     docs/data-proxy-vnext-rc-release-evidence.md | \
     docs/data-proxy-vnext-stabilization-task-plan.md | \
     scripts/data-proxy-focused-regression.sh | \
+    scripts/data-proxy-production-smoke.sh | \
     scripts/data-proxy-worktree-audit.sh)
     echo "RC0_RELEASE_BASELINE"
     ;;

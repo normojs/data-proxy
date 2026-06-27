@@ -62,6 +62,7 @@ scripts/data-proxy-production-smoke.sh
 DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_API_KEY='sk-***' \
 DATA_PROXY_SMOKE_MODEL='gpt-4o-mini' \
+DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID=1 \
 scripts/data-proxy-production-smoke.sh
 ```
 
@@ -69,7 +70,9 @@ scripts/data-proxy-production-smoke.sh
 认证。`DATA_PROXY_ADMIN_HEADER` 使用完整 HTTP header，例如
 `Cookie: session=...`；也可以用管理员系统 access token，并同时传
 `DATA_PROXY_ADMIN_USER_ID`。默认不会下载诊断 zip；需要下载时再显式开启
-`DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE=1`。
+`DATA_PROXY_SMOKE_DOWNLOAD_BUNDLE=1`。发布验收建议开启
+`DATA_PROXY_SMOKE_REQUIRE_ADMIN=1` 和 `DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID=1`，
+避免缺少管理员认证、缺少 request id 或 trace 不可用时被误认为完整通过。
 
 ```bash
 DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
@@ -77,6 +80,8 @@ DATA_PROXY_API_KEY='sk-***' \
 DATA_PROXY_SMOKE_MODEL='gpt-4o-mini' \
 DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
 DATA_PROXY_ADMIN_USER_ID='1' \
+DATA_PROXY_SMOKE_REQUIRE_ADMIN=1 \
+DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID=1 \
 DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
 scripts/data-proxy-production-smoke.sh
 ```
@@ -88,6 +93,8 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
 DATA_PROXY_ADMIN_ACCESS_TOKEN='***' \
 DATA_PROXY_ADMIN_USER_ID='1' \
+DATA_PROXY_SMOKE_REQUIRE_ADMIN=1 \
+DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID=1 \
 DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
 DATA_PROXY_SMOKE_CHAT=0 \
 DATA_PROXY_SMOKE_RESPONSES=0 \
@@ -101,6 +108,8 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
 DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
 DATA_PROXY_ADMIN_USER_ID='1' \
 DATA_PROXY_SMOKE_REQUEST_ID='REQ_ID' \
+DATA_PROXY_SMOKE_REQUIRE_ADMIN=1 \
+DATA_PROXY_SMOKE_REQUIRE_REQUEST_ID=1 \
 DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
 DATA_PROXY_SMOKE_CHAT=0 \
 DATA_PROXY_SMOKE_RESPONSES=0 \
