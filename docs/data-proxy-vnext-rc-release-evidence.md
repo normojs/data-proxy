@@ -1,6 +1,6 @@
 # Data Proxy vNext RC 发布证据
 
-日期：2026-06-26
+日期：2026-06-27
 
 本项目基于 `new-api`，本次 RC 继续保留 AGPLv3、`NOTICE`、attribution 和
 第三方许可证文件。本文只记录可公开的发布证据，不记录 API key、Cookie、
@@ -19,15 +19,16 @@ stash@{0}: On main: park protocol conversion longtail after vnext
 
 ## Git 状态
 
-- current local commit SHA: `87e603b87d92da02aed9f058627c3a52801550b7`
-- current local commit short: `87e603b8`
+- current local commit SHA: `45eb77749fb5173649a4ec35527fbbe2ee6ee2d1`
+- current local commit short: `45eb7774`
 - branch: `main`
 - remote: `normojs/data-proxy`
-- pushed ref: 待推送；上一轮已推送 RC 为 `00821cf5`
+- pushed ref: `normojs/main`
 
 最近提交：
 
 ```text
+45eb7774 docs: record current release validation status
 87e603b8 chore: update ui translations for release changes
 3b48f0f6 fix: clarify admin-only service status nav setting
 f4ceb384 feat: add connected app management token flow
@@ -42,11 +43,8 @@ f4d007ab chore: classify data proxy worktree changes
 已通过：
 
 ```bash
-TMPDIR=/tmp scripts/data-proxy-release-gate.sh --scan-all
+scripts/data-proxy-release-gate.sh --scan-all
 scripts/data-proxy-release-gate.sh --with-tests --scan-all
-scripts/data-proxy-focused-regression.sh --p1
-scripts/data-proxy-focused-regression.sh --p2
-scripts/data-proxy-focused-regression.sh --p3
 scripts/data-proxy-focused-regression.sh --all --frontend
 ```
 
@@ -60,6 +58,7 @@ P1/P2/P3 聚焦回归覆盖：
 
 ```bash
 TMPDIR=/tmp scripts/data-proxy-worktree-audit.sh
+git status --short
 ```
 
 结果为空，当前发布候选工作区干净；协议转换长尾不进入当前提交线。
@@ -74,135 +73,153 @@ TMPDIR=/tmp scripts/data-proxy-worktree-audit.sh
   更新接口。
 - Topbar：服务状态入口配置页明确“无论开关普通用户都不可见”。
 
-尚未完成的发布证据：
-
-- 推送 `87e603b8` 到 `normojs/data-proxy`。
-- 等待 GitHub CI 和 Docker package workflow 重新运行并记录 run URL。
-- 生成新镜像包后部署到服务器并补生产 smoke。
-
 ## GitHub Actions
 
 ### CI
 
 - workflow: `CI`
-- run: `https://github.com/normojs/data-proxy/actions/runs/28246370371`
+- run: `https://github.com/normojs/data-proxy/actions/runs/28285624221`
 - conclusion: `success`
-- head SHA: `00821cf5be1b07e1cff68bc7be57204d0b89027a`
-
-已通过 jobs：
-
-- Backend
-- Frontend
-- Snapless Connected App
-- Fusion Benchmark
-
-说明：上一轮 `2c564ce9` 的 CI 曾因 `docker-compose.prod.yml` 未提交失败。已在
-`00821cf5` 提交中补入可公开的生产 Compose 模板，并将其纳入发布基线审计。
+- head SHA: `45eb77749fb5173649a4ec35527fbbe2ee6ee2d1`
+- completed at: `2026-06-27T09:50:18Z`
 
 ### Package Data Proxy Image
 
 - workflow: `Package Data Proxy image`
-- run: `https://github.com/normojs/data-proxy/actions/runs/28246370448`
+- run: `https://github.com/normojs/data-proxy/actions/runs/28285624210`
 - conclusion: `success`
-- head SHA: `00821cf5be1b07e1cff68bc7be57204d0b89027a`
+- head SHA: `45eb77749fb5173649a4ec35527fbbe2ee6ee2d1`
+- completed at: `2026-06-27T09:52:02Z`
 
-已通过步骤：
+GitHub package workflow 已通过。由于本次服务器侧 GitHub 下载速度不稳定，
+实际部署使用本地构建并通过 Electerm SFTP 上传的等价 linux/amd64 镜像包。
 
-- Build linux/amd64 image
-- Smoke test MySQL migration
-- Export image package
-- Upload image package
-
-Artifact：
+本地部署包：
 
 ```text
-data-proxy-00821cf5-linux-amd64
+/tmp/data-proxy-45eb7774-linux-amd64.tar.gz
+/tmp/data-proxy-45eb7774-linux-amd64.sha256
 ```
 
-本地下载位置：
+sha256：
 
 ```text
-/tmp/data-proxy-package-00821cf5/data-proxy-00821cf5-linux-amd64/
-```
-
-包文件：
-
-```text
-data-proxy-00821cf5-linux-amd64.tar.gz
-data-proxy-00821cf5-linux-amd64.sha256
-```
-
-校验：
-
-```text
-45dcac3b1e8a5f89c4eddb221aa001a279320589f5f3b3aac6723cdd7197f9da  data-proxy-00821cf5-linux-amd64.tar.gz
+9ad97123f64e8e5b3bb37aed38cfa9831fb0b1f808f2dbc8918457072eeaf532
 ```
 
 ## 部署状态
 
-待执行。
+状态：已部署到生产服务器。
 
-当前阻塞点：
+部署方式：
 
-- `ssh root@dp.app.mbu.ltd` 使用本机默认 SSH key 被服务器拒绝。
-- 本地 `http://127.0.0.1:30837/mcp` 当前没有监听，无法使用 Electerm MCP 通道。
+- 使用 `data-proxy-local-deploy` 流程。
+- 通过 Electerm SFTP 上传镜像包、sha256 文件和一次性远端部署脚本。
+- 远端部署脚本先校验 sha256，再归档旧镜像，最后加载并切换
+  `docker-compose.prod.yml` 中的镜像 tag。
+- 启动命令包含 WeChat Pay override：
+  `docker compose -f docker-compose.prod.yml -f docker-compose.wechat-pay.yml up -d data-proxy`。
 
-已准备好的部署包：
-
-```text
-/tmp/data-proxy-package-00821cf5/data-proxy-00821cf5-linux-amd64/data-proxy-00821cf5-linux-amd64.tar.gz
-```
-
-恢复服务器连接后，建议执行：
-
-```bash
-cd /root/workspace/dataproxy/data-proxy
-git fetch normojs main
-git checkout main
-git reset --hard 00821cf5be1b07e1cff68bc7be57204d0b89027a
-scripts/prod-deploy.sh /root/workspace/dataproxy/data-proxy-00821cf5-linux-amd64.tar
-```
-
-如果使用本地已下载的 gzip 包，需要先在服务器解压：
-
-```bash
-gunzip -c data-proxy-00821cf5-linux-amd64.tar.gz > data-proxy-00821cf5-linux-amd64.tar
-scripts/prod-deploy.sh ./data-proxy-00821cf5-linux-amd64.tar
-```
-
-部署脚本会在切换前归档当前运行镜像到：
+当前线上镜像：
 
 ```text
-/root/workspace/dataproxy/image-archive
+data-proxy:45eb7774
 ```
 
-## 生产 Smoke 待办
+远端镜像信息：
 
-部署后至少执行：
-
-```bash
-DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
-scripts/data-proxy-production-smoke.sh
+```text
+id=sha256:4c086fbd7210e5dd4d776aeeaf5720a383bf2f0d88cb24ef9110ce95aaa3493f
+created=2026-06-27T10:17:48.891298262Z
 ```
 
-如果有可用 API key 和管理员 header，再补：
+容器状态：
+
+```text
+data-proxy data-proxy:45eb7774 Up 8 minutes (healthy) 3000/tcp, 127.0.0.1:13002->13002/tcp
+```
+
+Compose 镜像行：
+
+```text
+docker-compose.prod.yml: image: data-proxy:45eb7774
+```
+
+回滚归档：
+
+```text
+/root/workspace/dataproxy/image-archive/20260627-182613_data-proxy_70800ed0.tar
+/root/workspace/dataproxy/image-archive/20260627-182613_data-proxy_70800ed0.tar.meta
+```
+
+回滚提示保存在 `.tar.meta` 中；如需回滚，先 `docker load` 该归档，再把
+`docker-compose.prod.yml` 镜像行切回旧 tag 并重新 `docker compose up -d`。
+
+## 生产 Smoke
+
+### `/api/status`
+
+本地端口：
+
+```text
+curl http://127.0.0.1:13002/api/status
+success=true
+version=sha-45eb7774
+server_address=https://dp.app.mbu.ltd
+```
+
+公网：
+
+```text
+curl -k https://dp.app.mbu.ltd/api/status
+success=true
+version=sha-45eb7774
+server_address=https://dp.app.mbu.ltd
+```
+
+### Chat / Responses
+
+使用生产 URL 和国产模型 key 执行：
 
 ```bash
-DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_BASE_URL='https://dp.app.mbu.ltd' \
 DATA_PROXY_API_KEY='sk-***' \
-DATA_PROXY_SMOKE_MODEL='<model>' \
-DATA_PROXY_ADMIN_HEADER='<admin-header>' \
-DATA_PROXY_SMOKE_DIAGNOSTIC=1 \
+DATA_PROXY_SMOKE_MODEL='deepseek-ai/DeepSeek-V4-Flash' \
+DATA_PROXY_SMOKE_TIMEOUT_SECONDS=60 \
+DATA_PROXY_SMOKE_OUTPUT='/tmp/data-proxy-smoke-45eb7774-domestic.md' \
 scripts/data-proxy-production-smoke.sh
 ```
 
-生产 smoke 需要补充记录：
+结果：
 
-- 当前运行镜像 tag 或 image id。
-- 当前运行镜像 digest。
-- 回滚镜像归档路径。
-- `/api/status` 结果。
-- Chat/Responses request id。
-- request trace/diagnostic bundle 结果。
-- 同模型备用渠道 failover smoke 结果。
-- Tunnel/`dpa status --json` 结果。
+```text
+api_status=passed
+chat_completions=passed
+responses=passed
+completed_at_utc=2026-06-27T10:29:47Z
+```
+
+手动补充 request id：
+
+```text
+chat_request_id=202606271030428481627518268d9d6XaLnnOAZ
+responses_request_id=20260627103047195310618268d9d6FXosDTVU
+```
+
+### 待管理员登录态补测
+
+以下接口需要管理员登录态或用户系统 access token，并且需要同时携带
+`New-Api-User`；普通 OpenAI API key 不能访问控制台诊断接口。
+
+待补测项目：
+
+- request trace：`GET /api/log/request/:request_id`
+- diagnostic candidates：`GET /api/log/request-diagnostic-candidates`
+- diagnostic report：`POST /api/log/request/:request_id/diagnostic`
+- diagnostic bundle：`GET /api/log/request/:request_id/diagnostic/bundle`
+- common logs request id 快捷入口和详情 PNG/SVG 导出 UI。
+- 同模型坏渠道自动切备用的生产演练。
+- Tunnel / `dpa status --json` 生产演练。
+
+本地回归已经覆盖上述能力的代码路径；生产补测需要在管理员控制台会话中执行，
+或提供只用于 smoke 的临时管理员 access token 和对应 `New-Api-User`。
