@@ -187,7 +187,18 @@ json_success() {
 
 header_request_id() {
   local headers="$1"
-  awk 'BEGIN{IGNORECASE=1} /^X-Oneapi-Request-Id:|^X-Data-Proxy-Request-Id:/ { gsub("\r", "", $2); print $2; exit }' "$headers"
+  awk '
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      lower = tolower(line)
+      if (lower ~ /^(x-oneapi-request-id|x-data-proxy-request-id|x-request-id|request-id|openai-request-id):/) {
+        sub(/^[^:]+:[[:space:]]*/, "", line)
+        print line
+        exit
+      }
+    }
+  ' "$headers"
 }
 
 uri_encode() {
