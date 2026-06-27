@@ -297,6 +297,31 @@ scripts/data-proxy-worktree-audit.sh --staged
 git diff --check -- scripts/data-proxy-worktree-audit.sh
 ```
 
+2026-06-28 生产部署和 smoke 记录：
+
+- 已部署 commit `b8e8078638b91ee6ce5df51595bbda6f6f7c4e4a`，生产镜像
+  `data-proxy:b8e80786`，`/api/status` 返回 `version=sha-b8e80786`。
+- 本地构建包：
+  `/tmp/data-proxy-b8e80786-local-linux-amd64.tar.gz`，SHA256
+  `32a2a022c1d94812c4ec7d3d7b58852540ce18fb26ed93c6a360ed2c27ac3b06`。
+- 部署时已生成上一版回滚镜像归档：
+  `/root/workspace/dataproxy/image-archive/20260627T204143Z_data-proxy_419d5e6d.tar`。
+- GitHub Actions：CI run `28300119929` 通过，Package Data Proxy image run
+  `28300119924` 通过。
+- 发布门禁：`scripts/data-proxy-release-gate.sh --scan-all` 通过。
+- 生产 smoke：
+  - `/api/status` 本机和公网均通过；
+  - `/v1/chat/completions` 通过，request id
+    `202606272045406297801528268d9d6eJOrRqeR`；
+  - `/v1/responses` 通过，request id
+    `202606272045428861194228268d9d6vkBO0Dyf`；
+  - admin request trace、诊断报告生成、诊断包下载均通过，诊断包为 zip，
+    大小 3039 字节；
+  - `dpa status` smoke 和 `dpa tunnel route test` 通过。
+- 说明：同模型坏渠道自动切备用的真实生产 smoke 仍需要线上已有坏渠道/备用渠道
+  测试配置，并需要以不暴露生产 API Key 的方式触发请求；本次未把 API Key 写入
+  终端命令或文档。
+
 ## 下一步
 
 马上执行：
