@@ -157,8 +157,9 @@ Status: partially implemented for a single-node MVP.
   with `MaxDecodedBundleBytes`, defaulting to 64 MiB per raw bundle.
 - Redact secrets and PII. Basic recursive JSON key redaction is implemented
   for common secret fields such as `api_key`, `authorization`, `token`,
-  `password`, `secret`, `cookie`, and `session`. Broader PII detection remains
-  pending.
+  `password`, `secret`, `cookie`, and `session`. String-level redaction is
+  implemented for obvious email addresses, bearer tokens, `sk-`-style API keys,
+  and common CN/US phone numbers. Broader PII detection remains pending.
 - Normalize Responses and Chat Completions variants into training schemas.
   Implemented for raw JSON responses and SSE text extraction, including Chat
   delta content and Responses `response.output_text.delta` events.

@@ -666,7 +666,9 @@ Raw bundles are not final training data. A builder job should:
 
 1. Load encrypted raw bundle.
 2. Decrypt in worker memory.
-3. Redact secrets and PII.
+3. Redact secrets and PII. The current MVP masks configured secret JSON keys,
+   obvious email addresses, bearer tokens, `sk-`-style API keys, and common
+   CN/US phone numbers; broader PII detection is a later enhancement.
 4. Normalize protocol variants into one training schema.
 5. Split into sample types:
    - chat SFT sample

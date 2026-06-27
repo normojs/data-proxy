@@ -103,8 +103,8 @@ func TestBuildTrainingCorpusDatasetFromRawCapture(t *testing.T) {
 		ProtocolChain: "chat",
 	})
 	require.NoError(t, err)
-	require.NoError(t, session.WriteArtifact("client_request.json", "application/json", []byte(`{"model":"qwen-plus","api_key":"secret-value","messages":[{"role":"user","content":"hello"}]}`)))
-	require.NoError(t, session.WriteArtifact("downstream_response.json", "application/json", []byte(`{"choices":[{"message":{"role":"assistant","content":"你好"}}]}`)))
+	require.NoError(t, session.WriteArtifact("client_request.json", "application/json", []byte(`{"model":"qwen-plus","api_key":"secret-value","messages":[{"role":"user","content":"hello from alice@example.com, call 13800138000, key sk-testsecretvalue1234567890"}]}`)))
+	require.NoError(t, session.WriteArtifact("downstream_response.json", "application/json", []byte(`{"choices":[{"message":{"role":"assistant","content":"你好"}}],"headers":{"authorization":"Bearer outputsecret1234567890"}}`)))
 	require.NoError(t, session.Finish())
 	_, err = FinalizeAndPersistRequestCaptureSpoolSession(context.Background(), RequestCaptureFinalizeOptions{SessionDir: session.Dir()})
 	require.NoError(t, err)
@@ -137,7 +137,14 @@ func TestBuildTrainingCorpusDatasetFromRawCapture(t *testing.T) {
 	assert.Equal(t, "你好", lines[0]["output"].(map[string]any)["text"])
 	body, _ := json.Marshal(lines[0])
 	assert.NotContains(t, string(body), "secret-value")
+	assert.NotContains(t, string(body), "alice@example.com")
+	assert.NotContains(t, string(body), "13800138000")
+	assert.NotContains(t, string(body), "sk-testsecretvalue1234567890")
+	assert.NotContains(t, string(body), "outputsecret1234567890")
 	assert.Contains(t, string(body), "[REDACTED]")
+	assert.Contains(t, string(body), "[REDACTED_EMAIL]")
+	assert.Contains(t, string(body), "[REDACTED_PHONE]")
+	assert.Contains(t, string(body), "[REDACTED_API_KEY]")
 }
 
 func TestBuildTrainingCorpusDatasetExtractsResponsesSSEText(t *testing.T) {
@@ -165,6 +172,31 @@ func TestBuildTrainingCorpusDatasetExtractsResponsesSSEText(t *testing.T) {
 	require.Equal(t, "artifacts/downstream_response.sse", artifactName)
 	require.Equal(t, "当前汇率", output["text"])
 	require.True(t, manifest.IsStream)
+}
+
+func TestTrainingCorpusRedactValueMasksStrings(t *testing.T) {
+	value := map[string]any{
+		"content": "email alice@example.com bearer Bearer abcdefghijklmnop phone +1 415-555-0100 key sk-testsecretvalue1234567890",
+		"nested": []any{
+			map[string]any{"note": "cn phone 13800138000"},
+			"send to bob@example.org",
+		},
+	}
+
+	body, err := json.Marshal(trainingCorpusRedactValue(value))
+	require.NoError(t, err)
+	text := string(body)
+
+	assert.NotContains(t, text, "alice@example.com")
+	assert.NotContains(t, text, "bob@example.org")
+	assert.NotContains(t, text, "Bearer abcdefghijklmnop")
+	assert.NotContains(t, text, "+1 415-555-0100")
+	assert.NotContains(t, text, "13800138000")
+	assert.NotContains(t, text, "sk-testsecretvalue1234567890")
+	assert.Contains(t, text, "[REDACTED_EMAIL]")
+	assert.Contains(t, text, "[REDACTED_BEARER]")
+	assert.Contains(t, text, "[REDACTED_PHONE]")
+	assert.Contains(t, text, "[REDACTED_API_KEY]")
 }
 
 func decodeTrainingCorpusJSONLForTest(t *testing.T, compressed []byte) []map[string]any {

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -27,8 +28,16 @@ const (
 	trainingCorpusDefaultMaxDecodedBundleSize = 64 * 1024 * 1024
 	trainingCorpusSchemaVersion               = "data_proxy.training.sample.v1"
 	trainingCorpusOutputFormat                = "jsonl.zst"
-	trainingCorpusRedactionVersion            = "basic-json-key-redaction-v1"
+	trainingCorpusRedactionVersion            = "basic-json-key-and-pii-redaction-v2"
 	trainingCorpusContentType                 = "application/x-ndjson"
+)
+
+var (
+	trainingCorpusEmailPattern       = regexp.MustCompile(`(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b`)
+	trainingCorpusBearerTokenPattern = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}`)
+	trainingCorpusAPIKeyPattern      = regexp.MustCompile(`\b(?:sk|rk|pk|ak)-[A-Za-z0-9][A-Za-z0-9_\-]{15,}\b`)
+	trainingCorpusCNPhonePattern     = regexp.MustCompile(`\b(?:\+?86[-\s]?)?1[3-9]\d{9}\b`)
+	trainingCorpusUSPhonePattern     = regexp.MustCompile(`\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b`)
 )
 
 type TrainingCorpusBuildOptions struct {
@@ -106,7 +115,14 @@ func BuildTrainingCorpusDataset(ctx context.Context, options TrainingCorpusBuild
 	scopeJSON, _ := common.Marshal(scope)
 	redactionJSON, _ := common.Marshal(map[string]any{
 		"version": trainingCorpusRedactionVersion,
-		"mode":    "basic_json_key_redaction",
+		"mode":    "basic_json_key_and_string_pii_redaction",
+		"patterns": []string{
+			"authorization_keys",
+			"bearer_tokens",
+			"api_keys",
+			"email",
+			"phone",
+		},
 	})
 	dataset := model.TrainingDatasetVersion{
 		Name:                name,
@@ -432,7 +448,7 @@ func trainingCorpusDecodePayload(body []byte) any {
 		return trainingCorpusRedactValue(value)
 	}
 	return map[string]any{
-		"raw_text": strings.TrimSpace(string(body)),
+		"raw_text": trainingCorpusRedactText(strings.TrimSpace(string(body))),
 	}
 }
 
@@ -460,7 +476,7 @@ func trainingCorpusDecodeOutput(body []byte, artifactName string) map[string]any
 	}
 	return map[string]any{
 		"format":        "text",
-		"text":          strings.TrimSpace(string(body)),
+		"text":          trainingCorpusRedactText(strings.TrimSpace(string(body))),
 		"artifact_name": artifactName,
 	}
 }
@@ -500,8 +516,9 @@ func trainingCorpusSSEText(body []byte) (string, string, []string) {
 		if eventType := trainingCorpusEventType(value); eventType != "" {
 			eventTypes[eventType] = true
 		}
-		text.WriteString(trainingCorpusOutputText(value))
-		reasoning.WriteString(trainingCorpusOutputReasoning(value))
+		redacted := trainingCorpusRedactValue(value)
+		text.WriteString(trainingCorpusOutputText(redacted))
+		reasoning.WriteString(trainingCorpusOutputReasoning(redacted))
 	}
 	eventList := make([]string, 0, len(eventTypes))
 	for eventType := range eventTypes {
@@ -628,9 +645,23 @@ func trainingCorpusRedactValue(value any) any {
 			out[i] = trainingCorpusRedactValue(child)
 		}
 		return out
+	case string:
+		return trainingCorpusRedactText(current)
 	default:
 		return current
 	}
+}
+
+func trainingCorpusRedactText(value string) string {
+	if value == "" {
+		return value
+	}
+	value = trainingCorpusBearerTokenPattern.ReplaceAllString(value, "[REDACTED_BEARER]")
+	value = trainingCorpusAPIKeyPattern.ReplaceAllString(value, "[REDACTED_API_KEY]")
+	value = trainingCorpusEmailPattern.ReplaceAllString(value, "[REDACTED_EMAIL]")
+	value = trainingCorpusCNPhonePattern.ReplaceAllString(value, "[REDACTED_PHONE]")
+	value = trainingCorpusUSPhonePattern.ReplaceAllString(value, "[REDACTED_PHONE]")
+	return value
 }
 
 func trainingCorpusSensitiveKey(key string) bool {
