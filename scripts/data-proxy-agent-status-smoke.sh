@@ -36,6 +36,9 @@ Optional:
   DATA_PROXY_AGENT_SMOKE_TOKEN=...                  Token written only to temporary config.
   DATA_PROXY_AGENT_SMOKE_DOCTOR=1                   Also run doctor --json. Default: 0.
   DATA_PROXY_AGENT_SMOKE_ROUTE_TEST=1               Also test local HTTP route. Default: 0.
+  DATA_PROXY_AGENT_SMOKE_HTTP_ROUTE_TARGET=http://127.0.0.1:9
+                                                       HTTP route target used by route test.
+  DATA_PROXY_AGENT_SMOKE_ROUTE_EXPECT_SUCCESS=1      Fail if route test does not pass. Default: 0.
   DATA_PROXY_AGENT_SMOKE_TIMEOUT=2s                 dpa timeout for health/route checks.
   DATA_PROXY_AGENT_SMOKE_OUTPUT=/path/summary.md    Write markdown summary to file.
 
@@ -58,12 +61,20 @@ BRIDGE_WS_URL="${DATA_PROXY_AGENT_SMOKE_BRIDGE_WS_URL:-}"
 TOKEN="${DATA_PROXY_AGENT_SMOKE_TOKEN:-sk-data-proxy-agent-status-smoke-secret}"
 RUN_DOCTOR="${DATA_PROXY_AGENT_SMOKE_DOCTOR:-0}"
 RUN_ROUTE_TEST="${DATA_PROXY_AGENT_SMOKE_ROUTE_TEST:-0}"
+HTTP_ROUTE_TARGET="${DATA_PROXY_AGENT_SMOKE_HTTP_ROUTE_TARGET:-http://127.0.0.1:9}"
+ROUTE_EXPECT_SUCCESS="${DATA_PROXY_AGENT_SMOKE_ROUTE_EXPECT_SUCCESS:-0}"
 TIMEOUT="${DATA_PROXY_AGENT_SMOKE_TIMEOUT:-2s}"
 OUTPUT="${DATA_PROXY_AGENT_SMOKE_OUTPUT:-}"
 
 if ! command -v "$AGENT_BIN" >/dev/null 2>&1 && [[ ! -x "$AGENT_BIN" ]]; then
   die "dpa binary not found: $AGENT_BIN"
 fi
+for boolean in RUN_DOCTOR RUN_ROUTE_TEST ROUTE_EXPECT_SUCCESS; do
+  value="${!boolean}"
+  if [[ "$value" != "0" && "$value" != "1" ]]; then
+    die "invalid $boolean=$value; expected 0 or 1"
+  fi
+done
 
 TMPDIR_SMOKE="$(mktemp -d "${TMPDIR:-/tmp}/data-proxy-agent-status-smoke.XXXXXX")"
 trap 'rm -rf "$TMPDIR_SMOKE"' EXIT
@@ -97,7 +108,7 @@ logging:
   local_audit_jsonl: "$AUDIT"
 http_routes:
   - name: "local-web"
-    target: "http://127.0.0.1:9"
+    target: "$HTTP_ROUTE_TARGET"
     allow_websocket: true
     allow_sse: true
 tcp_routes:
@@ -118,6 +129,7 @@ chmod 600 "$CONFIG"
   echo "| --- | --- |"
   printf '| base_url | `%s` |\n' "$BASE_URL"
   printf '| bridge_ws_url | `%s` |\n' "$BRIDGE_WS_URL"
+  printf '| http_route_target | `%s` |\n' "$HTTP_ROUTE_TARGET"
 } >"$SUMMARY"
 
 summary_row() {
@@ -183,6 +195,10 @@ if [[ "$RUN_ROUTE_TEST" == "1" ]]; then
   else
     route_status="failed_expected"
   fi
+  if [[ "$ROUTE_EXPECT_SUCCESS" == "1" && "$route_status" != "success" ]]; then
+    cat "$ROUTE_JSON.stderr" >&2
+    die "route test was required to pass but failed"
+  fi
   if grep -F "$TOKEN" "$ROUTE_JSON" "$ROUTE_JSON.stderr" >/dev/null; then
     die "route test output leaked token"
   fi
@@ -190,6 +206,9 @@ if [[ "$RUN_ROUTE_TEST" == "1" ]]; then
     cat "$ROUTE_JSON.stderr" >&2
     die "route test did not produce JSON"
   }
+  if [[ "$ROUTE_EXPECT_SUCCESS" == "1" ]]; then
+    jq -e '.status == "ok"' "$ROUTE_JSON" >/dev/null || die "route test JSON status was not ok"
+  fi
   summary_row "route_test_json" "$route_status"
 else
   summary_row "route_test_json" "skipped"

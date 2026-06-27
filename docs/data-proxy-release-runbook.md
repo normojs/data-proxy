@@ -234,6 +234,17 @@ DATA_PROXY_AGENT_SMOKE_DOCTOR=1 \
 scripts/data-proxy-agent-status-smoke.sh
 ```
 
+如需验证某个真实本地 HTTP route 可以连通，指定目标地址并要求 route test 成功：
+
+```bash
+DATA_PROXY_AGENT_BIN=/usr/local/bin/dpa \
+DATA_PROXY_AGENT_SMOKE_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_AGENT_SMOKE_ROUTE_TEST=1 \
+DATA_PROXY_AGENT_SMOKE_HTTP_ROUTE_TARGET=http://127.0.0.1:13002/api/status \
+DATA_PROXY_AGENT_SMOKE_ROUTE_EXPECT_SUCCESS=1 \
+scripts/data-proxy-agent-status-smoke.sh
+```
+
 通过条件：
 
 - `dpa status --json` 返回合法 JSON；
@@ -241,6 +252,8 @@ scripts/data-proxy-agent-status-smoke.sh
 - MCP/HTTP/TCP route 计数和 capabilities 可见；
 - 输出不能包含临时 token 明文；
 - 开启 doctor smoke 时，`doctor --json` 至少返回 workspace 和 local audit 诊断项。
+- 开启 route success smoke 时，`dpa tunnel route test local-web --json` 的
+  `status` 必须为 `ok`。
 
 ## 发布证据
 
