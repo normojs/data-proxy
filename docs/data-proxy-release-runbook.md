@@ -107,6 +107,51 @@ DATA_PROXY_SMOKE_RESPONSES=0 \
 scripts/data-proxy-production-smoke.sh
 ```
 
+### 同模型坏渠道自动切备用 smoke
+
+同模型 failover 生产验证使用非破坏式脚本。脚本只发送请求并读取 request trace /
+diagnostic candidates，不会创建、修改、禁用或删除生产渠道。运行前需要管理员先在
+控制台准备一组一次性测试渠道：
+
+- 两个启用渠道服务同一个测试模型名；
+- 第一条渠道稳定返回临时故障，例如 502/503/429 或超时；
+- 第二条渠道可正常返回；
+- `Retry Times >= 1`；
+- 临时故障规则包含该故障状态码或关键字，例如 `429,500-599`；
+- 不要把 5xx 放进硬故障自动禁用规则，避免测试渠道被持久禁用。
+
+运行示例：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_API_KEY='sk-***' \
+DATA_PROXY_FAILOVER_MODEL='deepseek-ai/DeepSeek-V4-Flash' \
+DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
+DATA_PROXY_ADMIN_USER_ID='1' \
+DATA_PROXY_FAILOVER_EXPECT_FAILED_STATUS_CODE=502 \
+DATA_PROXY_FAILOVER_OUTPUT=/tmp/data-proxy-failover-smoke.md \
+scripts/data-proxy-channel-failover-smoke.sh
+```
+
+如果已经有一条已知 request id，也可以只验证 trace：
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_FAILOVER_REQUEST_ID='REQ_ID' \
+DATA_PROXY_ADMIN_ACCESS_TOKEN='***' \
+DATA_PROXY_ADMIN_USER_ID='1' \
+scripts/data-proxy-channel-failover-smoke.sh
+```
+
+通过条件：
+
+- 请求最终有 consume 日志；
+- request trace 中存在 `admin_info.channel_failover`；
+- 至少一个 `failed` 事件包含 `retry_planned=true`；
+- 至少一个后续 `selected` 事件的 `retry_index > 0`；
+- `selected` 事件中出现至少两个不同渠道 ID；
+- diagnostic candidates 能按 `source=failover` 找到该 request id。
+
 每次生产 smoke 至少把 summary、Docker image digest、tag、commit SHA、回滚镜像
 记录到发布证据里。不要把 API key、Cookie、诊断 zip 或原始 capture bundle
 提交到 Git。

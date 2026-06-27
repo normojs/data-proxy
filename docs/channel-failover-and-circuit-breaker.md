@@ -80,3 +80,35 @@ Request trace:
   operator-only routing diagnostics are not exposed to ordinary users.
 
 Temporary circuit state is in-memory and single-node only. A process restart clears runtime state. Hard auto-disabled channel status is persisted in the database.
+
+## Production smoke
+
+Use `scripts/data-proxy-channel-failover-smoke.sh` to prove the behavior without
+mutating production channel configuration. The script only sends a normal Chat
+Completions request and reads admin request trace / diagnostic candidate APIs.
+
+Before running it, prepare disposable test channels in the admin console:
+
+- two enabled channels serve the same test model name;
+- the first channel returns a temporary fault such as 502/503/429 or timeout;
+- the second channel returns successfully;
+- `RetryTimes >= 1`;
+- temporary fault rules include the failing status code or keyword;
+- broad 5xx errors are not configured as hard auto-disable rules for this test.
+
+Example:
+
+```bash
+DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd \
+DATA_PROXY_API_KEY='sk-***' \
+DATA_PROXY_FAILOVER_MODEL='deepseek-ai/DeepSeek-V4-Flash' \
+DATA_PROXY_ADMIN_HEADER='Cookie: session=...' \
+DATA_PROXY_ADMIN_USER_ID='1' \
+DATA_PROXY_FAILOVER_EXPECT_FAILED_STATUS_CODE=502 \
+scripts/data-proxy-channel-failover-smoke.sh
+```
+
+The smoke passes only when the request has a successful consume log, request
+trace shows a failed selected channel with `retry_planned=true`, a later
+`selected` event with `retry_index > 0`, at least two distinct selected channel
+ids, and a failover diagnostic candidate for the same request id.
