@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { formatLogQuota } from '@/lib/format'
+import { formatLogQuota, formatTokenVolume } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useIsAdmin } from '@/hooks/use-admin'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -33,6 +33,7 @@ const route = getRouteApi('/_authenticated/usage-logs/$section')
 function StatBadge(props: {
   label: string
   value: string | number
+  detail?: string
   accent: string
 }) {
   return (
@@ -42,6 +43,11 @@ function StatBadge(props: {
       <span className='text-foreground/85 font-mono font-semibold tabular-nums'>
         {props.value}
       </span>
+      {props.detail && (
+        <span className='text-muted-foreground/70 font-mono tabular-nums'>
+          {props.detail}
+        </span>
+      )}
     </span>
   )
 }
@@ -89,6 +95,11 @@ export function CommonLogsStats() {
       <StatBadge
         label={t('Usage')}
         value={sensitiveVisible ? formatLogQuota(stats?.quota || 0) : '••••'}
+        detail={
+          sensitiveVisible
+            ? `${formatTokenVolume(stats?.tokens || 0)} ${t('tokens')}`
+            : undefined
+        }
         accent='bg-sky-500/70'
       />
       <StatBadge
@@ -98,7 +109,7 @@ export function CommonLogsStats() {
       />
       <StatBadge
         label={t('TPM')}
-        value={stats?.tpm || 0}
+        value={formatTokenVolume(stats?.tpm || 0)}
         accent='bg-slate-400/70'
       />
     </div>

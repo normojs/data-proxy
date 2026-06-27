@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useQueryClient, useIsFetching } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
 import { type Table } from '@tanstack/react-table'
 import { Eye, EyeOff } from 'lucide-react'
@@ -37,6 +37,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { FilterComboboxInput } from '@/components/filter-combobox-input'
+import { getLogFilterOptions } from '../api'
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
 import { getDefaultTimeRange } from '../lib/utils'
@@ -127,7 +129,15 @@ export function CommonLogsFilterBar<TData>(
   )
 
   const handleApply = useCallback(() => {
-    const filterParams = buildSearchParams(filters, 'common')
+    const filterParams = buildSearchParams(
+      {
+        ...filters,
+        username: isAdmin ? filters.username : undefined,
+        channel: isAdmin ? filters.channel : undefined,
+        upstreamRequestId: isAdmin ? filters.upstreamRequestId : undefined,
+      },
+      'common'
+    )
     navigate({
       to: '/usage-logs/$section',
       params: { section: 'common' },
@@ -139,7 +149,7 @@ export function CommonLogsFilterBar<TData>(
     })
     queryClient.invalidateQueries({ queryKey: ['logs'] })
     queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
-  }, [filters, logType, navigate, queryClient])
+  }, [filters, isAdmin, logType, navigate, queryClient])
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
@@ -195,10 +205,10 @@ export function CommonLogsFilterBar<TData>(
 
   const hasExpandedFilters =
     !!filters.token ||
-    !!filters.username ||
-    !!filters.channel ||
+    (isAdmin && !!filters.username) ||
+    (isAdmin && !!filters.channel) ||
     !!filters.requestId ||
-    !!filters.upstreamRequestId
+    (isAdmin && !!filters.upstreamRequestId)
 
   const hasTypeFilter = logType !== LOG_TYPE_ALL_VALUE
   const hasAdditionalFilters =
@@ -209,7 +219,7 @@ export function CommonLogsFilterBar<TData>(
     isAdmin ? filters.username : undefined,
     isAdmin ? filters.channel : undefined,
     filters.requestId,
-    filters.upstreamRequestId,
+    isAdmin ? filters.upstreamRequestId : undefined,
   ].filter(Boolean).length
   const sensitiveType = sensitiveVisible ? 'text' : 'password'
   const logTypeItems = useMemo(
@@ -228,6 +238,57 @@ export function CommonLogsFilterBar<TData>(
   const candidateEndTimestamp = filters.endTime
     ? Math.floor(filters.endTime.getTime() / 1000)
     : undefined
+  const logFilterOptionsQuery = useQuery({
+    queryKey: [
+      'usage-log-filter-options',
+      isAdmin,
+      logType,
+      candidateStartTimestamp,
+      candidateEndTimestamp,
+      isAdmin ? filters.username : '',
+      isAdmin ? filters.channel : '',
+    ],
+    queryFn: () =>
+      getLogFilterOptions(
+        {
+          type: Number(logType) || undefined,
+          start_timestamp: candidateStartTimestamp,
+          end_timestamp: candidateEndTimestamp,
+          username: isAdmin ? filters.username : undefined,
+          channel:
+            isAdmin && filters.channel
+              ? Number(filters.channel) || 0
+              : undefined,
+        },
+        isAdmin
+      ),
+    staleTime: 60 * 1000,
+  })
+  const filterOptionData = logFilterOptionsQuery.data?.data
+  const groupOptions = useMemo(
+    () =>
+      (filterOptionData?.groups ?? []).map((group) => ({
+        value: group,
+        label: group,
+      })),
+    [filterOptionData?.groups]
+  )
+  const modelOptions = useMemo(
+    () =>
+      (filterOptionData?.model_names ?? []).map((model) => ({
+        value: model,
+        label: model,
+      })),
+    [filterOptionData?.model_names]
+  )
+  const tokenOptions = useMemo(
+    () =>
+      (filterOptionData?.token_names ?? []).map((token) => ({
+        value: token,
+        label: token,
+      })),
+    [filterOptionData?.token_names]
+  )
 
   const statsBar = (
     <div className='flex flex-wrap items-center gap-2'>
@@ -272,24 +333,30 @@ export function CommonLogsFilterBar<TData>(
       />
     </LogsFilterField>
   )
-  const modelFilter = (
+  const groupFilter = (
     <LogsFilterField>
-      <LogsFilterInput
-        placeholder={t('Model Name')}
-        value={filters.model || ''}
-        onChange={(e) => handleChange('model', e.target.value)}
+      <FilterComboboxInput
+        placeholder={t('Group')}
+        inputType={sensitiveType}
+        value={filters.group || ''}
+        onValueChange={(value) => handleChange('group', value)}
         onKeyDown={handleKeyDown}
+        options={groupOptions}
+        searchPlaceholder={t('Search groups...')}
+        emptyText={t('No group found.')}
       />
     </LogsFilterField>
   )
-  const groupFilter = (
+  const modelFilter = (
     <LogsFilterField>
-      <LogsFilterInput
-        placeholder={t('Group')}
-        type={sensitiveType}
-        value={filters.group || ''}
-        onChange={(e) => handleChange('group', e.target.value)}
+      <FilterComboboxInput
+        placeholder={t('Model Name')}
+        value={filters.model || ''}
+        onValueChange={(value) => handleChange('model', value)}
         onKeyDown={handleKeyDown}
+        options={modelOptions}
+        searchPlaceholder={t('Search models...')}
+        emptyText={t('No model found.')}
       />
     </LogsFilterField>
   )
@@ -322,12 +389,15 @@ export function CommonLogsFilterBar<TData>(
   const advancedFilters = (
     <>
       <LogsFilterField>
-        <LogsFilterInput
+        <FilterComboboxInput
           placeholder={t('Token Name')}
-          type={sensitiveType}
+          inputType={sensitiveType}
           value={filters.token || ''}
-          onChange={(e) => handleChange('token', e.target.value)}
+          onValueChange={(value) => handleChange('token', value)}
           onKeyDown={handleKeyDown}
+          options={tokenOptions}
+          searchPlaceholder={t('Search tokens...')}
+          emptyText={t('No token found.')}
         />
       </LogsFilterField>
       {isAdmin && (
@@ -359,14 +429,16 @@ export function CommonLogsFilterBar<TData>(
           onKeyDown={handleKeyDown}
         />
       </LogsFilterField>
-      <LogsFilterField>
-        <LogsFilterInput
-          placeholder={t('Upstream Request ID')}
-          value={filters.upstreamRequestId || ''}
-          onChange={(e) => handleChange('upstreamRequestId', e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-      </LogsFilterField>
+      {isAdmin && (
+        <LogsFilterField>
+          <LogsFilterInput
+            placeholder={t('Upstream Request ID')}
+            value={filters.upstreamRequestId || ''}
+            onChange={(e) => handleChange('upstreamRequestId', e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+        </LogsFilterField>
+      )}
     </>
   )
 
@@ -377,8 +449,8 @@ export function CommonLogsFilterBar<TData>(
       primaryFilters={
         <>
           {dateRangeFilter}
-          {modelFilter}
           {groupFilter}
+          {modelFilter}
           {typeFilter}
         </>
       }
@@ -386,8 +458,8 @@ export function CommonLogsFilterBar<TData>(
       mobilePinnedFilters={dateRangeFilter}
       mobileFilters={
         <>
-          {modelFilter}
           {groupFilter}
+          {modelFilter}
           {typeFilter}
           {advancedFilters}
         </>

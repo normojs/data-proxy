@@ -55,6 +55,12 @@ type Log struct {
 	Other             string `json:"other"`
 }
 
+type LogFilterOptions struct {
+	Groups     []string `json:"groups"`
+	ModelNames []string `json:"model_names"`
+	TokenNames []string `json:"token_names"`
+}
+
 // don't use iota, avoid change log type value
 const (
 	LogTypeUnknown = 0
@@ -267,7 +273,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	if common.DataExportEnabled {
 		gopool.Go(func() {
-			LogQuotaData(userId, username, params.ModelName, params.Quota, common.GetTimestamp(), params.PromptTokens+params.CompletionTokens)
+			LogQuotaData(userId, username, params.ModelName, params.ChannelId, params.Quota, common.GetTimestamp(), params.PromptTokens+params.CompletionTokens)
 		})
 	}
 }
@@ -483,14 +489,78 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	return logs, total, err
 }
 
+const logFilterOptionLimit = 500
+
+func baseLogFilterOptionsQuery(userId int, scopedToUser bool, logType int, startTimestamp int64, endTimestamp int64, username string, channel int) *gorm.DB {
+	tx := LOG_DB.Model(&Log{})
+	if scopedToUser {
+		tx = tx.Where("logs.user_id = ?", userId)
+	}
+	if logType != LogTypeUnknown {
+		tx = tx.Where("logs.type = ?", logType)
+	}
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	if username != "" && !scopedToUser {
+		tx = tx.Where("logs.username = ?", username)
+	}
+	if channel != 0 && !scopedToUser {
+		tx = tx.Where("logs.channel_id = ?", channel)
+	}
+	return tx
+}
+
+func distinctLogStrings(tx *gorm.DB, column string) ([]string, error) {
+	values := make([]string, 0)
+	if err := tx.
+		Where(column+" <> ''").
+		Distinct(column).
+		Order(column+" asc").
+		Limit(logFilterOptionLimit).
+		Pluck(column, &values).Error; err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+func GetLogFilterOptions(userId int, scopedToUser bool, logType int, startTimestamp int64, endTimestamp int64, username string, channel int) (LogFilterOptions, error) {
+	baseQuery := baseLogFilterOptionsQuery(userId, scopedToUser, logType, startTimestamp, endTimestamp, username, channel)
+
+	groups, err := distinctLogStrings(baseQuery.Session(&gorm.Session{}), "logs."+logGroupCol)
+	if err != nil {
+		return LogFilterOptions{}, err
+	}
+
+	modelNames, err := distinctLogStrings(baseQuery.Session(&gorm.Session{}), "logs.model_name")
+	if err != nil {
+		return LogFilterOptions{}, err
+	}
+
+	tokenNames, err := distinctLogStrings(baseQuery.Session(&gorm.Session{}), "logs.token_name")
+	if err != nil {
+		return LogFilterOptions{}, err
+	}
+
+	return LogFilterOptions{
+		Groups:     groups,
+		ModelNames: modelNames,
+		TokenNames: tokenNames,
+	}, nil
+}
+
 type Stat struct {
-	Quota int `json:"quota"`
-	Rpm   int `json:"rpm"`
-	Tpm   int `json:"tpm"`
+	Quota  int `json:"quota"`
+	Rpm    int `json:"rpm"`
+	Tpm    int `json:"tpm"`
+	Tokens int `json:"tokens"`
 }
 
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
-	tx := LOG_DB.Table("logs").Select("sum(quota) quota")
+	tx := LOG_DB.Table("logs").Select("COALESCE(SUM(quota), 0) AS quota, COALESCE(SUM(prompt_tokens), 0) + COALESCE(SUM(completion_tokens), 0) AS tokens")
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, sum(prompt_tokens) + sum(completion_tokens) tpm")

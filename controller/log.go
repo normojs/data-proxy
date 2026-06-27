@@ -148,6 +148,34 @@ func GetUserLogs(c *gin.Context) {
 	return
 }
 
+func GetLogFilterOptions(c *gin.Context) {
+	logType, _ := strconv.Atoi(c.Query("type"))
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	username := c.Query("username")
+	channel, _ := strconv.Atoi(c.Query("channel"))
+
+	options, err := model.GetLogFilterOptions(0, false, logType, startTimestamp, endTimestamp, username, channel)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, options)
+}
+
+func GetSelfLogFilterOptions(c *gin.Context) {
+	logType, _ := strconv.Atoi(c.Query("type"))
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+
+	options, err := model.GetLogFilterOptions(c.GetInt("id"), true, logType, startTimestamp, endTimestamp, "", 0)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, options)
+}
+
 func buildRequestLogTraceResponse(query string, scope string, logs []*model.Log, includeAdmin bool) requestLogTraceResponse {
 	response := requestLogTraceResponse{
 		Query:              query,
@@ -449,9 +477,10 @@ func GetLogsStat(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"quota": stat.Quota,
-			"rpm":   stat.Rpm,
-			"tpm":   stat.Tpm,
+			"quota":  stat.Quota,
+			"rpm":    stat.Rpm,
+			"tpm":    stat.Tpm,
+			"tokens": stat.Tokens,
 		},
 	})
 	return
@@ -476,9 +505,10 @@ func GetLogsSelfStat(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"quota": quotaNum.Quota,
-			"rpm":   quotaNum.Rpm,
-			"tpm":   quotaNum.Tpm,
+			"quota":  quotaNum.Quota,
+			"rpm":    quotaNum.Rpm,
+			"tpm":    quotaNum.Tpm,
+			"tokens": quotaNum.Tokens,
 			//"token": tokenNum,
 		},
 	})

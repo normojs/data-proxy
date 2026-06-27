@@ -55,6 +55,12 @@ export interface CommonLogFilters extends CommonFilters {
   upstreamRequestId?: string
 }
 
+export interface LogFilterOptions {
+  groups: string[]
+  model_names: string[]
+  token_names: string[]
+}
+
 /**
  * Drawing logs specific filters
  */
@@ -178,6 +184,7 @@ export interface LogOtherData {
     use_channel?: number[]
     local_count_tokens?: boolean
     channel_affinity?: ChannelAffinityInfo
+    multi_key_affinity?: MultiKeyAffinityInfo
     channel_failover?: ChannelFailoverEvent[]
     // Top-up audit fields (type=1, admin only)
     payment_method?: string
@@ -272,6 +279,22 @@ export interface LogOtherData {
   subscription_total?: number
 }
 
+export interface MultiKeyAffinityInfo {
+  enabled?: boolean
+  mode?: string
+  seed_source?: string
+  seed_fp?: string
+  binding_hit?: boolean
+  selected_key_index?: number
+  selected_key_fp?: string
+  primary_key_index?: number
+  load_state?: string
+  key_load?: number
+  avg_rpm?: number
+  avg_inflight?: number
+  fallback_reason?: string
+}
+
 /**
  * Log statistics data
  */
@@ -279,6 +302,7 @@ export interface LogStatistics {
   quota: number
   rpm: number
   tpm: number
+  tokens: number
 }
 
 // ============================================================================
@@ -380,6 +404,20 @@ export interface GetLogStatsResponse {
   success: boolean
   message?: string
   data?: LogStatistics
+}
+
+export interface GetLogFilterOptionsParams {
+  type?: number
+  start_timestamp?: number
+  end_timestamp?: number
+  username?: string
+  channel?: number
+}
+
+export interface GetLogFilterOptionsResponse {
+  success: boolean
+  message?: string
+  data?: LogFilterOptions
 }
 
 export interface RequestLogTraceSummary {

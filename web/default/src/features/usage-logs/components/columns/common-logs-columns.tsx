@@ -32,6 +32,7 @@ import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
   formatUseTime,
   formatLogQuota,
+  formatTokenVolume,
   formatTimestampToDate,
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -860,6 +861,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const quota = row.getValue('quota') as number
         const other = parseLogOther(log.other)
         const isSubscription = other?.billing_source === 'subscription'
+        const totalTokens =
+          (log.prompt_tokens || 0) + (log.completion_tokens || 0)
+        const tokenLabel =
+          totalTokens > 0
+            ? `${formatTokenVolume(totalTokens)} ${t('tokens')}`
+            : null
 
         if (isSubscription) {
           return (
@@ -877,9 +884,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   }
                 />
                 <TooltipContent>
-                  <span>
-                    {t('Deducted by subscription')}: {formatLogQuota(quota)}
-                  </span>
+                  <div className='space-y-0.5 text-xs'>
+                    <p>
+                      {t('Deducted by subscription')}: {formatLogQuota(quota)}
+                    </p>
+                    {tokenLabel && <p>{tokenLabel}</p>}
+                  </div>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -897,6 +907,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               )}
               <span>{quotaDisplay.amount}</span>
             </span>
+            {tokenLabel && (
+              <div className='text-muted-foreground/70 font-mono text-[11px] leading-none tabular-nums'>
+                {tokenLabel}
+              </div>
+            )}
           </div>
         )
       },

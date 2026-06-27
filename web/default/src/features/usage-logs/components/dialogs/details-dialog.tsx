@@ -39,6 +39,7 @@ import { useTranslation } from 'react-i18next'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
   formatLogQuota,
+  formatTokenVolume,
   formatTimestampToDate,
   formatTokens,
   formatUseTime,
@@ -156,6 +157,107 @@ function DetailSection(props: {
 function formatRatio(ratio: number | undefined): string {
   if (ratio == null) return '-'
   return ratio.toFixed(4)
+}
+
+function getTotalTokens(log: UsageLog): number {
+  return (log.prompt_tokens || 0) + (log.completion_tokens || 0)
+}
+
+function formatCostPerMillionTokens(log: UsageLog): string {
+  const totalTokens = getTotalTokens(log)
+  if (totalTokens <= 0 || log.quota <= 0) return '-'
+  return formatLogQuota((log.quota / totalTokens) * 1_000_000)
+}
+
+function escapeSvgText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function buildLogDetailsExportSvg(params: {
+  log: UsageLog
+  title: string
+  typeLabel: string
+  fields: Array<{ label: string; value: string }>
+}): string {
+  const width = 960
+  const rowHeight = 34
+  const headerHeight = 92
+  const footerHeight = 34
+  const height = headerHeight + params.fields.length * rowHeight + footerHeight
+  const rows = params.fields
+    .map((field, index) => {
+      const y = headerHeight + index * rowHeight
+      const fill = index % 2 === 0 ? '#ffffff' : '#f8fafc'
+      return `
+        <rect x="24" y="${y}" width="${width - 48}" height="${rowHeight}" fill="${fill}" />
+        <text x="48" y="${y + 22}" fill="#64748b" font-size="13" font-weight="600">${escapeSvgText(field.label)}</text>
+        <text x="250" y="${y + 22}" fill="#0f172a" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace">${escapeSvgText(field.value || '-')}</text>
+      `
+    })
+    .join('')
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    <rect width="${width}" height="${height}" fill="#f8fafc" />
+    <rect x="24" y="24" width="${width - 48}" height="${height - 48}" rx="10" fill="#ffffff" stroke="#e2e8f0" />
+    <text x="48" y="56" fill="#0f172a" font-size="22" font-weight="700" font-family="system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">${escapeSvgText(params.title)}</text>
+    <text x="48" y="80" fill="#64748b" font-size="13" font-family="system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">${escapeSvgText(params.typeLabel)}</text>
+    ${rows}
+    <text x="48" y="${height - 30}" fill="#94a3b8" font-size="12" font-family="system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">Data Proxy · ${escapeSvgText(formatTimestampToDate(Math.floor(Date.now() / 1000)))}</text>
+  </svg>`
+}
+
+function exportLogDetails(params: {
+  log: UsageLog
+  title: string
+  typeLabel: string
+  fields: Array<{ label: string; value: string }>
+  format: 'svg' | 'png'
+}) {
+  const slug = params.log.request_id || `log-${params.log.id}`
+  const filenameBase = `usage-log-${slug}`.replace(/[^\w.-]+/g, '-')
+  const svg = buildLogDetailsExportSvg(params)
+
+  if (params.format === 'svg') {
+    downloadBlob(
+      new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }),
+      `${filenameBase}.svg`
+    )
+    return
+  }
+
+  const image = new Image()
+  const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(svgBlob)
+  image.onload = () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = image.width
+    canvas.height = image.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      URL.revokeObjectURL(url)
+      return
+    }
+    ctx.drawImage(image, 0, 0)
+    canvas.toBlob((blob) => {
+      URL.revokeObjectURL(url)
+      if (blob) downloadBlob(blob, `${filenameBase}.png`)
+    }, 'image/png')
+  }
+  image.src = url
 }
 
 function hasConversionMeta(other: LogOtherData | null): boolean {
@@ -610,9 +712,7 @@ function compactJoin(parts: Array<string | number | undefined | null>): string {
     .join(' · ')
 }
 
-function ChannelFailoverTraceList(props: {
-  events: ChannelFailoverEvent[]
-}) {
+function ChannelFailoverTraceList(props: { events: ChannelFailoverEvent[] }) {
   const { t } = useTranslation()
   const { events } = props
   if (events.length === 0) return null
@@ -723,6 +823,96 @@ function ChannelFailoverTraceList(props: {
         })}
       </div>
     </div>
+  )
+}
+
+function loadStateVariant(state?: string): StatusBadgeProps['variant'] {
+  if (state === 'hard_overload') return 'red'
+  if (state === 'soft_overload') return 'yellow'
+  if (state === 'normal') return 'green'
+  return 'neutral'
+}
+
+function loadStateLabel(
+  state: string | undefined,
+  t: (key: string) => string
+): string {
+  const labels: Record<string, string> = {
+    normal: t('Normal'),
+    soft_overload: t('Soft overload'),
+    hard_overload: t('Hard overload'),
+  }
+  return state ? labels[state] || state : t('Unknown')
+}
+
+function MultiKeyAffinitySection(props: { other: LogOtherData }) {
+  const { t } = useTranslation()
+  const affinity = props.other.admin_info?.multi_key_affinity
+  if (!affinity?.enabled) return null
+
+  const loadParts = [
+    affinity.key_load != null ? `${t('Load')} ${affinity.key_load}x` : null,
+    affinity.avg_rpm != null ? `${t('Avg RPM')} ${affinity.avg_rpm}` : null,
+    affinity.avg_inflight != null
+      ? `${t('Avg Inflight')} ${affinity.avg_inflight}`
+      : null,
+  ].filter(Boolean)
+
+  return (
+    <DetailSection label={t('Multi-key Assignment')}>
+      <DetailRow
+        label={t('Strategy')}
+        value={affinity.mode || 'sticky_hash_bounded'}
+        mono
+      />
+      <DetailRow
+        label={t('Seed')}
+        value={compactJoin([affinity.seed_source, affinity.seed_fp])}
+        mono
+      />
+      <DetailRow
+        label={t('Selected Key')}
+        value={compactJoin([
+          affinity.selected_key_index != null
+            ? `#${affinity.selected_key_index}`
+            : undefined,
+          affinity.selected_key_fp,
+        ])}
+        mono
+      />
+      {affinity.primary_key_index != null && (
+        <DetailRow
+          label={t('Primary Key')}
+          value={`#${affinity.primary_key_index}`}
+          mono
+        />
+      )}
+      <DetailRow
+        label={t('Binding')}
+        value={affinity.binding_hit ? t('Hit') : t('Miss')}
+      />
+      <DetailRow
+        label={t('Load State')}
+        value={
+          <span className='flex flex-wrap items-center gap-1.5'>
+            <StatusBadge
+              label={loadStateLabel(affinity.load_state, t)}
+              variant={loadStateVariant(affinity.load_state)}
+              size='sm'
+              copyable={false}
+            />
+            {loadParts.length > 0 && (
+              <span className='text-muted-foreground font-mono text-[11px]'>
+                {loadParts.join(' · ')}
+              </span>
+            )}
+          </span>
+        }
+      />
+      {affinity.fallback_reason && (
+        <DetailRow label={t('Reason')} value={affinity.fallback_reason} mono />
+      )}
+    </DetailSection>
   )
 }
 
@@ -990,9 +1180,7 @@ function RequestTraceSection(props: {
 
   const traceCopyText = JSON.stringify(trace, null, 2)
   const meta = safeTraceMeta(trace.diagnostics.request_conversion_meta)
-  const failoverEvents = safeChannelFailoverEvents(
-    trace.diagnostics.admin_info
-  )
+  const failoverEvents = safeChannelFailoverEvents(trace.diagnostics.admin_info)
   const errors = Array.isArray(trace.diagnostics.errors)
     ? trace.diagnostics.errors.filter(Boolean)
     : []
@@ -1083,6 +1271,30 @@ function RequestTraceSection(props: {
               value={formatLogQuota(trace.summary.quota)}
               mono
             />
+          )}
+          {trace.summary.prompt_tokens + trace.summary.completion_tokens >
+            0 && (
+            <>
+              <DetailRow
+                label={t('Total Tokens')}
+                value={formatTokenVolume(
+                  trace.summary.prompt_tokens + trace.summary.completion_tokens
+                )}
+                mono
+              />
+              {trace.summary.quota > 0 && (
+                <DetailRow
+                  label={t('Cost per 1M tokens')}
+                  value={formatLogQuota(
+                    (trace.summary.quota /
+                      (trace.summary.prompt_tokens +
+                        trace.summary.completion_tokens)) *
+                      1_000_000
+                  )}
+                  mono
+                />
+              )}
+            </>
           )}
         </div>
 
@@ -1323,6 +1535,17 @@ function BillingBreakdown(props: {
     label: t('Total Cost'),
     value: formatLogQuota(log.quota),
   })
+  const totalTokens = getTotalTokens(log)
+  if (totalTokens > 0) {
+    rows.push({
+      label: t('Total Tokens'),
+      value: `${formatTokenVolume(totalTokens)} (${totalTokens.toLocaleString()})`,
+    })
+    rows.push({
+      label: t('Cost per 1M tokens'),
+      value: formatCostPerMillionTokens(log),
+    })
+  }
 
   if (rows.length === 0) return null
 
@@ -1540,6 +1763,55 @@ export function DetailsDialog(props: DetailsDialogProps) {
       : requestDiagnosticResponse && !requestDiagnosticResponse.success
         ? requestDiagnosticResponse.message || t('Diagnostic unavailable')
         : undefined
+  const totalTokens = getTotalTokens(props.log)
+  const exportTitle = t('Log Details')
+  const exportTypeLabel = t(typeConfig.label)
+  const exportFields = [
+    { label: t('Request ID'), value: props.log.request_id || '-' },
+    {
+      label: t('Upstream Request ID'),
+      value: props.log.upstream_request_id || '-',
+    },
+    { label: t('Model'), value: props.log.model_name || '-' },
+    { label: t('User'), value: props.log.username || '-' },
+    { label: t('Token'), value: props.log.token_name || '-' },
+    {
+      label: t('Group'),
+      value: props.log.group || other?.group || '-',
+    },
+    {
+      label: t('Channel'),
+      value: props.log.channel_name || String(props.log.channel || '-'),
+    },
+    {
+      label: t('Created At'),
+      value: formatTimestampToDate(props.log.created_at),
+    },
+    {
+      label: t('Response Time'),
+      value: props.log.use_time > 0 ? formatUseTime(props.log.use_time) : '-',
+    },
+    { label: t('Total Cost'), value: formatLogQuota(props.log.quota) },
+    {
+      label: t('Total Tokens'),
+      value:
+        totalTokens > 0
+          ? `${formatTokenVolume(totalTokens)} (${totalTokens.toLocaleString()})`
+          : '-',
+    },
+    {
+      label: t('Cost per 1M tokens'),
+      value: formatCostPerMillionTokens(props.log),
+    },
+    {
+      label: t('Input Tokens'),
+      value: (props.log.prompt_tokens || 0).toLocaleString(),
+    },
+    {
+      label: t('Output Tokens'),
+      value: (props.log.completion_tokens || 0).toLocaleString(),
+    },
+  ]
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -1551,15 +1823,57 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
       >
         <DialogHeader className='max-sm:gap-1'>
-          <DialogTitle className='flex items-center gap-2 text-base'>
-            {t('Log Details')}
-            <StatusBadge
-              label={t(typeConfig.label)}
-              variant={typeConfig.color as StatusBadgeProps['variant']}
-              size='sm'
-              copyable={false}
-            />
-          </DialogTitle>
+          <div className='flex min-w-0 items-start justify-between gap-3 pr-7'>
+            <DialogTitle className='flex min-w-0 items-center gap-2 text-base'>
+              {t('Log Details')}
+              <StatusBadge
+                label={exportTypeLabel}
+                variant={typeConfig.color as StatusBadgeProps['variant']}
+                size='sm'
+                copyable={false}
+              />
+            </DialogTitle>
+            <div className='flex shrink-0 items-center gap-1.5'>
+              <Button
+                variant='outline'
+                size='sm'
+                className='h-7 gap-1 px-2 text-xs'
+                title={t('Download as PNG')}
+                aria-label={t('Download as PNG')}
+                onClick={() =>
+                  exportLogDetails({
+                    log: props.log,
+                    title: exportTitle,
+                    typeLabel: exportTypeLabel,
+                    fields: exportFields,
+                    format: 'png',
+                  })
+                }
+              >
+                <Download className='size-3' aria-hidden='true' />
+                PNG
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                className='h-7 gap-1 px-2 text-xs'
+                title={t('Download as SVG')}
+                aria-label={t('Download as SVG')}
+                onClick={() =>
+                  exportLogDetails({
+                    log: props.log,
+                    title: exportTitle,
+                    typeLabel: exportTypeLabel,
+                    fields: exportFields,
+                    format: 'svg',
+                  })
+                }
+              >
+                <Download className='size-3' aria-hidden='true' />
+                SVG
+              </Button>
+            </div>
+          </div>
           <DialogDescription className='sr-only'>
             {t('View the complete details for this log entry')}
           </DialogDescription>
@@ -1940,6 +2254,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   mono
                 />
               </DetailSection>
+            )}
+
+            {props.isAdmin && other?.admin_info?.multi_key_affinity && (
+              <MultiKeyAffinitySection other={other} />
             )}
 
             {/* Token breakdown (for consume/error types with token data) */}

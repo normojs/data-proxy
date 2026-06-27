@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { type Row } from '@tanstack/react-table'
 import {
   MoreHorizontal,
@@ -30,6 +31,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  FileText,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -62,6 +64,7 @@ interface DataTableRowActionsProps {
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const user = row.original
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
@@ -77,6 +80,17 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const handleDelete = () => {
     setCurrentRow(user)
     setOpen('delete')
+  }
+
+  const handleViewUsageLogs = () => {
+    void navigate({
+      to: '/usage-logs/$section',
+      params: { section: 'common' },
+      search: {
+        username: user.username,
+        page: 1,
+      },
+    })
   }
 
   const handleManage = async (action: Exclude<ManageUserAction, 'delete'>) => {
@@ -149,7 +163,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           <MoreHorizontal className='h-4 w-4' />
           <span className='sr-only'>{t('Open menu')}</span>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align='end' className='w-[180px]'>
+        <DropdownMenuContent align='end' className='w-[200px]'>
           <DropdownMenuItem onClick={handleEdit}>
             {t('Edit')}
             <DropdownMenuShortcut>
@@ -217,6 +231,13 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             {t('Manage Subscriptions')}
             <DropdownMenuShortcut>
               <CreditCard size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem onClick={handleViewUsageLogs}>
+            {t('View Usage Logs')}
+            <DropdownMenuShortcut>
+              <FileText size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 
