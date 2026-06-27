@@ -626,6 +626,52 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	}
 }
 
+func TestUpdateTokenRejectsBoundUnavailableGroup(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	if err := db.Create(&model.User{
+		Id:          1,
+		Username:    "bound-update-user",
+		Status:      common.UserStatusEnabled,
+		Group:       "default",
+		TokenGroups: `["default"]`,
+		AffCode:     "bound-update-user-aff",
+	}).Error; err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+	token := seedToken(t, db, 1, "bound-update-token", "boundupdate123456")
+
+	body := map[string]any{
+		"id":                   token.Id,
+		"name":                 "updated-token",
+		"expired_time":         -1,
+		"remain_quota":         100,
+		"unlimited_quota":      true,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "vip",
+		"cross_group_retry":    false,
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	UpdateToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if response.Success {
+		t.Fatalf("expected unavailable group update to fail, got body: %s", recorder.Body.String())
+	}
+	if !strings.Contains(response.Message, "vip") {
+		t.Fatalf("expected failure message to mention vip, got %q", response.Message)
+	}
+
+	var after model.Token
+	if err := db.First(&after, token.Id).Error; err != nil {
+		t.Fatalf("failed to reload token: %v", err)
+	}
+	if after.Group != token.Group {
+		t.Fatalf("expected token group to remain %q, got %q", token.Group, after.Group)
+	}
+}
+
 func TestAddAndUpdateTokenQuotaHardLimit(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	if err := db.Create(&model.User{Id: 1, Username: "user-1", Status: common.UserStatusEnabled, AffCode: "aff-1"}).Error; err != nil {
