@@ -19,7 +19,8 @@
     "smoke:approval-notification-links": "node --experimental-strip-types scripts/check-approval-notification-links.mjs",
     "smoke:mcp-openapi-import": "node --experimental-strip-types scripts/check-mcp-openapi-import-summary.mjs",
     "smoke:mcp-routes": "node scripts/check-mcp-routes.mjs",
-    "smoke:mcp-trends": "node --experimental-strip-types scripts/check-mcp-trends.mjs"
+    "smoke:mcp-trends": "node --experimental-strip-types scripts/check-mcp-trends.mjs",
+    "smoke:usage-log-detail-export": "node scripts/check-usage-log-detail-export.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
