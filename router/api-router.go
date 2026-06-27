@@ -383,6 +383,17 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
+		connectedAppClientRoute := apiRouter.Group("/connected-app-clients/:slug")
+		{
+			connectedAppClientRoute.GET("/config", middleware.ConnectedAppManagementAuth("profile.read"), controller.GetConnectedAppClientConfig)
+			connectedAppClientRoute.GET("/groups", middleware.ConnectedAppManagementAuth("group.read"), controller.ListConnectedAppClientGroups)
+			connectedAppClientRoute.POST("/tokens/ensure", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.ConnectedAppManagementAuth("token.create"), controller.EnsureConnectedAppClientDedicatedToken)
+			connectedAppClientRoute.PUT("/tokens/:id/group", middleware.CriticalRateLimit(), middleware.ConnectedAppManagementAuth("token.group.update"), controller.UpdateConnectedAppClientDedicatedTokenGroup)
+			connectedAppClientRoute.POST("/tokens/:id/rotate", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.ConnectedAppManagementAuth("token.rotate.own"), controller.RotateConnectedAppClientDedicatedToken)
+			connectedAppClientRoute.POST("/tokens/:id/revoke", middleware.CriticalRateLimit(), middleware.ConnectedAppManagementAuth("token.revoke.own"), controller.RevokeConnectedAppClientDedicatedToken)
+			connectedAppClientRoute.POST("/device/revoke", middleware.CriticalRateLimit(), middleware.ConnectedAppManagementAuth(), controller.RevokeConnectedAppClientDevice)
+		}
+
 		snaplessRoute := apiRouter.Group("/snapless")
 		{
 			snaplessRoute.GET("/health", middleware.CriticalRateLimit(), controller.GetSnaplessHealth)

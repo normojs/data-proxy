@@ -11,6 +11,7 @@ import (
 
 const (
 	ConnectedAppSlugSnapless = "snapless"
+	ConnectedAppSlugCodexDP  = "codex-dp"
 
 	ConnectedAppStatusEnabled  = 1
 	ConnectedAppStatusDisabled = 2
@@ -28,6 +29,10 @@ const (
 	ConnectedAppDeviceSessionStatusConsumed   = "consumed"
 	ConnectedAppDeviceSessionStatusExpired    = "expired"
 	ConnectedAppDeviceSessionStatusDenied     = "denied"
+
+	ConnectedAppAccessTokenStatusActive  = "active"
+	ConnectedAppAccessTokenStatusRevoked = "revoked"
+	ConnectedAppAccessTokenStatusExpired = "expired"
 )
 
 type ConnectedApp struct {
@@ -144,6 +149,33 @@ func (ConnectedAppDeviceSession) TableName() string {
 	return "connected_app_device_sessions"
 }
 
+type ConnectedAppAccessToken struct {
+	Id                int64  `json:"id" gorm:"primaryKey"`
+	AppId             int    `json:"app_id" gorm:"not null;index:idx_connected_app_access_tokens_lookup,priority:1;index"`
+	GrantId           int64  `json:"grant_id" gorm:"not null;index"`
+	UserId            int    `json:"user_id" gorm:"not null;index:idx_connected_app_access_tokens_lookup,priority:2;index"`
+	DeviceFingerprint string `json:"device_fingerprint" gorm:"type:varchar(128);not null;index:idx_connected_app_access_tokens_lookup,priority:3"`
+	TokenHash         string `json:"-" gorm:"type:varchar(64);not null;uniqueIndex"`
+	Scopes            string `json:"scopes" gorm:"type:varchar(512);not null;default:''"`
+	Status            string `json:"status" gorm:"type:varchar(32);not null;default:'active';index"`
+	ExpiresAt         int64  `json:"expires_at" gorm:"bigint;not null;index"`
+	LastUsedAt        int64  `json:"last_used_at" gorm:"bigint;default:0;index"`
+	RevokedAt         int64  `json:"revoked_at" gorm:"bigint;default:0;index"`
+	CreatedAt         int64  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt         int64  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (ConnectedAppAccessToken) TableName() string {
+	return "connected_app_access_tokens"
+}
+
+func (token *ConnectedAppAccessToken) ScopeList() []string {
+	if token == nil {
+		return []string{}
+	}
+	return splitConnectedAppScopes(token.Scopes)
+}
+
 func splitConnectedAppScopes(raw string) []string {
 	fields := strings.FieldsFunc(raw, func(r rune) bool {
 		return r == ',' || r == ' ' || r == '\n' || r == '\t'
@@ -168,20 +200,37 @@ func EnsureBuiltinConnectedApps() error {
 	if DB == nil {
 		return errors.New("database is not initialized")
 	}
-	app := ConnectedApp{
-		Slug:              ConnectedAppSlugSnapless,
-		Name:              "Snapless Desktop",
-		Description:       "Desktop speech input, text processing, translation and selected-text Q&A through Data Proxy.",
-		AllowedScopes:     "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
-		DefaultScopes:     "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
-		AuthorizationFlow: ConnectedAppAuthorizationFlowDeviceCode,
-		Trusted:           true,
-		Status:            ConnectedAppStatusEnabled,
+	apps := []ConnectedApp{
+		{
+			Slug:              ConnectedAppSlugSnapless,
+			Name:              "Snapless Desktop",
+			Description:       "Desktop speech input, text processing, translation and selected-text Q&A through Data Proxy.",
+			AllowedScopes:     "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
+			DefaultScopes:     "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
+			AuthorizationFlow: ConnectedAppAuthorizationFlowDeviceCode,
+			Trusted:           true,
+			Status:            ConnectedAppStatusEnabled,
+		},
+		{
+			Slug:              ConnectedAppSlugCodexDP,
+			Name:              "Codex DP Desktop",
+			Description:       "Agent desktop client that binds to a Data Proxy account and uses dedicated per-device Data Proxy tokens.",
+			AllowedScopes:     "profile.read group.read token.create token.rotate.own token.revoke.own token.group.update quota.read openai.models openai.responses openai.chat",
+			DefaultScopes:     "profile.read group.read token.create token.rotate.own token.revoke.own token.group.update quota.read openai.models openai.responses openai.chat",
+			AuthorizationFlow: ConnectedAppAuthorizationFlowDeviceCode,
+			Trusted:           true,
+			Status:            ConnectedAppStatusEnabled,
+		},
 	}
-	return DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "slug"}},
-		DoUpdates: clause.AssignmentColumns([]string{"name", "description", "allowed_scopes", "default_scopes", "authorization_flow", "trusted", "updated_at"}),
-	}).Create(&app).Error
+	for _, app := range apps {
+		if err := DB.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "slug"}},
+			DoUpdates: clause.AssignmentColumns([]string{"name", "description", "allowed_scopes", "default_scopes", "authorization_flow", "trusted", "updated_at"}),
+		}).Create(&app).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func GetConnectedAppBySlug(slug string) (*ConnectedApp, error) {
@@ -346,6 +395,19 @@ func NormalizeConnectedAppScopes(scopes []string) []string {
 	return normalizeConnectedAppScopes(scopes)
 }
 
+func ConnectedAppHasScope(scopes []string, requiredScope string) bool {
+	requiredScope = strings.TrimSpace(requiredScope)
+	if requiredScope == "" {
+		return false
+	}
+	for _, scope := range normalizeConnectedAppScopes(scopes) {
+		if scope == requiredScope {
+			return true
+		}
+	}
+	return false
+}
+
 func FindActiveConnectedAppTokenBinding(appId int, userId int, deviceFingerprint string) (*ConnectedAppTokenBinding, error) {
 	var binding ConnectedAppTokenBinding
 	err := DB.Where(
@@ -485,6 +547,54 @@ func TouchConnectedAppUsage(appId int, userId int, tokenId int, now int64) error
 		}
 	}
 	return nil
+}
+
+func CreateConnectedAppAccessToken(tx *gorm.DB, token *ConnectedAppAccessToken) error {
+	if tx == nil {
+		tx = DB
+	}
+	if token == nil || token.AppId <= 0 || token.GrantId <= 0 || token.UserId <= 0 || token.DeviceFingerprint == "" || token.TokenHash == "" || token.ExpiresAt <= 0 {
+		return errors.New("app, grant, user, device fingerprint, token hash and expiry are required")
+	}
+	token.Status = ConnectedAppAccessTokenStatusActive
+	return tx.Create(token).Error
+}
+
+func GetConnectedAppAccessTokenByHash(tokenHash string) (*ConnectedAppAccessToken, error) {
+	var token ConnectedAppAccessToken
+	err := DB.Where("token_hash = ?", strings.TrimSpace(strings.ToLower(tokenHash))).First(&token).Error
+	if err != nil {
+		return nil, err
+	}
+	return &token, nil
+}
+
+func TouchConnectedAppAccessToken(tokenId int64, now int64) error {
+	if tokenId <= 0 {
+		return nil
+	}
+	return DB.Model(&ConnectedAppAccessToken{}).
+		Where("id = ? AND status = ?", tokenId, ConnectedAppAccessTokenStatusActive).
+		Updates(map[string]any{
+			"last_used_at": now,
+			"updated_at":   now,
+		}).Error
+}
+
+func RevokeConnectedAppAccessTokens(tx *gorm.DB, appId int, userId int, deviceFingerprint string, now int64) error {
+	if tx == nil {
+		tx = DB
+	}
+	query := tx.Model(&ConnectedAppAccessToken{}).
+		Where("app_id = ? AND user_id = ? AND status = ?", appId, userId, ConnectedAppAccessTokenStatusActive)
+	if strings.TrimSpace(deviceFingerprint) != "" {
+		query = query.Where("device_fingerprint = ?", strings.TrimSpace(deviceFingerprint))
+	}
+	return query.Updates(map[string]any{
+		"status":     ConnectedAppAccessTokenStatusRevoked,
+		"revoked_at": now,
+		"updated_at": now,
+	}).Error
 }
 
 func GetConnectedAppDeviceSessionByUserCode(userCode string) (*ConnectedAppDeviceSession, error) {

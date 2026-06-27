@@ -15,6 +15,7 @@ import (
 const (
 	connectedAppScopeOpenAIModels              = "openai.models"
 	connectedAppScopeOpenAIChat                = "openai.chat"
+	connectedAppScopeOpenAIResponses           = "openai.responses"
 	connectedAppScopeOpenAIAudioTranscriptions = "openai.audio.transcriptions"
 	connectedAppScopeQuotaRead                 = "quota.read"
 )
@@ -81,6 +82,8 @@ func connectedAppRequiredScope(c *gin.Context) string {
 		return connectedAppScopeOpenAIModels
 	case method == http.MethodPost && path == "/v1/chat/completions":
 		return connectedAppScopeOpenAIChat
+	case method == http.MethodPost && (path == "/v1/responses" || path == "/v1/responses/compact"):
+		return connectedAppScopeOpenAIResponses
 	case method == http.MethodPost && path == "/v1/audio/transcriptions":
 		return connectedAppScopeOpenAIAudioTranscriptions
 	case method == http.MethodGet && (path == "/api/usage/token/" || path == "/api/usage/token"):

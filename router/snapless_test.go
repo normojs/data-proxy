@@ -197,6 +197,7 @@ func setupSnaplessRouterTestDB(t *testing.T) *gorm.DB {
 		&model.Log{},
 		&model.ConnectedApp{},
 		&model.ConnectedAppGrant{},
+		&model.ConnectedAppAccessToken{},
 		&model.ConnectedAppTokenBinding{},
 		&model.ConnectedAppTokenAttribution{},
 		&model.ConnectedAppDeviceSession{},

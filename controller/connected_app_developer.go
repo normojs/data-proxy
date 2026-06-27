@@ -609,16 +609,31 @@ func AuthorizeConnectedAppDevice(c *gin.Context) {
 			return nil
 		}
 
-		tokenResponse, tokenId, err := ensureConnectedAppTokenForDeviceTx(c, tx, app, userId, snaplessDeviceInfoFromSession(&session), false)
-		if err != nil {
-			return err
+		tokenID := 0
+		tokenCreated := false
+		var tokenResponse connectedAppTokenResponse
+		if connectedAppUsesManagementTokenFlow(app) {
+			if _, err := model.UpsertConnectedAppGrant(tx, *app, userId, app.DefaultScopeList(), now); err != nil {
+				return err
+			}
+			tokenResponse = connectedAppTokenResponse{
+				App:    buildSnaplessAppResponse(app),
+				Device: snaplessDeviceInfoFromSession(&session),
+			}
+		} else {
+			var err error
+			tokenResponse, tokenID, err = ensureConnectedAppTokenForDeviceTx(c, tx, app, userId, snaplessDeviceInfoFromSession(&session), false)
+			if err != nil {
+				return err
+			}
+			tokenCreated = tokenResponse.Created
 		}
 		result := tx.Model(&model.ConnectedAppDeviceSession{}).
 			Where("id = ? AND status = ?", session.Id, model.ConnectedAppDeviceSessionStatusPending).
 			Updates(map[string]any{
 				"user_id":       userId,
-				"token_id":      tokenId,
-				"token_created": tokenResponse.Created,
+				"token_id":      tokenID,
+				"token_created": tokenCreated,
 				"status":        model.ConnectedAppDeviceSessionStatusAuthorized,
 				"authorized_at": now,
 				"updated_at":    now,
@@ -630,8 +645,8 @@ func AuthorizeConnectedAppDevice(c *gin.Context) {
 			return errors.New("设备授权状态已更新，请刷新后重试")
 		}
 		session.UserId = userId
-		session.TokenId = tokenId
-		session.TokenCreated = tokenResponse.Created
+		session.TokenId = tokenID
+		session.TokenCreated = tokenCreated
 		session.Status = model.ConnectedAppDeviceSessionStatusAuthorized
 		session.AuthorizedAt = now
 		session.UpdatedAt = now
@@ -685,6 +700,8 @@ func PollConnectedAppDeviceFlow(c *gin.Context) {
 		Created:    false,
 		APIKeyOnce: false,
 	}
+	var managementResponse connectedAppClientDevicePollResponse
+	usesManagementFlow := connectedAppUsesManagementTokenFlow(app)
 	var status string
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		var session model.ConnectedAppDeviceSession
@@ -719,15 +736,59 @@ func PollConnectedAppDeviceFlow(c *gin.Context) {
 			}
 			return nil
 		}
-		if session.TokenId <= 0 || session.UserId <= 0 {
+		if session.UserId <= 0 {
+			status = "missing_user"
+			return nil
+		}
+		grant, err := getGrantTx(tx, app.Id, session.UserId)
+		if err != nil {
+			return err
+		}
+		if usesManagementFlow {
+			user, err := getUserByIdTx(tx, session.UserId)
+			if err != nil {
+				return err
+			}
+			result := tx.Model(&model.ConnectedAppDeviceSession{}).
+				Where("id = ? AND status = ?", session.Id, model.ConnectedAppDeviceSessionStatusAuthorized).
+				Updates(map[string]any{
+					"status":         model.ConnectedAppDeviceSessionStatusConsumed,
+					"consumed_at":    now,
+					"last_polled_at": now,
+					"updated_at":     now,
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				status = model.ConnectedAppDeviceSessionStatusConsumed
+				return nil
+			}
+			managementToken, expiresAt, err := issueConnectedAppManagementToken(tx, app, grant, session.UserId, snaplessDeviceInfoFromSession(&session), now)
+			if err != nil {
+				return err
+			}
+			managementResponse = connectedAppClientDevicePollResponse{
+				Status:                   model.ConnectedAppDeviceSessionStatusAuthorized,
+				ManagementToken:          managementToken,
+				ManagementTokenExpiresAt: expiresAt,
+				ServerURL:                snaplessServerBaseURL(c),
+				BaseURL:                  snaplessAPIBaseURL(c),
+				App:                      buildSnaplessAppResponse(app),
+				User:                     connectedAppClientUserFromModel(user),
+				Device:                   snaplessDeviceInfoFromSession(&session),
+				Capabilities:             connectedAppClientCapabilitiesForScopes(grant.ScopeList()),
+				APIEndpoints:             connectedAppAPIEndpointsForScopes(c, grant.ScopeList()),
+				ClientEndpoints:          connectedAppClientEndpoints(c, app),
+			}
+			status = model.ConnectedAppDeviceSessionStatusAuthorized
+			return nil
+		}
+		if session.TokenId <= 0 {
 			status = "missing_token"
 			return nil
 		}
 		token, err := getTokenByIdTx(tx, session.TokenId, session.UserId)
-		if err != nil {
-			return err
-		}
-		grant, err := getGrantTx(tx, app.Id, session.UserId)
 		if err != nil {
 			return err
 		}
@@ -767,6 +828,10 @@ func PollConnectedAppDeviceFlow(c *gin.Context) {
 			"status":   status,
 			"interval": snaplessDevicePollInterval,
 		})
+		return
+	}
+	if usesManagementFlow {
+		common.ApiSuccess(c, managementResponse)
 		return
 	}
 	common.ApiSuccess(c, response)
@@ -1597,14 +1662,20 @@ func connectedAppAPIEndpoints(c *gin.Context, app *model.ConnectedApp) map[strin
 	if app == nil {
 		return map[string]string{}
 	}
+	return connectedAppAPIEndpointsForScopes(c, app.ScopeList())
+}
+
+func connectedAppAPIEndpointsForScopes(c *gin.Context, scopes []string) map[string]string {
 	baseURL := snaplessAPIBaseURL(c)
 	endpoints := map[string]string{}
-	for _, scope := range app.ScopeList() {
+	for _, scope := range scopes {
 		switch scope {
 		case "openai.models":
 			endpoints["models"] = baseURL + "/models"
 		case "openai.chat":
 			endpoints["chat_completions"] = baseURL + "/chat/completions"
+		case "openai.responses":
+			endpoints["responses"] = baseURL + "/responses"
 		case "openai.audio.transcriptions":
 			endpoints["audio_transcriptions"] = baseURL + "/audio/transcriptions"
 		case "quota.read":

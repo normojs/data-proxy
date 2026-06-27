@@ -193,6 +193,105 @@ type connectedAppDeveloperSessionData struct {
 	} `json:"device"`
 }
 
+type connectedAppClientCapabilitiesData struct {
+	Groups           bool `json:"groups"`
+	DedicatedTokens  bool `json:"dedicated_tokens"`
+	TokenRotate      bool `json:"token_rotate"`
+	TokenRevoke      bool `json:"token_revoke"`
+	TokenGroupUpdate bool `json:"token_group_update"`
+	OpenAIModels     bool `json:"openai_models"`
+	OpenAIResponses  bool `json:"openai_responses"`
+	OpenAIChat       bool `json:"openai_chat"`
+}
+
+type connectedAppClientPollData struct {
+	Status                   string `json:"status"`
+	ManagementToken          string `json:"management_token"`
+	ManagementTokenExpiresAt int64  `json:"management_token_expires_at"`
+	APIKey                   string `json:"api_key"`
+	ServerURL                string `json:"server_url"`
+	BaseURL                  string `json:"base_url"`
+	App                      struct {
+		Slug string `json:"slug"`
+	} `json:"app"`
+	User struct {
+		ID       int    `json:"id"`
+		Username string `json:"username"`
+		Group    string `json:"group"`
+	} `json:"user"`
+	Device struct {
+		Fingerprint string `json:"fingerprint"`
+		DeviceName  string `json:"device_name"`
+	} `json:"device"`
+	Capabilities    connectedAppClientCapabilitiesData `json:"capabilities"`
+	APIEndpoints    map[string]string                  `json:"api_endpoints"`
+	ClientEndpoints map[string]string                  `json:"client_endpoints"`
+	Token           struct {
+		ID int `json:"id"`
+	} `json:"token"`
+}
+
+type connectedAppClientConfigData struct {
+	ServerURL string `json:"server_url"`
+	BaseURL   string `json:"base_url"`
+	App       struct {
+		Slug string `json:"slug"`
+	} `json:"app"`
+	User struct {
+		ID       int    `json:"id"`
+		Username string `json:"username"`
+		Group    string `json:"group"`
+	} `json:"user"`
+	SelectedToken   connectedAppClientTokenData        `json:"selected_token"`
+	Capabilities    connectedAppClientCapabilitiesData `json:"capabilities"`
+	APIEndpoints    map[string]string                  `json:"api_endpoints"`
+	ClientEndpoints map[string]string                  `json:"client_endpoints"`
+}
+
+type connectedAppClientGroupData struct {
+	DefaultGroup string `json:"default_group"`
+	Data         []struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Available   bool   `json:"available"`
+		IsDefault   bool   `json:"is_default"`
+	} `json:"data"`
+}
+
+type connectedAppClientTokenData struct {
+	ID                    int    `json:"id"`
+	Name                  string `json:"name"`
+	Status                int    `json:"status"`
+	Group                 string `json:"group"`
+	EffectiveGroup        string `json:"effective_group"`
+	GroupAvailable        bool   `json:"group_available"`
+	OwnedByConnectedApp   bool   `json:"owned_by_connected_app"`
+	ConnectedAppSlug      string `json:"connected_app_slug"`
+	DeviceID              string `json:"device_id"`
+	UnlimitedQuota        bool   `json:"unlimited_quota"`
+	QuotaHardLimitEnabled bool   `json:"quota_hard_limit_enabled"`
+	ModelLimitsEnabled    bool   `json:"model_limits_enabled"`
+}
+
+type connectedAppClientTokenResponseData struct {
+	Selected         bool                        `json:"selected"`
+	Created          bool                        `json:"created"`
+	Rotated          bool                        `json:"rotated"`
+	Revoked          bool                        `json:"revoked"`
+	APIKeyOnce       bool                        `json:"api_key_once"`
+	APIKey           string                      `json:"api_key"`
+	BaseURL          string                      `json:"base_url"`
+	Token            connectedAppClientTokenData `json:"token"`
+	RequiresRotation bool                        `json:"requires_rotation"`
+	Message          string                      `json:"message"`
+}
+
+type connectedAppClientUpdateGroupData struct {
+	Updated bool                        `json:"updated"`
+	Token   connectedAppClientTokenData `json:"token"`
+}
+
 func newConnectedAppAdminRouterForTest(t *testing.T) *gin.Engine {
 	t.Helper()
 
@@ -288,6 +387,20 @@ func requestConnectedAppUser(t *testing.T, router *gin.Engine, method string, ta
 	return recorder
 }
 
+func requestConnectedAppClient(t *testing.T, router *gin.Engine, method string, target string, body string, managementToken string) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(method, target, bytes.NewBufferString(body))
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if managementToken != "" {
+		request.Header.Set("Authorization", "Bearer "+managementToken)
+	}
+	router.ServeHTTP(recorder, request)
+	return recorder
+}
+
 func decodeConnectedAppData[T any](t *testing.T, recorder *httptest.ResponseRecorder) T {
 	t.Helper()
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -326,18 +439,57 @@ func requireConnectedAppDeveloperExample(t *testing.T, examples []struct {
 	require.Failf(t, "developer sdk example missing", "id=%s examples=%v", id, examples)
 }
 
+func connectedAppDataBySlug(t *testing.T, apps []connectedAppData, slug string) connectedAppData {
+	t.Helper()
+	for _, app := range apps {
+		if app.Slug == slug {
+			return app
+		}
+	}
+	require.Failf(t, "connected app missing", "slug=%s apps=%v", slug, apps)
+	return connectedAppData{}
+}
+
+func connectedAppClientGroupByID(t *testing.T, groups connectedAppClientGroupData, id string) struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Available   bool   `json:"available"`
+	IsDefault   bool   `json:"is_default"`
+} {
+	t.Helper()
+	for _, group := range groups.Data {
+		if group.ID == id {
+			return group
+		}
+	}
+	require.Failf(t, "connected app group missing", "id=%s groups=%v", id, groups.Data)
+	return struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Available   bool   `json:"available"`
+		IsDefault   bool   `json:"is_default"`
+	}{}
+}
+
 func TestConnectedAppAdminCRUD(t *testing.T) {
 	setupSnaplessRouterTestDB(t)
 	router := newConnectedAppAdminRouterForTest(t)
 	cookies := loginConnectedAppAdmin(t, router)
 
 	list := decodeConnectedAppData[[]connectedAppData](t, requestConnectedAppAdmin(t, router, http.MethodGet, "/api/connected-apps", "", cookies))
-	require.Len(t, list, 1)
-	require.Equal(t, model.ConnectedAppSlugSnapless, list[0].Slug)
-	require.Equal(t, model.ConnectedAppStatusEnabled, list[0].Status)
-	require.True(t, list[0].Trusted)
-	require.Equal(t, "device_code", list[0].AuthorizationFlow)
-	require.Contains(t, list[0].AllowedScopes, "token.manage")
+	require.Len(t, list, 2)
+	snapless := connectedAppDataBySlug(t, list, model.ConnectedAppSlugSnapless)
+	require.Equal(t, model.ConnectedAppStatusEnabled, snapless.Status)
+	require.True(t, snapless.Trusted)
+	require.Equal(t, "device_code", snapless.AuthorizationFlow)
+	require.Contains(t, snapless.AllowedScopes, "token.manage")
+	codexDP := connectedAppDataBySlug(t, list, model.ConnectedAppSlugCodexDP)
+	require.Equal(t, model.ConnectedAppStatusEnabled, codexDP.Status)
+	require.True(t, codexDP.Trusted)
+	require.Contains(t, codexDP.AllowedScopes, "token.create")
+	require.NotContains(t, codexDP.AllowedScopes, "token.manage")
 
 	created := decodeConnectedAppData[connectedAppData](t, requestConnectedAppAdmin(
 		t,
@@ -371,9 +523,10 @@ func TestConnectedAppAdminCRUD(t *testing.T) {
 	require.Equal(t, model.ConnectedAppStatusDisabled, updated.Status)
 
 	list = decodeConnectedAppData[[]connectedAppData](t, requestConnectedAppAdmin(t, router, http.MethodGet, "/api/connected-apps", "", cookies))
-	require.Len(t, list, 2)
-	require.Equal(t, model.ConnectedAppSlugSnapless, list[0].Slug)
-	require.Equal(t, "snapless-beta", list[1].Slug)
+	require.Len(t, list, 3)
+	connectedAppDataBySlug(t, list, model.ConnectedAppSlugSnapless)
+	connectedAppDataBySlug(t, list, model.ConnectedAppSlugCodexDP)
+	connectedAppDataBySlug(t, list, "snapless-beta")
 }
 
 func TestConnectedAppAdminRejectsDuplicateSlugAndInvalidScopes(t *testing.T) {
@@ -803,6 +956,242 @@ func TestConnectedAppDeveloperAPIAndDeviceFlow(t *testing.T) {
 		0,
 	))
 	require.Contains(t, untrustedStart, "not trusted")
+}
+
+func TestConnectedAppCodexDPManagementTokenFlow(t *testing.T) {
+	setupSnaplessRouterTestDB(t)
+	router := newConnectedAppAdminRouterForTest(t)
+	developerCookies := loginConnectedAppDeveloper(t, router)
+
+	started := decodeConnectedAppData[snaplessDeviceStartData](t, requestConnectedAppUser(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/codex-dp/device/start",
+		`{"device_id":"codex-mac","device_name":"Codex Mac","platform":"macos","app_version":"0.3.0","client":"codex-dp"}`,
+		nil,
+		0,
+	))
+	require.NotEmpty(t, started.DeviceCode)
+	require.NotEmpty(t, started.UserCode)
+	require.Equal(t, model.ConnectedAppSlugCodexDP, started.App.Slug)
+	require.Equal(t, "Codex Mac", started.Device.DeviceName)
+
+	pending := decodeConnectedAppData[snaplessDevicePollStatusData](t, requestConnectedAppUser(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/codex-dp/device/poll",
+		`{"device_code":`+strconv.Quote(started.DeviceCode)+`}`,
+		nil,
+		0,
+	))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusPending, pending.Status)
+
+	status := decodeConnectedAppData[snaplessDeviceStatusData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-apps/codex-dp/device/status?user_code="+started.UserCode,
+		"",
+		developerCookies,
+	))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusPending, status.Status)
+	require.True(t, status.Readiness.OK)
+
+	authorized := decodeConnectedAppData[snaplessDeviceStatusData](t, requestConnectedAppDeveloper(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/codex-dp/device/authorize",
+		`{"user_code":`+strconv.Quote(started.UserCode)+`,"approve":true}`,
+		developerCookies,
+	))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusAuthorized, authorized.Status)
+	require.Zero(t, authorized.Token.ID)
+
+	var tokenCount int64
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("user_id = ?", connectedAppRouterDeveloperUserId).Count(&tokenCount).Error)
+	require.EqualValues(t, 0, tokenCount)
+
+	firstPoll := decodeConnectedAppData[connectedAppClientPollData](t, requestConnectedAppUser(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/codex-dp/device/poll",
+		`{"device_code":`+strconv.Quote(started.DeviceCode)+`}`,
+		nil,
+		0,
+	))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusAuthorized, firstPoll.Status)
+	require.True(t, strings.HasPrefix(firstPoll.ManagementToken, "cdpat_"))
+	require.NotZero(t, firstPoll.ManagementTokenExpiresAt)
+	require.Empty(t, firstPoll.APIKey)
+	require.Zero(t, firstPoll.Token.ID)
+	require.Equal(t, model.ConnectedAppSlugCodexDP, firstPoll.App.Slug)
+	require.Equal(t, connectedAppRouterDeveloperUserId, firstPoll.User.ID)
+	require.Equal(t, started.Device.Fingerprint, firstPoll.Device.Fingerprint)
+	require.True(t, firstPoll.Capabilities.Groups)
+	require.True(t, firstPoll.Capabilities.DedicatedTokens)
+	require.True(t, firstPoll.Capabilities.TokenRotate)
+	require.True(t, firstPoll.Capabilities.TokenRevoke)
+	require.True(t, firstPoll.Capabilities.TokenGroupUpdate)
+	require.True(t, firstPoll.Capabilities.OpenAIModels)
+	require.True(t, firstPoll.Capabilities.OpenAIResponses)
+	require.True(t, firstPoll.Capabilities.OpenAIChat)
+	require.Equal(t, "https://data-proxy.test/v1/models", firstPoll.APIEndpoints["models"])
+	require.Equal(t, "https://data-proxy.test/v1/responses", firstPoll.APIEndpoints["responses"])
+	require.Contains(t, firstPoll.ClientEndpoints["config"], "/api/connected-app-clients/codex-dp/config")
+	require.Contains(t, firstPoll.ClientEndpoints["tokens_ensure"], "/api/connected-app-clients/codex-dp/tokens/ensure")
+
+	secondPoll := decodeConnectedAppData[snaplessDevicePollStatusData](t, requestConnectedAppUser(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-apps/codex-dp/device/poll",
+		`{"device_code":`+strconv.Quote(started.DeviceCode)+`}`,
+		nil,
+		0,
+	))
+	require.Equal(t, model.ConnectedAppDeviceSessionStatusConsumed, secondPoll.Status)
+
+	var accessTokenCount int64
+	require.NoError(t, model.DB.Model(&model.ConnectedAppAccessToken{}).
+		Where("user_id = ? AND status = ?", connectedAppRouterDeveloperUserId, model.ConnectedAppAccessTokenStatusActive).
+		Count(&accessTokenCount).Error)
+	require.EqualValues(t, 1, accessTokenCount)
+
+	config := decodeConnectedAppData[connectedAppClientConfigData](t, requestConnectedAppClient(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-app-clients/codex-dp/config",
+		"",
+		firstPoll.ManagementToken,
+	))
+	require.Equal(t, "https://data-proxy.test", config.ServerURL)
+	require.Equal(t, "https://data-proxy.test/v1", config.BaseURL)
+	require.Equal(t, model.ConnectedAppSlugCodexDP, config.App.Slug)
+	require.Equal(t, connectedAppRouterDeveloperUserId, config.User.ID)
+	require.Zero(t, config.SelectedToken.ID)
+	require.True(t, config.Capabilities.DedicatedTokens)
+	require.Equal(t, firstPoll.APIEndpoints["responses"], config.APIEndpoints["responses"])
+	require.Contains(t, config.ClientEndpoints["groups"], "/api/connected-app-clients/codex-dp/groups")
+
+	groups := decodeConnectedAppData[connectedAppClientGroupData](t, requestConnectedAppClient(
+		t,
+		router,
+		http.MethodGet,
+		"/api/connected-app-clients/codex-dp/groups",
+		"",
+		firstPoll.ManagementToken,
+	))
+	require.Equal(t, "default", groups.DefaultGroup)
+	defaultGroup := connectedAppClientGroupByID(t, groups, "default")
+	require.True(t, defaultGroup.Available)
+	require.True(t, defaultGroup.IsDefault)
+	vipGroup := connectedAppClientGroupByID(t, groups, "vip")
+	require.True(t, vipGroup.Available)
+
+	created := decodeConnectedAppData[connectedAppClientTokenResponseData](t, requestConnectedAppClient(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-app-clients/codex-dp/tokens/ensure",
+		`{"device_id":"codex-mac","device_name":"Codex Mac","platform":"macos","app_version":"0.3.0","client":"codex-dp","group":"vip"}`,
+		firstPoll.ManagementToken,
+	))
+	require.True(t, created.Selected)
+	require.True(t, created.Created)
+	require.True(t, created.APIKeyOnce)
+	require.True(t, strings.HasPrefix(created.APIKey, "sk-"))
+	require.Equal(t, "https://data-proxy.test/v1", created.BaseURL)
+	require.NotZero(t, created.Token.ID)
+	require.Equal(t, "vip", created.Token.Group)
+	require.Equal(t, "vip", created.Token.EffectiveGroup)
+	require.True(t, created.Token.GroupAvailable)
+	require.True(t, created.Token.OwnedByConnectedApp)
+	require.Equal(t, model.ConnectedAppSlugCodexDP, created.Token.ConnectedAppSlug)
+	require.Equal(t, started.Device.Fingerprint, created.Token.DeviceID)
+	require.True(t, created.Token.UnlimitedQuota)
+	require.False(t, created.Token.ModelLimitsEnabled)
+
+	reused := decodeConnectedAppData[connectedAppClientTokenResponseData](t, requestConnectedAppClient(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-app-clients/codex-dp/tokens/ensure",
+		`{"device_id":"codex-mac","device_name":"Codex Mac","platform":"macos","app_version":"0.3.0","client":"codex-dp","group":"vip"}`,
+		firstPoll.ManagementToken,
+	))
+	require.False(t, reused.Created)
+	require.False(t, reused.APIKeyOnce)
+	require.Empty(t, reused.APIKey)
+	require.True(t, reused.RequiresRotation)
+	require.Equal(t, created.Token.ID, reused.Token.ID)
+
+	updated := decodeConnectedAppData[connectedAppClientUpdateGroupData](t, requestConnectedAppClient(
+		t,
+		router,
+		http.MethodPut,
+		fmt.Sprintf("/api/connected-app-clients/codex-dp/tokens/%d/group", created.Token.ID),
+		`{"group":"default"}`,
+		firstPoll.ManagementToken,
+	))
+	require.True(t, updated.Updated)
+	require.Equal(t, "default", updated.Token.Group)
+	require.Equal(t, "default", updated.Token.EffectiveGroup)
+
+	ensureRotated := decodeConnectedAppData[connectedAppClientTokenResponseData](t, requestConnectedAppClient(
+		t,
+		router,
+		http.MethodPost,
+		"/api/connected-app-clients/codex-dp/tokens/ensure",
+		`{"device_id":"codex-mac","device_name":"Codex Mac","platform":"macos","app_version":"0.3.0","client":"codex-dp","rotate":true}`,
+		firstPoll.ManagementToken,
+	))
+	require.False(t, ensureRotated.Created)
+	require.True(t, ensureRotated.Rotated)
+	require.True(t, ensureRotated.APIKeyOnce)
+	require.True(t, strings.HasPrefix(ensureRotated.APIKey, "sk-"))
+	require.NotEqual(t, created.Token.ID, ensureRotated.Token.ID)
+	require.Equal(t, "default", ensureRotated.Token.Group)
+	require.Equal(t, "default", ensureRotated.Token.EffectiveGroup)
+
+	var createdTokenAfterEnsureRotate model.Token
+	require.NoError(t, model.DB.First(&createdTokenAfterEnsureRotate, created.Token.ID).Error)
+	require.Equal(t, common.TokenStatusDisabled, createdTokenAfterEnsureRotate.Status)
+
+	rotated := decodeConnectedAppData[connectedAppClientTokenResponseData](t, requestConnectedAppClient(
+		t,
+		router,
+		http.MethodPost,
+		fmt.Sprintf("/api/connected-app-clients/codex-dp/tokens/%d/rotate", ensureRotated.Token.ID),
+		"",
+		firstPoll.ManagementToken,
+	))
+	require.True(t, rotated.Rotated)
+	require.True(t, rotated.APIKeyOnce)
+	require.True(t, strings.HasPrefix(rotated.APIKey, "sk-"))
+	require.NotEqual(t, ensureRotated.Token.ID, rotated.Token.ID)
+
+	var ensureRotatedOldToken model.Token
+	require.NoError(t, model.DB.First(&ensureRotatedOldToken, ensureRotated.Token.ID).Error)
+	require.Equal(t, common.TokenStatusDisabled, ensureRotatedOldToken.Status)
+
+	revoked := decodeConnectedAppData[map[string]bool](t, requestConnectedAppClient(
+		t,
+		router,
+		http.MethodPost,
+		fmt.Sprintf("/api/connected-app-clients/codex-dp/tokens/%d/revoke", rotated.Token.ID),
+		"",
+		firstPoll.ManagementToken,
+	))
+	require.True(t, revoked["revoked"])
+
+	var binding model.ConnectedAppTokenBinding
+	require.NoError(t, model.DB.Where("token_id = ?", rotated.Token.ID).First(&binding).Error)
+	require.Equal(t, model.ConnectedAppTokenBindingStatusRevoked, binding.Status)
 }
 
 func TestConnectedAppDeveloperSelfService(t *testing.T) {
