@@ -84,8 +84,11 @@ group_for_file() {
     ;;
 
   docs/request-capture-* | \
+    scripts/data-proxy-focused-regression.sh | \
     controller/log.go | controller/log_diagnostic.go | controller/query_helper.go | \
     model/log.go | \
+    web/default/package.json | \
+    web/default/scripts/check-usage-log-detail-export.mjs | \
     web/default/src/features/users/components/data-table-row-actions.tsx | \
     web/default/src/features/usage-logs/* | \
     web/default/src/features/usage-logs/components/* | \
