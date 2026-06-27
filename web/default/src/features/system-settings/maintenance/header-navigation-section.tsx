@@ -176,7 +176,9 @@ export function HeaderNavigationSection({
     {
       key: 'serviceStatus',
       title: t('Service Status'),
-      description: t('Admin-only service health entry in the top bar.'),
+      description: t(
+        'Admin-only service health entry in the top bar. Regular users cannot see it regardless of this switch.'
+      ),
     },
     {
       key: 'docs',
