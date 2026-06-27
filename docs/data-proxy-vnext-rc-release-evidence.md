@@ -309,3 +309,125 @@ scripts/data-proxy-production-smoke.sh
 
 本地回归已经覆盖上述能力的代码路径；生产补测需要在管理员控制台会话中执行，
 或提供只用于 smoke 的临时管理员 access token 和对应 `New-Api-User`。
+
+## 2026-06-28 本地打包部署：`9e5bd4b9`
+
+### 变更范围
+
+- `d2ad15b7 test: add local channel failover smoke`
+- `9e5bd4b9 docs: plan next data proxy development tasks`
+
+GitHub Actions：
+
+```text
+CI: success
+Package Data Proxy image: success
+branch: main
+commit: 9e5bd4b968fab52c2abbd2011a07a055df7f381e
+```
+
+### 本地构建
+
+使用临时 `git archive` 构建上下文写入 `VERSION=sha-9e5bd4b9`，未修改工作区
+`VERSION` 文件。
+
+```text
+image=data-proxy:9e5bd4b9
+image_id=sha256:621a7d02fc7c9a5cf33f72d151fac78e0ba33b2eb6ecbc0f426d8c12c4307599
+arch=amd64
+os=linux
+package=/tmp/data-proxy-deploy/data-proxy-9e5bd4b9-local-linux-amd64.tar.gz
+package_size=59M
+sha256=eac029a193f48c74b57b16b6ecb1be99bd3672b6c9ad1113ed6ae8a07301386d
+```
+
+本地镜像 smoke：
+
+```text
+GET http://127.0.0.1:19083/api/status
+success=true
+version=sha-9e5bd4b9
+```
+
+### 上传和部署
+
+通过 Electerm SFTP 上传：
+
+```text
+/root/workspace/dataproxy/data-proxy/data-proxy-9e5bd4b9-local-linux-amd64.tar.gz
+/root/workspace/dataproxy/data-proxy/data-proxy-9e5bd4b9-local-linux-amd64.sha256
+/root/workspace/dataproxy/data-proxy/scripts/prod-deploy.sh
+/root/workspace/dataproxy/data-proxy/scripts/prod-compose.sh
+/root/workspace/dataproxy/data-proxy/scripts/prod-ops-lib.sh
+/root/workspace/dataproxy/data-proxy/scripts/prod-rollback.sh
+```
+
+远端 sha256 校验：
+
+```text
+expected=eac029a193f48c74b57b16b6ecb1be99bd3672b6c9ad1113ed6ae8a07301386d
+actual=eac029a193f48c74b57b16b6ecb1be99bd3672b6c9ad1113ed6ae8a07301386d
+```
+
+部署命令：
+
+```bash
+cd /root/workspace/dataproxy/data-proxy
+DATA_PROXY_HEALTH_TIMEOUT_SECONDS=180 \
+  scripts/prod-deploy.sh ./data-proxy-9e5bd4b9-local-linux-amd64.tar.gz
+```
+
+部署结果：
+
+```text
+Loaded image: data-proxy:9e5bd4b9
+deployment completed: data-proxy:9e5bd4b9
+container=data-proxy data-proxy:9e5bd4b9 Up About a minute (healthy)
+port=127.0.0.1:13002->13002/tcp
+```
+
+回滚归档：
+
+```text
+/root/workspace/dataproxy/image-archive/20260627T231304Z_data-proxy_b8e80786.tar
+/root/workspace/dataproxy/image-archive/20260627T231304Z_data-proxy_b8e80786.tar.meta
+```
+
+归档 meta：
+
+```text
+image_ref=data-proxy:b8e80786
+image_id=sha256:9298e3c3850313ef0eeb3824aace67e2dd41cce86c6f5bba64b133a70f6d8628
+saved_ref=data-proxy:b8e80786
+container=data-proxy
+created_at=20260627T231304Z
+```
+
+### 生产 Smoke
+
+状态接口：
+
+```text
+GET http://127.0.0.1:13002/api/status
+success=true
+version=sha-9e5bd4b9
+
+GET https://dp.app.mbu.ltd/api/status
+success=true
+version=sha-9e5bd4b9
+```
+
+国产模型 Chat / Responses smoke：
+
+```text
+base_url=https://dp.app.mbu.ltd
+model=deepseek-ai/DeepSeek-V4-Flash
+api_status=passed
+chat_completions=passed
+chat_request_id=202606272315258269835478268d9d6NDxeeE1H
+responses=passed
+responses_request_id=202606272315272798258348268d9d6wC4qYlfO
+diagnostic_candidates=skipped_no_admin_auth
+request_trace=skipped_no_admin_auth
+completed_at_utc=2026-06-27T23:15:28Z
+```
