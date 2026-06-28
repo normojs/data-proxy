@@ -35,6 +35,7 @@ import {
   Activity,
   Download,
 } from 'lucide-react'
+import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
@@ -51,7 +52,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -169,95 +169,141 @@ function formatCostPerMillionTokens(log: UsageLog): string {
   return formatLogQuota((log.quota / totalTokens) * 1_000_000)
 }
 
-function escapeSvgText(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-}
-
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
   link.download = filename
+  link.rel = 'noopener'
   link.click()
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
-function buildLogDetailsExportSvg(params: {
-  log: UsageLog
-  title: string
-  typeLabel: string
-  fields: Array<{ label: string; value: string }>
-}): string {
-  const width = 960
-  const rowHeight = 34
-  const headerHeight = 92
-  const footerHeight = 34
-  const height = headerHeight + params.fields.length * rowHeight + footerHeight
-  const rows = params.fields
-    .map((field, index) => {
-      const y = headerHeight + index * rowHeight
-      const fill = index % 2 === 0 ? '#ffffff' : '#f8fafc'
-      return `
-        <rect x="24" y="${y}" width="${width - 48}" height="${rowHeight}" fill="${fill}" />
-        <text x="48" y="${y + 22}" fill="#64748b" font-size="13" font-weight="600">${escapeSvgText(field.label)}</text>
-        <text x="250" y="${y + 22}" fill="#0f172a" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace">${escapeSvgText(field.value || '-')}</text>
-      `
-    })
+const XHTML_NS = 'http://www.w3.org/1999/xhtml'
+
+function copyComputedStyles(source: Element, target: Element) {
+  const computed = window.getComputedStyle(source)
+  const styleText = Array.from(computed)
+    .map((property) => `${property}:${computed.getPropertyValue(property)};`)
     .join('')
+  target.setAttribute('style', styleText)
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-    <rect width="${width}" height="${height}" fill="#f8fafc" />
-    <rect x="24" y="24" width="${width - 48}" height="${height - 48}" rx="10" fill="#ffffff" stroke="#e2e8f0" />
-    <text x="48" y="56" fill="#0f172a" font-size="22" font-weight="700" font-family="system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">${escapeSvgText(params.title)}</text>
-    <text x="48" y="80" fill="#64748b" font-size="13" font-family="system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">${escapeSvgText(params.typeLabel)}</text>
-    ${rows}
-    <text x="48" y="${height - 30}" fill="#94a3b8" font-size="12" font-family="system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">Data Proxy · ${escapeSvgText(formatTimestampToDate(Math.floor(Date.now() / 1000)))}</text>
-  </svg>`
+  const sourceChildren = Array.from(source.children)
+  const targetChildren = Array.from(target.children)
+
+  sourceChildren.forEach((child, index) => {
+    const targetChild = targetChildren[index]
+    if (targetChild) {
+      copyComputedStyles(child, targetChild)
+    }
+  })
 }
 
-function exportLogDetails(params: {
-  log: UsageLog
-  title: string
-  typeLabel: string
-  fields: Array<{ label: string; value: string }>
-  format: 'svg' | 'png'
-}) {
-  const slug = params.log.request_id || `log-${params.log.id}`
-  const filenameBase = `usage-log-${slug}`.replace(/[^\w.-]+/g, '-')
-  const svg = buildLogDetailsExportSvg(params)
+function createExportableDialogNode(root: HTMLElement) {
+  const clone = root.cloneNode(true) as HTMLElement
 
-  if (params.format === 'svg') {
-    downloadBlob(
-      new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }),
-      `${filenameBase}.svg`
-    )
-    return
+  clone.querySelectorAll("[data-slot='scroll-area']").forEach((node) => {
+    const el = node as HTMLElement
+    el.style.maxHeight = 'none'
+    el.style.height = 'auto'
+    el.style.overflow = 'visible'
+  })
+  clone.querySelectorAll("[data-slot='scroll-area-viewport']").forEach((node) => {
+    const el = node as HTMLElement
+    el.style.maxHeight = 'none'
+    el.style.height = 'auto'
+    el.style.overflow = 'visible'
+  })
+  clone.querySelectorAll("[data-slot='scroll-area-scrollbar']").forEach((node) => {
+    ;(node as HTMLElement).style.display = 'none'
+  })
+  clone.querySelectorAll("[data-slot='scroll-area-corner']").forEach((node) => {
+    ;(node as HTMLElement).style.display = 'none'
+  })
+
+  copyComputedStyles(root, clone)
+
+  clone.querySelectorAll('[data-export-exclude]').forEach((node) => node.remove())
+
+  clone.style.width = `${Math.ceil(root.getBoundingClientRect().width)}px`
+  clone.style.maxHeight = 'none'
+  clone.style.height = 'auto'
+  clone.style.overflow = 'visible'
+  clone.setAttribute('xmlns', XHTML_NS)
+
+  return clone
+}
+
+async function exportDialogSnapshot(
+  root: HTMLElement,
+  filenameBase: string,
+  format: 'svg' | 'png'
+) {
+  const exportNode = createExportableDialogNode(root)
+  const sandbox = document.createElement('div')
+  sandbox.style.position = 'fixed'
+  sandbox.style.left = '-100000px'
+  sandbox.style.top = '0'
+  sandbox.style.visibility = 'hidden'
+  sandbox.style.pointerEvents = 'none'
+  sandbox.style.contain = 'layout style paint'
+  sandbox.appendChild(exportNode)
+  document.body.appendChild(sandbox)
+
+  if (document.fonts?.ready) {
+    try {
+      await document.fonts.ready
+    } catch {
+      // Continue with the current snapshot if fonts fail to settle.
+    }
   }
 
-  const image = new Image()
-  const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
-  const url = URL.createObjectURL(svgBlob)
-  image.onload = () => {
-    const canvas = document.createElement('canvas')
-    canvas.width = image.width
-    canvas.height = image.height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) {
-      URL.revokeObjectURL(url)
+  const width = Math.ceil(exportNode.getBoundingClientRect().width)
+  const height = Math.ceil(exportNode.scrollHeight)
+  const serialized = new XMLSerializer().serializeToString(exportNode)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><foreignObject x="0" y="0" width="100%" height="100%">${serialized}</foreignObject></svg>`
+
+  try {
+    if (format === 'svg') {
+      downloadBlob(
+        new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }),
+        `${filenameBase}.svg`
+      )
       return
     }
-    ctx.drawImage(image, 0, 0)
-    canvas.toBlob((blob) => {
+
+    const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(svgBlob)
+    const image = new Image()
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve()
+        image.onerror = () => reject(new Error('Failed to load snapshot'))
+        image.src = url
+      })
+
+      const scale = Math.max(window.devicePixelRatio || 1, 1)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.ceil(width * scale)
+      canvas.height = Math.ceil(height * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.scale(scale, scale)
+      ctx.drawImage(image, 0, 0, width, height)
+
+      await new Promise<void>((resolve) => {
+        canvas.toBlob((blob) => {
+          if (blob) downloadBlob(blob, `${filenameBase}.png`)
+          resolve()
+        }, 'image/png')
+      })
+    } finally {
       URL.revokeObjectURL(url)
-      if (blob) downloadBlob(blob, `${filenameBase}.png`)
-    }, 'image/png')
+    }
+  } finally {
+    sandbox.remove()
   }
-  image.src = url
 }
 
 function hasConversionMeta(other: LogOtherData | null): boolean {
@@ -1633,6 +1679,7 @@ interface DetailsDialogProps {
 
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
+  const detailsExportRef = useRef<HTMLDivElement>(null)
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
@@ -1763,55 +1810,11 @@ export function DetailsDialog(props: DetailsDialogProps) {
       : requestDiagnosticResponse && !requestDiagnosticResponse.success
         ? requestDiagnosticResponse.message || t('Diagnostic unavailable')
         : undefined
-  const totalTokens = getTotalTokens(props.log)
-  const exportTitle = t('Log Details')
   const exportTypeLabel = t(typeConfig.label)
-  const exportFields = [
-    { label: t('Request ID'), value: props.log.request_id || '-' },
-    {
-      label: t('Upstream Request ID'),
-      value: props.log.upstream_request_id || '-',
-    },
-    { label: t('Model'), value: props.log.model_name || '-' },
-    { label: t('User'), value: props.log.username || '-' },
-    { label: t('Token'), value: props.log.token_name || '-' },
-    {
-      label: t('Group'),
-      value: props.log.group || other?.group || '-',
-    },
-    {
-      label: t('Channel'),
-      value: props.log.channel_name || String(props.log.channel || '-'),
-    },
-    {
-      label: t('Created At'),
-      value: formatTimestampToDate(props.log.created_at),
-    },
-    {
-      label: t('Response Time'),
-      value: props.log.use_time > 0 ? formatUseTime(props.log.use_time) : '-',
-    },
-    { label: t('Total Cost'), value: formatLogQuota(props.log.quota) },
-    {
-      label: t('Total Tokens'),
-      value:
-        totalTokens > 0
-          ? `${formatTokenVolume(totalTokens)} (${totalTokens.toLocaleString()})`
-          : '-',
-    },
-    {
-      label: t('Cost per 1M tokens'),
-      value: formatCostPerMillionTokens(props.log),
-    },
-    {
-      label: t('Input Tokens'),
-      value: (props.log.prompt_tokens || 0).toLocaleString(),
-    },
-    {
-      label: t('Output Tokens'),
-      value: (props.log.completion_tokens || 0).toLocaleString(),
-    },
-  ]
+  const detailsExportFilename = `usage-log-${props.log.request_id || `log-${props.log.id}`}`.replace(
+    /[^\w.-]+/g,
+    '-'
+  )
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -1822,7 +1825,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
           isTieredBilling ? 'sm:max-w-4xl lg:max-w-5xl' : 'sm:max-w-lg'
         )}
       >
-        <DialogHeader className='max-sm:gap-1'>
+        <div ref={detailsExportRef} className='relative min-w-0'>
           <div className='flex min-w-0 items-start justify-between gap-3 pr-7'>
             <DialogTitle className='flex min-w-0 items-center gap-2 text-base'>
               {t('Log Details')}
@@ -1833,161 +1836,164 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 copyable={false}
               />
             </DialogTitle>
-            <div className='flex shrink-0 items-center gap-1.5'>
-              <Button
-                variant='outline'
-                size='sm'
-                className='h-7 gap-1 px-2 text-xs'
-                title={t('Download as PNG')}
-                aria-label={t('Download as PNG')}
-                onClick={() =>
-                  exportLogDetails({
-                    log: props.log,
-                    title: exportTitle,
-                    typeLabel: exportTypeLabel,
-                    fields: exportFields,
-                    format: 'png',
-                  })
-                }
-              >
-                <Download className='size-3' aria-hidden='true' />
-                PNG
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                className='h-7 gap-1 px-2 text-xs'
-                title={t('Download as SVG')}
-                aria-label={t('Download as SVG')}
-                onClick={() =>
-                  exportLogDetails({
-                    log: props.log,
-                    title: exportTitle,
-                    typeLabel: exportTypeLabel,
-                    fields: exportFields,
-                    format: 'svg',
-                  })
-                }
-              >
-                <Download className='size-3' aria-hidden='true' />
-                SVG
-              </Button>
-            </div>
+          </div>
+          <div
+            data-export-exclude
+            className='absolute top-0 right-0 flex shrink-0 items-center gap-1.5'
+          >
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-7 gap-1 px-2 text-xs'
+              title={t('Download as PNG')}
+              aria-label={t('Download as PNG')}
+              onClick={() => {
+                if (!detailsExportRef.current) return
+                void exportDialogSnapshot(
+                  detailsExportRef.current,
+                  detailsExportFilename,
+                  'png'
+                )
+              }}
+            >
+              <Download className='size-3' aria-hidden='true' />
+              PNG
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-7 gap-1 px-2 text-xs'
+              title={t('Download as SVG')}
+              aria-label={t('Download as SVG')}
+              onClick={() => {
+                if (!detailsExportRef.current) return
+                void exportDialogSnapshot(
+                  detailsExportRef.current,
+                  detailsExportFilename,
+                  'svg'
+                )
+              }}
+            >
+              <Download className='size-3' aria-hidden='true' />
+              SVG
+            </Button>
           </div>
           <DialogDescription className='sr-only'>
             {t('View the complete details for this log entry')}
           </DialogDescription>
-        </DialogHeader>
+          <ScrollArea className='max-h-[70vh] min-w-0 overflow-hidden pr-2 max-sm:max-h-[calc(100dvh-7rem)] sm:pr-4'>
+            <div className='w-full max-w-full min-w-0 space-y-2.5 overflow-hidden py-1 sm:space-y-3'>
+              {/* Overview section - key identifiers */}
+              <div className='min-w-0 space-y-1'>
+                {props.log.request_id && (
+                  <DetailRow
+                    label={t('Request ID')}
+                    value={props.log.request_id}
+                    mono
+                  />
+                )}
+                {props.log.upstream_request_id && (
+                  <DetailRow
+                    label={t('Upstream Request ID')}
+                    value={props.log.upstream_request_id}
+                    mono
+                  />
+                )}
 
-        <ScrollArea className='max-h-[70vh] min-w-0 overflow-hidden pr-2 max-sm:max-h-[calc(100dvh-7rem)] sm:pr-4'>
-          <div className='w-full max-w-full min-w-0 space-y-2.5 overflow-hidden py-1 sm:space-y-3'>
-            {/* Overview section - key identifiers */}
-            <div className='min-w-0 space-y-1'>
-              {props.log.request_id && (
-                <DetailRow
-                  label={t('Request ID')}
-                  value={props.log.request_id}
-                  mono
-                />
-              )}
-              {props.log.upstream_request_id && (
-                <DetailRow
-                  label={t('Upstream Request ID')}
-                  value={props.log.upstream_request_id}
-                  mono
-                />
-              )}
-
-              {props.isAdmin && props.log.channel > 0 && (
-                <DetailRow
-                  label={t('Channel')}
-                  value={
-                    <span>
-                      {props.log.channel}
-                      {props.log.channel_name && (
-                        <span className='text-muted-foreground'>
-                          {' '}
-                          ({props.log.channel_name})
-                        </span>
-                      )}
-                    </span>
-                  }
-                  mono
-                />
-              )}
-
-              {channelChain && props.isAdmin && (
-                <DetailRow label={t('Retry Chain')} value={channelChain} mono />
-              )}
-
-              {props.log.token_name && (
-                <DetailRow
-                  label={t('Token')}
-                  value={props.log.token_name}
-                  mono
-                />
-              )}
-
-              {(props.log.group || other?.group) && (
-                <DetailRow
-                  label={t('Group')}
-                  value={props.log.group || other?.group || ''}
-                  mono
-                />
-              )}
-
-              {showAdminIp && (
-                <DetailRow
-                  label={t('IP Address')}
-                  value={
-                    <span className='flex items-center gap-1'>
-                      <Globe
-                        className='size-3 text-amber-500'
-                        aria-hidden='true'
-                      />
-                      {props.log.ip}
-                    </span>
-                  }
-                  mono
-                />
-              )}
-
-              {showTiming && props.log.use_time > 0 && (
-                <DetailRow
-                  label={t('Response Time')}
-                  value={
-                    <span
-                      className={cn(
-                        'font-medium',
-                        timingTextColorClass(
-                          getResponseTimeColor(
-                            props.log.use_time,
-                            props.log.completion_tokens
-                          )
-                        )
-                      )}
-                    >
-                      {formatUseTime(props.log.use_time)}
-                      {props.log.is_stream &&
-                        other?.frt != null &&
-                        other.frt > 0 && (
-                          <span
-                            className={cn(
-                              'font-normal',
-                              timingTextColorClass(
-                                getFirstResponseTimeColor(other.frt / 1000)
-                              )
-                            )}
-                          >
+                {props.isAdmin && props.log.channel > 0 && (
+                  <DetailRow
+                    label={t('Channel')}
+                    value={
+                      <span>
+                        {props.log.channel}
+                        {props.log.channel_name && (
+                          <span className='text-muted-foreground'>
                             {' '}
-                            (FRT: {formatUseTime(other.frt / 1000)})
+                            ({props.log.channel_name})
                           </span>
                         )}
-                    </span>
-                  }
-                />
-              )}
-            </div>
+                      </span>
+                    }
+                    mono
+                  />
+                )}
+
+                {channelChain && props.isAdmin && (
+                  <DetailRow
+                    label={t('Retry Chain')}
+                    value={channelChain}
+                    mono
+                  />
+                )}
+
+                {props.log.token_name && (
+                  <DetailRow
+                    label={t('Token')}
+                    value={props.log.token_name}
+                    mono
+                  />
+                )}
+
+                {(props.log.group || other?.group) && (
+                  <DetailRow
+                    label={t('Group')}
+                    value={props.log.group || other?.group || ''}
+                    mono
+                  />
+                )}
+
+                {showAdminIp && (
+                  <DetailRow
+                    label={t('IP Address')}
+                    value={
+                      <span className='flex items-center gap-1'>
+                        <Globe
+                          className='size-3 text-amber-500'
+                          aria-hidden='true'
+                        />
+                        {props.log.ip}
+                      </span>
+                    }
+                    mono
+                  />
+                )}
+
+                {showTiming && props.log.use_time > 0 && (
+                  <DetailRow
+                    label={t('Response Time')}
+                    value={
+                      <span
+                        className={cn(
+                          'font-medium',
+                          timingTextColorClass(
+                            getResponseTimeColor(
+                              props.log.use_time,
+                              props.log.completion_tokens
+                            )
+                          )
+                        )}
+                      >
+                        {formatUseTime(props.log.use_time)}
+                        {props.log.is_stream &&
+                          other?.frt != null &&
+                          other.frt > 0 && (
+                            <span
+                              className={cn(
+                                'font-normal',
+                                timingTextColorClass(
+                                  getFirstResponseTimeColor(other.frt / 1000)
+                                )
+                              )}
+                            >
+                              {' '}
+                              (FRT: {formatUseTime(other.frt / 1000)})
+                            </span>
+                          )}
+                      </span>
+                    }
+                  />
+                )}
+              </div>
 
             {/* Request conversion (admin only, not for refund) */}
             {showConversion && (
@@ -2454,8 +2460,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 </div>
               </div>
             )}
-          </div>
-        </ScrollArea>
+            </div>
+          </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   )
