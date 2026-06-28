@@ -33,26 +33,54 @@ const mobileCard = read(
 
 assertIncludes(
   detailsDialog,
-  'function buildLogDetailsExportSvg',
-  'SVG export builder'
+  'async function exportDialogSnapshot',
+  'dialog snapshot export helper'
 )
-assertIncludes(detailsDialog, "format: 'png'", 'PNG export action')
-assertIncludes(detailsDialog, "format: 'svg'", 'SVG export action')
+assertIncludes(
+  detailsDialog,
+  'function createExportableDialogNode',
+  'exportable dialog clone builder'
+)
+assertMatch(
+  detailsDialog,
+  /exportDialogSnapshot\([\s\S]+,\s*'png'\s*\)/,
+  'PNG export action'
+)
+assertMatch(
+  detailsDialog,
+  /exportDialogSnapshot\([\s\S]+,\s*'svg'\s*\)/,
+  'SVG export action'
+)
 assertIncludes(detailsDialog, "title={t('Download as PNG')}", 'PNG button')
 assertIncludes(detailsDialog, "title={t('Download as SVG')}", 'SVG button')
+assertIncludes(detailsDialog, 'data-export-exclude', 'export controls exclusion')
+assertIncludes(detailsDialog, 'showCloseButton={false}', 'custom dialog header controls')
 assertIncludes(detailsDialog, "type: 'image/svg+xml;charset=utf-8'", 'SVG blob')
 assertIncludes(detailsDialog, "canvas.toBlob", 'PNG canvas conversion')
 assertIncludes(detailsDialog, 'function getTotalTokens', 'total token helper')
 assertIncludes(
   detailsDialog,
-  'function formatCostPerMillionTokens',
-  'cost per million token helper'
+  'function formatCostPerTokenVolume',
+  'token unit cost helper'
 )
 assertIncludes(detailsDialog, "label: t('Total Tokens')", 'total token field')
 assertIncludes(
   detailsDialog,
-  "label: t('Cost per 1M tokens')",
-  'cost per 1M token field'
+  "label: t('Token Unit Cost')",
+  'token unit cost field'
+)
+assertIncludes(detailsDialog, '100M:', '100M token unit cost value')
+assertIncludes(detailsDialog, "t('User Information')", 'user info tab')
+assertIncludes(detailsDialog, "t('Admin Information')", 'admin info tab')
+assertIncludes(
+  detailsDialog,
+  'const isUserView = !props.isAdmin || activeTab ===',
+  'normal user-only view gate'
+)
+assertIncludes(
+  detailsDialog,
+  'const isAdminView = props.isAdmin && activeTab ===',
+  'admin-only view gate'
 )
 assertMatch(
   detailsDialog,
