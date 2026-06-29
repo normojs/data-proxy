@@ -26,6 +26,9 @@ scripts/data-proxy-release-gate.sh --with-tests
 scripts/data-proxy-release-gate.sh --with-docker-config
 ```
 
+子站发布还需要执行状态页 smoke、额度/Redis 降级核对、最近成交价展示核对和子站
+日志/渠道排障检查，按 `docs/subsite-release-ops-runbook.md` 记录证据。
+
 如需把 token-like 字符串警告升级为失败：
 
 ```bash
