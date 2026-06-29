@@ -14,6 +14,30 @@ func TestMCPMigrationSmoke(t *testing.T) {
 	if os.Getenv("MCP_MIGRATION_TEST") != "1" {
 		t.Skip("set MCP_MIGRATION_TEST=1 to run the MCP migration smoke test")
 	}
+	originalDB := DB
+	originalLogDB := LOG_DB
+	originalSQLitePath := common.SQLitePath
+	originalUsingSQLite := common.UsingSQLite
+	originalUsingMySQL := common.UsingMySQL
+	originalUsingPostgreSQL := common.UsingPostgreSQL
+	originalLogSQLType := common.LogSqlType
+	originalIsMasterNode := common.IsMasterNode
+	originalNodeName := common.NodeName
+	migrationDBOpen := false
+	t.Cleanup(func() {
+		if migrationDBOpen {
+			_ = CloseDB()
+		}
+		DB = originalDB
+		LOG_DB = originalLogDB
+		common.SQLitePath = originalSQLitePath
+		common.UsingSQLite = originalUsingSQLite
+		common.UsingMySQL = originalUsingMySQL
+		common.UsingPostgreSQL = originalUsingPostgreSQL
+		common.LogSqlType = originalLogSQLType
+		common.IsMasterNode = originalIsMasterNode
+		common.NodeName = originalNodeName
+	})
 	if os.Getenv("SQL_DSN") == "" {
 		t.Setenv("SQLITE_PATH", "file:"+filepath.Join(t.TempDir(), "mcp-migration-smoke.db")+"?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)")
 	}
@@ -24,6 +48,7 @@ func TestMCPMigrationSmoke(t *testing.T) {
 	if err := InitDB(); err != nil {
 		t.Fatalf("InitDB failed: %v", err)
 	}
+	migrationDBOpen = true
 	if err := InitLogDB(); err != nil {
 		t.Fatalf("InitLogDB failed: %v", err)
 	}
@@ -32,16 +57,15 @@ func TestMCPMigrationSmoke(t *testing.T) {
 	if err := CloseDB(); err != nil {
 		t.Fatalf("CloseDB after first migration failed: %v", err)
 	}
+	migrationDBOpen = false
 
 	if err := InitDB(); err != nil {
 		t.Fatalf("second InitDB failed: %v", err)
 	}
+	migrationDBOpen = true
 	if err := InitLogDB(); err != nil {
 		t.Fatalf("second InitLogDB failed: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = CloseDB()
-	})
 	assertMCPMigrationSmokeState(t)
 	assertNoSQLiteDecimalDDL(t)
 }
