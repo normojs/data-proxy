@@ -27,6 +27,13 @@ func AllOption() ([]*Option, error) {
 	return options, err
 }
 
+func DeleteOptionsByKeys(keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	return DB.Where(commonKeyColumn()+" IN ?", keys).Delete(&Option{}).Error
+}
+
 func InitOptionMap() {
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)

@@ -96,7 +96,11 @@ func MigrateConsoleSetting(c *gin.Context) {
 
 	// 删除旧键记录
 	oldKeys := []string{"ApiInfo", "Announcements", "FAQ", "UptimeKumaUrl", "UptimeKumaSlug"}
-	model.DB.Where("key IN ?", oldKeys).Delete(&model.Option{})
+	if err := model.DeleteOptionsByKeys(oldKeys); err != nil {
+		common.SysError("failed to delete old console setting options: " + err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "删除旧配置失败，请稍后重试"})
+		return
+	}
 
 	// 重新加载 OptionMap
 	model.InitOptionMap()

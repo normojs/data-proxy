@@ -252,11 +252,11 @@ func TestRecordEnterpriseAuditLogFillsScope(t *testing.T) {
 }
 
 func TestEnterpriseGovernanceOptionsDefaultDisabled(t *testing.T) {
-	require.NoError(t, DB.Where("key IN ?", []string{
+	require.NoError(t, DeleteOptionsByKeys([]string{
 		"EnterpriseGovernanceEnabled",
 		"EnterpriseGovernanceDryRunEnabled",
 		"EnterpriseQuotaRedisCounterEnabled",
-	}).Delete(&Option{}).Error)
+	}))
 	common.EnterpriseGovernanceEnabled = false
 	common.EnterpriseGovernanceDryRunEnabled = false
 	common.EnterpriseQuotaRedisCounterEnabled = false
