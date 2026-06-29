@@ -1321,6 +1321,7 @@
     "Display name for this monitoring group (max 50 characters)": "Display name for this monitoring group (max 50 characters)",
     "Display name for this payment method.": "Display name for this payment method.",
     "Display name shown to users.": "Display name shown to users.",
+    "Shown in model lists and pricing pages. Leave blank to use model name.": "Shown in model lists and pricing pages. Leave blank to use model name.",
     "Display Options": "Display Options",
     "Display Token Statistics": "Display Token Statistics",
     "Displayed in": "Displayed in",

@@ -88,6 +88,7 @@ import type { Model } from '../../types'
 const extendedModelFormSchema = z.object({
   id: z.number().optional(),
   model_name: z.string().min(1, 'Model name is required'),
+  display_name: z.string(),
   description: z.string(),
   icon: z.string(),
   tags: z.array(z.string()),
@@ -210,6 +211,7 @@ export function ModelMutateDrawer({
     resolver: zodResolver(extendedModelFormSchema),
     defaultValues: {
       model_name: '',
+      display_name: '',
       description: '',
       icon: '',
       tags: [],
@@ -269,6 +271,7 @@ export function ModelMutateDrawer({
       const baseModelData = {
         id: model.id,
         model_name: model.model_name,
+        display_name: model.display_name || '',
         description: model.description || '',
         icon: model.icon || '',
         tags: parseModelTags(model.tags),
@@ -373,6 +376,7 @@ export function ModelMutateDrawer({
       setAdvancedOpen(false)
       form.reset({
         model_name: currentRow?.model_name || '',
+        display_name: currentRow?.display_name || '',
         description: '',
         icon: '',
         tags: [],
@@ -677,6 +681,23 @@ export function ModelMutateDrawer({
                     </FormControl>
                     <FormDescription>
                       {t('The unique identifier for this model')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='display_name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Display Name')}</FormLabel>
+                    <FormControl>
+                      <Input placeholder='GPT-4o Mini' {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Shown in model lists and pricing pages. Leave blank to use model name.')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

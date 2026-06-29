@@ -47,6 +47,13 @@ export function replaceModelInPath(path: string, modelName: string): string {
 }
 
 /**
+ * Get the user-facing model name while keeping model_name as the stable ID.
+ */
+export function getModelDisplayName(model: PricingModel): string {
+  return model.display_name?.trim() || model.model_name || ''
+}
+
+/**
  * Check if model is token-based pricing
  */
 export function isTokenBasedModel(model: PricingModel): boolean {

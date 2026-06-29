@@ -43,7 +43,7 @@ import {
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import { getModelDisplayName, isTokenBasedModel } from '../lib/model-helpers'
 import {
   formatPrice,
   formatRequestPrice,
@@ -225,13 +225,28 @@ export function usePricingColumns(
         const model = row.original
         const modelIconKey = model.icon || model.vendor_icon
         const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 14) : null
+        const displayName = getModelDisplayName(model)
+        const hasDisplayName = displayName !== model.model_name
 
         return (
           <div className='flex min-w-[200px] items-center gap-2'>
             {modelIcon}
-            <span className='truncate font-mono text-sm font-medium'>
-              {model.model_name}
-            </span>
+            <div className='min-w-0'>
+              <div
+                className={
+                  hasDisplayName
+                    ? 'truncate text-sm font-medium'
+                    : 'truncate font-mono text-sm font-medium'
+                }
+              >
+                {displayName}
+              </div>
+              {hasDisplayName && (
+                <div className='text-muted-foreground truncate font-mono text-xs'>
+                  {model.model_name}
+                </div>
+              )}
+            </div>
           </div>
         )
       },

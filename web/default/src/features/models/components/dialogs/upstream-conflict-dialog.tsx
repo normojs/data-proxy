@@ -74,6 +74,7 @@ import type { SyncOverwritePayload } from '../../types'
 import { useModels } from '../models-provider'
 
 const FIELD_LABELS: Record<string, string> = {
+  display_name: 'Display Name',
   description: 'Description',
   icon: 'Icon',
   tags: 'Tags',

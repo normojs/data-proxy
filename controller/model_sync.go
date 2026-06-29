@@ -57,6 +57,7 @@ type upstreamEnvelope[T any] struct {
 
 type upstreamModel struct {
 	Description string          `json:"description"`
+	DisplayName string          `json:"display_name"`
 	Endpoints   json.RawMessage `json:"endpoints"`
 	Icon        string          `json:"icon"`
 	ModelName   string          `json:"model_name"`
@@ -374,6 +375,7 @@ func SyncUpstreamModels(c *gin.Context) {
 		// 创建模型
 		mi := &model.Model{
 			ModelName:   name,
+			DisplayName: up.DisplayName,
 			Description: up.Description,
 			Icon:        up.Icon,
 			Tags:        up.Tags,
@@ -413,6 +415,10 @@ func SyncUpstreamModels(c *gin.Context) {
 			// 应用字段覆盖（事务）
 			_ = model.DB.Transaction(func(tx *gorm.DB) error {
 				needUpdate := false
+				if containsField(ow.Fields, "display_name") {
+					local.DisplayName = up.DisplayName
+					needUpdate = true
+				}
 				if containsField(ow.Fields, "description") {
 					local.Description = up.Description
 					needUpdate = true
@@ -593,7 +599,10 @@ func SyncUpstreamPreview(c *gin.Context) {
 		if !ok {
 			continue
 		}
-		fields := make([]conflictField, 0, 6)
+		fields := make([]conflictField, 0, 7)
+		if strings.TrimSpace(local.DisplayName) != strings.TrimSpace(up.DisplayName) {
+			fields = append(fields, conflictField{Field: "display_name", Local: local.DisplayName, Upstream: up.DisplayName})
+		}
 		if strings.TrimSpace(local.Description) != strings.TrimSpace(up.Description) {
 			fields = append(fields, conflictField{Field: "description", Local: local.Description, Upstream: up.Description})
 		}

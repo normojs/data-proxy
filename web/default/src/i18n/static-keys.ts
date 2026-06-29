@@ -568,6 +568,7 @@ export const STATIC_I18N_KEYS = [
   'No proxy tool selected',
   'No tool selected',
   'Display Name',
+  'Shown in model lists and pricing pages. Leave blank to use model name.',
   'Namespace',
   'Transport',
   'Endpoint',

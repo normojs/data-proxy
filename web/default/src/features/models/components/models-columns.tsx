@@ -140,14 +140,23 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
       ),
       cell: ({ row }) => {
         const name = row.getValue('model_name') as string
+        const displayName = row.original.display_name?.trim()
+        const primaryName = displayName || name
         return (
-          <StatusBadge
-            label={name}
-            variant='neutral'
-            copyText={name}
-            size='sm'
-            className='font-mono'
-          />
+          <div className='flex min-w-0 flex-col gap-0.5'>
+            <StatusBadge
+              label={primaryName}
+              variant='neutral'
+              copyText={name}
+              size='sm'
+              className={displayName ? '' : 'font-mono'}
+            />
+            {displayName && (
+              <span className='text-muted-foreground truncate font-mono text-xs'>
+                {name}
+              </span>
+            )}
+          </div>
         )
       },
       minSize: 200,
