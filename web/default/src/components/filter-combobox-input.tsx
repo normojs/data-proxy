@@ -145,7 +145,7 @@ export function FilterComboboxInput({
       </div>
 
       <PopoverContent
-        className='w-[var(--anchor-width)] overflow-hidden p-0'
+        className='w-[var(--anchor-width)] min-w-[min(22rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden p-0'
         align='start'
         onWheel={(event) => event.stopPropagation()}
         onTouchMove={(event) => event.stopPropagation()}

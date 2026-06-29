@@ -58,6 +58,72 @@ func TestGetPlatformPricingActualPricesAggregatesModelAndGroups(t *testing.T) {
 	require.EqualValues(t, 3000, vipGroup.TotalBillableTokens)
 }
 
+func TestGetPlatformPricingActualPricesUsesTotalTokensFallback(t *testing.T) {
+	truncate(t)
+
+	now := common.GetTimestamp()
+	seedPricingActualBillingEvent(t, "actual-total-only", "gpt-total-only", "default", 1500, 0.003, now-30, map[string]any{
+		"total_tokens": 3000,
+	})
+
+	byModel, byGroup, err := GetPlatformPricingActualPrices(3600)
+	require.NoError(t, err)
+
+	actual := byModel["gpt-total-only"]
+	require.EqualValues(t, 1, actual.RequestCount)
+	require.EqualValues(t, 3000, actual.TotalTokens)
+	require.EqualValues(t, 3000, actual.TotalBillableTokens)
+	require.InDelta(t, 1.0, actual.EffectivePricePer1MTokens, 0.0000001)
+	require.InDelta(t, 0.001, actual.EffectivePricePer1KTokens, 0.0000001)
+
+	defaultGroup := byGroup["gpt-total-only"]["default"]
+	require.EqualValues(t, 3000, defaultGroup.TotalBillableTokens)
+}
+
+func TestGetPlatformPricingActualPricesForPricingFallsBackToLastTransaction(t *testing.T) {
+	truncate(t)
+
+	now := common.GetTimestamp()
+	seedPricingActualBillingEvent(t, "actual-stale-model", "gpt-stale", "default", 2500, 0.005, now-86400, map[string]any{
+		"total_tokens": 5000,
+	})
+	seedPricingActualBillingEvent(t, "actual-recent-default", "gpt-mixed", "default", 1000, 0.002, now-60, map[string]any{
+		"total_tokens": 2000,
+	})
+	seedPricingActualBillingEvent(t, "actual-stale-vip", "gpt-mixed", "vip", 3000, 0.006, now-7200, map[string]any{
+		"total_tokens": 6000,
+	})
+
+	pricing := []model.Pricing{
+		{ModelName: "gpt-stale", EnableGroup: []string{"default"}},
+		{ModelName: "gpt-mixed", EnableGroup: []string{"default", "vip"}},
+	}
+	byModel, byGroup, err := GetPlatformPricingActualPricesForPricing(3600, pricing)
+	require.NoError(t, err)
+
+	staleModel := byModel["gpt-stale"]
+	require.True(t, staleModel.IsFallback)
+	require.True(t, staleModel.PriceMayHaveChanged)
+	require.EqualValues(t, now-86400, staleModel.LastTransactionAt)
+	require.EqualValues(t, 0, staleModel.WindowSeconds)
+	require.EqualValues(t, 5000, staleModel.TotalBillableTokens)
+	require.InDelta(t, 1.0, staleModel.EffectivePricePer1MTokens, 0.0000001)
+
+	recentModel := byModel["gpt-mixed"]
+	require.False(t, recentModel.IsFallback)
+	require.EqualValues(t, 3600, recentModel.WindowSeconds)
+	require.EqualValues(t, 2000, recentModel.TotalBillableTokens)
+
+	defaultGroup := byGroup["gpt-mixed"]["default"]
+	require.False(t, defaultGroup.IsFallback)
+
+	vipGroup := byGroup["gpt-mixed"]["vip"]
+	require.True(t, vipGroup.IsFallback)
+	require.True(t, vipGroup.PriceMayHaveChanged)
+	require.EqualValues(t, now-7200, vipGroup.LastTransactionAt)
+	require.EqualValues(t, 6000, vipGroup.TotalBillableTokens)
+}
+
 func seedPricingActualBillingEvent(t *testing.T, requestId string, modelName string, group string, quota int, cost float64, createdAt int64, metadata map[string]any) {
 	t.Helper()
 	metadata["model_name"] = modelName

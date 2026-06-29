@@ -80,11 +80,13 @@ export type PricingActualPrice = {
   window_seconds: number
   started_at: number
   ended_at: number
+  last_transaction_at?: number
   request_count: number
   amount_quota: number
   cost: number
   prompt_tokens: number
   completion_tokens: number
+  total_tokens: number
   input_tokens: number
   output_tokens: number
   cache_tokens: number
@@ -94,6 +96,8 @@ export type PricingActualPrice = {
   effective_price_per_1k_tokens?: number
   effective_price_per_request?: number
   price_unit: string
+  is_fallback?: boolean
+  price_may_have_changed?: boolean
 }
 
 /** Input/output modalities supported by a model. */

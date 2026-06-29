@@ -64,7 +64,9 @@ import {
   actualPriceUnitLabel,
   actualPriceWindowLabel,
   formatActualPriceCount,
+  formatActualPriceTimestamp,
   formatActualPriceValue,
+  isActualPriceFallback,
 } from '../lib/actual-price'
 import {
   getDynamicPriceEntries,
@@ -75,7 +77,7 @@ import {
 import { parseTags } from '../lib/filters'
 import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
 import { inferModelMetadata } from '../lib/model-metadata'
-import { formatFixedPrice, formatGroupPrice } from '../lib/price'
+import { formatFixedPrice, formatGroupPrice, getGroupRatio } from '../lib/price'
 import type {
   Modality,
   ModelCapability,
@@ -614,6 +616,7 @@ function GroupActualPriceCell(props: {
     props.tokenUnit,
     t('request')
   )
+  const fallback = isActualPriceFallback(props.actual)
 
   if (
     !props.actual ||
@@ -635,15 +638,42 @@ function GroupActualPriceCell(props: {
             <span className='text-muted-foreground/50 text-[10px]'>
               / {unitLabel}
             </span>
+            {fallback && (
+              <span className='text-[10px] text-amber-600 dark:text-amber-400'>
+                {t('May have changed')}
+              </span>
+            )}
           </span>
         </TooltipTrigger>
         <TooltipContent side='top' className='max-w-[280px] p-2.5'>
           <div className='space-y-1 text-xs'>
             <div className='font-medium'>
-              {t('Recent effective price')} ·{' '}
-              {actualPriceWindowLabel(props.actual, t('Recent 1h'))}
+              {fallback ? t('Last settled price') : t('Recent effective price')}{' '}
+              ·{' '}
+              {fallback
+                ? t('Last trade')
+                : actualPriceWindowLabel(props.actual, t('Recent 1h'))}
             </div>
+            {fallback && (
+              <div className='text-amber-700 dark:text-amber-300'>
+                {t(
+                  'No trade in the recent hour. This is the last settled price and may have changed.'
+                )}
+              </div>
+            )}
             <div className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1'>
+              {fallback && (
+                <>
+                  <span className='text-muted-foreground'>
+                    {t('Last trade')}
+                  </span>
+                  <span className='text-right font-mono'>
+                    {formatActualPriceTimestamp(
+                      props.actual.last_transaction_at
+                    )}
+                  </span>
+                </>
+              )}
               <span className='text-muted-foreground'>{t('Requests')}</span>
               <span className='text-right font-mono'>
                 {formatActualPriceCount(props.actual.request_count)}
@@ -774,7 +804,7 @@ function GroupPricingSection(props: {
         <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
         <div className='space-y-3'>
           {availableGroups.map((group) => {
-            const ratio = props.groupRatio[group] || 1
+            const ratio = getGroupRatio(props.groupRatio, group)
             const actual = props.model.actual_price_by_group?.[group]
             return (
               <div key={group} className='overflow-hidden rounded-lg border'>
@@ -891,7 +921,7 @@ function GroupPricingSection(props: {
           </TableHeader>
           <TableBody>
             {availableGroups.map((group) => {
-              const ratio = props.groupRatio[group] || 1
+              const ratio = getGroupRatio(props.groupRatio, group)
               const actual = props.model.actual_price_by_group?.[group]
               return (
                 <TableRow key={group}>

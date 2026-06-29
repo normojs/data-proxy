@@ -43,11 +43,13 @@ type PricingActualPrice struct {
 	WindowSeconds             int64   `json:"window_seconds"`
 	StartedAt                 int64   `json:"started_at"`
 	EndedAt                   int64   `json:"ended_at"`
+	LastTransactionAt         int64   `json:"last_transaction_at,omitempty"`
 	RequestCount              int64   `json:"request_count"`
 	AmountQuota               int64   `json:"amount_quota"`
 	Cost                      float64 `json:"cost"`
 	PromptTokens              int64   `json:"prompt_tokens"`
 	CompletionTokens          int64   `json:"completion_tokens"`
+	TotalTokens               int64   `json:"total_tokens"`
 	InputTokens               int64   `json:"input_tokens"`
 	OutputTokens              int64   `json:"output_tokens"`
 	CacheTokens               int64   `json:"cache_tokens"`
@@ -57,6 +59,8 @@ type PricingActualPrice struct {
 	EffectivePricePer1KTokens float64 `json:"effective_price_per_1k_tokens,omitempty"`
 	EffectivePricePerRequest  float64 `json:"effective_price_per_request,omitempty"`
 	PriceUnit                 string  `json:"price_unit"`
+	IsFallback                bool    `json:"is_fallback,omitempty"`
+	PriceMayHaveChanged       bool    `json:"price_may_have_changed,omitempty"`
 }
 
 type PricingVendor struct {

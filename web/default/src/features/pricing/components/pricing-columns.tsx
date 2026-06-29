@@ -34,7 +34,9 @@ import {
   actualPriceUnitLabel,
   actualPriceWindowLabel,
   formatActualPriceCount,
+  formatActualPriceTimestamp,
   formatActualPriceValue,
+  isActualPriceFallback,
 } from '../lib/actual-price'
 import {
   getDynamicDisplayGroupRatio,
@@ -99,6 +101,7 @@ function ActualPriceCell(props: { model: PricingModel; tokenUnit: TokenUnit }) {
     props.tokenUnit,
     t('request')
   )
+  const fallback = isActualPriceFallback(actual)
 
   if (
     !actual ||
@@ -122,17 +125,43 @@ function ActualPriceCell(props: { model: PricingModel; tokenUnit: TokenUnit }) {
               {formatActualPriceValue(amount)}
             </span>
             <div className='text-muted-foreground/50 text-[10px]'>
-              / {unitLabel} · {actualPriceWindowLabel(actual, t('Recent 1h'))}
+              / {unitLabel} ·{' '}
+              {fallback
+                ? t('Last trade')
+                : actualPriceWindowLabel(actual, t('Recent 1h'))}
             </div>
+            {fallback && (
+              <div className='text-[10px] text-amber-600 dark:text-amber-400'>
+                {t('May have changed')}
+              </div>
+            )}
           </div>
         </TooltipTrigger>
         <TooltipContent side='top' className='max-w-[300px] p-2.5'>
           <div className='space-y-1 text-xs'>
-            <div className='font-medium'>{t('Platform actual price')}</div>
+            <div className='font-medium'>
+              {fallback ? t('Last settled price') : t('Platform actual price')}
+            </div>
             <div className='text-muted-foreground'>
-              {t('Blended from settled platform usage in the recent window.')}
+              {fallback
+                ? t(
+                    'No trade in the recent hour. This is the last settled price and may have changed.'
+                  )
+                : t(
+                    'Blended from settled platform usage in the recent window.'
+                  )}
             </div>
             <div className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1'>
+              {fallback && (
+                <>
+                  <span className='text-muted-foreground'>
+                    {t('Last trade')}
+                  </span>
+                  <span className='text-right font-mono'>
+                    {formatActualPriceTimestamp(actual.last_transaction_at)}
+                  </span>
+                </>
+              )}
               <span className='text-muted-foreground'>{t('Requests')}</span>
               <span className='text-right font-mono'>
                 {formatActualPriceCount(actual.request_count)}

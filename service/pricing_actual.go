@@ -8,13 +8,36 @@ import (
 	"github.com/QuantumNous/new-api/model"
 )
 
-const defaultPricingActualWindowSeconds int64 = 3600
+const (
+	defaultPricingActualWindowSeconds int64 = 3600
+	pricingActualFallbackBatchSize          = 500
+	pricingActualFallbackMaxScan            = 20000
+)
 
 type pricingActualAccumulator struct {
 	model.PricingActualPrice
 }
 
+type pricingActualTargets struct {
+	models map[string]struct{}
+	groups map[string]map[string]struct{}
+}
+
+type pricingActualMissing struct {
+	models map[string]struct{}
+	groups map[string]map[string]struct{}
+	count  int
+}
+
 func GetPlatformPricingActualPrices(windowSeconds int64) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, error) {
+	return getPlatformPricingActualPrices(windowSeconds, nil)
+}
+
+func GetPlatformPricingActualPricesForPricing(windowSeconds int64, pricing []model.Pricing) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, error) {
+	return getPlatformPricingActualPrices(windowSeconds, pricingActualTargetsFromPricing(pricing))
+}
+
+func getPlatformPricingActualPrices(windowSeconds int64, targets *pricingActualTargets) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, error) {
 	if windowSeconds <= 0 {
 		windowSeconds = defaultPricingActualWindowSeconds
 	}
@@ -73,7 +96,161 @@ func GetPlatformPricingActualPrices(windowSeconds int64) (map[string]model.Prici
 		}
 	}
 
+	if !targets.empty() {
+		if err := attachFallbackPricingActuals(byModel, byGroup, targets, startAt); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	return byModel, byGroup, nil
+}
+
+func pricingActualTargetsFromPricing(pricing []model.Pricing) *pricingActualTargets {
+	targets := &pricingActualTargets{
+		models: map[string]struct{}{},
+		groups: map[string]map[string]struct{}{},
+	}
+	for _, item := range pricing {
+		modelName := strings.TrimSpace(item.ModelName)
+		if modelName == "" {
+			continue
+		}
+		targets.models[modelName] = struct{}{}
+		for _, group := range item.EnableGroup {
+			group = strings.TrimSpace(group)
+			if group == "" || group == "all" {
+				continue
+			}
+			if _, ok := targets.groups[modelName]; !ok {
+				targets.groups[modelName] = map[string]struct{}{}
+			}
+			targets.groups[modelName][group] = struct{}{}
+		}
+	}
+	return targets
+}
+
+func (targets *pricingActualTargets) empty() bool {
+	return targets == nil || (len(targets.models) == 0 && len(targets.groups) == 0)
+}
+
+func attachFallbackPricingActuals(byModel map[string]model.PricingActualPrice, byGroup map[string]map[string]model.PricingActualPrice, targets *pricingActualTargets, before int64) error {
+	missing := missingPricingActuals(byModel, byGroup, targets)
+	if missing.count == 0 {
+		return nil
+	}
+
+	var cursorCreatedAt int64
+	var cursorId int64
+	scanned := 0
+	for missing.count > 0 && scanned < pricingActualFallbackMaxScan {
+		var events []model.BillingEvent
+		query := model.DB.
+			Model(&model.BillingEvent{}).
+			Select("id, `group`, price_unit, amount_quota, cost, metadata, created_at").
+			Where("source = ? AND event_type = ? AND status = ? AND created_at < ?",
+				model.BillingEventSourceModelRequest,
+				model.BillingEventTypeDebit,
+				model.BillingEventStatusSettled,
+				before,
+			)
+		if cursorCreatedAt > 0 {
+			query = query.Where("(created_at < ? OR (created_at = ? AND id < ?))", cursorCreatedAt, cursorCreatedAt, cursorId)
+		}
+		if err := query.Order("created_at desc, id desc").Limit(pricingActualFallbackBatchSize).Find(&events).Error; err != nil {
+			return err
+		}
+		if len(events) == 0 {
+			break
+		}
+
+		for _, event := range events {
+			scanned++
+			metadata := map[string]any{}
+			_ = common.UnmarshalJsonStr(event.Metadata, &metadata)
+
+			modelName := strings.TrimSpace(metadataString(metadata, "model_name"))
+			if modelName == "" {
+				continue
+			}
+			group := strings.TrimSpace(event.Group)
+			if group == "" {
+				group = "default"
+			}
+
+			actual := fallbackPricingActual(event, metadata)
+			if _, ok := missing.models[modelName]; ok {
+				byModel[modelName] = actual
+				delete(missing.models, modelName)
+				missing.count--
+			}
+			if groups, ok := missing.groups[modelName]; ok {
+				if _, ok := groups[group]; ok {
+					if _, ok := byGroup[modelName]; !ok {
+						byGroup[modelName] = map[string]model.PricingActualPrice{}
+					}
+					byGroup[modelName][group] = actual
+					delete(groups, group)
+					missing.count--
+					if len(groups) == 0 {
+						delete(missing.groups, modelName)
+					}
+				}
+			}
+			if missing.count == 0 || scanned >= pricingActualFallbackMaxScan {
+				break
+			}
+		}
+
+		last := events[len(events)-1]
+		cursorCreatedAt = last.CreatedAt
+		cursorId = last.Id
+		if len(events) < pricingActualFallbackBatchSize {
+			break
+		}
+	}
+
+	return nil
+}
+
+func missingPricingActuals(byModel map[string]model.PricingActualPrice, byGroup map[string]map[string]model.PricingActualPrice, targets *pricingActualTargets) pricingActualMissing {
+	missing := pricingActualMissing{
+		models: map[string]struct{}{},
+		groups: map[string]map[string]struct{}{},
+	}
+	if targets == nil {
+		return missing
+	}
+	for modelName := range targets.models {
+		if _, ok := byModel[modelName]; !ok {
+			missing.models[modelName] = struct{}{}
+			missing.count++
+		}
+	}
+	for modelName, groups := range targets.groups {
+		existingGroups := byGroup[modelName]
+		for group := range groups {
+			if _, ok := existingGroups[group]; ok {
+				continue
+			}
+			if _, ok := missing.groups[modelName]; !ok {
+				missing.groups[modelName] = map[string]struct{}{}
+			}
+			missing.groups[modelName][group] = struct{}{}
+			missing.count++
+		}
+	}
+	return missing
+}
+
+func fallbackPricingActual(event model.BillingEvent, metadata map[string]any) model.PricingActualPrice {
+	acc := map[string]*pricingActualAccumulator{}
+	observePricingActual(acc, "last", 0, event.CreatedAt, event.CreatedAt, event, metadata)
+	actual := finalizePricingActual(acc["last"].PricingActualPrice)
+	actual.LastTransactionAt = event.CreatedAt
+	actual.IsFallback = true
+	actual.PriceMayHaveChanged = true
+	return actual
 }
 
 func observePricingActual(target map[string]*pricingActualAccumulator, key string, windowSeconds int64, startAt int64, endAt int64, event model.BillingEvent, metadata map[string]any) {
@@ -92,6 +269,7 @@ func observePricingActual(target map[string]*pricingActualAccumulator, key strin
 	acc.Cost += event.Cost
 	promptTokens := metadataInt64(metadata, "prompt_tokens")
 	completionTokens := metadataInt64(metadata, "completion_tokens")
+	totalTokens := metadataInt64(metadata, "total_tokens")
 	inputTokens := metadataInt64(metadata, "input_tokens")
 	outputTokens := metadataInt64(metadata, "output_tokens")
 	cacheTokens := metadataInt64(metadata, "cache_tokens")
@@ -105,11 +283,16 @@ func observePricingActual(target map[string]*pricingActualAccumulator, key strin
 
 	acc.PromptTokens += promptTokens
 	acc.CompletionTokens += completionTokens
+	acc.TotalTokens += totalTokens
 	acc.InputTokens += inputTokens
 	acc.OutputTokens += outputTokens
 	acc.CacheTokens += cacheTokens
 	acc.CacheCreationTokens += cacheCreationTokens
-	acc.TotalBillableTokens += inputTokens + outputTokens + cacheTokens + cacheCreationTokens
+	billableTokens := inputTokens + outputTokens + cacheTokens + cacheCreationTokens
+	if billableTokens == 0 {
+		billableTokens = totalTokens
+	}
+	acc.TotalBillableTokens += billableTokens
 	if acc.PriceUnit == "" {
 		acc.PriceUnit = strings.TrimSpace(event.PriceUnit)
 	} else if event.PriceUnit != "" && acc.PriceUnit != event.PriceUnit {
@@ -129,6 +312,9 @@ func finalizePricingActual(value model.PricingActualPrice) model.PricingActualPr
 			outputTokens = value.CompletionTokens
 		}
 		totalBillableTokens = inputTokens + outputTokens + value.CacheTokens + value.CacheCreationTokens
+		if totalBillableTokens == 0 {
+			totalBillableTokens = value.TotalTokens
+		}
 	}
 	value.TotalBillableTokens = totalBillableTokens
 	if totalBillableTokens > 0 {

@@ -73,6 +73,14 @@ function getMinGroupRatio(
   return minRatio === Number.POSITIVE_INFINITY ? 1 : minRatio
 }
 
+export function getGroupRatio(
+  groupRatio: Record<string, number> | undefined,
+  group: string
+): number {
+  const ratio = groupRatio?.[group]
+  return ratio ?? 1
+}
+
 /**
  * Calculate token price in USD.
  *
@@ -211,7 +219,7 @@ export function formatGroupPrice(
     return '-'
   }
 
-  const ratio = groupRatio[group] || 1
+  const ratio = getGroupRatio(groupRatio, group)
   let priceInUSD = calculateTokenPrice(model, type, ratio)
 
   priceInUSD = applyRechargeRate(
@@ -244,7 +252,7 @@ export function formatFixedPrice(
     return '-'
   }
 
-  const ratio = groupRatio[group] || 1
+  const ratio = getGroupRatio(groupRatio, group)
   let priceInUSD = (model.model_price || 0) * ratio
 
   priceInUSD = applyRechargeRate(

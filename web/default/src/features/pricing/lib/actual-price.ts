@@ -68,6 +68,26 @@ export function formatActualPriceCount(value: number | null | undefined) {
   return new Intl.NumberFormat().format(value)
 }
 
+export function isActualPriceFallback(
+  actual: PricingActualPrice | undefined
+): boolean {
+  return Boolean(actual?.is_fallback || actual?.price_may_have_changed)
+}
+
+export function formatActualPriceTimestamp(
+  value: number | null | undefined
+): string {
+  if (!value || !Number.isFinite(value)) {
+    return '—'
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value * 1000))
+}
+
 export function actualPriceWindowLabel(
   actual: PricingActualPrice | undefined,
   fallback: string
