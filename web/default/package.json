@@ -21,7 +21,8 @@
     "smoke:mcp-routes": "node scripts/check-mcp-routes.mjs",
     "smoke:mcp-trends": "node --experimental-strip-types scripts/check-mcp-trends.mjs",
     "smoke:channel-failover-settings": "node scripts/check-channel-failover-settings.mjs",
-    "smoke:usage-log-detail-export": "node scripts/check-usage-log-detail-export.mjs"
+    "smoke:usage-log-detail-export": "node scripts/check-usage-log-detail-export.mjs",
+    "smoke:subsite-states": "node scripts/check-subsite-state-smoke.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -81,6 +82,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.1",
     "@rsbuild/core": "^2.0.7",
     "@rsbuild/plugin-react": "^2.0.0",
     "@tanstack/eslint-plugin-query": "^5.100.14",
