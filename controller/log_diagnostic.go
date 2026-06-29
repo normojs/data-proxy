@@ -30,6 +30,7 @@ const (
 type requestDiagnosticReportView struct {
 	Id          int64                          `json:"id,omitempty"`
 	RequestId   string                         `json:"request_id"`
+	SubsiteId   int64                          `json:"subsite_id,omitempty"`
 	Status      string                         `json:"status"`
 	Severity    string                         `json:"severity"`
 	Summary     string                         `json:"summary"`
@@ -54,6 +55,7 @@ type requestDiagnosticCaptureSummary struct {
 	Id                   int64                              `json:"id"`
 	RequestId            string                             `json:"request_id"`
 	UpstreamRequestId    string                             `json:"upstream_request_id,omitempty"`
+	SubsiteId            int64                              `json:"subsite_id,omitempty"`
 	UserId               int                                `json:"user_id"`
 	TokenId              int                                `json:"token_id"`
 	ChannelId            int                                `json:"channel_id"`
@@ -99,6 +101,7 @@ type requestDiagnosticArtifactSummary struct {
 
 type requestDiagnosticCandidate struct {
 	RequestId      string `json:"request_id"`
+	SubsiteId      int64  `json:"subsite_id,omitempty"`
 	Severity       string `json:"severity"`
 	Source         string `json:"source"`
 	Summary        string `json:"summary"`
@@ -125,6 +128,7 @@ type requestDiagnosticCandidateFilters struct {
 	ReportStatus string
 	UserId       int
 	TokenId      int
+	SubsiteId    *int64
 }
 
 func (filters requestDiagnosticCandidateFilters) HasFilter() bool {
@@ -135,7 +139,8 @@ func (filters requestDiagnosticCandidateFilters) HasFilter() bool {
 		filters.Group != "" ||
 		filters.ReportStatus != "" ||
 		filters.UserId > 0 ||
-		filters.TokenId > 0
+		filters.TokenId > 0 ||
+		filters.SubsiteId != nil
 }
 
 func GetRequestDiagnosticReport(c *gin.Context) {
@@ -148,10 +153,18 @@ func GetRequestDiagnosticReport(c *gin.Context) {
 		common.ApiErrorMsg(c, "database is not initialized")
 		return
 	}
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
 	var report model.RequestDiagnosticReport
-	err := model.DB.Where("request_id = ?", requestId).Order("id desc").First(&report).Error
+	tx := model.DB.Where("request_id = ?", requestId)
+	if subsiteId != nil {
+		tx = tx.Where("subsite_id = ?", *subsiteId)
+	}
+	err := tx.Order("id desc").First(&report).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		common.ApiSuccess(c, requestDiagnosticReportView{
+		view := requestDiagnosticReportView{
 			RequestId: requestId,
 			Status:    "not_found",
 			Severity:  "info",
@@ -159,7 +172,11 @@ func GetRequestDiagnosticReport(c *gin.Context) {
 			Report: requestDiagnosticReportPayload{
 				Findings: []requestDiagnosticFinding{},
 			},
-		})
+		}
+		if subsiteId != nil {
+			view.SubsiteId = *subsiteId
+		}
+		common.ApiSuccess(c, view)
 		return
 	}
 	if err != nil {
@@ -176,20 +193,23 @@ func GetRequestDiagnosticReport(c *gin.Context) {
 
 func ListRequestDiagnosticCandidates(c *gin.Context) {
 	limit := requestDiagnosticCandidateLimit(c)
-	filters := requestDiagnosticCandidateFiltersFromQuery(c)
+	filters, ok := requestDiagnosticCandidateFiltersFromQuery(c)
+	if !ok {
+		return
+	}
 	scanLimit := requestDiagnosticCandidateScanLimit(limit, filters)
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	candidates := map[string]*requestDiagnosticCandidate{}
-	if err := collectRequestDiagnosticLogCandidates(candidates, scanLimit, startTimestamp, endTimestamp); err != nil {
+	if err := collectRequestDiagnosticLogCandidates(candidates, scanLimit, startTimestamp, endTimestamp, filters.SubsiteId); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := collectRequestDiagnosticTraceMetaCandidates(candidates, scanLimit, startTimestamp, endTimestamp); err != nil {
+	if err := collectRequestDiagnosticTraceMetaCandidates(candidates, scanLimit, startTimestamp, endTimestamp, filters.SubsiteId); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := collectRequestDiagnosticCaptureCandidates(candidates, scanLimit, startTimestamp, endTimestamp); err != nil {
+	if err := collectRequestDiagnosticCaptureCandidates(candidates, scanLimit, startTimestamp, endTimestamp, filters.SubsiteId); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -197,7 +217,7 @@ func ListRequestDiagnosticCandidates(c *gin.Context) {
 	for _, candidate := range candidates {
 		items = append(items, *candidate)
 	}
-	hydrateRequestDiagnosticCandidateReports(items)
+	hydrateRequestDiagnosticCandidateReports(items, filters.SubsiteId)
 	if filters.HasFilter() {
 		filtered := items[:0]
 		for _, candidate := range items {
@@ -229,7 +249,11 @@ func GenerateRequestDiagnosticReport(c *gin.Context) {
 		common.ApiErrorMsg(c, "database is not initialized")
 		return
 	}
-	payload, severity, summary, captureId, artifactId, err := buildRequestDiagnosticReportPayload(requestId)
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
+	payload, severity, summary, captureId, artifactId, err := buildRequestDiagnosticReportPayload(requestId, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -242,6 +266,7 @@ func GenerateRequestDiagnosticReport(c *gin.Context) {
 	now := common.GetTimestamp()
 	report := model.RequestDiagnosticReport{
 		RequestId:   requestId,
+		SubsiteId:   requestDiagnosticPayloadSubsiteId(payload, subsiteId),
 		CaptureId:   captureId,
 		ArtifactId:  artifactId,
 		ReportType:  "request",
@@ -261,6 +286,7 @@ func GenerateRequestDiagnosticReport(c *gin.Context) {
 	common.ApiSuccess(c, requestDiagnosticReportView{
 		Id:          report.Id,
 		RequestId:   report.RequestId,
+		SubsiteId:   report.SubsiteId,
 		Status:      report.Status,
 		Severity:    report.Severity,
 		Summary:     report.Summary,
@@ -279,7 +305,11 @@ func DownloadRequestDiagnosticBundle(c *gin.Context) {
 		common.ApiErrorMsg(c, "database is not initialized")
 		return
 	}
-	payload, severity, summary, _, artifactId, err := buildRequestDiagnosticReportPayload(requestId)
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
+	payload, severity, summary, _, artifactId, err := buildRequestDiagnosticReportPayload(requestId, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -287,6 +317,7 @@ func DownloadRequestDiagnosticBundle(c *gin.Context) {
 	now := common.GetTimestamp()
 	report := requestDiagnosticReportView{
 		RequestId:   requestId,
+		SubsiteId:   requestDiagnosticPayloadSubsiteId(payload, subsiteId),
 		Status:      model.RequestDiagnosticStatusCompleted,
 		Severity:    severity,
 		Summary:     summary,
@@ -335,9 +366,9 @@ func requestDiagnosticCandidateLimit(c *gin.Context) int {
 	return limit
 }
 
-func requestDiagnosticCandidateFiltersFromQuery(c *gin.Context) requestDiagnosticCandidateFilters {
+func requestDiagnosticCandidateFiltersFromQuery(c *gin.Context) (requestDiagnosticCandidateFilters, bool) {
 	if c == nil {
-		return requestDiagnosticCandidateFilters{}
+		return requestDiagnosticCandidateFilters{}, true
 	}
 	severity := strings.ToLower(strings.TrimSpace(c.Query("severity")))
 	if severity == "" {
@@ -349,6 +380,10 @@ func requestDiagnosticCandidateFiltersFromQuery(c *gin.Context) requestDiagnosti
 	}
 	userId, _ := strconv.Atoi(strings.TrimSpace(c.Query("user_id")))
 	tokenId, _ := strconv.Atoi(strings.TrimSpace(c.Query("token_id")))
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return requestDiagnosticCandidateFilters{}, false
+	}
 	return requestDiagnosticCandidateFilters{
 		Severity:     severity,
 		Source:       normalizeRequestDiagnosticCandidateSource(c.Query("source")),
@@ -358,7 +393,8 @@ func requestDiagnosticCandidateFiltersFromQuery(c *gin.Context) requestDiagnosti
 		ReportStatus: strings.ToLower(strings.TrimSpace(c.Query("report_status"))),
 		UserId:       userId,
 		TokenId:      tokenId,
-	}
+		SubsiteId:    subsiteId,
+	}, true
 }
 
 func requestDiagnosticCandidateScanLimit(limit int, filters requestDiagnosticCandidateFilters) int {
@@ -578,12 +614,15 @@ func sanitizeDiagnosticBundleFileName(value string) string {
 	return result
 }
 
-func collectRequestDiagnosticLogCandidates(candidates map[string]*requestDiagnosticCandidate, limit int, startTimestamp int64, endTimestamp int64) error {
+func collectRequestDiagnosticLogCandidates(candidates map[string]*requestDiagnosticCandidate, limit int, startTimestamp int64, endTimestamp int64, subsiteId *int64) error {
 	if model.LOG_DB == nil {
 		return errors.New("log database is not initialized")
 	}
 	var logs []model.Log
 	tx := model.LOG_DB.Model(&model.Log{}).Where("(request_id <> '' OR upstream_request_id <> '')").Where("type = ?", model.LogTypeError)
+	if subsiteId != nil {
+		tx = tx.Where("subsite_id = ?", *subsiteId)
+	}
 	if startTimestamp > 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
 	}
@@ -635,11 +674,14 @@ func collectRequestDiagnosticLogCandidates(candidates map[string]*requestDiagnos
 		if log.Group != "" {
 			candidate.Group = log.Group
 		}
+		if log.SubsiteId != 0 || candidate.SubsiteId == 0 {
+			candidate.SubsiteId = log.SubsiteId
+		}
 	}
 	return nil
 }
 
-func collectRequestDiagnosticTraceMetaCandidates(candidates map[string]*requestDiagnosticCandidate, limit int, startTimestamp int64, endTimestamp int64) error {
+func collectRequestDiagnosticTraceMetaCandidates(candidates map[string]*requestDiagnosticCandidate, limit int, startTimestamp int64, endTimestamp int64, subsiteId *int64) error {
 	if model.LOG_DB == nil {
 		return errors.New("log database is not initialized")
 	}
@@ -648,6 +690,9 @@ func collectRequestDiagnosticTraceMetaCandidates(candidates map[string]*requestD
 		Where("(request_id <> '' OR upstream_request_id <> '')").
 		Where("type = ?", model.LogTypeConsume).
 		Where("other <> ''")
+	if subsiteId != nil {
+		tx = tx.Where("subsite_id = ?", *subsiteId)
+	}
 	if startTimestamp > 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
 	}
@@ -786,6 +831,9 @@ func hydrateRequestDiagnosticCandidateFromLog(candidate *requestDiagnosticCandid
 	if candidate == nil {
 		return
 	}
+	if log.SubsiteId != 0 || candidate.SubsiteId == 0 {
+		candidate.SubsiteId = log.SubsiteId
+	}
 	if log.UserId != 0 {
 		candidate.UserId = log.UserId
 	}
@@ -809,7 +857,7 @@ func hydrateRequestDiagnosticCandidateFromLog(candidate *requestDiagnosticCandid
 	}
 }
 
-func collectRequestDiagnosticCaptureCandidates(candidates map[string]*requestDiagnosticCandidate, limit int, startTimestamp int64, endTimestamp int64) error {
+func collectRequestDiagnosticCaptureCandidates(candidates map[string]*requestDiagnosticCandidate, limit int, startTimestamp int64, endTimestamp int64, subsiteId *int64) error {
 	if model.DB == nil {
 		return nil
 	}
@@ -826,6 +874,9 @@ func collectRequestDiagnosticCaptureCandidates(candidates map[string]*requestDia
 				model.RequestCaptureStatusUploaded,
 			},
 		)
+	if subsiteId != nil {
+		tx = tx.Where("subsite_id = ?", *subsiteId)
+	}
 	if startTimestamp > 0 {
 		tx = tx.Where("created_at >= ? OR started_at >= ?", startTimestamp, startTimestamp)
 	}
@@ -867,6 +918,9 @@ func collectRequestDiagnosticCaptureCandidates(candidates map[string]*requestDia
 		}
 		if capture.Group != "" {
 			candidate.Group = capture.Group
+		}
+		if capture.SubsiteId != 0 || candidate.SubsiteId == 0 {
+			candidate.SubsiteId = capture.SubsiteId
 		}
 	}
 	return nil
@@ -948,6 +1002,9 @@ func requestDiagnosticCandidateMatchesFilters(candidate requestDiagnosticCandida
 	if filters.TokenId > 0 && candidate.TokenId != filters.TokenId {
 		return false
 	}
+	if filters.SubsiteId != nil && candidate.SubsiteId != *filters.SubsiteId {
+		return false
+	}
 	return true
 }
 
@@ -985,7 +1042,7 @@ func requestDiagnosticCaptureSeenAt(capture model.RequestCaptureRecord) int64 {
 	return capture.CreatedAt
 }
 
-func hydrateRequestDiagnosticCandidateReports(items []requestDiagnosticCandidate) {
+func hydrateRequestDiagnosticCandidateReports(items []requestDiagnosticCandidate, subsiteId *int64) {
 	if model.DB == nil || len(items) == 0 {
 		return
 	}
@@ -994,7 +1051,11 @@ func hydrateRequestDiagnosticCandidateReports(items []requestDiagnosticCandidate
 		requestIds = append(requestIds, item.RequestId)
 	}
 	var reports []model.RequestDiagnosticReport
-	if err := model.DB.Where("request_id IN ?", requestIds).Order("generated_at desc, id desc").Find(&reports).Error; err != nil {
+	tx := model.DB.Where("request_id IN ?", requestIds)
+	if subsiteId != nil {
+		tx = tx.Where("subsite_id = ?", *subsiteId)
+	}
+	if err := tx.Order("generated_at desc, id desc").Find(&reports).Error; err != nil {
 		return
 	}
 	latest := map[string]model.RequestDiagnosticReport{}
@@ -1021,13 +1082,13 @@ func requestDiagnosticQuery(c *gin.Context) string {
 	return requestId
 }
 
-func buildRequestDiagnosticReportPayload(requestId string) (requestDiagnosticReportPayload, string, string, int64, int64, error) {
-	logs, err := model.GetLogsByRequestId(requestId, 0, false)
+func buildRequestDiagnosticReportPayload(requestId string, subsiteId *int64) (requestDiagnosticReportPayload, string, string, int64, int64, error) {
+	logs, err := model.GetLogsByRequestId(requestId, 0, false, subsiteId)
 	if err != nil {
 		return requestDiagnosticReportPayload{}, "", "", 0, 0, err
 	}
 	trace := buildRequestLogTraceResponse(requestId, "admin", logs, true)
-	capture, captureId, artifactId, err := loadRequestDiagnosticCaptureSummary(requestId)
+	capture, captureId, artifactId, err := loadRequestDiagnosticCaptureSummary(requestId, subsiteId)
 	if err != nil {
 		return requestDiagnosticReportPayload{}, "", "", 0, 0, err
 	}
@@ -1042,9 +1103,26 @@ func buildRequestDiagnosticReportPayload(requestId string) (requestDiagnosticRep
 	return payload, severity, summary, captureId, artifactId, nil
 }
 
-func loadRequestDiagnosticCaptureSummary(requestId string) (*requestDiagnosticCaptureSummary, int64, int64, error) {
+func requestDiagnosticPayloadSubsiteId(payload requestDiagnosticReportPayload, requested *int64) int64 {
+	if requested != nil {
+		return *requested
+	}
+	if payload.Capture != nil && payload.Capture.SubsiteId != 0 {
+		return payload.Capture.SubsiteId
+	}
+	if len(payload.Trace.SubsiteIds) == 1 {
+		return payload.Trace.SubsiteIds[0]
+	}
+	return 0
+}
+
+func loadRequestDiagnosticCaptureSummary(requestId string, subsiteId *int64) (*requestDiagnosticCaptureSummary, int64, int64, error) {
 	var record model.RequestCaptureRecord
-	err := model.DB.Where("request_id = ?", requestId).Order("id desc").First(&record).Error
+	tx := model.DB.Where("request_id = ?", requestId)
+	if subsiteId != nil {
+		tx = tx.Where("subsite_id = ?", *subsiteId)
+	}
+	err := tx.Order("id desc").First(&record).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, 0, 0, nil
 	}
@@ -1052,13 +1130,18 @@ func loadRequestDiagnosticCaptureSummary(requestId string) (*requestDiagnosticCa
 		return nil, 0, 0, err
 	}
 	var artifacts []model.RequestCaptureArtifact
-	if err := model.DB.Where("request_id = ?", requestId).Order("id desc").Find(&artifacts).Error; err != nil {
+	artifactQuery := model.DB.Where("request_id = ?", requestId)
+	if record.Id > 0 {
+		artifactQuery = artifactQuery.Where("(capture_id = ? OR capture_id = 0)", record.Id)
+	}
+	if err := artifactQuery.Order("id desc").Find(&artifacts).Error; err != nil {
 		return nil, record.Id, 0, err
 	}
 	summary := &requestDiagnosticCaptureSummary{
 		Id:                   record.Id,
 		RequestId:            record.RequestId,
 		UpstreamRequestId:    record.UpstreamRequestId,
+		SubsiteId:            record.SubsiteId,
 		UserId:               record.UserId,
 		TokenId:              record.TokenId,
 		ChannelId:            record.ChannelId,
@@ -1394,6 +1477,7 @@ func requestDiagnosticReportViewFromModel(report model.RequestDiagnosticReport) 
 	return requestDiagnosticReportView{
 		Id:          report.Id,
 		RequestId:   report.RequestId,
+		SubsiteId:   report.SubsiteId,
 		Status:      report.Status,
 		Severity:    report.Severity,
 		Summary:     report.Summary,

@@ -111,6 +111,7 @@ func RecordModelRequestBillingEvent(relayInfo *relaycommon.RelayInfo, input Mode
 
 	_, err = model.CreateBillingEventIfNotExists(nil, &model.BillingEvent{
 		EventId:       billingEventID(model.BillingEventSourceModelRequest, requestId, "settlement"),
+		SubsiteId:     relayInfo.SubsiteId,
 		UserId:        relayInfo.UserId,
 		TokenId:       relayInfo.TokenId,
 		Source:        model.BillingEventSourceModelRequest,

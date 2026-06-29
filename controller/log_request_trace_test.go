@@ -160,6 +160,143 @@ func TestGetSelfRequestLogTraceScopesAndRedactsDiagnostics(t *testing.T) {
 	require.NotContains(t, body.Data.Logs[0].Other, "stream_status")
 }
 
+func TestCommonLogAPIsFilterBySubsiteId(t *testing.T) {
+	setupLogTraceTestDB(t)
+	require.NoError(t, model.LOG_DB.Create(&[]model.Log{
+		{
+			SubsiteId:        0,
+			UserId:           7,
+			Username:         "alice",
+			CreatedAt:        1000,
+			Type:             model.LogTypeConsume,
+			Content:          "main consume",
+			TokenName:        "main-token",
+			ModelName:        "main-model",
+			Quota:            10,
+			PromptTokens:     1,
+			CompletionTokens: 2,
+			RequestId:        "req-shared-subsite",
+		},
+		{
+			SubsiteId:        42,
+			UserId:           7,
+			Username:         "alice",
+			CreatedAt:        1001,
+			Type:             model.LogTypeConsume,
+			Content:          "subsite consume",
+			TokenName:        "subsite-token",
+			ModelName:        "subsite-model",
+			Quota:            30,
+			PromptTokens:     3,
+			CompletionTokens: 4,
+			RequestId:        "req-shared-subsite",
+		},
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/log", GetAllLogs)
+	router.GET("/api/log/stat", GetLogsStat)
+	router.GET("/api/log/filter-options", GetLogFilterOptions)
+	router.GET("/api/log/request/:request_id", GetRequestLogTrace)
+
+	listRecorder := httptest.NewRecorder()
+	router.ServeHTTP(listRecorder, httptest.NewRequest(http.MethodGet, "/api/log?subsite_id=42&page_size=10", nil))
+	require.Equal(t, http.StatusOK, listRecorder.Code)
+	var listBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total int `json:"total"`
+			Items []struct {
+				SubsiteId int64  `json:"subsite_id"`
+				Content   string `json:"content"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(listRecorder.Body.Bytes(), &listBody))
+	require.True(t, listBody.Success)
+	require.Equal(t, 1, listBody.Data.Total)
+	require.Len(t, listBody.Data.Items, 1)
+	require.Equal(t, int64(42), listBody.Data.Items[0].SubsiteId)
+	require.Equal(t, "subsite consume", listBody.Data.Items[0].Content)
+
+	mainRecorder := httptest.NewRecorder()
+	router.ServeHTTP(mainRecorder, httptest.NewRequest(http.MethodGet, "/api/log?subsite_id=0&page_size=10", nil))
+	require.Equal(t, http.StatusOK, mainRecorder.Code)
+	var mainBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total int `json:"total"`
+			Items []struct {
+				SubsiteId int64  `json:"subsite_id"`
+				Content   string `json:"content"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(mainRecorder.Body.Bytes(), &mainBody))
+	require.True(t, mainBody.Success)
+	require.Equal(t, 1, mainBody.Data.Total)
+	require.Equal(t, int64(0), mainBody.Data.Items[0].SubsiteId)
+	require.Equal(t, "main consume", mainBody.Data.Items[0].Content)
+
+	statRecorder := httptest.NewRecorder()
+	router.ServeHTTP(statRecorder, httptest.NewRequest(http.MethodGet, "/api/log/stat?subsite_id=42", nil))
+	require.Equal(t, http.StatusOK, statRecorder.Code)
+	var statBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Quota  int `json:"quota"`
+			Tokens int `json:"tokens"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(statRecorder.Body.Bytes(), &statBody))
+	require.True(t, statBody.Success)
+	require.Equal(t, 30, statBody.Data.Quota)
+	require.Equal(t, 7, statBody.Data.Tokens)
+
+	optionsRecorder := httptest.NewRecorder()
+	router.ServeHTTP(optionsRecorder, httptest.NewRequest(http.MethodGet, "/api/log/filter-options?subsite_id=42", nil))
+	require.Equal(t, http.StatusOK, optionsRecorder.Code)
+	var optionsBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			ModelNames []string `json:"model_names"`
+			TokenNames []string `json:"token_names"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(optionsRecorder.Body.Bytes(), &optionsBody))
+	require.True(t, optionsBody.Success)
+	require.Equal(t, []string{"subsite-model"}, optionsBody.Data.ModelNames)
+	require.Equal(t, []string{"subsite-token"}, optionsBody.Data.TokenNames)
+
+	traceRecorder := httptest.NewRecorder()
+	router.ServeHTTP(traceRecorder, httptest.NewRequest(http.MethodGet, "/api/log/request/req-shared-subsite?subsite_id=42", nil))
+	require.Equal(t, http.StatusOK, traceRecorder.Code)
+	var traceBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total      int     `json:"total"`
+			SubsiteIds []int64 `json:"subsite_ids"`
+			Summary    struct {
+				SubsiteId int64 `json:"subsite_id"`
+				Quota     int   `json:"quota"`
+			} `json:"summary"`
+			Logs []struct {
+				SubsiteId int64  `json:"subsite_id"`
+				Content   string `json:"content"`
+			} `json:"logs"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(traceRecorder.Body.Bytes(), &traceBody))
+	require.True(t, traceBody.Success)
+	require.Equal(t, 1, traceBody.Data.Total)
+	require.Equal(t, []int64{42}, traceBody.Data.SubsiteIds)
+	require.Equal(t, int64(42), traceBody.Data.Summary.SubsiteId)
+	require.Equal(t, 30, traceBody.Data.Summary.Quota)
+	require.Len(t, traceBody.Data.Logs, 1)
+	require.Equal(t, "subsite consume", traceBody.Data.Logs[0].Content)
+}
+
 func TestGenerateAndGetRequestDiagnosticReport(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -656,6 +793,148 @@ func TestListRequestDiagnosticCandidatesFilters(t *testing.T) {
 	require.Equal(t, 1, errorBody.Data.Total)
 	require.Equal(t, "req-filter-error", errorBody.Data.Items[0].RequestId)
 	require.Equal(t, "error", errorBody.Data.Items[0].Severity)
+}
+
+func TestRequestDiagnosticsFilterBySubsiteId(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&model.Log{},
+		&model.RequestCaptureRecord{},
+		&model.RequestCaptureArtifact{},
+		&model.RequestDiagnosticReport{},
+	))
+
+	originalLogDB := model.LOG_DB
+	originalDB := model.DB
+	model.LOG_DB = db
+	model.DB = db
+	t.Cleanup(func() {
+		model.LOG_DB = originalLogDB
+		model.DB = originalDB
+	})
+
+	require.NoError(t, db.Create(&[]model.Log{
+		{
+			SubsiteId: 0,
+			UserId:    7,
+			Username:  "alice",
+			CreatedAt: 4200,
+			Type:      model.LogTypeError,
+			Content:   "main failed",
+			RequestId: "req-diagnostic-subsite",
+			ModelName: "main-model",
+		},
+		{
+			SubsiteId: 42,
+			UserId:    7,
+			Username:  "alice",
+			CreatedAt: 4201,
+			Type:      model.LogTypeError,
+			Content:   "subsite failed",
+			RequestId: "req-diagnostic-subsite",
+			ModelName: "subsite-model",
+		},
+		{
+			SubsiteId: 43,
+			UserId:    8,
+			Username:  "bob",
+			CreatedAt: 4202,
+			Type:      model.LogTypeError,
+			Content:   "other subsite failed",
+			RequestId: "req-diagnostic-other-subsite",
+			ModelName: "other-model",
+		},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.RequestCaptureRecord{
+		{
+			RequestId:     "req-diagnostic-subsite",
+			SubsiteId:     42,
+			ModelName:     "subsite-model",
+			CaptureStatus: model.RequestCaptureStatusFailed,
+			HasError:      true,
+			LastError:     "capture failed in subsite",
+			CreatedAt:     4203,
+		},
+		{
+			RequestId:     "req-diagnostic-capture-other",
+			SubsiteId:     43,
+			ModelName:     "other-model",
+			CaptureStatus: model.RequestCaptureStatusFailed,
+			HasError:      true,
+			CreatedAt:     4204,
+		},
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/log/request-diagnostic-candidates", ListRequestDiagnosticCandidates)
+	router.POST("/api/log/request/:request_id/diagnostic", GenerateRequestDiagnosticReport)
+	router.GET("/api/log/request/:request_id/diagnostic", GetRequestDiagnosticReport)
+
+	candidatesRecorder := httptest.NewRecorder()
+	router.ServeHTTP(candidatesRecorder, httptest.NewRequest(http.MethodGet, "/api/log/request-diagnostic-candidates?limit=10&subsite_id=42", nil))
+	require.Equal(t, http.StatusOK, candidatesRecorder.Code)
+	var candidatesBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total int `json:"total"`
+			Items []struct {
+				RequestId string `json:"request_id"`
+				SubsiteId int64  `json:"subsite_id"`
+				Summary   string `json:"summary"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(candidatesRecorder.Body.Bytes(), &candidatesBody))
+	require.True(t, candidatesBody.Success)
+	require.Equal(t, 1, candidatesBody.Data.Total)
+	require.Len(t, candidatesBody.Data.Items, 1)
+	require.Equal(t, "req-diagnostic-subsite", candidatesBody.Data.Items[0].RequestId)
+	require.Equal(t, int64(42), candidatesBody.Data.Items[0].SubsiteId)
+	require.NotContains(t, candidatesBody.Data.Items[0].Summary, "main failed")
+
+	reportRecorder := httptest.NewRecorder()
+	router.ServeHTTP(reportRecorder, httptest.NewRequest(http.MethodPost, "/api/log/request/req-diagnostic-subsite/diagnostic?subsite_id=42", nil))
+	require.Equal(t, http.StatusOK, reportRecorder.Code)
+	var reportBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			SubsiteId int64 `json:"subsite_id"`
+			Report    struct {
+				Trace struct {
+					Total      int     `json:"total"`
+					SubsiteIds []int64 `json:"subsite_ids"`
+					Logs       []struct {
+						SubsiteId int64  `json:"subsite_id"`
+						Content   string `json:"content"`
+					} `json:"logs"`
+				} `json:"trace"`
+				Capture *struct {
+					SubsiteId int64  `json:"subsite_id"`
+					LastError string `json:"last_error"`
+				} `json:"capture"`
+			} `json:"report"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(reportRecorder.Body.Bytes(), &reportBody))
+	require.True(t, reportBody.Success)
+	require.Equal(t, int64(42), reportBody.Data.SubsiteId)
+	require.Equal(t, 1, reportBody.Data.Report.Trace.Total)
+	require.Equal(t, []int64{42}, reportBody.Data.Report.Trace.SubsiteIds)
+	require.Equal(t, "subsite failed", reportBody.Data.Report.Trace.Logs[0].Content)
+	require.NotNil(t, reportBody.Data.Report.Capture)
+	require.Equal(t, int64(42), reportBody.Data.Report.Capture.SubsiteId)
+	require.Equal(t, "capture failed in subsite", reportBody.Data.Report.Capture.LastError)
+
+	var saved model.RequestDiagnosticReport
+	require.NoError(t, db.Where("request_id = ?", "req-diagnostic-subsite").First(&saved).Error)
+	require.Equal(t, int64(42), saved.SubsiteId)
+
+	getRecorder := httptest.NewRecorder()
+	router.ServeHTTP(getRecorder, httptest.NewRequest(http.MethodGet, "/api/log/request/req-diagnostic-subsite/diagnostic?subsite_id=42", nil))
+	require.Equal(t, http.StatusOK, getRecorder.Code)
+	require.Contains(t, getRecorder.Body.String(), `"subsite_id":42`)
 }
 
 func TestListRequestDiagnosticCandidatesIncludesHostedToolsDirectAnswer(t *testing.T) {

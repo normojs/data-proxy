@@ -57,14 +57,23 @@ import {
   getAffiliateCode,
   saveAffiliateCode,
 } from '@/features/auth/lib/storage'
+import type { ApiResponse, RegisterPayload } from '@/features/auth/types'
 
 export function SignUpForm({
   className,
+  inviteCodeRequired = false,
+  onRegister,
+  onSuccess,
   ...props
-}: React.HTMLAttributes<HTMLFormElement>) {
+}: React.HTMLAttributes<HTMLFormElement> & {
+  inviteCodeRequired?: boolean
+  onRegister?: (payload: RegisterPayload) => Promise<ApiResponse>
+  onSuccess?: () => void
+}) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
   const [verificationCode, setVerificationCode] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [agreedToLegal, setAgreedToLegal] = useState(false)
   const [wechatCode, setWeChatCode] = useState('')
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
@@ -158,6 +167,11 @@ export function SignUpForm({
       return
     }
 
+    if (inviteCodeRequired && !inviteCode.trim()) {
+      toast.error(t('Please enter the invite code'))
+      return
+    }
+
     // Validate email verification if required
     if (emailVerificationRequired) {
       if (!data.email) {
@@ -174,18 +188,24 @@ export function SignUpForm({
 
     setIsLoading(true)
     try {
-      const res = await register({
+      const registerAction = onRegister ?? register
+      const res = await registerAction({
         username: data.username,
         password: data.password,
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
+        invite_code: inviteCode.trim() || undefined,
         turnstile: turnstileToken,
       })
 
       if (res?.success) {
         toast.success(t('Account created! Please sign in'))
-        redirectToLogin()
+        if (onSuccess) {
+          onSuccess()
+        } else {
+          redirectToLogin()
+        }
       } else {
         toast.error(res?.message || t('Failed to create account'))
       }
@@ -350,6 +370,19 @@ export function SignUpForm({
               </Button>
             </div>
           </>
+        )}
+
+        {inviteCodeRequired && (
+          <div className='grid gap-2'>
+            <Label htmlFor='subsite-invite-code'>{t('Invite code')}</Label>
+            <Input
+              id='subsite-invite-code'
+              placeholder={t('Enter invite code')}
+              value={inviteCode}
+              onChange={(event) => setInviteCode(event.target.value)}
+              autoComplete='one-time-code'
+            />
+          </div>
         )}
 
         {/* Turnstile */}

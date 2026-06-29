@@ -279,6 +279,10 @@ func migrateDB() error {
 	}
 
 	err := DB.AutoMigrate(
+		&Subsite{},
+		&SubsiteMember{},
+		&SubsiteQuotaPolicy{},
+		&SubsiteQuotaCounter{},
 		&Channel{},
 		&Token{},
 		&ConnectedApp{},
@@ -418,6 +422,10 @@ func migrateDBFast() error {
 		model interface{}
 		name  string
 	}{
+		{&Subsite{}, "Subsite"},
+		{&SubsiteMember{}, "SubsiteMember"},
+		{&SubsiteQuotaPolicy{}, "SubsiteQuotaPolicy"},
+		{&SubsiteQuotaCounter{}, "SubsiteQuotaCounter"},
 		{&Channel{}, "Channel"},
 		{&Token{}, "Token"},
 		{&ConnectedApp{}, "ConnectedApp"},

@@ -52,6 +52,7 @@ func TestStartAndFinishRelayRequestCapture(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		RequestId:       "req-relay-capture",
 		UserId:          100,
+		SubsiteId:       45,
 		TokenId:         200,
 		UsingGroup:      "default",
 		OriginModelName: "deepseek-ai/DeepSeek-V4-Flash",
@@ -70,6 +71,7 @@ func TestStartAndFinishRelayRequestCapture(t *testing.T) {
 	var record model.RequestCaptureRecord
 	require.NoError(t, db.Where("request_id = ?", "req-relay-capture").First(&record).Error)
 	assert.Equal(t, model.RequestCaptureStatusSpooling, record.CaptureStatus)
+	assert.Equal(t, int64(45), record.SubsiteId)
 	assert.Equal(t, int64(400), record.ConnectedAppId)
 	assert.Equal(t, 300, record.ChannelId)
 	assert.Equal(t, "openai_responses", record.ProtocolChain)

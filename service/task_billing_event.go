@@ -49,6 +49,7 @@ func RecordTaskInitialBillingEvent(relayInfo *relaycommon.RelayInfo, task *model
 		SourceId:      task.TaskID,
 		Phase:         taskBillingEventPhaseInitialSettlement,
 		UserId:        task.UserId,
+		SubsiteId:     relayInfo.SubsiteId,
 		TokenId:       task.PrivateData.TokenId,
 		RequestId:     task.TaskID,
 		Group:         task.Group,
@@ -120,6 +121,7 @@ type TaskBillingEventInput struct {
 	SourceId      string
 	Phase         string
 	UserId        int
+	SubsiteId     int64
 	TokenId       int
 	RequestId     string
 	Group         string
@@ -185,6 +187,7 @@ func recordTaskBillingEventWithTx(tx *gorm.DB, input TaskBillingEventInput) erro
 func taskBillingEventFromInput(input TaskBillingEventInput, metadata string, createdAt int64) *model.BillingEvent {
 	return &model.BillingEvent{
 		EventId:       billingEventID(model.BillingEventSourceAsyncTask, input.SourceId, input.Phase),
+		SubsiteId:     input.SubsiteId,
 		UserId:        input.UserId,
 		TokenId:       input.TokenId,
 		Source:        model.BillingEventSourceAsyncTask,

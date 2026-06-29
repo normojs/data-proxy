@@ -81,6 +81,7 @@ func RecordViolationFeeBillingEvent(relayInfo *relaycommon.RelayInfo, input Viol
 		}
 		_, err := model.CreateBillingEventIfNotExists(tx, &model.BillingEvent{
 			EventId:       billingEventID(model.BillingEventSourceViolationFee, requestId, phase),
+			SubsiteId:     relayInfo.SubsiteId,
 			UserId:        relayInfo.UserId,
 			TokenId:       relayInfo.TokenId,
 			Source:        model.BillingEventSourceViolationFee,

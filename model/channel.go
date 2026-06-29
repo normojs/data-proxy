@@ -22,6 +22,7 @@ import (
 
 type Channel struct {
 	Id                 int     `json:"id"`
+	SubsiteId          int64   `json:"subsite_id" gorm:"not null;default:0;index"`
 	Type               int     `json:"type" gorm:"default:0"`
 	Key                string  `json:"key" gorm:"not null"`
 	OpenAIOrganization *string `json:"openai_organization"`
@@ -58,6 +59,30 @@ type Channel struct {
 	// cache info
 	Keys          []string                  `json:"-" gorm:"-"`
 	RuntimeHealth *dto.ChannelRuntimeHealth `json:"runtime_health,omitempty" gorm:"-"`
+}
+
+func (channel *Channel) BeforeSave(tx *gorm.DB) error {
+	if channel == nil || strings.TrimSpace(channel.Key) == "" {
+		return nil
+	}
+	encrypted, err := common.EncryptString(channel.Key)
+	if err != nil {
+		return err
+	}
+	channel.Key = encrypted
+	return nil
+}
+
+func (channel *Channel) AfterFind(tx *gorm.DB) error {
+	if channel == nil || strings.TrimSpace(channel.Key) == "" {
+		return nil
+	}
+	plainText, err := common.DecryptString(channel.Key)
+	if err != nil {
+		return err
+	}
+	channel.Key = plainText
+	return nil
 }
 
 type ChannelInfo struct {

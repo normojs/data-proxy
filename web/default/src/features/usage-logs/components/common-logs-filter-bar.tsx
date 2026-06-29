@@ -96,6 +96,7 @@ export function CommonLogsFilterBar<TData>(
       token: searchParams.token || undefined,
       group: searchParams.group || undefined,
       username: searchParams.username || undefined,
+      subsiteId: searchParams.subsiteId || undefined,
       requestId: searchParams.requestId || undefined,
       upstreamRequestId: searchParams.upstreamRequestId || undefined,
     })
@@ -116,6 +117,7 @@ export function CommonLogsFilterBar<TData>(
     searchParams.token,
     searchParams.group,
     searchParams.username,
+    searchParams.subsiteId,
     searchParams.requestId,
     searchParams.upstreamRequestId,
     searchParams.type,
@@ -134,6 +136,7 @@ export function CommonLogsFilterBar<TData>(
         ...filters,
         username: isAdmin ? filters.username : undefined,
         channel: isAdmin ? filters.channel : undefined,
+        subsiteId: isAdmin ? filters.subsiteId : undefined,
         upstreamRequestId: isAdmin ? filters.upstreamRequestId : undefined,
       },
       'common'
@@ -207,6 +210,7 @@ export function CommonLogsFilterBar<TData>(
     !!filters.token ||
     (isAdmin && !!filters.username) ||
     (isAdmin && !!filters.channel) ||
+    (isAdmin && !!filters.subsiteId) ||
     !!filters.requestId ||
     (isAdmin && !!filters.upstreamRequestId)
 
@@ -218,6 +222,7 @@ export function CommonLogsFilterBar<TData>(
     filters.token,
     isAdmin ? filters.username : undefined,
     isAdmin ? filters.channel : undefined,
+    isAdmin ? filters.subsiteId : undefined,
     filters.requestId,
     isAdmin ? filters.upstreamRequestId : undefined,
   ].filter(Boolean).length
@@ -247,6 +252,7 @@ export function CommonLogsFilterBar<TData>(
       candidateEndTimestamp,
       isAdmin ? filters.username : '',
       isAdmin ? filters.channel : '',
+      isAdmin ? filters.subsiteId : '',
     ],
     queryFn: () =>
       getLogFilterOptions(
@@ -258,6 +264,10 @@ export function CommonLogsFilterBar<TData>(
           channel:
             isAdmin && filters.channel
               ? Number(filters.channel) || 0
+              : undefined,
+          subsite_id:
+            isAdmin && filters.subsiteId
+              ? Number(filters.subsiteId) || 0
               : undefined,
         },
         isAdmin
@@ -297,6 +307,9 @@ export function CommonLogsFilterBar<TData>(
         <RequestDiagnosticCandidatesDialog
           startTimestamp={candidateStartTimestamp}
           endTimestamp={candidateEndTimestamp}
+          subsiteId={
+            filters.subsiteId ? Number(filters.subsiteId) || 0 : undefined
+          }
           onSelectRequest={handleDiagnosticCandidateSelect}
         />
       )}
@@ -407,6 +420,21 @@ export function CommonLogsFilterBar<TData>(
             type={sensitiveType}
             value={filters.username || ''}
             onChange={(e) => handleChange('username', e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+        </LogsFilterField>
+      )}
+      {isAdmin && (
+        <LogsFilterField>
+          <LogsFilterInput
+            placeholder={t('Subsite ID')}
+            value={filters.subsiteId || ''}
+            onChange={(e) =>
+              handleChange(
+                'subsiteId',
+                e.target.value.replace(/[^\d]/g, '')
+              )
+            }
             onKeyDown={handleKeyDown}
           />
         </LogsFilterField>

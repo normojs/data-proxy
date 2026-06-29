@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -33,23 +34,30 @@ const route = getRouteApi('/_authenticated/usage-logs/$section')
 function StatBadge(props: {
   label: string
   value: string | number
-  detail?: string
+  detail?: ReactNode
   accent: string
 }) {
   return (
-    <span className='border-border/60 bg-muted/25 inline-flex h-7 items-center gap-2 rounded-md border px-2.5 text-xs shadow-xs'>
+    <span className='border-border/60 bg-muted/25 inline-flex min-h-7 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border px-2.5 py-1 text-xs shadow-xs'>
       <span className={cn('h-3.5 w-0.5 rounded-full', props.accent)} />
       <span className='text-muted-foreground'>{props.label}</span>
       <span className='text-foreground/85 font-mono font-semibold tabular-nums'>
         {props.value}
       </span>
       {props.detail && (
-        <span className='text-muted-foreground/70 font-mono tabular-nums'>
+        <span className='text-muted-foreground/70 inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 font-mono tabular-nums'>
           {props.detail}
         </span>
       )}
     </span>
   )
+}
+
+function formatTokenUnitCosts(quota: number, tokens: number): string | null {
+  if (tokens <= 0 || quota <= 0) return null
+  const costFor = (tokenVolume: number) =>
+    formatLogQuota((quota / tokens) * tokenVolume)
+  return `1M: ${costFor(1_000_000)} · 100M: ${costFor(100_000_000)}`
 }
 
 export function CommonLogsStats() {
@@ -90,16 +98,29 @@ export function CommonLogsStats() {
     )
   }
 
+  const quota = stats?.quota || 0
+  const tokens = stats?.tokens || 0
+  const tokenUnitCosts = formatTokenUnitCosts(quota, tokens)
+  const usageDetail =
+    sensitiveVisible && tokenUnitCosts ? (
+      <>
+        <span>
+          {formatTokenVolume(tokens)} {t('tokens')}
+        </span>
+        <span className='text-muted-foreground/45'>·</span>
+        <span className='text-muted-foreground'>{t('Token Unit Cost')}</span>
+        <span>{tokenUnitCosts}</span>
+      </>
+    ) : sensitiveVisible ? (
+      `${formatTokenVolume(tokens)} ${t('tokens')}`
+    ) : undefined
+
   return (
     <div className='flex flex-wrap items-center gap-2'>
       <StatBadge
         label={t('Usage')}
-        value={sensitiveVisible ? formatLogQuota(stats?.quota || 0) : '••••'}
-        detail={
-          sensitiveVisible
-            ? `${formatTokenVolume(stats?.tokens || 0)} ${t('tokens')}`
-            : undefined
-        }
+        value={sensitiveVisible ? formatLogQuota(quota) : '••••'}
+        detail={usageDetail}
         accent='bg-sky-500/70'
       />
       <StatBadge

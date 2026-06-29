@@ -6,17 +6,24 @@ import (
 )
 
 func IsChannelEnabledForGroupModel(group string, modelName string, channelID int) bool {
+	return IsChannelEnabledForGroupModelInSubsite(group, modelName, channelID, 0)
+}
+
+func IsChannelEnabledForGroupModelInSubsite(group string, modelName string, channelID int, subsiteId int64) bool {
 	if group == "" || modelName == "" || channelID <= 0 {
 		return false
 	}
 	if !common.MemoryCacheEnabled {
-		return isChannelEnabledForGroupModelDB(group, modelName, channelID)
+		return isChannelEnabledForGroupModelDB(group, modelName, channelID, subsiteId)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
 	if group2model2channels == nil {
+		return false
+	}
+	if channel, ok := channelsIDM[channelID]; !ok || channel.SubsiteId != subsiteId {
 		return false
 	}
 
@@ -42,10 +49,11 @@ func IsChannelEnabledForAnyGroupModel(groups []string, modelName string, channel
 	return false
 }
 
-func isChannelEnabledForGroupModelDB(group string, modelName string, channelID int) bool {
+func isChannelEnabledForGroupModelDB(group string, modelName string, channelID int, subsiteId int64) bool {
 	var count int64
 	err := DB.Model(&Ability{}).
-		Where(commonGroupCol+" = ? and model = ? and channel_id = ? and enabled = ?", group, modelName, channelID, true).
+		Where(abilityGroupColumn()+" = ? and model = ? and channel_id = ? and enabled = ?", group, modelName, channelID, true).
+		Where("channel_id IN (?)", scopedChannelIdsSubQuery(subsiteId)).
 		Count(&count).Error
 	if err == nil && count > 0 {
 		return true
@@ -56,7 +64,8 @@ func isChannelEnabledForGroupModelDB(group string, modelName string, channelID i
 	}
 	count = 0
 	err = DB.Model(&Ability{}).
-		Where(commonGroupCol+" = ? and model = ? and channel_id = ? and enabled = ?", group, normalized, channelID, true).
+		Where(abilityGroupColumn()+" = ? and model = ? and channel_id = ? and enabled = ?", group, normalized, channelID, true).
+		Where("channel_id IN (?)", scopedChannelIdsSubQuery(subsiteId)).
 		Count(&count).Error
 	return err == nil && count > 0
 }

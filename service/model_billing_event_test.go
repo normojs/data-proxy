@@ -21,6 +21,7 @@ func TestRecordModelRequestBillingEventIdempotent(t *testing.T) {
 	relayInfo := &relaycommon.RelayInfo{
 		RequestId:       "model-billing-event-smoke",
 		UserId:          11,
+		SubsiteId:       42,
 		TokenId:         22,
 		UsingGroup:      "default",
 		OriginModelName: "gpt-test",
@@ -63,6 +64,7 @@ func TestRecordModelRequestBillingEventIdempotent(t *testing.T) {
 
 	event := events[0]
 	require.Equal(t, model.BillingEventSourceModelRequest, event.Source)
+	require.Equal(t, int64(42), event.SubsiteId)
 	require.Equal(t, model.BillingEventTypeDebit, event.EventType)
 	require.Equal(t, "model_request:model-billing-event-smoke:settlement", event.EventId)
 	require.Equal(t, "model-billing-event-smoke", event.SourceId)

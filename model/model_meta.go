@@ -154,6 +154,10 @@ func normalizeLookupValues(values []string) []string {
 }
 
 func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (map[string]int, error) {
+	return GetPreferredModelOwnerChannelTypesForSubsite(modelNames, groups, 0)
+}
+
+func GetPreferredModelOwnerChannelTypesForSubsite(modelNames []string, groups []string, subsiteId int64) (map[string]int, error) {
 	result := make(map[string]int)
 	modelNames = normalizeLookupValues(modelNames)
 	if len(modelNames) == 0 {
@@ -169,14 +173,14 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 	query := DB.Table("abilities").
 		Select("abilities.model as model, channels.type as channel_type").
 		Joins("JOIN channels ON abilities.channel_id = channels.id").
-		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ?", modelNames, true, common.ChannelStatusEnabled).
+		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ? AND channels.subsite_id = ?", modelNames, true, common.ChannelStatusEnabled, subsiteId).
 		Order("COALESCE(abilities.priority, 0) DESC").
 		Order("abilities.weight DESC").
 		Order("abilities.channel_id ASC")
 
 	groups = normalizeLookupValues(groups)
 	if len(groups) > 0 {
-		query = query.Where("abilities."+commonGroupCol+" IN ?", groups)
+		query = query.Where("abilities."+abilityGroupColumn()+" IN ?", groups)
 	}
 
 	if err := query.Scan(&rows).Error; err != nil {
@@ -188,6 +192,61 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 			continue
 		}
 		result[r.Model] = r.ChannelType
+	}
+	return result, nil
+}
+
+func GetPreferredModelDisplayNamesForSubsite(modelNames []string, groups []string, subsiteId int64) (map[string]string, error) {
+	result := make(map[string]string)
+	if subsiteId <= 0 {
+		return result, nil
+	}
+	modelNames = normalizeLookupValues(modelNames)
+	if len(modelNames) == 0 {
+		return result, nil
+	}
+
+	type row struct {
+		Model    string
+		Settings string
+	}
+	var rows []row
+
+	query := DB.Table("abilities").
+		Select("abilities.model as model, channels.settings as settings").
+		Joins("JOIN channels ON abilities.channel_id = channels.id").
+		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ? AND channels.subsite_id = ?", modelNames, true, common.ChannelStatusEnabled, subsiteId).
+		Order("COALESCE(abilities.priority, 0) DESC").
+		Order("abilities.weight DESC").
+		Order("abilities.channel_id ASC")
+
+	groups = normalizeLookupValues(groups)
+	if len(groups) > 0 {
+		query = query.Where("abilities."+abilityGroupColumn()+" IN ?", groups)
+	}
+
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, r := range rows {
+		if _, ok := result[r.Model]; ok {
+			continue
+		}
+		if strings.TrimSpace(r.Settings) == "" {
+			continue
+		}
+		var settings struct {
+			SubsiteModelDisplayNames map[string]string `json:"subsite_model_display_names"`
+		}
+		if err := common.UnmarshalJsonStr(r.Settings, &settings); err != nil {
+			common.SysLog("failed to unmarshal subsite model display names: " + err.Error())
+			continue
+		}
+		displayName := strings.TrimSpace(settings.SubsiteModelDisplayNames[r.Model])
+		if displayName != "" {
+			result[r.Model] = displayName
+		}
 	}
 	return result, nil
 }

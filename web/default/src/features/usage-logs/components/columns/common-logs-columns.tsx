@@ -116,7 +116,7 @@ function formatRequestId(value: string): string {
 interface RequestIdCellProps {
   log: UsageLog
   isAdmin: boolean
-  onFilter: (requestId: string) => void
+  onFilter: (requestId: string, subsiteId?: number) => void
 }
 
 function RequestIdCell({ log, isAdmin, onFilter }: RequestIdCellProps) {
@@ -180,7 +180,7 @@ function RequestIdCell({ log, isAdmin, onFilter }: RequestIdCellProps) {
                   aria-label={t('Filter by Request ID')}
                   onClick={(event) => {
                     event.stopPropagation()
-                    onFilter(requestId)
+                    onFilter(requestId, log.subsite_id)
                   }}
                 />
               }
@@ -372,13 +372,15 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
   const navigate = route.useNavigate()
   const search = route.useSearch()
 
-  const applyRequestIdFilter = (requestId: string) => {
+  const applyRequestIdFilter = (requestId: string, subsiteId?: number) => {
     navigate({
       to: '/usage-logs/$section',
       params: { section: 'common' },
       search: {
         ...search,
         requestId,
+        subsiteId:
+          isAdmin && subsiteId !== undefined ? String(subsiteId) : undefined,
         upstreamRequestId: undefined,
         page: 1,
       },

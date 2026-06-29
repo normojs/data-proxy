@@ -35,6 +35,7 @@ func TestChargeViolationFeeRecordsBillingEvent(t *testing.T) {
 	relayInfo := &relaycommon.RelayInfo{
 		RequestId:       "violation-fee-request",
 		UserId:          userID,
+		SubsiteId:       44,
 		TokenId:         tokenID,
 		TokenKey:        "sk-violation-fee",
 		UsingGroup:      "default",
@@ -64,6 +65,7 @@ func TestChargeViolationFeeRecordsBillingEvent(t *testing.T) {
 
 	event := events[0]
 	assert.Equal(t, model.BillingEventTypeDebit, event.EventType)
+	assert.Equal(t, int64(44), event.SubsiteId)
 	assert.Equal(t, "violation_fee", event.PriceUnit)
 	assert.Equal(t, -event.AmountQuota, event.QuotaDelta)
 	assert.Equal(t, BillingSourceWallet, event.BillingSource)

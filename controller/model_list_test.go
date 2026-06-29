@@ -154,6 +154,39 @@ func pricingByModelName(pricings []model.Pricing) map[string]model.Pricing {
 	return byName
 }
 
+func seedModelListChannelAbility(t *testing.T, db *gorm.DB, channelId int, subsiteId int64, group string, modelName string, channelType int) {
+	t.Helper()
+	priority := int64(10)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:        channelId,
+		SubsiteId: subsiteId,
+		Type:      channelType,
+		Key:       fmt.Sprintf("sk-model-list-%d", channelId),
+		Status:    common.ChannelStatusEnabled,
+		Name:      fmt.Sprintf("model-list-channel-%d", channelId),
+		Models:    modelName,
+		Group:     group,
+		Priority:  &priority,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     group,
+		Model:     modelName,
+		ChannelId: channelId,
+		Enabled:   true,
+		Priority:  &priority,
+		Weight:    100,
+	}).Error)
+}
+
+func setModelListChannelDisplayNames(t *testing.T, db *gorm.DB, channelId int, displayNames map[string]string) {
+	t.Helper()
+	channel := model.Channel{Id: channelId}
+	settings := channel.GetOtherSettings()
+	settings.SubsiteModelDisplayNames = displayNames
+	channel.SetOtherSettings(settings)
+	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channelId).Update("settings", channel.OtherSettings).Error)
+}
+
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	withTieredBillingConfig(t, map[string]string{
@@ -303,4 +336,119 @@ func TestListModelsReturnsEmptyForUnavailableTokenGroup(t *testing.T) {
 
 	ids := decodeListModelsResponse(t, recorder)
 	require.Empty(t, ids)
+}
+
+func TestListModelsScopesSubsiteChannelModels(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredBillingConfig(t, map[string]string{
+		"zz-main-scope-model":    "tiered_expr",
+		"zz-subsite-scope-model": "tiered_expr",
+	}, map[string]string{
+		"zz-main-scope-model":    `tier("base", p + c)`,
+		"zz-subsite-scope-model": `tier("base", p + c)`,
+	})
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id:       1004,
+		Username: "subsite-model-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	seedModelListChannelAbility(t, db, 3001, 0, "default", "zz-main-scope-model", constant.ChannelTypeOpenAI)
+	seedModelListChannelAbility(t, db, 3002, 42, "default", "zz-subsite-scope-model", constant.ChannelTypeOpenAI)
+
+	mainRecorder := httptest.NewRecorder()
+	mainCtx, _ := gin.CreateTestContext(mainRecorder)
+	mainCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	mainCtx.Set("id", 1004)
+	ListModels(mainCtx, constant.ChannelTypeOpenAI)
+
+	mainIds := decodeListModelsResponse(t, mainRecorder)
+	require.Contains(t, mainIds, "zz-main-scope-model")
+	require.NotContains(t, mainIds, "zz-subsite-scope-model")
+
+	subsiteRecorder := httptest.NewRecorder()
+	subsiteCtx, _ := gin.CreateTestContext(subsiteRecorder)
+	subsiteCtx.Request = httptest.NewRequest(http.MethodGet, "/s/site-a/v1/models", nil)
+	subsiteCtx.Set("id", 1004)
+	subsiteCtx.Set("subsite_id", int64(42))
+	ListModels(subsiteCtx, constant.ChannelTypeOpenAI)
+
+	subsiteIds := decodeListModelsResponse(t, subsiteRecorder)
+	require.Contains(t, subsiteIds, "zz-subsite-scope-model")
+	require.NotContains(t, subsiteIds, "zz-main-scope-model")
+}
+
+func TestListModelsIncludesSubsiteModelDisplayName(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredBillingConfig(t, map[string]string{
+		"zz-subsite-display-model": "tiered_expr",
+	}, map[string]string{
+		"zz-subsite-display-model": `tier("base", p + c)`,
+	})
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id:       1006,
+		Username: "subsite-display-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	seedModelListChannelAbility(t, db, 3201, 42, "default", "zz-subsite-display-model", constant.ChannelTypeOpenAI)
+	setModelListChannelDisplayNames(t, db, 3201, map[string]string{
+		"zz-subsite-display-model": "Display Model",
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/s/site-a/v1/models", nil)
+	ctx.Set("id", 1006)
+	ctx.Set("subsite_id", int64(42))
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload listModelsResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.True(t, payload.Success)
+	require.Len(t, payload.Data, 1)
+	require.Equal(t, "zz-subsite-display-model", payload.Data[0].Id)
+	require.Equal(t, "Display Model", payload.Data[0].DisplayName)
+}
+
+func TestRetrieveModelHonorsSubsiteChannelScope(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NotEmpty(t, openAIModels)
+	mainModel := openAIModels[0].Id
+	subsiteModel := openAIModels[1].Id
+	require.NotEqual(t, mainModel, subsiteModel)
+	require.NoError(t, db.Create(&model.User{
+		Id:       1005,
+		Username: "subsite-retrieve-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	seedModelListChannelAbility(t, db, 3101, 0, "default", mainModel, constant.ChannelTypeOpenAI)
+	seedModelListChannelAbility(t, db, 3102, 42, "default", subsiteModel, constant.ChannelTypeOpenAI)
+
+	allowed := httptest.NewRecorder()
+	allowedCtx, _ := gin.CreateTestContext(allowed)
+	allowedCtx.Request = httptest.NewRequest(http.MethodGet, "/s/site-a/v1/models/"+subsiteModel, nil)
+	allowedCtx.Params = gin.Params{{Key: "model", Value: subsiteModel}}
+	allowedCtx.Set("id", 1005)
+	allowedCtx.Set("subsite_id", int64(42))
+	RetrieveModel(allowedCtx, constant.ChannelTypeOpenAI)
+	require.Equal(t, http.StatusOK, allowed.Code)
+	require.NotContains(t, allowed.Body.String(), "model_not_found")
+
+	rejected := httptest.NewRecorder()
+	rejectedCtx, _ := gin.CreateTestContext(rejected)
+	rejectedCtx.Request = httptest.NewRequest(http.MethodGet, "/s/site-a/v1/models/"+mainModel, nil)
+	rejectedCtx.Params = gin.Params{{Key: "model", Value: mainModel}}
+	rejectedCtx.Set("id", 1005)
+	rejectedCtx.Set("subsite_id", int64(42))
+	RetrieveModel(rejectedCtx, constant.ChannelTypeOpenAI)
+	require.Equal(t, http.StatusOK, rejected.Code)
+	require.Contains(t, rejected.Body.String(), "model_not_found")
 }

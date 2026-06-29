@@ -454,6 +454,7 @@ func TestRecordTaskInitialBillingEvent_Idempotent(t *testing.T) {
 	task.Platform = "video"
 	relayInfo := &relaycommon.RelayInfo{
 		UserId:          userID,
+		SubsiteId:       43,
 		TokenId:         tokenID,
 		UsingGroup:      "default",
 		OriginModelName: "test-model",
@@ -475,6 +476,7 @@ func TestRecordTaskInitialBillingEvent_Idempotent(t *testing.T) {
 	require.Len(t, events, 1)
 	event := events[0]
 	assert.Equal(t, model.BillingEventTypeDebit, event.EventType)
+	assert.Equal(t, int64(43), event.SubsiteId)
 	assert.Equal(t, quota, event.AmountQuota)
 	assert.Equal(t, -quota, event.QuotaDelta)
 	assert.Equal(t, BillingSourceSubscription, event.BillingSource)

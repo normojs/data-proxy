@@ -17,6 +17,7 @@ type requestLogTraceResponse struct {
 	Total              int                    `json:"total"`
 	RequestIds         []string               `json:"request_ids"`
 	UpstreamRequestIds []string               `json:"upstream_request_ids"`
+	SubsiteIds         []int64                `json:"subsite_ids"`
 	Summary            requestLogTraceSummary `json:"summary"`
 	Diagnostics        map[string]interface{} `json:"diagnostics"`
 	Logs               []requestLogTraceItem  `json:"logs"`
@@ -25,6 +26,7 @@ type requestLogTraceResponse struct {
 type requestLogTraceSummary struct {
 	Status           string         `json:"status"`
 	TypeCounts       map[string]int `json:"type_counts"`
+	SubsiteId        int64          `json:"subsite_id,omitempty"`
 	UserId           int            `json:"user_id,omitempty"`
 	Username         string         `json:"username,omitempty"`
 	TokenId          int            `json:"token_id,omitempty"`
@@ -44,6 +46,7 @@ type requestLogTraceSummary struct {
 
 type requestLogTraceItem struct {
 	Id                int                    `json:"id"`
+	SubsiteId         int64                  `json:"subsite_id"`
 	UserId            int                    `json:"user_id"`
 	CreatedAt         int64                  `json:"created_at"`
 	Type              int                    `json:"type"`
@@ -79,7 +82,11 @@ func GetAllLogs(c *gin.Context) {
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId)
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
+	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -96,7 +103,11 @@ func GetRequestLogTrace(c *gin.Context) {
 		common.ApiErrorMsg(c, "request_id is required")
 		return
 	}
-	logs, err := model.GetLogsByRequestId(requestId, 0, false)
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
+	logs, err := model.GetLogsByRequestId(requestId, 0, false, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -110,7 +121,11 @@ func GetSelfRequestLogTrace(c *gin.Context) {
 		common.ApiErrorMsg(c, "request_id is required")
 		return
 	}
-	logs, err := model.GetLogsByRequestId(requestId, c.GetInt("id"), true)
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
+	logs, err := model.GetLogsByRequestId(requestId, c.GetInt("id"), true, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -126,6 +141,19 @@ func requestLogTraceQuery(c *gin.Context) string {
 	return requestId
 }
 
+func optionalSubsiteIdQuery(c *gin.Context) (*int64, bool) {
+	raw := strings.TrimSpace(c.Query("subsite_id"))
+	if raw == "" {
+		return nil, true
+	}
+	subsiteId, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || subsiteId < 0 {
+		common.ApiErrorMsg(c, "invalid subsite_id")
+		return nil, false
+	}
+	return &subsiteId, true
+}
+
 func GetUserLogs(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	userId := c.GetInt("id")
@@ -137,7 +165,11 @@ func GetUserLogs(c *gin.Context) {
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId)
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
+	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -154,8 +186,12 @@ func GetLogFilterOptions(c *gin.Context) {
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	username := c.Query("username")
 	channel, _ := strconv.Atoi(c.Query("channel"))
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
 
-	options, err := model.GetLogFilterOptions(0, false, logType, startTimestamp, endTimestamp, username, channel)
+	options, err := model.GetLogFilterOptions(0, false, logType, startTimestamp, endTimestamp, username, channel, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -167,8 +203,12 @@ func GetSelfLogFilterOptions(c *gin.Context) {
 	logType, _ := strconv.Atoi(c.Query("type"))
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
 
-	options, err := model.GetLogFilterOptions(c.GetInt("id"), true, logType, startTimestamp, endTimestamp, "", 0)
+	options, err := model.GetLogFilterOptions(c.GetInt("id"), true, logType, startTimestamp, endTimestamp, "", 0, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -183,6 +223,7 @@ func buildRequestLogTraceResponse(query string, scope string, logs []*model.Log,
 		Total:              len(logs),
 		RequestIds:         make([]string, 0),
 		UpstreamRequestIds: make([]string, 0),
+		SubsiteIds:         make([]int64, 0),
 		Summary:            requestLogTraceSummary{Status: "not_found", TypeCounts: map[string]int{}},
 		Diagnostics:        map[string]interface{}{},
 		Logs:               make([]requestLogTraceItem, 0, len(logs)),
@@ -193,6 +234,7 @@ func buildRequestLogTraceResponse(query string, scope string, logs []*model.Log,
 
 	requestIds := map[string]bool{}
 	upstreamRequestIds := map[string]bool{}
+	subsiteIds := map[int64]bool{}
 	containsConsume := false
 	containsError := false
 	errors := make([]string, 0)
@@ -217,6 +259,7 @@ func buildRequestLogTraceResponse(query string, scope string, logs []*model.Log,
 			response.Summary.CreatedAtEnd = log.CreatedAt
 		}
 		if i == 0 {
+			response.Summary.SubsiteId = log.SubsiteId
 			response.Summary.UserId = log.UserId
 			response.Summary.Username = log.Username
 			response.Summary.TokenId = log.TokenId
@@ -234,6 +277,10 @@ func buildRequestLogTraceResponse(query string, scope string, logs []*model.Log,
 			upstreamRequestIds[log.UpstreamRequestId] = true
 			response.UpstreamRequestIds = append(response.UpstreamRequestIds, log.UpstreamRequestId)
 		}
+		if !subsiteIds[log.SubsiteId] {
+			subsiteIds[log.SubsiteId] = true
+			response.SubsiteIds = append(response.SubsiteIds, log.SubsiteId)
+		}
 		if log.Type == model.LogTypeConsume {
 			containsConsume = true
 		}
@@ -247,6 +294,7 @@ func buildRequestLogTraceResponse(query string, scope string, logs []*model.Log,
 		mergeRequestLogDiagnostics(response.Diagnostics, other)
 		response.Logs = append(response.Logs, requestLogTraceItem{
 			Id:                log.Id,
+			SubsiteId:         log.SubsiteId,
 			UserId:            log.UserId,
 			CreatedAt:         log.CreatedAt,
 			Type:              log.Type,
@@ -467,7 +515,11 @@ func GetLogsStat(c *gin.Context) {
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	group := c.Query("group")
-	stat, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
+	stat, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -495,7 +547,11 @@ func GetLogsSelfStat(c *gin.Context) {
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	group := c.Query("group")
-	quotaNum, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
+	subsiteId, ok := optionalSubsiteIdQuery(c)
+	if !ok {
+		return
+	}
+	quotaNum, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group, subsiteId)
 	if err != nil {
 		common.ApiError(c, err)
 		return

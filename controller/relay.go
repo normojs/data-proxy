@@ -209,6 +209,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	if apiErr := service.PreCheckSubsiteQuota(c, priceData.QuotaToPreConsume); apiErr != nil {
+		newAPIError = apiErr
+		return
+	}
+	defer func() {
+		if newAPIError != nil {
+			service.RefundSubsiteQuotaReservation(c)
+		}
+	}()
+
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
 	if priceData.FreeModel {

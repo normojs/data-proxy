@@ -27,6 +27,7 @@ import {
   LayoutDashboard,
   ListTodo,
   MessageSquare,
+  Network,
   Puzzle,
   Radio,
   Settings,
@@ -95,6 +96,11 @@ export function useSidebarData(): SidebarData {
             title: t('Quota Requests'),
             url: '/quota-requests',
             icon: TimerReset,
+          },
+          {
+            title: t('Subsites'),
+            url: '/dashboard/subsites',
+            icon: Network,
           },
           {
             title: t('Task Logs'),

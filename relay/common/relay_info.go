@@ -91,6 +91,7 @@ type RelayInfo struct {
 	TokenKey                   string
 	TokenGroup                 string
 	UserId                     int
+	SubsiteId                  int64
 	UsingGroup                 string // 使用的分组，当auto跨分组重试时，会变动
 	UserGroup                  string // 用户所在分组
 	TokenUnlimited             bool
@@ -472,6 +473,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 
 		RequestId:  reqId,
 		UserId:     common.GetContextKeyInt(c, constant.ContextKeyUserId),
+		SubsiteId:  c.GetInt64("subsite_id"),
 		UsingGroup: common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
 		UserGroup:  common.GetContextKeyString(c, constant.ContextKeyUserGroup),
 		UserQuota:  common.GetContextKeyInt(c, constant.ContextKeyUserQuota),

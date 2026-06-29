@@ -99,9 +99,13 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 }
 
 func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, excludeChannelIds map[int]bool) (*Channel, error) {
+	return GetRandomSatisfiedChannelExcludingForSubsite(group, model, retry, excludeChannelIds, 0)
+}
+
+func GetRandomSatisfiedChannelExcludingForSubsite(group string, model string, retry int, excludeChannelIds map[int]bool, subsiteId int64) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannelExcluding(group, model, retry, excludeChannelIds)
+		return GetChannelExcludingForSubsite(group, model, retry, excludeChannelIds, subsiteId)
 	}
 
 	channelSyncLock.RLock()
@@ -120,7 +124,7 @@ func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, e
 		return nil, nil
 	}
 
-	channels = filterExcludedCachedChannelIds(channels, excludeChannelIds)
+	channels = filterScopedCachedChannelIds(channels, excludeChannelIds, subsiteId)
 	if len(channels) == 0 {
 		return nil, nil
 	}
@@ -200,13 +204,16 @@ func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, e
 	return nil, errors.New("channel not found")
 }
 
-func filterExcludedCachedChannelIds(channels []int, excludeChannelIds map[int]bool) []int {
-	if len(excludeChannelIds) == 0 || len(channels) == 0 {
+func filterScopedCachedChannelIds(channels []int, excludeChannelIds map[int]bool, subsiteId int64) []int {
+	if len(channels) == 0 {
 		return channels
 	}
 	filtered := make([]int, 0, len(channels))
 	for _, channelId := range channels {
 		if excludeChannelIds[channelId] {
+			continue
+		}
+		if channel, ok := channelsIDM[channelId]; ok && channel.SubsiteId != subsiteId {
 			continue
 		}
 		filtered = append(filtered, channelId)

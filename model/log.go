@@ -31,8 +31,26 @@ func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm
 	return tx.Where(column+" = ?", value), nil
 }
 
+func applyOptionalLogSubsiteFilter(tx *gorm.DB, subsiteId *int64) *gorm.DB {
+	if subsiteId == nil {
+		return tx
+	}
+	return tx.Where("logs.subsite_id = ?", *subsiteId)
+}
+
+func logGroupColumn() string {
+	if logGroupCol != "" {
+		return logGroupCol
+	}
+	if common.LogSqlType == common.DatabaseTypePostgreSQL || common.UsingPostgreSQL {
+		return `"group"`
+	}
+	return "`group`"
+}
+
 type Log struct {
 	Id                int    `json:"id" gorm:"index:idx_created_at_id,priority:2;index:idx_user_id_id,priority:2"`
+	SubsiteId         int64  `json:"subsite_id" gorm:"not null;default:0;index"`
 	UserId            int    `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1"`
 	CreatedAt         int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:1;index:idx_created_at_type"`
 	Type              int    `json:"type" gorm:"index:idx_created_at_type"`
@@ -179,6 +197,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		}
 	}
 	log := &Log{
+		SubsiteId:        c.GetInt64("subsite_id"),
 		UserId:           userId,
 		Username:         username,
 		CreatedAt:        common.GetTimestamp(),
@@ -242,6 +261,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		}
 	}
 	log := &Log{
+		SubsiteId:        c.GetInt64("subsite_id"),
 		UserId:           userId,
 		Username:         username,
 		CreatedAt:        common.GetTimestamp(),
@@ -321,13 +341,14 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, subsiteId *int64) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB
 	} else {
 		tx = LOG_DB.Where("logs.type = ?", logType)
 	}
+	tx = applyOptionalLogSubsiteFilter(tx, subsiteId)
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
@@ -354,7 +375,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		tx = tx.Where("logs.channel_id = ?", channel)
 	}
 	if group != "" {
-		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+		tx = tx.Where("logs."+logGroupColumn()+" = ?", group)
 	}
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {
@@ -374,7 +395,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 
 const logRequestTraceLimit = 100
 
-func GetLogsByRequestId(requestId string, userId int, scopedToUser bool) (logs []*Log, err error) {
+func GetLogsByRequestId(requestId string, userId int, scopedToUser bool, subsiteId *int64) (logs []*Log, err error) {
 	requestId = strings.TrimSpace(requestId)
 	if requestId == "" {
 		return nil, errors.New("request_id is required")
@@ -384,6 +405,7 @@ func GetLogsByRequestId(requestId string, userId int, scopedToUser bool) (logs [
 	}
 
 	tx := LOG_DB.Model(&Log{}).Where("(logs.request_id = ? OR logs.upstream_request_id = ?)", requestId, requestId)
+	tx = applyOptionalLogSubsiteFilter(tx, subsiteId)
 	if scopedToUser {
 		tx = tx.Where("logs.user_id = ?", userId)
 	}
@@ -445,13 +467,14 @@ func hydrateLogChannelNames(logs []*Log) error {
 
 const logSearchCountLimit = 10000
 
-func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string, subsiteId *int64) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB.Where("logs.user_id = ?", userId)
 	} else {
 		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
 	}
+	tx = applyOptionalLogSubsiteFilter(tx, subsiteId)
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
@@ -472,7 +495,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 		tx = tx.Where("logs.created_at <= ?", endTimestamp)
 	}
 	if group != "" {
-		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+		tx = tx.Where("logs."+logGroupColumn()+" = ?", group)
 	}
 	err = tx.Model(&Log{}).Limit(logSearchCountLimit).Count(&total).Error
 	if err != nil {
@@ -491,8 +514,9 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 
 const logFilterOptionLimit = 500
 
-func baseLogFilterOptionsQuery(userId int, scopedToUser bool, logType int, startTimestamp int64, endTimestamp int64, username string, channel int) *gorm.DB {
+func baseLogFilterOptionsQuery(userId int, scopedToUser bool, logType int, startTimestamp int64, endTimestamp int64, username string, channel int, subsiteId *int64) *gorm.DB {
 	tx := LOG_DB.Model(&Log{})
+	tx = applyOptionalLogSubsiteFilter(tx, subsiteId)
 	if scopedToUser {
 		tx = tx.Where("logs.user_id = ?", userId)
 	}
@@ -527,10 +551,10 @@ func distinctLogStrings(tx *gorm.DB, column string) ([]string, error) {
 	return values, nil
 }
 
-func GetLogFilterOptions(userId int, scopedToUser bool, logType int, startTimestamp int64, endTimestamp int64, username string, channel int) (LogFilterOptions, error) {
-	baseQuery := baseLogFilterOptionsQuery(userId, scopedToUser, logType, startTimestamp, endTimestamp, username, channel)
+func GetLogFilterOptions(userId int, scopedToUser bool, logType int, startTimestamp int64, endTimestamp int64, username string, channel int, subsiteId *int64) (LogFilterOptions, error) {
+	baseQuery := baseLogFilterOptionsQuery(userId, scopedToUser, logType, startTimestamp, endTimestamp, username, channel, subsiteId)
 
-	groups, err := distinctLogStrings(baseQuery.Session(&gorm.Session{}), "logs."+logGroupCol)
+	groups, err := distinctLogStrings(baseQuery.Session(&gorm.Session{}), "logs."+logGroupColumn())
 	if err != nil {
 		return LogFilterOptions{}, err
 	}
@@ -559,11 +583,13 @@ type Stat struct {
 	Tokens int `json:"tokens"`
 }
 
-func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
+func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, subsiteId *int64) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("COALESCE(SUM(quota), 0) AS quota, COALESCE(SUM(prompt_tokens), 0) + COALESCE(SUM(completion_tokens), 0) AS tokens")
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, sum(prompt_tokens) + sum(completion_tokens) tpm")
+	tx = applyOptionalLogSubsiteFilter(tx, subsiteId)
+	rpmTpmQuery = applyOptionalLogSubsiteFilter(rpmTpmQuery, subsiteId)
 
 	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
 		return stat, err
@@ -592,8 +618,8 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		rpmTpmQuery = rpmTpmQuery.Where("channel_id = ?", channel)
 	}
 	if group != "" {
-		tx = tx.Where(logGroupCol+" = ?", group)
-		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
+		tx = tx.Where(logGroupColumn()+" = ?", group)
+		rpmTpmQuery = rpmTpmQuery.Where(logGroupColumn()+" = ?", group)
 	}
 
 	tx = tx.Where("type = ?", LogTypeConsume)

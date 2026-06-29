@@ -35,6 +35,10 @@ func TestMain(m *testing.M) {
 	sqlDB.SetMaxOpenConns(1)
 
 	if err := db.AutoMigrate(
+		&Subsite{},
+		&SubsiteMember{},
+		&SubsiteQuotaPolicy{},
+		&SubsiteQuotaCounter{},
 		&Task{},
 		&User{},
 		&Token{},
@@ -72,6 +76,8 @@ func TestMain(m *testing.M) {
 		&EnterpriseGovernanceSharedPoolBorrow{},
 		&EnterpriseGovernanceAnomalyProtection{},
 		&EnterpriseAuditLog{},
+		&RequestCaptureRecord{},
+		&RequestDiagnosticReport{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -96,6 +102,11 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM redemptions")
 		DB.Exec("DELETE FROM billing_event_relations")
 		DB.Exec("DELETE FROM billing_events")
+		DB.Exec("DELETE FROM request_diagnostic_reports")
+		DB.Exec("DELETE FROM subsite_quota_counters")
+		DB.Exec("DELETE FROM subsite_quota_policies")
+		DB.Exec("DELETE FROM subsite_members")
+		DB.Exec("DELETE FROM subsites")
 	}
 	cleanup()
 	t.Cleanup(cleanup)

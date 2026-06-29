@@ -470,6 +470,7 @@ func relayRequestCaptureCreateRecord(c *gin.Context, info *relaycommon.RelayInfo
 	})
 	record := model.RequestCaptureRecord{
 		RequestId:         info.RequestId,
+		SubsiteId:         info.SubsiteId,
 		UserId:            info.UserId,
 		TokenId:           info.TokenId,
 		ChannelId:         common.GetContextKeyInt(c, constant.ContextKeyChannelId),

@@ -128,8 +128,8 @@ func channelOwnerName(channelType int) string {
 	return strings.ToLower(constant.GetChannelTypeName(channelType))
 }
 
-func getPreferredModelOwners(modelNames []string, groups []string) map[string]string {
-	channelTypes, err := model.GetPreferredModelOwnerChannelTypes(modelNames, groups)
+func getPreferredModelOwners(modelNames []string, groups []string, subsiteId int64) map[string]string {
+	channelTypes, err := model.GetPreferredModelOwnerChannelTypesForSubsite(modelNames, groups, subsiteId)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("GetPreferredModelOwnerChannelTypes error: %v", err))
 		return map[string]string{}
@@ -150,7 +150,34 @@ func getPreferredModelOwners(modelNames []string, groups []string) map[string]st
 	return owners
 }
 
-func buildOpenAIModel(modelName string, ownerByModel map[string]string) dto.OpenAIModels {
+func getPreferredModelDisplayNames(modelNames []string, groups []string, subsiteId int64) map[string]string {
+	displayNames, err := model.GetPreferredModelDisplayNamesForSubsite(modelNames, groups, subsiteId)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("GetPreferredModelDisplayNames error: %v", err))
+		return map[string]string{}
+	}
+	return displayNames
+}
+
+func getEnabledModelsForModelListGroups(groups modelListGroups, subsiteId int64) []string {
+	if groups.tokenGroup == "auto" {
+		return model.GetGroupsEnabledModelsForSubsite(groups.ownerGroups, subsiteId)
+	}
+	return model.GetGroupEnabledModelsForSubsite(groups.ownerGroups[0], subsiteId)
+}
+
+func subsiteModelAvailabilitySet(groups modelListGroups, subsiteId int64) map[string]struct{} {
+	available := map[string]struct{}{}
+	if subsiteId <= 0 || len(groups.ownerGroups) == 0 {
+		return available
+	}
+	for _, modelName := range model.GetGroupsEnabledModelsForSubsite(groups.ownerGroups, subsiteId) {
+		available[modelName] = struct{}{}
+	}
+	return available
+}
+
+func buildOpenAIModel(modelName string, ownerByModel map[string]string, displayNameByModel map[string]string) dto.OpenAIModels {
 	var oaiModel dto.OpenAIModels
 	if staticModel, ok := openAIModelsMap[modelName]; ok {
 		oaiModel = staticModel
@@ -164,6 +191,9 @@ func buildOpenAIModel(modelName string, ownerByModel map[string]string) dto.Open
 	}
 	if owner, ok := ownerByModel[modelName]; ok && owner != "" {
 		oaiModel.OwnedBy = owner
+	}
+	if displayName, ok := displayNameByModel[modelName]; ok && displayName != "" {
+		oaiModel.DisplayName = displayName
 	}
 	oaiModel.SupportedEndpointTypes = model.GetModelSupportEndpointTypes(modelName)
 	return oaiModel
@@ -260,6 +290,7 @@ func ListModels(c *gin.Context, modelType int) {
 		respondEmptyModelList(c, modelType)
 		return
 	}
+	subsiteId := c.GetInt64("subsite_id")
 	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
 	if modelLimitEnable {
 		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
@@ -269,7 +300,13 @@ func ListModels(c *gin.Context, modelType int) {
 		} else {
 			tokenModelLimit = map[string]bool{}
 		}
+		availableInSubsite := subsiteModelAvailabilitySet(groups, subsiteId)
 		for allowModel, _ := range tokenModelLimit {
+			if subsiteId > 0 {
+				if _, ok := availableInSubsite[allowModel]; !ok {
+					continue
+				}
+			}
 			if !acceptUnsetRatioModel {
 				if !helper.HasModelBillingConfig(allowModel) {
 					continue
@@ -278,19 +315,7 @@ func ListModels(c *gin.Context, modelType int) {
 			userModelNames = append(userModelNames, allowModel)
 		}
 	} else {
-		var models []string
-		if groups.tokenGroup == "auto" {
-			for _, autoGroup := range ownerGroups {
-				groupModels := model.GetGroupEnabledModels(autoGroup)
-				for _, g := range groupModels {
-					if !common.StringsContains(models, g) {
-						models = append(models, g)
-					}
-				}
-			}
-		} else {
-			models = model.GetGroupEnabledModels(ownerGroups[0])
-		}
+		models := getEnabledModelsForModelListGroups(groups, subsiteId)
 		for _, modelName := range models {
 			if !acceptUnsetRatioModel {
 				if !helper.HasModelBillingConfig(modelName) {
@@ -303,11 +328,19 @@ func ListModels(c *gin.Context, modelType int) {
 
 	ownerByModel := map[string]string{}
 	if len(ownerGroups) > 0 {
-		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
+		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups, subsiteId)
+	}
+	displayNameByModel := map[string]string{}
+	if subsiteId > 0 && len(ownerGroups) > 0 {
+		displayNameByModel = getPreferredModelDisplayNames(userModelNames, ownerGroups, subsiteId)
 	}
 	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames))
 	for _, modelName := range userModelNames {
-		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
+		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel, displayNameByModel))
+	}
+	if len(userOpenAiModels) == 0 {
+		respondEmptyModelList(c, modelType)
+		return
 	}
 
 	switch modelType {
@@ -317,7 +350,7 @@ func ListModels(c *gin.Context, modelType int) {
 			useranthropicModels[i] = dto.AnthropicModel{
 				ID:          model.Id,
 				CreatedAt:   time.Unix(int64(model.Created), 0).UTC().Format(time.RFC3339),
-				DisplayName: model.Id,
+				DisplayName: modelDisplayName(model),
 				Type:        "model",
 			}
 		}
@@ -332,7 +365,7 @@ func ListModels(c *gin.Context, modelType int) {
 		for i, model := range userOpenAiModels {
 			userGeminiModels[i] = dto.GeminiModel{
 				Name:        model.Id,
-				DisplayName: model.Id,
+				DisplayName: modelDisplayName(model),
 			}
 		}
 		c.JSON(200, gin.H{
@@ -394,27 +427,76 @@ func EnabledListModels(c *gin.Context) {
 
 func RetrieveModel(c *gin.Context, modelType int) {
 	modelId := c.Param("model")
+	if c.GetInt64("subsite_id") > 0 && !isModelAvailableForCurrentSubsite(c, modelId) {
+		respondModelNotFound(c, modelId)
+		return
+	}
 	if aiModel, ok := openAIModelsMap[modelId]; ok {
+		if displayName := getDisplayNameForCurrentSubsite(c, modelId); displayName != "" {
+			aiModel.DisplayName = displayName
+		}
 		switch modelType {
 		case constant.ChannelTypeAnthropic:
 			c.JSON(200, dto.AnthropicModel{
 				ID:          aiModel.Id,
 				CreatedAt:   time.Unix(int64(aiModel.Created), 0).UTC().Format(time.RFC3339),
-				DisplayName: aiModel.Id,
+				DisplayName: modelDisplayName(aiModel),
 				Type:        "model",
 			})
 		default:
 			c.JSON(200, aiModel)
 		}
 	} else {
-		openAIError := types.OpenAIError{
-			Message: fmt.Sprintf("The model '%s' does not exist", modelId),
-			Type:    "invalid_request_error",
-			Param:   "model",
-			Code:    "model_not_found",
-		}
-		c.JSON(200, gin.H{
-			"error": openAIError,
-		})
+		respondModelNotFound(c, modelId)
 	}
+}
+
+func modelDisplayName(model dto.OpenAIModels) string {
+	if strings.TrimSpace(model.DisplayName) != "" {
+		return model.DisplayName
+	}
+	return model.Id
+}
+
+func getDisplayNameForCurrentSubsite(c *gin.Context, modelId string) string {
+	subsiteId := c.GetInt64("subsite_id")
+	if subsiteId <= 0 || strings.TrimSpace(modelId) == "" {
+		return ""
+	}
+	groups, err := getModelListGroups(c)
+	if err != nil || len(groups.ownerGroups) == 0 {
+		return ""
+	}
+	displayNames := getPreferredModelDisplayNames([]string{modelId}, groups.ownerGroups, subsiteId)
+	return displayNames[modelId]
+}
+
+func isModelAvailableForCurrentSubsite(c *gin.Context, modelId string) bool {
+	groups, err := getModelListGroups(c)
+	if err != nil || len(groups.ownerGroups) == 0 {
+		return false
+	}
+	if common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled) {
+		value, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
+		if !ok {
+			return false
+		}
+		tokenModelLimit, ok := value.(map[string]bool)
+		if !ok || !tokenModelLimit[modelId] {
+			return false
+		}
+	}
+	return model.IsModelEnabledForGroupsInSubsite(modelId, groups.ownerGroups, c.GetInt64("subsite_id"))
+}
+
+func respondModelNotFound(c *gin.Context, modelId string) {
+	openAIError := types.OpenAIError{
+		Message: fmt.Sprintf("The model '%s' does not exist", modelId),
+		Type:    "invalid_request_error",
+		Param:   "model",
+		Code:    "model_not_found",
+	}
+	c.JSON(200, gin.H{
+		"error": openAIError,
+	})
 }

@@ -51,6 +51,7 @@ export interface CommonLogFilters extends CommonFilters {
   token?: string
   group?: string
   username?: string
+  subsiteId?: string
   requestId?: string
   upstreamRequestId?: string
 }
@@ -371,6 +372,7 @@ export interface GetLogsParams {
   start_timestamp?: number
   end_timestamp?: number
   channel?: number
+  subsite_id?: number
   group?: string
   request_id?: string
   upstream_request_id?: string
@@ -395,6 +397,7 @@ export interface GetLogStatsParams {
   start_timestamp?: number
   end_timestamp?: number
   channel?: number
+  subsite_id?: number
   group?: string
   request_id?: string
   upstream_request_id?: string
@@ -412,6 +415,7 @@ export interface GetLogFilterOptionsParams {
   end_timestamp?: number
   username?: string
   channel?: number
+  subsite_id?: number
 }
 
 export interface GetLogFilterOptionsResponse {
@@ -423,6 +427,7 @@ export interface GetLogFilterOptionsResponse {
 export interface RequestLogTraceSummary {
   status: string
   type_counts: Record<string, number>
+  subsite_id?: number
   user_id?: number
   username?: string
   token_id?: number
@@ -461,6 +466,7 @@ export interface RequestLogTraceDiagnostics extends Record<string, unknown> {
 
 export interface RequestLogTraceItem {
   id: number
+  subsite_id: number
   user_id: number
   created_at: number
   type: number
@@ -490,6 +496,7 @@ export interface RequestLogTrace {
   total: number
   request_ids: string[]
   upstream_request_ids: string[]
+  subsite_ids: number[]
   summary: RequestLogTraceSummary
   diagnostics: RequestLogTraceDiagnostics
   logs: RequestLogTraceItem[]
@@ -529,6 +536,7 @@ export interface RequestDiagnosticCapture {
   id: number
   request_id: string
   upstream_request_id?: string
+  subsite_id?: number
   user_id: number
   token_id: number
   channel_id: number
@@ -563,6 +571,7 @@ export interface RequestDiagnosticReportPayload {
 export interface RequestDiagnosticReport {
   id?: number
   request_id: string
+  subsite_id?: number
   status: string
   severity: 'ok' | 'warning' | 'error' | 'info' | string
   summary: string
@@ -578,6 +587,7 @@ export interface GetRequestDiagnosticReportResponse {
 
 export interface RequestDiagnosticCandidate {
   request_id: string
+  subsite_id?: number
   severity: 'ok' | 'warning' | 'error' | 'info' | string
   source: string
   summary: string
@@ -607,6 +617,7 @@ export interface GetRequestDiagnosticCandidatesParams {
   report_status?: string
   user_id?: number
   token_id?: number
+  subsite_id?: number
 }
 
 export interface GetRequestDiagnosticCandidatesResponse {

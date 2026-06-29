@@ -39,10 +39,48 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 }
 
 func GetGroupEnabledModels(group string) []string {
+	return GetGroupEnabledModelsForSubsite(group, 0)
+}
+
+func GetGroupEnabledModelsForSubsite(group string, subsiteId int64) []string {
 	var models []string
-	// Find distinct models
-	DB.Table("abilities").Where(commonGroupCol+" = ? and enabled = ?", group, true).Distinct("model").Pluck("model", &models)
+	query := DB.Table("abilities").
+		Joins("LEFT JOIN channels ON abilities.channel_id = channels.id").
+		Where("abilities."+abilityGroupColumn()+" = ? and abilities.enabled = ?", group, true)
+	if subsiteId > 0 {
+		query = query.Where("channels.subsite_id = ?", subsiteId)
+	} else {
+		query = query.Where("(channels.id IS NULL OR channels.subsite_id = 0)")
+	}
+	query.Distinct("abilities.model").Pluck("abilities.model", &models)
 	return models
+}
+
+func GetGroupsEnabledModelsForSubsite(groups []string, subsiteId int64) []string {
+	seen := map[string]struct{}{}
+	models := make([]string, 0)
+	for _, group := range normalizeLookupValues(groups) {
+		for _, modelName := range GetGroupEnabledModelsForSubsite(group, subsiteId) {
+			if _, ok := seen[modelName]; ok {
+				continue
+			}
+			seen[modelName] = struct{}{}
+			models = append(models, modelName)
+		}
+	}
+	return models
+}
+
+func IsModelEnabledForGroupsInSubsite(modelName string, groups []string, subsiteId int64) bool {
+	if modelName == "" {
+		return false
+	}
+	for _, enabledModel := range GetGroupsEnabledModelsForSubsite(groups, subsiteId) {
+		if enabledModel == modelName {
+			return true
+		}
+	}
+	return false
 }
 
 func GetEnabledModels() []string {
@@ -58,12 +96,27 @@ func GetAllEnableAbilities() []Ability {
 	return abilities
 }
 
+func abilityGroupColumn() string {
+	if commonGroupCol != "" {
+		return commonGroupCol
+	}
+	if common.UsingPostgreSQL {
+		return `"group"`
+	}
+	return "`group`"
+}
+
 func getPriority(group string, model string, retry int) (int, error) {
+	return getPriorityForSubsite(group, model, retry, 0)
+}
+
+func getPriorityForSubsite(group string, model string, retry int, subsiteId int64) (int, error) {
 
 	var priorities []int
 	err := DB.Model(&Ability{}).
 		Select("DISTINCT(priority)").
-		Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+		Where(abilityGroupColumn()+" = ? and model = ? and enabled = ?", group, model, true).
+		Where("channel_id IN (?)", scopedChannelIdsSubQuery(subsiteId)).
 		Order("priority DESC").              // 按优先级降序排序
 		Pluck("priority", &priorities).Error // Pluck用于将查询的结果直接扫描到一个切片中
 
@@ -89,14 +142,24 @@ func getPriority(group string, model string, retry int) (int, error) {
 }
 
 func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
-	maxPrioritySubQuery := DB.Model(&Ability{}).Select("MAX(priority)").Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
-	channelQuery := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = (?)", group, model, true, maxPrioritySubQuery)
+	return getChannelQueryForSubsite(group, model, retry, 0)
+}
+
+func getChannelQueryForSubsite(group string, model string, retry int, subsiteId int64) (*gorm.DB, error) {
+	channelIds := scopedChannelIdsSubQuery(subsiteId)
+	maxPrioritySubQuery := DB.Model(&Ability{}).
+		Select("MAX(priority)").
+		Where(abilityGroupColumn()+" = ? and model = ? and enabled = ?", group, model, true).
+		Where("channel_id IN (?)", channelIds)
+	channelQuery := DB.Where(abilityGroupColumn()+" = ? and model = ? and enabled = ? and priority = (?)", group, model, true, maxPrioritySubQuery)
+	channelQuery = channelQuery.Where("channel_id IN (?)", channelIds)
 	if retry != 0 {
-		priority, err := getPriority(group, model, retry)
+		priority, err := getPriorityForSubsite(group, model, retry, subsiteId)
 		if err != nil {
 			return nil, err
 		} else {
-			channelQuery = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = ?", group, model, true, priority)
+			channelQuery = DB.Where(abilityGroupColumn()+" = ? and model = ? and enabled = ? and priority = ?", group, model, true, priority)
+			channelQuery = channelQuery.Where("channel_id IN (?)", channelIds)
 		}
 	}
 
@@ -108,17 +171,22 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 }
 
 func GetChannelExcluding(group string, model string, retry int, excludeChannelIds map[int]bool) (*Channel, error) {
+	return GetChannelExcludingForSubsite(group, model, retry, excludeChannelIds, 0)
+}
+
+func GetChannelExcludingForSubsite(group string, model string, retry int, excludeChannelIds map[int]bool, subsiteId int64) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
 	if len(excludeChannelIds) == 0 {
-		channelQuery, err := getChannelQuery(group, model, retry)
+		channelQuery, err := getChannelQueryForSubsite(group, model, retry, subsiteId)
 		if err != nil {
 			return nil, err
 		}
 		err = channelQuery.Order("weight DESC").Find(&abilities).Error
 	} else {
-		err = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+		err = DB.Where(abilityGroupColumn()+" = ? and model = ? and enabled = ?", group, model, true).
+			Where("channel_id IN (?)", scopedChannelIdsSubQuery(subsiteId)).
 			Order("priority DESC").
 			Order("weight DESC").
 			Find(&abilities).Error
@@ -136,8 +204,12 @@ func GetChannelExcluding(group string, model string, retry int, excludeChannelId
 	} else {
 		return nil, nil
 	}
-	err = DB.First(&channel, "id = ?", channel.Id).Error
+	err = DB.First(&channel, "id = ? AND subsite_id = ?", channel.Id, subsiteId).Error
 	return &channel, err
+}
+
+func scopedChannelIdsSubQuery(subsiteId int64) *gorm.DB {
+	return DB.Model(&Channel{}).Select("id").Where("subsite_id = ?", subsiteId)
 }
 
 func filterExcludedAbilities(abilities []Ability, excludeChannelIds map[int]bool) []Ability {

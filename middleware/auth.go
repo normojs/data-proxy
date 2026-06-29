@@ -354,7 +354,8 @@ func TokenAuth() func(c *gin.Context) {
 		// gemini api 从query中获取key
 		if strings.HasPrefix(c.Request.URL.Path, "/v1beta/models") ||
 			strings.HasPrefix(c.Request.URL.Path, "/v1beta/openai/models") ||
-			strings.HasPrefix(c.Request.URL.Path, "/v1/models/") {
+			strings.HasPrefix(c.Request.URL.Path, "/v1/models/") ||
+			strings.Contains(c.Request.URL.Path, "/v1/models/") {
 			skKey := c.Query("key")
 			if skKey != "" {
 				c.Request.Header.Set("Authorization", "Bearer "+skKey)
@@ -472,6 +473,7 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	c.Set("token_id", token.Id)
 	c.Set("token_key", token.Key)
 	c.Set("token_name", token.Name)
+	c.Set("token_subsite_id", token.SubsiteId)
 	c.Set("token_unlimited_quota", token.UnlimitedQuota)
 	c.Set("token_quota_hard_limit_enabled", token.QuotaHardLimitEnabled)
 	if token.IsQuotaLimited() {

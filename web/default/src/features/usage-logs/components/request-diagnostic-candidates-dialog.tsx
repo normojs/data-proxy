@@ -48,6 +48,7 @@ import type { RequestDiagnosticCandidate } from '../types'
 interface RequestDiagnosticCandidatesDialogProps {
   startTimestamp?: number
   endTimestamp?: number
+  subsiteId?: number
   onSelectRequest: (requestId: string) => void
 }
 
@@ -178,6 +179,11 @@ function CandidateRow(props: {
             {t('Channel')}: {candidate.channel_id}
           </span>
         )}
+        {candidate.subsite_id !== undefined && candidate.subsite_id > 0 && (
+          <span>
+            {t('Subsite')}: {candidate.subsite_id}
+          </span>
+        )}
         {candidate.username && (
           <span>
             {t('User')}: {candidate.username}
@@ -215,6 +221,7 @@ export function RequestDiagnosticCandidatesDialog(
       'request-diagnostic-candidates',
       props.startTimestamp,
       props.endTimestamp,
+      props.subsiteId,
       filters.severity,
       filters.source,
       filters.modelName,
@@ -225,6 +232,7 @@ export function RequestDiagnosticCandidatesDialog(
         limit: 20,
         start_timestamp: props.startTimestamp,
         end_timestamp: props.endTimestamp,
+        subsite_id: props.subsiteId,
         severity:
           filters.severity === ALL_FILTER_VALUE ? undefined : filters.severity,
         source: filters.source === ALL_FILTER_VALUE ? undefined : filters.source,

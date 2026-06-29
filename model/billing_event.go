@@ -38,9 +38,10 @@ const (
 type BillingEvent struct {
 	Id int64 `json:"id"`
 
-	EventId string `json:"event_id" gorm:"type:varchar(128);not null;uniqueIndex"`
-	UserId  int    `json:"user_id" gorm:"not null;index"`
-	TokenId int    `json:"token_id" gorm:"index"`
+	EventId   string `json:"event_id" gorm:"type:varchar(128);not null;uniqueIndex"`
+	SubsiteId int64  `json:"subsite_id" gorm:"not null;default:0;index"`
+	UserId    int    `json:"user_id" gorm:"not null;index"`
+	TokenId   int    `json:"token_id" gorm:"index"`
 
 	Source    string `json:"source" gorm:"type:varchar(64);not null;index:idx_billing_events_source_ref,priority:1"`
 	SourceId  string `json:"source_id" gorm:"type:varchar(128);not null;index:idx_billing_events_source_ref,priority:2"`
@@ -107,7 +108,7 @@ type BillingEventAggregate struct {
 }
 
 type BillingEventDimensionAggregate struct {
-	Key string `gorm:"column:key"`
+	Key string `gorm:"column:dimension_key"`
 	BillingEventAggregate
 }
 
@@ -162,17 +163,17 @@ func SummarizeBillingEvents(filter BillingEventFilter, bucketSeconds int64) (Bil
 		return summary, err
 	}
 	if err := billingEventSummaryQuery(filter).
-		Select("source AS key, "+billingEventAggregateSelect(), billingEventAggregateArgs()...).
+		Select("source AS dimension_key, "+billingEventAggregateSelect(), billingEventAggregateArgs()...).
 		Group("source").
-		Order("total_events DESC, key ASC").
+		Order("total_events DESC, dimension_key ASC").
 		Limit(12).
 		Scan(&summary.BySource).Error; err != nil {
 		return summary, err
 	}
 	if err := billingEventSummaryQuery(filter).
-		Select("event_type AS key, "+billingEventAggregateSelect(), billingEventAggregateArgs()...).
+		Select("event_type AS dimension_key, "+billingEventAggregateSelect(), billingEventAggregateArgs()...).
 		Group("event_type").
-		Order("total_events DESC, key ASC").
+		Order("total_events DESC, dimension_key ASC").
 		Scan(&summary.ByType).Error; err != nil {
 		return summary, err
 	}

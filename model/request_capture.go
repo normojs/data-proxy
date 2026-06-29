@@ -44,6 +44,7 @@ type RequestCaptureRecord struct {
 	Id                   int64  `json:"id" gorm:"primaryKey"`
 	RequestId            string `json:"request_id" gorm:"type:varchar(128);not null;default:'';index"`
 	UpstreamRequestId    string `json:"upstream_request_id" gorm:"type:varchar(128);not null;default:'';index"`
+	SubsiteId            int64  `json:"subsite_id" gorm:"not null;default:0;index"`
 	UserId               int    `json:"user_id" gorm:"not null;default:0;index"`
 	TokenId              int    `json:"token_id" gorm:"not null;default:0;index"`
 	ChannelId            int    `json:"channel_id" gorm:"not null;default:0;index"`
@@ -118,6 +119,7 @@ func (RequestCaptureArtifact) TableName() string {
 type RequestDiagnosticReport struct {
 	Id          int64  `json:"id" gorm:"primaryKey"`
 	RequestId   string `json:"request_id" gorm:"type:varchar(128);not null;default:'';index"`
+	SubsiteId   int64  `json:"subsite_id" gorm:"not null;default:0;index"`
 	CaptureId   int64  `json:"capture_id" gorm:"not null;default:0;index"`
 	ArtifactId  int64  `json:"artifact_id" gorm:"not null;default:0;index"`
 	ReportType  string `json:"report_type" gorm:"type:varchar(64);not null;default:'request';index"`

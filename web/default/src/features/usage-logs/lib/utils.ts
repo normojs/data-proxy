@@ -209,6 +209,9 @@ export function buildApiParams(config: {
     ...(isAdmin && searchParams.username
       ? { username: String(searchParams.username) }
       : {}),
+    ...(isAdmin && searchParams.subsiteId
+      ? { subsite_id: Number(searchParams.subsiteId) || 0 }
+      : {}),
     ...(searchParams.requestId
       ? { request_id: String(searchParams.requestId) }
       : {}),

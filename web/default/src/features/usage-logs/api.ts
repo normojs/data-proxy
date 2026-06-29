@@ -103,31 +103,38 @@ export async function getLogFilterOptions(
 
 export async function getRequestLogTrace(
   requestId: string,
-  isAdmin: boolean
+  isAdmin: boolean,
+  subsiteId?: number
 ): Promise<GetRequestLogTraceResponse> {
   const path = isAdmin ? '/api/log/request' : '/api/log/self/request'
   const res = await api.get(path, {
     params: {
       request_id: requestId,
+      subsite_id: subsiteId,
     },
   })
   return res.data
 }
 
 export async function getRequestDiagnosticReport(
-  requestId: string
+  requestId: string,
+  subsiteId?: number
 ): Promise<GetRequestDiagnosticReportResponse> {
   const res = await api.get(
-    `/api/log/request/${encodeURIComponent(requestId)}/diagnostic`
+    `/api/log/request/${encodeURIComponent(requestId)}/diagnostic`,
+    { params: { subsite_id: subsiteId } }
   )
   return res.data
 }
 
 export async function generateRequestDiagnosticReport(
-  requestId: string
+  requestId: string,
+  subsiteId?: number
 ): Promise<GetRequestDiagnosticReportResponse> {
   const res = await api.post(
-    `/api/log/request/${encodeURIComponent(requestId)}/diagnostic`
+    `/api/log/request/${encodeURIComponent(requestId)}/diagnostic`,
+    undefined,
+    { params: { subsite_id: subsiteId } }
   )
   return res.data
 }
@@ -147,6 +154,7 @@ export async function getRequestDiagnosticCandidates(
     report_status: params.report_status,
     user_id: params.user_id,
     token_id: params.token_id,
+    subsite_id: params.subsite_id,
   })
   const res = await api.get(
     `/api/log/request-diagnostic-candidates?${queryParams}`
@@ -154,8 +162,14 @@ export async function getRequestDiagnosticCandidates(
   return res.data
 }
 
-export function getRequestDiagnosticBundleUrl(requestId: string): string {
-  return `/api/log/request/${encodeURIComponent(requestId)}/diagnostic/bundle`
+export function getRequestDiagnosticBundleUrl(
+  requestId: string,
+  subsiteId?: number
+): string {
+  const queryParams = buildQueryParams({ subsite_id: subsiteId })
+  const query = queryParams.toString()
+  const basePath = `/api/log/request/${encodeURIComponent(requestId)}/diagnostic/bundle`
+  return query ? `${basePath}?${query}` : basePath
 }
 
 export async function getUserInfo(

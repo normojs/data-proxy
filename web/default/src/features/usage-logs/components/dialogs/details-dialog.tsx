@@ -1317,6 +1317,14 @@ function RequestTraceSection(props: {
               mono
             />
           )}
+          {adminView &&
+            trace.subsite_ids.some((subsiteId) => subsiteId > 0) && (
+              <DetailRow
+                label={t('Subsite ID')}
+                value={trace.subsite_ids.join(' · ')}
+                mono
+              />
+            )}
           {trace.diagnostics.request_path && (
             <DetailRow
               label={t('Path')}
@@ -1800,13 +1808,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const channelChain =
     useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
   const requestTraceId = props.log.request_id || ''
+  const requestSubsiteId = props.log.subsite_id
   const requestTraceQuery = useQuery({
     queryKey: [
       'usage-log-request-trace',
       props.isAdmin ? 'admin' : 'self',
       requestTraceId,
+      requestSubsiteId,
     ],
-    queryFn: () => getRequestLogTrace(requestTraceId, props.isAdmin),
+    queryFn: () =>
+      getRequestLogTrace(requestTraceId, props.isAdmin, requestSubsiteId),
     enabled: props.open && requestTraceId.length > 0,
     staleTime: 30_000,
   })
@@ -1817,13 +1828,18 @@ export function DetailsDialog(props: DetailsDialogProps) {
       ? requestTraceResponse.message || t('Trace unavailable')
       : undefined
   const requestDiagnosticQuery = useQuery({
-    queryKey: ['usage-log-request-diagnostic', requestTraceId],
-    queryFn: () => getRequestDiagnosticReport(requestTraceId),
+    queryKey: [
+      'usage-log-request-diagnostic',
+      requestTraceId,
+      requestSubsiteId,
+    ],
+    queryFn: () => getRequestDiagnosticReport(requestTraceId, requestSubsiteId),
     enabled: props.open && props.isAdmin && requestTraceId.length > 0,
     staleTime: 30_000,
   })
   const generateDiagnosticMutation = useMutation({
-    mutationFn: () => generateRequestDiagnosticReport(requestTraceId),
+    mutationFn: () =>
+      generateRequestDiagnosticReport(requestTraceId, requestSubsiteId),
     onSuccess: () => {
       void requestDiagnosticQuery.refetch()
     },
@@ -2150,7 +2166,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   onGenerate={() => generateDiagnosticMutation.mutate()}
                   onDownload={() => {
                     window.open(
-                      getRequestDiagnosticBundleUrl(requestTraceId),
+                      getRequestDiagnosticBundleUrl(
+                        requestTraceId,
+                        requestSubsiteId
+                      ),
                       '_blank',
                       'noopener,noreferrer'
                     )

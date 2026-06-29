@@ -39,6 +39,7 @@ import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
 import { Route as AuthenticatedUiLabRouteRouteImport } from './routes/_authenticated/ui-lab/route'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
+import { Route as SSlugIndexRouteImport } from './routes/s/$slug/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
@@ -57,11 +58,15 @@ import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authentica
 import { Route as AuthenticatedEnterpriseIndexRouteImport } from './routes/_authenticated/enterprise/index'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
+import { Route as SSlugRegisterRouteImport } from './routes/s/$slug/register'
+import { Route as SSlugLoginRouteImport } from './routes/s/$slug/login'
+import { Route as SSlugDashboardRouteImport } from './routes/s/$slug/dashboard'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedUiLabMcpRouteImport } from './routes/_authenticated/ui-lab/mcp'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedMcpSectionRouteImport } from './routes/_authenticated/mcp/$section'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedDashboardSubsitesRouteImport } from './routes/_authenticated/dashboard/subsites'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
@@ -229,6 +234,11 @@ const AuthenticatedSystemSettingsRouteRoute =
     path: '/system-settings',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const SSlugIndexRoute = SSlugIndexRouteImport.update({
+  id: '/s/$slug/',
+  path: '/s/$slug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   id: '/pricing/$modelId/',
   path: '/pricing/$modelId/',
@@ -332,6 +342,21 @@ const AuthenticatedChannelsIndexRoute =
     path: '/channels/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const SSlugRegisterRoute = SSlugRegisterRouteImport.update({
+  id: '/s/$slug/register',
+  path: '/s/$slug/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SSlugLoginRoute = SSlugLoginRouteImport.update({
+  id: '/s/$slug/login',
+  path: '/s/$slug/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SSlugDashboardRoute = SSlugDashboardRouteImport.update({
+  id: '/s/$slug/dashboard',
+  path: '/s/$slug/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedUsageLogsSectionRoute =
   AuthenticatedUsageLogsSectionRouteImport.update({
     id: '/usage-logs/$section',
@@ -358,6 +383,12 @@ const AuthenticatedErrorsErrorRoute =
   AuthenticatedErrorsErrorRouteImport.update({
     id: '/errors/$error',
     path: '/errors/$error',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedDashboardSubsitesRoute =
+  AuthenticatedDashboardSubsitesRouteImport.update({
+    id: '/dashboard/subsites',
+    path: '/dashboard/subsites',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedDashboardSectionRoute =
@@ -493,11 +524,15 @@ export interface FileRoutesByFullPath {
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
+  '/dashboard/subsites': typeof AuthenticatedDashboardSubsitesRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/mcp/$section': typeof AuthenticatedMcpSectionRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/ui-lab/mcp': typeof AuthenticatedUiLabMcpRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/s/$slug/dashboard': typeof SSlugDashboardRoute
+  '/s/$slug/login': typeof SSlugLoginRoute
+  '/s/$slug/register': typeof SSlugRegisterRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/enterprise/': typeof AuthenticatedEnterpriseIndexRoute
@@ -516,6 +551,7 @@ export interface FileRoutesByFullPath {
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
+  '/s/$slug/': typeof SSlugIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -561,11 +597,15 @@ export interface FileRoutesByTo {
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
+  '/dashboard/subsites': typeof AuthenticatedDashboardSubsitesRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/mcp/$section': typeof AuthenticatedMcpSectionRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/ui-lab/mcp': typeof AuthenticatedUiLabMcpRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/s/$slug/dashboard': typeof SSlugDashboardRoute
+  '/s/$slug/login': typeof SSlugLoginRoute
+  '/s/$slug/register': typeof SSlugRegisterRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
   '/enterprise': typeof AuthenticatedEnterpriseIndexRoute
@@ -584,6 +624,7 @@ export interface FileRoutesByTo {
   '/users': typeof AuthenticatedUsersIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
+  '/s/$slug': typeof SSlugIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -634,11 +675,15 @@ export interface FileRoutesById {
   '/(auth)/user/reset': typeof authUserResetRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
+  '/_authenticated/dashboard/subsites': typeof AuthenticatedDashboardSubsitesRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/mcp/$section': typeof AuthenticatedMcpSectionRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/ui-lab/mcp': typeof AuthenticatedUiLabMcpRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/s/$slug/dashboard': typeof SSlugDashboardRoute
+  '/s/$slug/login': typeof SSlugLoginRoute
+  '/s/$slug/register': typeof SSlugRegisterRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/_authenticated/enterprise/': typeof AuthenticatedEnterpriseIndexRoute
@@ -657,6 +702,7 @@ export interface FileRoutesById {
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
+  '/s/$slug/': typeof SSlugIndexRoute
   '/_authenticated/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/_authenticated/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/_authenticated/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -706,11 +752,15 @@ export interface FileRouteTypes {
     | '/user/reset'
     | '/chat/$chatId'
     | '/dashboard/$section'
+    | '/dashboard/subsites'
     | '/errors/$error'
     | '/mcp/$section'
     | '/models/$section'
     | '/ui-lab/mcp'
     | '/usage-logs/$section'
+    | '/s/$slug/dashboard'
+    | '/s/$slug/login'
+    | '/s/$slug/register'
     | '/channels/'
     | '/dashboard/'
     | '/enterprise/'
@@ -729,6 +779,7 @@ export interface FileRouteTypes {
     | '/users/'
     | '/wallet/'
     | '/pricing/$modelId/'
+    | '/s/$slug/'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -774,11 +825,15 @@ export interface FileRouteTypes {
     | '/user/reset'
     | '/chat/$chatId'
     | '/dashboard/$section'
+    | '/dashboard/subsites'
     | '/errors/$error'
     | '/mcp/$section'
     | '/models/$section'
     | '/ui-lab/mcp'
     | '/usage-logs/$section'
+    | '/s/$slug/dashboard'
+    | '/s/$slug/login'
+    | '/s/$slug/register'
     | '/channels'
     | '/dashboard'
     | '/enterprise'
@@ -797,6 +852,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/wallet'
     | '/pricing/$modelId'
+    | '/s/$slug'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -846,11 +902,15 @@ export interface FileRouteTypes {
     | '/(auth)/user/reset'
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
+    | '/_authenticated/dashboard/subsites'
     | '/_authenticated/errors/$error'
     | '/_authenticated/mcp/$section'
     | '/_authenticated/models/$section'
     | '/_authenticated/ui-lab/mcp'
     | '/_authenticated/usage-logs/$section'
+    | '/s/$slug/dashboard'
+    | '/s/$slug/login'
+    | '/s/$slug/register'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
     | '/_authenticated/enterprise/'
@@ -869,6 +929,7 @@ export interface FileRouteTypes {
     | '/_authenticated/users/'
     | '/_authenticated/wallet/'
     | '/pricing/$modelId/'
+    | '/s/$slug/'
     | '/_authenticated/system-settings/auth/$section'
     | '/_authenticated/system-settings/billing/$section'
     | '/_authenticated/system-settings/content/$section'
@@ -906,7 +967,11 @@ export interface RootRouteChildren {
   RankingsIndexRoute: typeof RankingsIndexRoute
   SetupIndexRoute: typeof SetupIndexRoute
   StatusIndexRoute: typeof StatusIndexRoute
+  SSlugDashboardRoute: typeof SSlugDashboardRoute
+  SSlugLoginRoute: typeof SSlugLoginRoute
+  SSlugRegisterRoute: typeof SSlugRegisterRoute
   PricingModelIdIndexRoute: typeof PricingModelIdIndexRoute
+  SSlugIndexRoute: typeof SSlugIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1121,6 +1186,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsRouteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/s/$slug/': {
+      id: '/s/$slug/'
+      path: '/s/$slug'
+      fullPath: '/s/$slug/'
+      preLoaderRoute: typeof SSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pricing/$modelId/': {
       id: '/pricing/$modelId/'
       path: '/pricing/$modelId'
@@ -1247,6 +1319,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedChannelsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/s/$slug/register': {
+      id: '/s/$slug/register'
+      path: '/s/$slug/register'
+      fullPath: '/s/$slug/register'
+      preLoaderRoute: typeof SSlugRegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s/$slug/login': {
+      id: '/s/$slug/login'
+      path: '/s/$slug/login'
+      fullPath: '/s/$slug/login'
+      preLoaderRoute: typeof SSlugLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s/$slug/dashboard': {
+      id: '/s/$slug/dashboard'
+      path: '/s/$slug/dashboard'
+      fullPath: '/s/$slug/dashboard'
+      preLoaderRoute: typeof SSlugDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/usage-logs/$section': {
       id: '/_authenticated/usage-logs/$section'
       path: '/usage-logs/$section'
@@ -1280,6 +1373,13 @@ declare module '@tanstack/react-router' {
       path: '/errors/$error'
       fullPath: '/errors/$error'
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/dashboard/subsites': {
+      id: '/_authenticated/dashboard/subsites'
+      path: '/dashboard/subsites'
+      fullPath: '/dashboard/subsites'
+      preLoaderRoute: typeof AuthenticatedDashboardSubsitesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard/$section': {
@@ -1509,6 +1609,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
+  AuthenticatedDashboardSubsitesRoute: typeof AuthenticatedDashboardSubsitesRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedMcpSectionRoute: typeof AuthenticatedMcpSectionRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
@@ -1537,6 +1638,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
+  AuthenticatedDashboardSubsitesRoute: AuthenticatedDashboardSubsitesRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedMcpSectionRoute: AuthenticatedMcpSectionRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
@@ -1583,7 +1685,11 @@ const rootRouteChildren: RootRouteChildren = {
   RankingsIndexRoute: RankingsIndexRoute,
   SetupIndexRoute: SetupIndexRoute,
   StatusIndexRoute: StatusIndexRoute,
+  SSlugDashboardRoute: SSlugDashboardRoute,
+  SSlugLoginRoute: SSlugLoginRoute,
+  SSlugRegisterRoute: SSlugRegisterRoute,
   PricingModelIdIndexRoute: PricingModelIdIndexRoute,
+  SSlugIndexRoute: SSlugIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
