@@ -81,6 +81,8 @@ subsite_quota_counter:v1:<subsite_id>:<user_id>:<scope>:<window_type>:<window_st
 - 有实际消耗并进入结算时，`SettleBilling` 调用 `SettleSubsiteQuotaUsage`，DB 写入真实 quota，Redis 将 `reserved_*` 转成真实 `used_quota` 和 `request_count`。
 - 请求失败且账单路径退款/未结算时，调用 `RefundSubsiteQuotaReservation` 回滚 Redis 预留。
 - DB 结算失败时，也会先回滚 Redis 预留，避免 Redis 侧长期占用额度。
+- 管理员用量日志的 `other.stream_status` 会记录 `failure_category`、`failure_source`、`failure_stage`、
+  `channel_failure_candidate`、`has_first_response` 和 `received_response_count`，用于区分客户端断开、上游流错误、代理处理错误和首包前/后的失败。
 
 排障时先确认对应请求是否产生 settled 的 `model_request` debit 账本事件，再看子站计数器是否有相同 `subsite_id`、窗口和用户维度记录。
 

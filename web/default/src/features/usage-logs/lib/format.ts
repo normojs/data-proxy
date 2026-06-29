@@ -53,6 +53,31 @@ const PARAM_OVERRIDE_ACTION_MAP: Record<string, string> = {
   return_error: 'Return Error',
 }
 
+const STREAM_FAILURE_CATEGORY_LABEL_MAP: Record<string, string> = {
+  none: 'None',
+  client_disconnected: 'Client disconnected',
+  upstream_timeout: 'Upstream timeout',
+  upstream_stream_error: 'Upstream stream error',
+  stream_handler_error: 'Stream handler error',
+  downstream_write_failed: 'Downstream write failed',
+  internal_panic: 'Internal panic',
+  unknown: 'Unknown',
+}
+
+const STREAM_FAILURE_SOURCE_LABEL_MAP: Record<string, string> = {
+  none: 'None',
+  client: 'Client',
+  upstream: 'Upstream',
+  proxy: 'Proxy',
+  unknown: 'Unknown',
+}
+
+const STREAM_FAILURE_STAGE_LABEL_MAP: Record<string, string> = {
+  none: 'None',
+  before_first_response: 'Before first response',
+  after_first_response: 'After first response',
+}
+
 /**
  * Get localized label for a param override action
  */
@@ -62,6 +87,33 @@ export function getParamOverrideActionLabel(
 ): string {
   const key = PARAM_OVERRIDE_ACTION_MAP[action.toLowerCase()]
   return key ? t(key) : action
+}
+
+export function getStreamFailureCategoryLabel(
+  category: string | undefined,
+  t: (key: string) => string
+): string {
+  if (!category) return t('Unknown')
+  const key = STREAM_FAILURE_CATEGORY_LABEL_MAP[category]
+  return key ? t(key) : category
+}
+
+export function getStreamFailureSourceLabel(
+  source: string | undefined,
+  t: (key: string) => string
+): string {
+  if (!source) return t('Unknown')
+  const key = STREAM_FAILURE_SOURCE_LABEL_MAP[source]
+  return key ? t(key) : source
+}
+
+export function getStreamFailureStageLabel(
+  stage: string | undefined,
+  t: (key: string) => string
+): string {
+  if (!stage) return t('Unknown')
+  const key = STREAM_FAILURE_STAGE_LABEL_MAP[stage]
+  return key ? t(key) : stage
 }
 
 /**

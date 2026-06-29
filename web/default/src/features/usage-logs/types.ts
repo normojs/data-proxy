@@ -254,6 +254,12 @@ export interface LogOtherData {
   stream_status?: {
     status?: string
     end_reason?: string
+    failure_category?: string
+    failure_source?: string
+    failure_stage?: string
+    channel_failure_candidate?: boolean
+    has_first_response?: boolean
+    received_response_count?: number
     error_count?: number
     end_error?: string
     errors?: string[]

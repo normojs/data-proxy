@@ -114,6 +114,18 @@ func TestStreamStatus_RecordError_Concurrent(t *testing.T) {
 	assert.LessOrEqual(t, len(s.Errors), maxStreamErrorEntries)
 }
 
+func TestStreamStatus_ErrorMessages(t *testing.T) {
+	t.Parallel()
+	s := NewStreamStatus()
+
+	s.RecordError("bad json")
+	s.RecordError("write failed")
+
+	messages, count := s.ErrorMessages()
+	assert.Equal(t, 2, count)
+	assert.Equal(t, []string{"bad json", "write failed"}, messages)
+}
+
 func TestStreamStatus_HasErrors_Empty(t *testing.T) {
 	t.Parallel()
 	s := NewStreamStatus()
@@ -155,6 +167,107 @@ func TestStreamStatus_IsNormalEnd_NilSafe(t *testing.T) {
 	t.Parallel()
 	var s *StreamStatus
 	assert.True(t, s.IsNormalEnd())
+}
+
+func TestStreamStatus_ClassifyFailure(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name               string
+		reason             StreamEndReason
+		recordError        bool
+		endErr             error
+		hasFirstResponse   bool
+		wantCategory       StreamFailureCategory
+		wantSource         StreamFailureSource
+		wantStage          StreamFailureStage
+		wantChannelFailure bool
+	}{
+		{
+			name:         "done without soft errors",
+			reason:       StreamEndReasonDone,
+			wantCategory: StreamFailureCategoryNone,
+			wantSource:   StreamFailureSourceNone,
+			wantStage:    StreamFailureStageNone,
+		},
+		{
+			name:               "done with soft errors after first response",
+			reason:             StreamEndReasonDone,
+			recordError:        true,
+			hasFirstResponse:   true,
+			wantCategory:       StreamFailureCategoryStreamHandlerError,
+			wantSource:         StreamFailureSourceProxy,
+			wantStage:          StreamFailureStageAfterFirstResponse,
+			wantChannelFailure: false,
+		},
+		{
+			name:         "client disconnected before first response",
+			reason:       StreamEndReasonClientGone,
+			endErr:       fmt.Errorf("context canceled"),
+			wantCategory: StreamFailureCategoryClientDisconnected,
+			wantSource:   StreamFailureSourceClient,
+			wantStage:    StreamFailureStageBeforeFirstResponse,
+		},
+		{
+			name:               "upstream timeout after first response",
+			reason:             StreamEndReasonTimeout,
+			hasFirstResponse:   true,
+			wantCategory:       StreamFailureCategoryUpstreamTimeout,
+			wantSource:         StreamFailureSourceUpstream,
+			wantStage:          StreamFailureStageAfterFirstResponse,
+			wantChannelFailure: true,
+		},
+		{
+			name:               "scanner error is upstream stream error",
+			reason:             StreamEndReasonScannerErr,
+			endErr:             fmt.Errorf("unexpected EOF"),
+			wantCategory:       StreamFailureCategoryUpstreamStreamError,
+			wantSource:         StreamFailureSourceUpstream,
+			wantStage:          StreamFailureStageBeforeFirstResponse,
+			wantChannelFailure: true,
+		},
+		{
+			name:         "ping fail is downstream write failure",
+			reason:       StreamEndReasonPingFail,
+			endErr:       fmt.Errorf("write ping data failed"),
+			wantCategory: StreamFailureCategoryDownstreamWriteFailed,
+			wantSource:   StreamFailureSourceClient,
+			wantStage:    StreamFailureStageBeforeFirstResponse,
+		},
+		{
+			name:         "panic is proxy failure",
+			reason:       StreamEndReasonPanic,
+			endErr:       fmt.Errorf("handler panic"),
+			wantCategory: StreamFailureCategoryInternalPanic,
+			wantSource:   StreamFailureSourceProxy,
+			wantStage:    StreamFailureStageBeforeFirstResponse,
+		},
+		{
+			name:         "no end reason is unknown",
+			reason:       StreamEndReasonNone,
+			wantCategory: StreamFailureCategoryUnknown,
+			wantSource:   StreamFailureSourceUnknown,
+			wantStage:    StreamFailureStageBeforeFirstResponse,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := NewStreamStatus()
+			if tt.recordError {
+				s.RecordError("soft error")
+			}
+			s.SetEndReason(tt.reason, tt.endErr)
+
+			got := s.ClassifyFailure(tt.hasFirstResponse)
+
+			assert.Equal(t, tt.wantCategory, got.Category)
+			assert.Equal(t, tt.wantSource, got.Source)
+			assert.Equal(t, tt.wantStage, got.Stage)
+			assert.Equal(t, tt.wantChannelFailure, got.ChannelFailureCandidate)
+		})
+	}
 }
 
 func TestStreamStatus_Summary(t *testing.T) {

@@ -200,6 +200,59 @@ func TestSubsiteQuotaRedisReservationRefundsOnFailure(t *testing.T) {
 	require.Nil(t, PreCheckSubsiteQuota(third, 4))
 }
 
+func TestSubsiteQuotaRedisReservationConcurrentReserveIsAtomic(t *testing.T) {
+	setupSubsiteQuotaServiceTestDB(t)
+	fake := useFakeSubsiteQuotaCounterBackend(t)
+	subsiteId := int64(94)
+	userId := 7
+	require.NoError(t, model.DB.Create(&model.SubsiteQuotaPolicy{
+		SubsiteId:             subsiteId,
+		SiteDailyQuota:        3,
+		SiteDailyRequestLimit: 3,
+	}).Error)
+
+	const attempts = 12
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		successes []*gin.Context
+		failures  int
+	)
+
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx := newSubsiteQuotaTestContext(subsiteId, userId)
+			if apiErr := PreCheckSubsiteQuota(ctx, 1); apiErr != nil {
+				mu.Lock()
+				failures++
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			successes = append(successes, ctx)
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	require.Len(t, successes, 3)
+	require.Equal(t, attempts-3, failures)
+	snapshot := fake.onlySnapshot(t)
+	require.Equal(t, 3, snapshot.ReservedQuota)
+	require.Equal(t, 3, snapshot.ReservedRequests)
+
+	for _, ctx := range successes {
+		RefundSubsiteQuotaReservation(ctx)
+	}
+	snapshot = fake.onlySnapshot(t)
+	require.Equal(t, 0, snapshot.UsedQuota)
+	require.Equal(t, 0, snapshot.RequestCount)
+	require.Equal(t, 0, snapshot.ReservedQuota)
+	require.Equal(t, 0, snapshot.ReservedRequests)
+}
+
 func setupSubsiteQuotaServiceTestDB(t *testing.T) {
 	t.Helper()
 	require.NoError(t, model.DB.AutoMigrate(&model.SubsiteQuotaPolicy{}, &model.SubsiteQuotaCounter{}))

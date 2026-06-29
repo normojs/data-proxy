@@ -52,6 +52,8 @@ import {
   formatModelName,
   getFirstResponseTimeColor,
   getResponseTimeColor,
+  getStreamFailureCategoryLabel,
+  getStreamFailureStageLabel,
   getTieredBillingSummary,
   hasAnyCacheTokens,
   parseLogOther,
@@ -709,6 +711,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const frtVariant = frt
           ? getFirstResponseTimeColor(frt / 1000)
           : 'neutral'
+        const streamStatus = other?.stream_status
 
         const timingBgMap: Record<string, string> = {
           success:
@@ -769,8 +772,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                 )}
               </span>
               {log.is_stream &&
-                other?.stream_status &&
-                other.stream_status.status !== 'ok' && (
+                streamStatus &&
+                streamStatus.status !== 'ok' && (
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger
@@ -781,11 +784,31 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                           <p>
                             {t('Stream Status')}: {t('Error')}
                           </p>
-                          <p>{other.stream_status.end_reason || 'unknown'}</p>
-                          {(other.stream_status.error_count ?? 0) > 0 && (
+                          <p>
+                            {t('Category')}:{' '}
+                            {getStreamFailureCategoryLabel(
+                              streamStatus.failure_category ||
+                                streamStatus.end_reason,
+                              t
+                            )}
+                          </p>
+                          {streamStatus.failure_stage && (
                             <p>
-                              {t('Soft Errors')}:{' '}
-                              {other.stream_status.error_count}
+                              {t('Stage')}:{' '}
+                              {getStreamFailureStageLabel(
+                                streamStatus.failure_stage,
+                                t
+                              )}
+                            </p>
+                          )}
+                          {streamStatus.end_reason && (
+                            <p>
+                              {t('End Reason')}: {streamStatus.end_reason}
+                            </p>
+                          )}
+                          {(streamStatus.error_count ?? 0) > 0 && (
+                            <p>
+                              {t('Soft Errors')}: {streamStatus.error_count}
                             </p>
                           )}
                         </div>

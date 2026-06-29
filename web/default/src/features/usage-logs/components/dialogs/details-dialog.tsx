@@ -76,6 +76,9 @@ import {
   parseAuditLine,
   decodeBillingExprB64,
   getTieredBillingSummary,
+  getStreamFailureCategoryLabel,
+  getStreamFailureSourceLabel,
+  getStreamFailureStageLabel,
   hasAnyCacheTokens,
   isViolationFeeLog,
   getFirstResponseTimeColor,
@@ -2450,6 +2453,53 @@ export function DetailsDialog(props: DetailsDialogProps) {
                       <DetailRow
                         label={t('End Reason')}
                         value={other.stream_status.end_reason}
+                      />
+                    )}
+                    {other.stream_status.failure_category && (
+                      <DetailRow
+                        label={t('Category')}
+                        value={getStreamFailureCategoryLabel(
+                          other.stream_status.failure_category,
+                          t
+                        )}
+                      />
+                    )}
+                    {other.stream_status.failure_source && (
+                      <DetailRow
+                        label={t('Source')}
+                        value={getStreamFailureSourceLabel(
+                          other.stream_status.failure_source,
+                          t
+                        )}
+                      />
+                    )}
+                    {other.stream_status.failure_stage && (
+                      <DetailRow
+                        label={t('Stage')}
+                        value={getStreamFailureStageLabel(
+                          other.stream_status.failure_stage,
+                          t
+                        )}
+                      />
+                    )}
+                    {typeof other.stream_status.channel_failure_candidate ===
+                      'boolean' && (
+                      <DetailRow
+                        label={t('Channel Failure Candidate')}
+                        value={
+                          other.stream_status.channel_failure_candidate
+                            ? t('Yes')
+                            : t('No')
+                        }
+                      />
+                    )}
+                    {typeof other.stream_status.received_response_count ===
+                      'number' && (
+                      <DetailRow
+                        label={t('Received')}
+                        value={String(
+                          other.stream_status.received_response_count
+                        )}
                       />
                     )}
                     {(other.stream_status.error_count ?? 0) > 0 && (

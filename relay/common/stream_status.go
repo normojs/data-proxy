@@ -21,6 +21,37 @@ const (
 	StreamEndReasonPingFail    StreamEndReason = "ping_fail"
 )
 
+type StreamFailureCategory string
+
+const (
+	StreamFailureCategoryNone                  StreamFailureCategory = "none"
+	StreamFailureCategoryClientDisconnected    StreamFailureCategory = "client_disconnected"
+	StreamFailureCategoryUpstreamTimeout       StreamFailureCategory = "upstream_timeout"
+	StreamFailureCategoryUpstreamStreamError   StreamFailureCategory = "upstream_stream_error"
+	StreamFailureCategoryStreamHandlerError    StreamFailureCategory = "stream_handler_error"
+	StreamFailureCategoryDownstreamWriteFailed StreamFailureCategory = "downstream_write_failed"
+	StreamFailureCategoryInternalPanic         StreamFailureCategory = "internal_panic"
+	StreamFailureCategoryUnknown               StreamFailureCategory = "unknown"
+)
+
+type StreamFailureSource string
+
+const (
+	StreamFailureSourceNone     StreamFailureSource = "none"
+	StreamFailureSourceClient   StreamFailureSource = "client"
+	StreamFailureSourceUpstream StreamFailureSource = "upstream"
+	StreamFailureSourceProxy    StreamFailureSource = "proxy"
+	StreamFailureSourceUnknown  StreamFailureSource = "unknown"
+)
+
+type StreamFailureStage string
+
+const (
+	StreamFailureStageNone                StreamFailureStage = "none"
+	StreamFailureStageBeforeFirstResponse StreamFailureStage = "before_first_response"
+	StreamFailureStageAfterFirstResponse  StreamFailureStage = "after_first_response"
+)
+
 const maxStreamErrorEntries = 20
 
 type StreamErrorEntry struct {
@@ -28,10 +59,17 @@ type StreamErrorEntry struct {
 	Timestamp time.Time
 }
 
+type StreamFailureClassification struct {
+	Category                StreamFailureCategory
+	Source                  StreamFailureSource
+	Stage                   StreamFailureStage
+	ChannelFailureCandidate bool
+}
+
 type StreamStatus struct {
-	EndReason  StreamEndReason
-	EndError   error
-	endOnce    sync.Once
+	EndReason StreamEndReason
+	EndError  error
+	endOnce   sync.Once
 
 	mu         sync.Mutex
 	Errors     []StreamErrorEntry
@@ -85,6 +123,19 @@ func (s *StreamStatus) TotalErrorCount() int {
 	return s.ErrorCount
 }
 
+func (s *StreamStatus) ErrorMessages() ([]string, int) {
+	if s == nil {
+		return nil, 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	messages := make([]string, 0, len(s.Errors))
+	for _, e := range s.Errors {
+		messages = append(messages, e.Message)
+	}
+	return messages, s.ErrorCount
+}
+
 func (s *StreamStatus) IsNormalEnd() bool {
 	if s == nil {
 		return true
@@ -92,6 +143,79 @@ func (s *StreamStatus) IsNormalEnd() bool {
 	return s.EndReason == StreamEndReasonDone ||
 		s.EndReason == StreamEndReasonEOF ||
 		s.EndReason == StreamEndReasonHandlerStop
+}
+
+func (s *StreamStatus) ClassifyFailure(hasFirstResponse bool) StreamFailureClassification {
+	category := s.FailureCategory()
+	source := streamFailureSource(category)
+	stage := StreamFailureStageNone
+	if category != StreamFailureCategoryNone {
+		if hasFirstResponse {
+			stage = StreamFailureStageAfterFirstResponse
+		} else {
+			stage = StreamFailureStageBeforeFirstResponse
+		}
+	}
+	return StreamFailureClassification{
+		Category:                category,
+		Source:                  source,
+		Stage:                   stage,
+		ChannelFailureCandidate: source == StreamFailureSourceUpstream,
+	}
+}
+
+func (s *StreamStatus) FailureCategory() StreamFailureCategory {
+	if s == nil {
+		return StreamFailureCategoryNone
+	}
+	hasErrors := s.HasErrors()
+	switch s.EndReason {
+	case StreamEndReasonDone, StreamEndReasonEOF:
+		if hasErrors {
+			return StreamFailureCategoryStreamHandlerError
+		}
+		return StreamFailureCategoryNone
+	case StreamEndReasonHandlerStop:
+		if hasErrors || s.EndError != nil {
+			return StreamFailureCategoryStreamHandlerError
+		}
+		return StreamFailureCategoryNone
+	case StreamEndReasonClientGone:
+		return StreamFailureCategoryClientDisconnected
+	case StreamEndReasonTimeout:
+		return StreamFailureCategoryUpstreamTimeout
+	case StreamEndReasonScannerErr:
+		return StreamFailureCategoryUpstreamStreamError
+	case StreamEndReasonPingFail:
+		return StreamFailureCategoryDownstreamWriteFailed
+	case StreamEndReasonPanic:
+		return StreamFailureCategoryInternalPanic
+	case StreamEndReasonNone:
+		if hasErrors || s.EndError != nil {
+			return StreamFailureCategoryStreamHandlerError
+		}
+		return StreamFailureCategoryUnknown
+	default:
+		if hasErrors || s.EndError != nil {
+			return StreamFailureCategoryUnknown
+		}
+		return StreamFailureCategoryNone
+	}
+}
+
+func streamFailureSource(category StreamFailureCategory) StreamFailureSource {
+	switch category {
+	case StreamFailureCategoryNone:
+		return StreamFailureSourceNone
+	case StreamFailureCategoryClientDisconnected, StreamFailureCategoryDownstreamWriteFailed:
+		return StreamFailureSourceClient
+	case StreamFailureCategoryUpstreamTimeout, StreamFailureCategoryUpstreamStreamError:
+		return StreamFailureSourceUpstream
+	case StreamFailureCategoryStreamHandlerError, StreamFailureCategoryInternalPanic:
+		return StreamFailureSourceProxy
+	default:
+		return StreamFailureSourceUnknown
+	}
 }
 
 func (s *StreamStatus) Summary() string {
