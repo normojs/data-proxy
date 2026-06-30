@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 
@@ -40,10 +41,10 @@ func NewStreamScanner(reader io.Reader) *bufio.Scanner {
 	return scanner
 }
 
-func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult)) {
+func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult)) *types.NewAPIError {
 
 	if resp == nil || dataHandler == nil {
-		return
+		return nil
 	}
 
 	// 无条件新建 StreamStatus
@@ -59,12 +60,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
 
 	var (
-		stopChan   = make(chan bool, 3) // 增加缓冲区避免阻塞
-		scanner    = NewStreamScanner(resp.Body)
-		ticker     = time.NewTicker(streamingTimeout)
-		pingTicker *time.Ticker
-		writeMutex sync.Mutex     // Mutex to protect concurrent writes
-		wg         sync.WaitGroup // 用于等待所有 goroutine 退出
+		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
+		scanner     = NewStreamScanner(resp.Body)
+		ticker      = time.NewTicker(streamingTimeout)
+		pingTicker  *time.Ticker
+		writeMutex  sync.Mutex     // Mutex to protect concurrent writes
+		wg          sync.WaitGroup // 用于等待所有 goroutine 退出
+		streamErr   *types.NewAPIError
+		streamErrMu sync.Mutex
 	)
 
 	generalSettings := operation_setting.GetGeneralSetting()
@@ -247,6 +250,20 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				continue
 			}
 			if !strings.HasPrefix(data, "[DONE]") {
+				chunkIndex := info.ReceivedResponseCount + 1
+				if match, ok := matchStreamErrorMapping(data, info, chunkIndex); ok {
+					err := match.NewAPIError()
+					info.StreamStatus.RecordError(match.Error().Error())
+					info.StreamStatus.SetMappedError(match.StatusCode, match.ErrorCode, match.Message, match.Rule.Name, match.ChannelFailureCandidate)
+					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonMappedError, err)
+					if !c.Writer.Written() && info.SendResponseCount == 0 {
+						streamErrMu.Lock()
+						streamErr = err
+						streamErrMu.Unlock()
+					}
+					logger.LogError(c, fmt.Sprintf("stream error mapping matched: rule=%s code=%s status=%d", match.Rule.Name, match.ErrorCode, match.StatusCode))
+					return
+				}
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++
 
@@ -288,4 +305,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	} else {
 		logger.LogError(c, fmt.Sprintf("stream ended: %s, received=%d", info.StreamStatus.Summary(), info.ReceivedResponseCount))
 	}
+
+	streamErrMu.Lock()
+	defer streamErrMu.Unlock()
+	return streamErr
 }

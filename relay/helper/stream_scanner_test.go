@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,6 +125,114 @@ func TestStreamScannerHandler_EmptyBody(t *testing.T) {
 	})
 
 	assert.False(t, called.Load(), "handler should not be called for empty body")
+}
+
+func TestStreamScannerHandler_MappedErrorBeforeWriteReturnsError(t *testing.T) {
+	t.Parallel()
+
+	c, resp, info := setupStreamTest(t, strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"公益token睡眠中 https://dc.hhhl.cc/chat/room/amlc1bekzi\"}}]}\n"))
+	info.ChannelOtherSettings = dto.ChannelOtherSettings{
+		StreamErrorMapping: []dto.StreamErrorMappingRule{
+			{
+				Name:          "sleeping-key",
+				Target:        "text",
+				Operator:      "contains",
+				Pattern:       "公益token睡眠中",
+				StatusCode:    http.StatusTooManyRequests,
+				ErrorCode:     "upstream_key_sleeping",
+				Message:       "上游公益 token 睡眠中",
+				Retryable:     boolPtr(true),
+				MaxChunks:     3,
+				CaseSensitive: false,
+			},
+		},
+	}
+
+	var called atomic.Bool
+	err := StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		called.Store(true)
+	})
+
+	require.NotNil(t, err)
+	require.Equal(t, http.StatusTooManyRequests, err.StatusCode)
+	require.Equal(t, types.ErrorCode("upstream_key_sleeping"), err.GetErrorCode())
+	require.False(t, called.Load())
+	require.False(t, c.Writer.Written())
+	require.Equal(t, 0, info.ReceivedResponseCount)
+	require.Equal(t, relaycommon.StreamEndReasonMappedError, info.StreamStatus.EndReason)
+	require.Equal(t, "upstream_key_sleeping", info.StreamStatus.MappedErrorCode)
+	require.Equal(t, http.StatusTooManyRequests, info.StreamStatus.MappedErrorStatusCode)
+}
+
+func TestStreamScannerHandler_MappedErrorAfterWriteDoesNotReturnError(t *testing.T) {
+	reader, writer := io.Pipe()
+	c, resp, info := setupStreamTest(t, reader)
+	info.ChannelOtherSettings = dto.ChannelOtherSettings{
+		StreamErrorMapping: []dto.StreamErrorMappingRule{
+			{
+				Name:       "sleeping-key",
+				Target:     "text",
+				Operator:   "contains",
+				Pattern:    "公益token睡眠中",
+				StatusCode: http.StatusTooManyRequests,
+				ErrorCode:  "upstream_key_sleeping",
+				Message:    "上游公益 token 睡眠中",
+				Retryable:  boolPtr(true),
+			},
+		},
+	}
+
+	firstHandled := make(chan struct{})
+	handlerErr := make(chan error, 1)
+	result := make(chan *types.NewAPIError, 1)
+
+	go func() {
+		result <- StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+			if strings.Contains(data, "normal-token") {
+				if err := StringData(c, data); err != nil {
+					handlerErr <- err
+					sr.Error(err)
+					return
+				}
+				close(firstHandled)
+				return
+			}
+			handlerErr <- fmt.Errorf("unexpected data handler call: %s", data)
+		})
+	}()
+
+	_, err := writer.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"normal-token\"}}]}\n"))
+	require.NoError(t, err)
+
+	select {
+	case <-firstHandled:
+	case err := <-handlerErr:
+		require.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("first stream chunk was not handled")
+	}
+
+	_, err = writer.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"公益token睡眠中 https://dc.hhhl.cc/chat/room/amlc1bekzi\"}}]}\n"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	select {
+	case err := <-result:
+		require.Nil(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("stream scanner did not finish")
+	}
+
+	select {
+	case err := <-handlerErr:
+		require.NoError(t, err)
+	default:
+	}
+
+	require.True(t, c.Writer.Written())
+	require.Equal(t, 1, info.ReceivedResponseCount)
+	require.Equal(t, relaycommon.StreamEndReasonMappedError, info.StreamStatus.EndReason)
+	require.Equal(t, "upstream_key_sleeping", info.StreamStatus.MappedErrorCode)
 }
 
 func TestStreamScannerHandler_1000Chunks(t *testing.T) {

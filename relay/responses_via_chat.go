@@ -359,7 +359,7 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 		return true
 	}
 
-	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+	mappedErr := helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if streamErr != nil {
 			sr.Stop(streamErr)
 			return
@@ -380,6 +380,9 @@ func chatCompletionsStreamToResponsesHandler(c *gin.Context, info *relaycommon.R
 			}
 		}
 	})
+	if mappedErr != nil {
+		return nil, mappedErr
+	}
 	if streamErr != nil {
 		return nil, streamErr
 	}

@@ -16,6 +16,7 @@ const (
 	StreamEndReasonClientGone  StreamEndReason = "client_gone"
 	StreamEndReasonScannerErr  StreamEndReason = "scanner_error"
 	StreamEndReasonHandlerStop StreamEndReason = "handler_stop"
+	StreamEndReasonMappedError StreamEndReason = "mapped_error"
 	StreamEndReasonEOF         StreamEndReason = "eof"
 	StreamEndReasonPanic       StreamEndReason = "panic"
 	StreamEndReasonPingFail    StreamEndReason = "ping_fail"
@@ -28,6 +29,7 @@ const (
 	StreamFailureCategoryClientDisconnected    StreamFailureCategory = "client_disconnected"
 	StreamFailureCategoryUpstreamTimeout       StreamFailureCategory = "upstream_timeout"
 	StreamFailureCategoryUpstreamStreamError   StreamFailureCategory = "upstream_stream_error"
+	StreamFailureCategoryUpstreamMappedError   StreamFailureCategory = "upstream_mapped_error"
 	StreamFailureCategoryStreamHandlerError    StreamFailureCategory = "stream_handler_error"
 	StreamFailureCategoryDownstreamWriteFailed StreamFailureCategory = "downstream_write_failed"
 	StreamFailureCategoryInternalPanic         StreamFailureCategory = "internal_panic"
@@ -74,6 +76,12 @@ type StreamStatus struct {
 	mu         sync.Mutex
 	Errors     []StreamErrorEntry
 	ErrorCount int
+
+	MappedErrorCode               string
+	MappedErrorStatusCode         int
+	MappedErrorMessage            string
+	MappedErrorRuleName           string
+	MappedChannelFailureCandidate *bool
 }
 
 func NewStreamStatus() *StreamStatus {
@@ -103,6 +111,19 @@ func (s *StreamStatus) RecordError(msg string) {
 			Timestamp: time.Now(),
 		})
 	}
+}
+
+func (s *StreamStatus) SetMappedError(statusCode int, errorCode string, message string, ruleName string, channelFailureCandidate bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.MappedErrorStatusCode = statusCode
+	s.MappedErrorCode = errorCode
+	s.MappedErrorMessage = message
+	s.MappedErrorRuleName = ruleName
+	s.MappedChannelFailureCandidate = &channelFailureCandidate
+	s.mu.Unlock()
 }
 
 func (s *StreamStatus) HasErrors() bool {
@@ -160,8 +181,21 @@ func (s *StreamStatus) ClassifyFailure(hasFirstResponse bool) StreamFailureClass
 		Category:                category,
 		Source:                  source,
 		Stage:                   stage,
-		ChannelFailureCandidate: source == StreamFailureSourceUpstream,
+		ChannelFailureCandidate: s.channelFailureCandidate(source),
 	}
+}
+
+func (s *StreamStatus) channelFailureCandidate(source StreamFailureSource) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	override := s.MappedChannelFailureCandidate
+	s.mu.Unlock()
+	if override != nil {
+		return *override
+	}
+	return source == StreamFailureSourceUpstream
 }
 
 func (s *StreamStatus) FailureCategory() StreamFailureCategory {
@@ -184,6 +218,8 @@ func (s *StreamStatus) FailureCategory() StreamFailureCategory {
 		return StreamFailureCategoryClientDisconnected
 	case StreamEndReasonTimeout:
 		return StreamFailureCategoryUpstreamTimeout
+	case StreamEndReasonMappedError:
+		return StreamFailureCategoryUpstreamMappedError
 	case StreamEndReasonScannerErr:
 		return StreamFailureCategoryUpstreamStreamError
 	case StreamEndReasonPingFail:
@@ -209,7 +245,7 @@ func streamFailureSource(category StreamFailureCategory) StreamFailureSource {
 		return StreamFailureSourceNone
 	case StreamFailureCategoryClientDisconnected, StreamFailureCategoryDownstreamWriteFailed:
 		return StreamFailureSourceClient
-	case StreamFailureCategoryUpstreamTimeout, StreamFailureCategoryUpstreamStreamError:
+	case StreamFailureCategoryUpstreamTimeout, StreamFailureCategoryUpstreamStreamError, StreamFailureCategoryUpstreamMappedError:
 		return StreamFailureSourceUpstream
 	case StreamFailureCategoryStreamHandlerError, StreamFailureCategoryInternalPanic:
 		return StreamFailureSourceProxy

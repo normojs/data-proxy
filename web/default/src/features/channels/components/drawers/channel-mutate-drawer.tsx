@@ -205,6 +205,21 @@ const RESPONSES_NATIVE_CHANNEL_TYPES = new Set([
 const RESPONSES_CHAT_COMPAT_CHANNEL_TYPES = new Set([
   4, 20, 23, 25, 26, 35, 40, 42, 43, 46,
 ])
+const STREAM_ERROR_MAPPING_TEMPLATE = [
+  {
+    enabled: true,
+    name: '公益 token 睡眠',
+    target: 'text',
+    operator: 'contains',
+    pattern: '公益token睡眠中',
+    status_code: 429,
+    error_code: 'upstream_key_sleeping',
+    message: '上游公益 token 睡眠中，请稍后重试或切换 key',
+    retryable: true,
+    channel_failure_candidate: true,
+    max_chunks: 3,
+  },
+]
 
 function getResponsesProtocolHint(
   channelType: number,
@@ -284,6 +299,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.param_override?.trim() ||
     values.header_override?.trim() ||
     values.status_code_mapping?.trim() ||
+    values.stream_error_mapping?.trim() ||
     values.tag?.trim() ||
     values.remark?.trim() ||
     values.priority ||
@@ -2771,6 +2787,70 @@ export function ChannelMutateDrawer({
                                   )}
                                   template={{ '400': '500', '429': '503' }}
                                   valueType='string'
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='stream_error_mapping'
+                          render={({ field }) => (
+                            <FormItem className='space-y-3 border-t pt-4'>
+                              <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+                                <div className='space-y-1'>
+                                  <FormLabel>
+                                    {t('Stream Content Error Mapping')}
+                                  </FormLabel>
+                                  <FormDescription>
+                                    {t(
+                                      'Map successful streaming chunks that contain upstream error text'
+                                    )}
+                                  </FormDescription>
+                                </div>
+                                <div className='flex flex-wrap gap-2'>
+                                  <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    onClick={() =>
+                                      field.onChange(
+                                        JSON.stringify(
+                                          STREAM_ERROR_MAPPING_TEMPLATE,
+                                          null,
+                                          2
+                                        )
+                                      )
+                                    }
+                                  >
+                                    <Code className='mr-2 h-4 w-4' />
+                                    {t('Fill Template')}
+                                  </Button>
+                                  <Button
+                                    type='button'
+                                    variant='ghost'
+                                    size='sm'
+                                    onClick={() => field.onChange('')}
+                                  >
+                                    <Eraser className='mr-2 h-4 w-4' />
+                                    {t('Clear')}
+                                  </Button>
+                                </div>
+                              </div>
+                              <FormControl>
+                                <Textarea
+                                  value={field.value || ''}
+                                  onChange={field.onChange}
+                                  disabled={isSubmitting}
+                                  rows={8}
+                                  placeholder={JSON.stringify(
+                                    STREAM_ERROR_MAPPING_TEMPLATE,
+                                    null,
+                                    2
+                                  )}
+                                  className='max-h-72 min-h-40 resize-y overflow-auto font-mono text-xs'
                                 />
                               </FormControl>
                               <FormMessage />

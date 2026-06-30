@@ -79,6 +79,21 @@ function isOptionalStatusCodeMapping(value: string | undefined): boolean {
   }
 }
 
+function isOptionalStreamErrorMapping(value: string | undefined): boolean {
+  try {
+    const parsed = parseOptionalJson(value)
+    if (parsed === undefined) return true
+    if (!Array.isArray(parsed)) return false
+    return parsed.every((item) => {
+      if (!isJsonObjectValue(item)) return false
+      if (item.enabled === false) return true
+      return typeof item.pattern === 'string' && item.pattern.trim().length > 0
+    })
+  } catch {
+    return false
+  }
+}
+
 function isCodexCredential(value: string | undefined): boolean {
   try {
     const parsed = parseOptionalJson(value)
@@ -147,6 +162,13 @@ export const channelFormSchema = z
       .refine(
         isOptionalStatusCodeMapping,
         'Status code mapping must use valid HTTP status codes'
+      ),
+    stream_error_mapping: z
+      .string()
+      .optional()
+      .refine(
+        isOptionalStreamErrorMapping,
+        'Stream error mapping must be a JSON array with pattern fields'
       ),
     tag: z.string().optional(),
     remark: z
@@ -300,6 +322,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   auto_ban: 1,
   status: CHANNEL_STATUS.ENABLED,
   status_code_mapping: '',
+  stream_error_mapping: '',
   tag: '',
   remark: '',
   setting: '',
@@ -402,6 +425,7 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateCheckEnabled = false
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
+  let streamErrorMapping = ''
 
   if (channel.settings) {
     try {
@@ -447,6 +471,9 @@ export function transformChannelToFormDefaults(
       )
         ? parsed.upstream_model_update_ignored_models.join(',')
         : ''
+      streamErrorMapping = Array.isArray(parsed.stream_error_mapping)
+        ? JSON.stringify(parsed.stream_error_mapping, null, 2)
+        : ''
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to parse channel settings:', error)
@@ -468,6 +495,7 @@ export function transformChannelToFormDefaults(
     auto_ban: channel.auto_ban ?? 1,
     status: channel.status,
     status_code_mapping: channel.status_code_mapping || '',
+    stream_error_mapping: streamErrorMapping,
     tag: channel.tag || '',
     remark: channel.remark || '',
     setting: channel.setting || '',
@@ -636,6 +664,24 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     if (typeof settingsObj.upstream_model_update_last_check_time !== 'number') {
       settingsObj.upstream_model_update_last_check_time = 0
     }
+  }
+
+  if (formData.stream_error_mapping?.trim()) {
+    try {
+      const parsed = JSON.parse(formData.stream_error_mapping)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        settingsObj.stream_error_mapping = parsed
+      } else {
+        delete settingsObj.stream_error_mapping
+      }
+    } catch (error) {
+      // Schema validation prevents this path; keep settings unchanged on
+      // unexpected parsing failures.
+      // eslint-disable-next-line no-console
+      console.error('Failed to parse stream error mapping:', error)
+    }
+  } else if ('stream_error_mapping' in settingsObj) {
+    delete settingsObj.stream_error_mapping
   }
 
   return JSON.stringify(settingsObj)

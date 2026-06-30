@@ -226,6 +226,15 @@ func TestStreamStatus_ClassifyFailure(t *testing.T) {
 			wantChannelFailure: true,
 		},
 		{
+			name:               "mapped error is upstream mapped error",
+			reason:             StreamEndReasonMappedError,
+			endErr:             fmt.Errorf("mapped upstream stream error"),
+			wantCategory:       StreamFailureCategoryUpstreamMappedError,
+			wantSource:         StreamFailureSourceUpstream,
+			wantStage:          StreamFailureStageBeforeFirstResponse,
+			wantChannelFailure: true,
+		},
+		{
 			name:         "ping fail is downstream write failure",
 			reason:       StreamEndReasonPingFail,
 			endErr:       fmt.Errorf("write ping data failed"),
@@ -268,6 +277,24 @@ func TestStreamStatus_ClassifyFailure(t *testing.T) {
 			assert.Equal(t, tt.wantChannelFailure, got.ChannelFailureCandidate)
 		})
 	}
+}
+
+func TestStreamStatus_MappedErrorChannelFailureOverride(t *testing.T) {
+	t.Parallel()
+
+	s := NewStreamStatus()
+	s.SetMappedError(429, "upstream_key_sleeping", "sleeping", "sleeping-key", false)
+	s.SetEndReason(StreamEndReasonMappedError, fmt.Errorf("sleeping"))
+
+	got := s.ClassifyFailure(false)
+
+	assert.Equal(t, StreamFailureCategoryUpstreamMappedError, got.Category)
+	assert.Equal(t, StreamFailureSourceUpstream, got.Source)
+	assert.False(t, got.ChannelFailureCandidate)
+	assert.Equal(t, 429, s.MappedErrorStatusCode)
+	assert.Equal(t, "upstream_key_sleeping", s.MappedErrorCode)
+	assert.Equal(t, "sleeping", s.MappedErrorMessage)
+	assert.Equal(t, "sleeping-key", s.MappedErrorRuleName)
 }
 
 func TestStreamStatus_Summary(t *testing.T) {

@@ -146,6 +146,30 @@ export interface ChannelOtherSettings {
   upstream_model_update_ignored_models?: string[]
   upstream_model_update_last_check_time?: number
   upstream_model_update_last_detected_models?: string[]
+  stream_error_mapping?: StreamErrorMappingRule[]
+}
+
+export interface StreamErrorMappingRule {
+  enabled?: boolean
+  name?: string
+  target?: 'all' | 'raw' | 'text'
+  operator?:
+    | 'contains'
+    | 'equals'
+    | 'eq'
+    | 'prefix'
+    | 'starts_with'
+    | 'suffix'
+    | 'ends_with'
+    | 'regex'
+  pattern: string
+  case_sensitive?: boolean
+  status_code?: number
+  error_code?: string
+  message?: string
+  retryable?: boolean
+  channel_failure_candidate?: boolean
+  max_chunks?: number
 }
 
 // ============================================================================

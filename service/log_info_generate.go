@@ -117,6 +117,18 @@ func appendStreamStatus(relayInfo *relaycommon.RelayInfo, other map[string]inter
 	if ss.EndError != nil {
 		streamInfo["end_error"] = ss.EndError.Error()
 	}
+	if ss.MappedErrorCode != "" {
+		streamInfo["mapped_error_code"] = ss.MappedErrorCode
+	}
+	if ss.MappedErrorStatusCode > 0 {
+		streamInfo["mapped_status_code"] = ss.MappedErrorStatusCode
+	}
+	if ss.MappedErrorMessage != "" {
+		streamInfo["mapped_message"] = ss.MappedErrorMessage
+	}
+	if ss.MappedErrorRuleName != "" {
+		streamInfo["mapped_rule"] = ss.MappedErrorRuleName
+	}
 	if errorCount > 0 {
 		streamInfo["error_count"] = errorCount
 		streamInfo["errors"] = errorMessages
