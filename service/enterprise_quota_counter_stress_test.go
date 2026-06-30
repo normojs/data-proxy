@@ -228,6 +228,8 @@ func configureEnterpriseQuotaCounterStressMode(t *testing.T, config enterpriseQu
 	originalRedisEnabled := common.RedisEnabled
 	originalRDB := common.RDB
 	require.NoError(t, common.InitRedisClient())
+	require.True(t, common.RedisEnabled)
+	require.NotNil(t, common.RDB)
 	enterpriseQuotaCounterBackend = redisEnterpriseQuotaAtomicCounter{}
 	t.Cleanup(func() {
 		if common.RDB != nil && common.RDB != originalRDB {

@@ -47,7 +47,7 @@ func getPlatformPricingActualPrices(windowSeconds int64, targets *pricingActualT
 	var events []model.BillingEvent
 	err := model.DB.
 		Model(&model.BillingEvent{}).
-		Select("id, `group`, price_unit, amount_quota, cost, metadata, created_at").
+		Select(pricingActualBillingEventSelect()).
 		Where("source = ? AND event_type = ? AND status = ? AND created_at >= ? AND created_at <= ?",
 			model.BillingEventSourceModelRequest,
 			model.BillingEventTypeDebit,
@@ -105,6 +105,14 @@ func getPlatformPricingActualPrices(windowSeconds int64, targets *pricingActualT
 	return byModel, byGroup, nil
 }
 
+func pricingActualBillingEventSelect() string {
+	groupColumn := "`group`"
+	if common.UsingPostgreSQL {
+		groupColumn = `"group"`
+	}
+	return "id, " + groupColumn + ", price_unit, amount_quota, cost, metadata, created_at"
+}
+
 func pricingActualTargetsFromPricing(pricing []model.Pricing) *pricingActualTargets {
 	targets := &pricingActualTargets{
 		models: map[string]struct{}{},
@@ -147,7 +155,7 @@ func attachFallbackPricingActuals(byModel map[string]model.PricingActualPrice, b
 		var events []model.BillingEvent
 		query := model.DB.
 			Model(&model.BillingEvent{}).
-			Select("id, `group`, price_unit, amount_quota, cost, metadata, created_at").
+			Select(pricingActualBillingEventSelect()).
 			Where("source = ? AND event_type = ? AND status = ? AND created_at < ?",
 				model.BillingEventSourceModelRequest,
 				model.BillingEventTypeDebit,

@@ -2,12 +2,30 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPricingActualBillingEventSelectQuotesGroupForDatabase(t *testing.T) {
+	originalUsingPostgreSQL := common.UsingPostgreSQL
+	t.Cleanup(func() {
+		common.UsingPostgreSQL = originalUsingPostgreSQL
+	})
+
+	common.UsingPostgreSQL = false
+	require.Contains(t, pricingActualBillingEventSelect(), "`group`")
+	require.NotContains(t, pricingActualBillingEventSelect(), `"group"`)
+
+	common.UsingPostgreSQL = true
+	selection := pricingActualBillingEventSelect()
+	require.Contains(t, selection, `"group"`)
+	require.NotContains(t, selection, "`group`")
+	require.True(t, strings.HasPrefix(selection, `id, "group",`))
+}
 
 func TestGetPlatformPricingActualPricesAggregatesModelAndGroups(t *testing.T) {
 	truncate(t)
