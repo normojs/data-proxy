@@ -267,26 +267,26 @@ function getResponsesProtocolHint(
   )
   if (RESPONSES_CHAT_COMPAT_CHANNEL_TYPES.has(channelType)) {
     return {
-      badge: t('建议自动转换'),
+      badge: t('Auto conversion suggested'),
       description: t(
-        '{{channel}} 通常走 /v1/chat/completions；保持 Auto 会自动转换 /v1/responses。',
+        '{{channel}} usually uses /v1/chat/completions; keep Auto to convert /v1/responses automatically.',
         { channel: channelName }
       ),
     }
   }
   if (RESPONSES_NATIVE_CHANNEL_TYPES.has(channelType)) {
     return {
-      badge: t('建议原生'),
+      badge: t('Native suggested'),
       description: t(
-        '{{channel}} 可优先走原生 /v1/responses；除非上游不兼容，否则保持 Auto。',
+        '{{channel}} can prefer native /v1/responses; keep Auto unless the upstream is incompatible.',
         { channel: channelName }
       ),
     }
   }
   return {
-    badge: t('能力未知'),
+    badge: t('Capability unknown'),
     description: t(
-      '无法确认该渠道是否支持 /v1/responses；如果上游报 404 或空响应，请改为转换到 Chat Completions。'
+      "This channel's /v1/responses support is unknown. If the upstream returns 404 or an empty response, convert to Chat Completions."
     ),
   }
 }
@@ -299,29 +299,31 @@ function getResponsesReasoningHint(
     case 17:
       return {
         badge: t('Qwen'),
-        description: t('推荐 Auto 或 Qwen enable_thinking。'),
+        description: t('Use Auto or Qwen enable_thinking.'),
       }
     case 20:
       return {
         badge: t('OpenRouter'),
-        description: t('推荐 Auto 或 OpenRouter reasoning.effort。'),
+        description: t('Use Auto or OpenRouter reasoning.effort.'),
       }
     case 35:
       return {
         badge: t('MiniMax'),
-        description: t('推荐 Auto 或 MiniMax reasoning_split。'),
+        description: t('Use Auto or MiniMax reasoning_split.'),
       }
     case 43:
       return {
         badge: t('DeepSeek'),
         description: t(
-          '推荐 Auto 或 DeepSeek，转换 thinking 与 reasoning_effort。'
+          'Use Auto or DeepSeek to convert thinking and reasoning_effort.'
         ),
       }
     default:
       return {
-        badge: t('默认'),
-        description: t('不确定上游推理参数时，保持默认兼容或关闭推理参数。'),
+        badge: t('Default'),
+        description: t(
+          'If the upstream reasoning parameters are unclear, keep default compatibility or disable reasoning parameters.'
+        ),
       }
   }
 }
@@ -2846,7 +2848,7 @@ export function ChannelMutateDrawer({
                                       'Map successful streaming chunks that contain upstream error text'
                                     )}
                                   </FormDescription>
-                                  <div className='text-muted-foreground space-y-1.5 rounded-md border bg-muted/30 p-3 text-xs leading-relaxed'>
+                                  <div className='text-muted-foreground bg-muted/30 space-y-1.5 rounded-md border p-3 text-xs leading-relaxed'>
                                     <p>
                                       {t(
                                         'Stream error mapping only changes the final HTTP status before the first stream flush. After data has been sent, it records the mapped error and stops the stream.'
@@ -2902,10 +2904,10 @@ export function ChannelMutateDrawer({
                                   className='max-h-72 min-h-40 resize-y overflow-auto font-mono text-xs'
                                 />
                               </FormControl>
-                              <div className='grid gap-2 rounded-md border bg-background p-3 text-xs sm:grid-cols-2'>
+                              <div className='bg-background grid gap-2 rounded-md border p-3 text-xs sm:grid-cols-2'>
                                 {STREAM_ERROR_MAPPING_FIELD_TIPS.map((tip) => (
                                   <div key={tip.label} className='space-y-0.5'>
-                                    <code className='rounded bg-muted px-1 py-0.5 text-[11px]'>
+                                    <code className='bg-muted rounded px-1 py-0.5 text-[11px]'>
                                       {tip.label}
                                     </code>
                                     <p className='text-muted-foreground'>
@@ -3464,10 +3466,12 @@ export function ChannelMutateDrawer({
                           render={({ field }) => (
                             <FormItem className='flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
                               <div className='min-w-0 flex-1 space-y-0.5'>
-                                <FormLabel>{t('Responses 推理适配')}</FormLabel>
+                                <FormLabel>
+                                  {t('Responses Reasoning Adapter')}
+                                </FormLabel>
                                 <FormDescription>
                                   {t(
-                                    '将 Responses reasoning 映射为上游 Chat 模型支持的推理参数'
+                                    'Map Responses reasoning to reasoning parameters supported by the upstream Chat model'
                                   )}
                                 </FormDescription>
                                 <div className='text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs'>
@@ -3490,7 +3494,7 @@ export function ChannelMutateDrawer({
                                   <FormControl>
                                     <SelectTrigger className='w-full'>
                                       <SelectValue
-                                        placeholder={t('默认兼容')}
+                                        placeholder={t('Default compatibility')}
                                       />
                                     </SelectTrigger>
                                   </FormControl>
@@ -3500,13 +3504,15 @@ export function ChannelMutateDrawer({
                                   >
                                     <SelectGroup>
                                       <SelectItem value='default'>
-                                        {t('默认兼容')}
+                                        {t('Default compatibility')}
                                       </SelectItem>
                                       <SelectItem value='auto'>
-                                        {t('自动推断')}
+                                        {t('Auto detect')}
                                       </SelectItem>
                                       <SelectItem value='off'>
-                                        {t('不转发推理参数')}
+                                        {t(
+                                          'Do not forward reasoning parameters'
+                                        )}
                                       </SelectItem>
                                       <SelectItem value='openai'>
                                         {t('OpenAI reasoning_effort')}
@@ -3524,7 +3530,7 @@ export function ChannelMutateDrawer({
                                         {t('MiniMax reasoning_split')}
                                       </SelectItem>
                                       <SelectItem value='low_high'>
-                                        {t('Low/High 档位')}
+                                        {t('Low/High levels')}
                                       </SelectItem>
                                     </SelectGroup>
                                   </SelectContent>

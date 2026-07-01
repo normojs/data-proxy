@@ -263,7 +263,9 @@ export function PublicHeader(props: PublicHeaderProps) {
                     key={i}
                     to={link.href}
                     disabled={link.disabled}
-                    onClick={(event) => handleNavLinkClick(event, link)}
+                    onClick={(event: React.MouseEvent<HTMLAnchorElement>) =>
+                      handleNavLinkClick(event, link)
+                    }
                     className={cn(
                       'shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors duration-200',
                       isActive
@@ -462,7 +464,9 @@ export function PublicHeader(props: PublicHeaderProps) {
                   key={i}
                   to={link.href}
                   disabled={link.disabled}
-                  onClick={(event) => handleNavLinkClick(event, link, true)}
+                  onClick={(event: React.MouseEvent<HTMLAnchorElement>) =>
+                    handleNavLinkClick(event, link, true)
+                  }
                   className={linkClassName}
                   style={transitionStyle}
                 >

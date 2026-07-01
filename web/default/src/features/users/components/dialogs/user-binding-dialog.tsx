@@ -29,8 +29,8 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { SiGithub, SiDiscord } from 'react-icons/si'
 import { toast } from 'sonner'
+import { IconDiscord, IconGithub } from '@/assets/brand-icons'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import {
@@ -110,14 +110,14 @@ const BUILTIN_BINDINGS: ReadonlyArray<{
     key: 'github_id',
     field: 'github_id',
     label: 'GitHub',
-    icon: <SiGithub className='h-4 w-4' />,
+    icon: <IconGithub className='h-4 w-4' />,
     statusKey: 'github_oauth',
   },
   {
     key: 'discord_id',
     field: 'discord_id',
     label: 'Discord',
-    icon: <SiDiscord className='h-4 w-4' />,
+    icon: <IconDiscord className='h-4 w-4' />,
     statusKey: 'discord_oauth',
   },
   {

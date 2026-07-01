@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ConnectionLineComponent } from '@xyflow/react'
+import type {
+  ConnectionLineComponent,
+  ConnectionLineComponentProps,
+} from '@xyflow/react'
 
 const HALF = 0.5
 
@@ -25,7 +28,7 @@ export const Connection: ConnectionLineComponent = ({
   fromY,
   toX,
   toY,
-}) => (
+}: ConnectionLineComponentProps) => (
   <g>
     <path
       className='animated'

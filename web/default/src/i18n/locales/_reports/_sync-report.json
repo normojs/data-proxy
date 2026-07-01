@@ -1,41 +1,57 @@
 {
   "base": "en.json",
+  "sourceLocale": "en",
+  "baseStrategy": "source_locale_with_source_scan_and_locale_key_union",
+  "runtimeKeyCount": 5740,
+  "sourceMissingRuntimeKeyCount": 0,
   "locales": {
     "en": {
       "file": "en.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0
+      "untranslatedCount": 0,
+      "duplicateKeyCount": 0,
+      "duplicateConflictCount": 0
     },
     "fr": {
       "file": "fr.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0
+      "untranslatedCount": 0,
+      "duplicateKeyCount": 0,
+      "duplicateConflictCount": 0
     },
     "ja": {
       "file": "ja.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0
+      "untranslatedCount": 0,
+      "duplicateKeyCount": 0,
+      "duplicateConflictCount": 0
     },
     "ru": {
       "file": "ru.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0
+      "untranslatedCount": 0,
+      "duplicateKeyCount": 0,
+      "duplicateConflictCount": 0
     },
     "vi": {
       "file": "vi.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0
+      "untranslatedCount": 0,
+      "duplicateKeyCount": 0,
+      "duplicateConflictCount": 0
     },
     "zh": {
       "file": "zh.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0
+      "untranslatedCount": 0,
+      "duplicateKeyCount": 0,
+      "duplicateConflictCount": 0
     }
   }
 }

@@ -19,16 +19,16 @@ c5738baf fix: record stream status in error logs
 
 ## 已完成提交
 
-| 提交 | 内容 | 状态 |
-| --- | --- | --- |
-| `80eb8b4b` | 修复模型筛选下拉框过窄；修复模型广场和详情页的分组价格倍率；最近一小时无成交价时回退显示上次成交价，并提示价格可能变化 | 已完成 |
-| `944a6ff4` | usage logs 默认分页改为桌面 20、移动 10 | 已完成 |
-| `e9ff7c57` | 支持模型展示名称；模型列表、模型广场、模型详情和定价相关视图使用展示名称 | 已完成 |
-| `48affd81` | 增加流式失败细分，usage logs 展示流式结束原因、失败类别和映射错误信息 | 已完成 |
-| `20776d43` | 支持 Redis 重新初始化；修复 PostgreSQL 下实际成交价查询 | 已完成 |
-| `b4e6b77d` | 修复已有 JSON 状态码映射在可视编辑器里显示为未配置的问题 | 已完成 |
-| `5ceae0d0` | 支持从流式 chunk 内容映射为错误码、错误信息和可重试错误 | 已完成 |
-| `c5738baf` | 修复错误日志缺少流式 `stream_status`；补充生产进度文档 | 已完成并部署 |
+| 提交       | 内容                                                                                                                   | 状态         |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `80eb8b4b` | 修复模型筛选下拉框过窄；修复模型广场和详情页的分组价格倍率；最近一小时无成交价时回退显示上次成交价，并提示价格可能变化 | 已完成       |
+| `944a6ff4` | usage logs 默认分页改为桌面 20、移动 10                                                                                | 已完成       |
+| `e9ff7c57` | 支持模型展示名称；模型列表、模型广场、模型详情和定价相关视图使用展示名称                                               | 已完成       |
+| `48affd81` | 增加流式失败细分，usage logs 展示流式结束原因、失败类别和映射错误信息                                                  | 已完成       |
+| `20776d43` | 支持 Redis 重新初始化；修复 PostgreSQL 下实际成交价查询                                                                | 已完成       |
+| `b4e6b77d` | 修复已有 JSON 状态码映射在可视编辑器里显示为未配置的问题                                                               | 已完成       |
+| `5ceae0d0` | 支持从流式 chunk 内容映射为错误码、错误信息和可重试错误                                                                | 已完成       |
+| `c5738baf` | 修复错误日志缺少流式 `stream_status`；补充生产进度文档                                                                 | 已完成并部署 |
 
 ## 流式 Chunk 错误映射
 
@@ -308,3 +308,40 @@ stream_status.mapped_error_code: upstream_key_sleeping
 stream_status.mapped_status_code: 429
 stream_status.mapped_rule: 公益 token 睡眠
 ```
+
+## 后续前端 i18n 整理（已部署）
+
+已在本地继续整理前端翻译和子站文案：
+
+- 补齐 `zh.json` 运行时 literal key 的中文翻译；当前扫描结果为 `missingZh=0`。
+- 修复 subsite 里 `Open` 的语义混用：状态改为 `Available`，无限配额改为 `Unlimited`，注册策略改为 `Open registration`。
+- 将渠道抽屉 Responses 推理适配里直接使用中文作为 `t()` key 的文案改为英文 key，并补充对应中文翻译，避免英文/其他语言界面泄露中文 fallback。
+- 修复 `sync-i18n.mjs` 的基准语言策略：固定以 `en` 为 source locale，并用 locale key union 保留其他语言已有额外 key；同时增加重复翻译 key 报告。
+- 将源码扫描纳入 `i18n:sync`：自动收集 `t('...')` 与 `STATIC_I18N_KEYS`，并把缺失的运行时 key 回填到 `en` source locale。
+- 清理 `en.json`、`zh.json` 中的重复翻译 key；当前所有 locale 重复 key 扫描结果为 `dupes=0`、`conflicts=0`。
+
+已通过验证：
+
+- `en` / `zh` 运行时 key 缺失均为 `0`。
+- `fr` / `ja` / `ru` / `vi` 新增 key 已完成真实翻译，不再是英文 fallback。
+- `i18n:sync` 报告里 `sourceMissingRuntimeKeyCount=0`，所有 locale `missingCount=0`、`untranslatedCount=0`、`duplicateKeyCount=0`。
+- 修复本地 Bun 依赖布局中断开的 `@base-ui/react` symlink 后，`tsc -b` 通过。
+- `prettier --check`、`git diff --check` 通过。
+
+生产部署记录：
+
+- 构建镜像：`data-proxy:b8e01557-i18n-202607020642`。
+- 部署包：`data-proxy-b8e01557-i18n-202607020642-local-linux-amd64.tar.gz`。
+- 部署包 sha256：`d2c9412e9fdc3f2f4e46a73adc5ddd549b9e0eeb762f56d4cf357b1e99a832dc`。
+- 远端部署目录：`/root/workspace/dataproxy/data-proxy`。
+- 回滚镜像归档：`/root/workspace/dataproxy/image-archive/20260701T225334Z_data-proxy_stream-map-drain-583ad4c6-20260701234317.tar`。
+- compose 备份：`/root/workspace/dataproxy/data-proxy/docker-compose.prod.yml.bak.20260701T225341Z`。
+
+线上冒烟结果：
+
+- Docker 容器：`data-proxy data-proxy:b8e01557-i18n-202607020642 Up ... (healthy)`。
+- 远端 `http://127.0.0.1:13002/api/status`：`success=true`。
+- 公网 `https://dp.app.mbu.ltd/api/status`：HTTP 200，`success=true`。
+- 公网 `https://dp.app.mbu.ltd/`：HTTP 200。
+- 公网 `https://dp.app.mbu.ltd/playground`：HTTP 200。
+- 注意：`/api/status` 的 `version` 仍显示 `sha-583ad4c6`，原因是本地 `VERSION` 文件已有未提交变更并参与镜像构建；本次提交不包含该文件。

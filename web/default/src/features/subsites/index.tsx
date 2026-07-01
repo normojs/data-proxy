@@ -109,7 +109,7 @@ function statusView(
       return {
         icon: ShieldCheck,
         tone: 'success',
-        label: 'Open',
+        label: 'Available',
         title: 'Subsite is open',
         description:
           'This subsite is available. Sign in or continue to the subsite console.',
@@ -752,7 +752,7 @@ function QuotaMetricTile({
           </div>
         </div>
         <Badge variant='outline' className='shrink-0'>
-          {hasLimit ? `${Math.round(percent)}%` : t('Open')}
+          {hasLimit ? `${Math.round(percent)}%` : t('Unlimited')}
         </Badge>
       </div>
       <div className='mt-3 flex items-baseline gap-1.5'>

@@ -19,7 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import * as React from 'react'
 import { MinusSignIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { OTPInput, OTPInputContext } from 'input-otp'
+import {
+  OTPInput,
+  OTPInputContext,
+  type RenderProps as OTPRenderProps,
+} from 'input-otp'
 import { cn } from '@/lib/utils'
 
 function InputOTP({
@@ -63,7 +67,7 @@ function InputOTPSlot({
 }: React.ComponentProps<'div'> & {
   index: number
 }) {
-  const inputOTPContext = React.useContext(OTPInputContext)
+  const inputOTPContext = React.useContext(OTPInputContext) as OTPRenderProps
   const { char, hasFakeCaret, isActive } = inputOTPContext?.slots[index] ?? {}
 
   return (

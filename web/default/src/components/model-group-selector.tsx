@@ -376,7 +376,7 @@ export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
             ? 'h-full flex-1 rounded-lg border-0 bg-transparent'
             : 'rounded-lg'
         )}
-        filter={(value, search) => {
+        filter={(value: string, search: string) => {
           const group = groups.find((g) => g.value === value)
           if (!group || !search) return 1
 

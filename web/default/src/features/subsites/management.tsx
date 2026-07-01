@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo, useState } from 'react'
+import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -32,7 +33,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table'
-import dayjs from '@/lib/dayjs'
+import { useMediaQuery } from '@/hooks'
 import type { TFunction } from 'i18next'
 import {
   Activity as ActivityIcon,
@@ -53,17 +54,12 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { z } from 'zod'
-import {
-  CHANNEL_STATUS,
-  CHANNEL_TYPE_OPTIONS,
-  CHANNEL_TYPES,
-} from '@/features/channels/constants'
 import {
   formatCurrencyFromUSD,
   getCurrencyDisplay,
   getCurrencyLabel,
 } from '@/lib/currency'
+import dayjs from '@/lib/dayjs'
 import {
   formatNumber,
   formatQuota,
@@ -73,23 +69,7 @@ import {
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useIsAdmin } from '@/hooks/use-admin'
-import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { ConfirmDialog } from '@/components/confirm-dialog'
-import { CopyButton } from '@/components/copy-button'
-import { DataTableColumnHeader, DataTablePage } from '@/components/data-table'
-import {
-  SideDrawerSection,
-  SideDrawerSectionHeader,
-  sideDrawerContentClassName,
-  sideDrawerFooterClassName,
-  sideDrawerFormClassName,
-  sideDrawerHeaderClassName,
-} from '@/components/drawer-layout'
-import { SectionPageLayout } from '@/components/layout'
-import { LongText } from '@/components/long-text'
-import { StatusBadge } from '@/components/status-badge'
-import { TableId } from '@/components/table-id'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -136,6 +116,26 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { CopyButton } from '@/components/copy-button'
+import { DataTableColumnHeader, DataTablePage } from '@/components/data-table'
+import {
+  SideDrawerSection,
+  SideDrawerSectionHeader,
+  sideDrawerContentClassName,
+  sideDrawerFooterClassName,
+  sideDrawerFormClassName,
+  sideDrawerHeaderClassName,
+} from '@/components/drawer-layout'
+import { SectionPageLayout } from '@/components/layout'
+import { LongText } from '@/components/long-text'
+import { StatusBadge } from '@/components/status-badge'
+import { TableId } from '@/components/table-id'
+import {
+  CHANNEL_STATUS,
+  CHANNEL_TYPE_OPTIONS,
+  CHANNEL_TYPES,
+} from '@/features/channels/constants'
 import {
   createManagedSubsite,
   createManagedSubsiteChannel,
@@ -212,12 +212,14 @@ function getSubsiteFormSchema(t: TFunction) {
     title: z.string().optional(),
     logo_url: z.string().optional(),
     favicon_url: z.string().optional(),
-    theme_color: z.string().refine(
-      (value) =>
-        !value ||
-        /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(value),
-      { message: t('Use a valid hex color') }
-    ),
+    theme_color: z
+      .string()
+      .refine(
+        (value) =>
+          !value ||
+          /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(value),
+        { message: t('Use a valid hex color') }
+      ),
     status: z.enum(SUBSITE_STATUS_OPTIONS),
     disabled_reason: z.string().optional(),
     starts_at: z.string().optional(),
@@ -269,7 +271,9 @@ function getQuotaPolicyFormSchema(t: TFunction) {
   })
 }
 
-type QuotaPolicyFormValues = z.infer<ReturnType<typeof getQuotaPolicyFormSchema>>
+type QuotaPolicyFormValues = z.infer<
+  ReturnType<typeof getQuotaPolicyFormSchema>
+>
 
 function getMemberFormSchema(t: TFunction) {
   return z.object({
@@ -326,8 +330,9 @@ function subsiteToFormValues(item?: ManagedSubsite): SubsiteFormValues {
     favicon_url: subsite?.favicon_url ?? '',
     theme_color: subsite?.theme_color ?? '',
     status:
-      (subsite?.status as (typeof SUBSITE_STATUS_OPTIONS)[number] | undefined) ??
-      'draft',
+      (subsite?.status as
+        | (typeof SUBSITE_STATUS_OPTIONS)[number]
+        | undefined) ?? 'draft',
     disabled_reason: subsite?.disabled_reason ?? '',
     starts_at: timestampToInput(subsite?.starts_at),
     ends_at: timestampToInput(subsite?.ends_at),
@@ -409,9 +414,10 @@ function quotaFormValuesToPayload(
   }
 }
 
-function runtimeStatusMeta(
-  status: SubsiteRuntimeStatus
-): { label: string; variant: 'success' | 'warning' | 'danger' | 'neutral' } {
+function runtimeStatusMeta(status: SubsiteRuntimeStatus): {
+  label: string
+  variant: 'success' | 'warning' | 'danger' | 'neutral'
+} {
   switch (status) {
     case 'enabled':
       return { label: 'Enabled', variant: 'success' }
@@ -433,7 +439,7 @@ function registrationPolicyLabel(policy?: SubsiteRegistrationPolicy) {
     case 'closed':
       return 'Closed'
     default:
-      return 'Open'
+      return 'Open registration'
   }
 }
 
@@ -461,9 +467,10 @@ function memberRoleVariant(
   }
 }
 
-function memberStatusMeta(
-  status?: SubsiteMemberStatus
-): { label: string; variant: 'success' | 'warning' } {
+function memberStatusMeta(status?: SubsiteMemberStatus): {
+  label: string
+  variant: 'success' | 'warning'
+} {
   return status === 'disabled'
     ? { label: 'Disabled', variant: 'warning' }
     : { label: 'Active', variant: 'success' }
@@ -495,7 +502,9 @@ function formatValidity(subsite: PublicSubsite) {
   const startsAt = subsite.starts_at
     ? formatTimestampToDate(subsite.starts_at)
     : 'Any time'
-  const endsAt = subsite.ends_at ? formatTimestampToDate(subsite.ends_at) : 'No end'
+  const endsAt = subsite.ends_at
+    ? formatTimestampToDate(subsite.ends_at)
+    : 'No end'
   return `${startsAt} - ${endsAt}`
 }
 
@@ -539,7 +548,9 @@ function UsageCell({ item }: { item: ManagedSubsite }) {
 
 function QuotaSummary({ policy }: { policy?: SubsiteQuotaPolicyInfo }) {
   if (!policy) {
-    return <StatusBadge label='Not configured' variant='neutral' copyable={false} />
+    return (
+      <StatusBadge label='Not configured' variant='neutral' copyable={false} />
+    )
   }
 
   return (
@@ -798,7 +809,9 @@ function useManagedSubsitesColumns(options: ColumnsOptions) {
         ),
         cell: ({ row }) => (
           <StatusBadge
-            label={t(registrationPolicyLabel(row.original.subsite.registration_policy))}
+            label={t(
+              registrationPolicyLabel(row.original.subsite.registration_policy)
+            )}
             variant={
               row.original.subsite.registration_policy === 'closed'
                 ? 'warning'
@@ -970,16 +983,13 @@ function SubsiteManagementTable(props: {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
 
-  const {
-    pagination,
-    onPaginationChange,
-    ensurePageInRange,
-  } = useTableUrlState({
-    search,
-    navigate,
-    pagination: { defaultPage: 1, defaultPageSize: isMobile ? 10 : 20 },
-    globalFilter: { enabled: false },
-  })
+  const { pagination, onPaginationChange, ensurePageInRange } =
+    useTableUrlState({
+      search,
+      navigate,
+      pagination: { defaultPage: 1, defaultPageSize: isMobile ? 10 : 20 },
+      globalFilter: { enabled: false },
+    })
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: [
@@ -1067,7 +1077,11 @@ function SubsiteManagementTable(props: {
       toolbarProps={{
         customSearch: null,
         preActions: (
-          <Button variant='outline' onClick={handleRefresh} disabled={isFetching}>
+          <Button
+            variant='outline'
+            onClick={handleRefresh}
+            disabled={isFetching}
+          >
             <RefreshCw className={cn(isFetching && 'animate-spin')} />
             {t('Refresh')}
           </Button>
@@ -1185,7 +1199,9 @@ function SubsiteMutateDrawer(props: {
             <SideDrawerSection>
               <SideDrawerSectionHeader
                 title={t('Basic Information')}
-                description={t('Name, slug, and the owner assigned on creation.')}
+                description={t(
+                  'Name, slug, and the owner assigned on creation.'
+                )}
                 icon={<Settings2 className='size-4' />}
               />
               <div className='grid gap-4 sm:grid-cols-2'>
@@ -1217,7 +1233,9 @@ function SubsiteMutateDrawer(props: {
                           }
                         />
                       </FormControl>
-                      <FormDescription>/s/{field.value || 'slug'}</FormDescription>
+                      <FormDescription>
+                        /s/{field.value || 'slug'}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1270,7 +1288,9 @@ function SubsiteMutateDrawer(props: {
             <SideDrawerSection>
               <SideDrawerSectionHeader
                 title={t('Branding')}
-                description={t('Logo, favicon, and the accent shown on public pages.')}
+                description={t(
+                  'Logo, favicon, and the accent shown on public pages.'
+                )}
               />
               <div className='grid gap-4 sm:grid-cols-2'>
                 <FormField
@@ -1312,7 +1332,9 @@ function SubsiteMutateDrawer(props: {
                           type='color'
                           className='h-8 p-1'
                           value={themeColor || '#2563eb'}
-                          onChange={(event) => field.onChange(event.target.value)}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
                         />
                         <Input {...field} placeholder='#2563eb' />
                       </div>
@@ -1326,7 +1348,9 @@ function SubsiteMutateDrawer(props: {
             <SideDrawerSection>
               <SideDrawerSectionHeader
                 title={t('Access')}
-                description={t('Publish state, close message, and valid period.')}
+                description={t(
+                  'Publish state, close message, and valid period.'
+                )}
               />
               <div className='grid gap-4 sm:grid-cols-2'>
                 <FormField
@@ -1341,7 +1365,9 @@ function SubsiteMutateDrawer(props: {
                           label: t(runtimeStatusMeta(value).label),
                         }))}
                         value={field.value}
-                        onValueChange={(value) => value && field.onChange(value)}
+                        onValueChange={(value) =>
+                          value && field.onChange(value)
+                        }
                       >
                         <FormControl>
                           <SelectTrigger className='w-full'>
@@ -1374,7 +1400,9 @@ function SubsiteMutateDrawer(props: {
                           label: t(registrationPolicyLabel(value)),
                         }))}
                         value={field.value}
-                        onValueChange={(value) => value && field.onChange(value)}
+                        onValueChange={(value) =>
+                          value && field.onChange(value)
+                        }
                       >
                         <FormControl>
                           <SelectTrigger className='w-full'>
@@ -1447,7 +1475,9 @@ function SubsiteMutateDrawer(props: {
             <SideDrawerSection>
               <SideDrawerSectionHeader
                 title={t('Registration Guardrails')}
-                description={t('Invite code and domain allowlist for new members.')}
+                description={t(
+                  'Invite code and domain allowlist for new members.'
+                )}
               />
               <div className='grid gap-4 sm:grid-cols-2'>
                 <FormField
@@ -1508,7 +1538,10 @@ function SubsiteMutateDrawer(props: {
                     <FormItem>
                       <FormLabel>{t('Title')}</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder={t('Announcement title')} />
+                        <Input
+                          {...field}
+                          placeholder={t('Announcement title')}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -1522,7 +1555,10 @@ function SubsiteMutateDrawer(props: {
                   <FormItem>
                     <FormLabel>{t('Body')}</FormLabel>
                     <FormControl>
-                      <Textarea {...field} placeholder={t('Announcement body')} />
+                      <Textarea
+                        {...field}
+                        placeholder={t('Announcement body')}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1549,7 +1585,10 @@ function SubsiteMutateDrawer(props: {
                     <FormItem>
                       <FormLabel>{t('Contact URL')}</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder='mailto:support@example.com' />
+                        <Input
+                          {...field}
+                          placeholder='mailto:support@example.com'
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -1615,7 +1654,9 @@ function parseModelDisplayNames(
   return Object.keys(displayNames).length > 0 ? displayNames : undefined
 }
 
-function channelToFormValues(channel?: ManagedSubsiteChannel): ChannelFormValues {
+function channelToFormValues(
+  channel?: ManagedSubsiteChannel
+): ChannelFormValues {
   return {
     name: channel?.name ?? '',
     type: channel?.type ?? 1,
@@ -1656,9 +1697,10 @@ function channelTypeLabel(type: number) {
   return CHANNEL_TYPES[type as keyof typeof CHANNEL_TYPES] ?? `#${type}`
 }
 
-function channelStatusMeta(
-  status: number
-): { label: string; variant: 'success' | 'warning' | 'neutral' } {
+function channelStatusMeta(status: number): {
+  label: string
+  variant: 'success' | 'warning' | 'neutral'
+} {
   switch (status) {
     case CHANNEL_STATUS.ENABLED:
       return { label: 'Enabled', variant: 'success' }
@@ -1726,7 +1768,11 @@ function ChannelsDrawer(props: {
       if (!subsiteId) throw new Error('missing subsite')
       const payload = channelFormValuesToPayload(values)
       if (editingChannel) {
-        return updateManagedSubsiteChannel(subsiteId, editingChannel.id, payload)
+        return updateManagedSubsiteChannel(
+          subsiteId,
+          editingChannel.id,
+          payload
+        )
       }
       return createManagedSubsiteChannel(subsiteId, payload)
     },
@@ -1735,7 +1781,9 @@ function ChannelsDrawer(props: {
         toast.error(result.message || t('Failed to save channel'))
         return
       }
-      toast.success(editingChannel ? t('Channel updated') : t('Channel created'))
+      toast.success(
+        editingChannel ? t('Channel updated') : t('Channel created')
+      )
       setEditingChannel(undefined)
       form.reset(channelToFormValues())
       invalidateChannels()
@@ -2034,7 +2082,9 @@ function ChannelsDrawer(props: {
                           />
                         </FormControl>
                         <FormDescription>
-                          {t('Comma-separated model IDs exposed by this subsite.')}
+                          {t(
+                            'Comma-separated model IDs exposed by this subsite.'
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -2130,7 +2180,9 @@ function ChannelsDrawer(props: {
                     )}
                     <Button
                       type='submit'
-                      disabled={!canManage || !subsiteId || upsertMutation.isPending}
+                      disabled={
+                        !canManage || !subsiteId || upsertMutation.isPending
+                      }
                     >
                       <Settings2 />
                       {upsertMutation.isPending
@@ -2206,7 +2258,10 @@ function ChannelsDrawer(props: {
                                   <LongText className='max-w-[150px] font-medium'>
                                     {channel.name}
                                   </LongText>
-                                  <TableId value={channel.id} className='w-[58px]' />
+                                  <TableId
+                                    value={channel.id}
+                                    className='w-[58px]'
+                                  />
                                 </div>
                                 <div className='flex flex-wrap gap-1'>
                                   <StatusBadge
@@ -2282,9 +2337,13 @@ function ChannelsDrawer(props: {
                                   type='button'
                                   variant='ghost'
                                   size='icon-sm'
-                                  disabled={!canManage || testChannelMutation.isPending}
+                                  disabled={
+                                    !canManage || testChannelMutation.isPending
+                                  }
                                   title={t('Test channel')}
-                                  onClick={() => testChannelMutation.mutate(channel)}
+                                  onClick={() =>
+                                    testChannelMutation.mutate(channel)
+                                  }
                                 >
                                   <PlayCircle className='size-4' />
                                   <span className='sr-only'>
@@ -2295,9 +2354,13 @@ function ChannelsDrawer(props: {
                                   type='button'
                                   variant='ghost'
                                   size='icon-sm'
-                                  disabled={!canManage || balanceMutation.isPending}
+                                  disabled={
+                                    !canManage || balanceMutation.isPending
+                                  }
                                   title={t('Query balance')}
-                                  onClick={() => balanceMutation.mutate(channel)}
+                                  onClick={() =>
+                                    balanceMutation.mutate(channel)
+                                  }
                                 >
                                   <CircleDollarSign className='size-4' />
                                   <span className='sr-only'>
@@ -2308,9 +2371,13 @@ function ChannelsDrawer(props: {
                                   type='button'
                                   variant='ghost'
                                   size='icon-sm'
-                                  disabled={!canManage || syncModelsMutation.isPending}
+                                  disabled={
+                                    !canManage || syncModelsMutation.isPending
+                                  }
                                   title={t('Sync models')}
-                                  onClick={() => syncModelsMutation.mutate(channel)}
+                                  onClick={() =>
+                                    syncModelsMutation.mutate(channel)
+                                  }
                                 >
                                   <ListChecks className='size-4' />
                                   <span className='sr-only'>
@@ -2622,7 +2689,8 @@ function MembersDrawer(props: {
                           }))}
                           value={field.value}
                           onValueChange={(value) =>
-                            value && field.onChange(value as SubsiteMemberStatus)
+                            value &&
+                            field.onChange(value as SubsiteMemberStatus)
                           }
                           disabled={!canManage}
                         >
@@ -2739,7 +2807,9 @@ function MembersDrawer(props: {
                         return (
                           <TableRow
                             key={member.id || member.user_id}
-                            className={!member.can_access ? 'bg-muted/40' : undefined}
+                            className={
+                              !member.can_access ? 'bg-muted/40' : undefined
+                            }
                           >
                             <TableCell>
                               <div className='flex min-w-[190px] flex-col gap-1'>
@@ -2815,7 +2885,9 @@ function MembersDrawer(props: {
                                   disabled={removeDisabled}
                                   title={
                                     removeDisabled
-                                      ? t('At least one active owner must remain.')
+                                      ? t(
+                                          'At least one active owner must remain.'
+                                        )
                                       : t('Remove member')
                                   }
                                   onClick={() => setMemberToDelete(member)}
@@ -2938,7 +3010,9 @@ function ActivityDrawer(props: {
           <SideDrawerSection>
             <SideDrawerSectionHeader
               title={t('24h Summary')}
-              description={t('All consume and error requests for this subsite.')}
+              description={t(
+                'All consume and error requests for this subsite.'
+              )}
               icon={<ActivityIcon className='size-4' />}
             />
             {isLoading ? (
@@ -3010,7 +3084,9 @@ function ActivityDrawer(props: {
           <SideDrawerSection className='gap-3'>
             <SideDrawerSectionHeader
               title={t('Recent Requests')}
-              description={t('Latest consume and error logs across all members.')}
+              description={t(
+                'Latest consume and error logs across all members.'
+              )}
             />
             <ActivityRecentLogsTable logs={recentLogs} />
           </SideDrawerSection>
@@ -3097,7 +3173,8 @@ function QuotaPolicyDrawer(props: {
     {
       name: 'site_window_quota',
       label: 'Site Window Quota',
-      description: 'Maximum total quota consumed by this subsite in the rolling window.',
+      description:
+        'Maximum total quota consumed by this subsite in the rolling window.',
     },
     {
       name: 'user_daily_quota',
@@ -3107,7 +3184,8 @@ function QuotaPolicyDrawer(props: {
     {
       name: 'user_window_quota',
       label: 'User Window Quota',
-      description: 'Maximum quota a single user can consume in the rolling window.',
+      description:
+        'Maximum quota a single user can consume in the rolling window.',
     },
   ]
 
@@ -3151,9 +3229,12 @@ function QuotaPolicyDrawer(props: {
                 description={
                   tokensOnly
                     ? t('Enter token quota amounts. Use 0 for no limit.')
-                    : t('Enter quota amounts in {{currency}}. Use 0 for no limit.', {
-                        currency: currencyLabel,
-                      })
+                    : t(
+                        'Enter quota amounts in {{currency}}. Use 0 for no limit.',
+                        {
+                          currency: currencyLabel,
+                        }
+                      )
                 }
                 icon={<Gauge className='size-4' />}
               />
@@ -3177,7 +3258,9 @@ function QuotaPolicyDrawer(props: {
                             }
                           />
                         </FormControl>
-                        <FormDescription>{t(fieldDef.description)}</FormDescription>
+                        <FormDescription>
+                          {t(fieldDef.description)}
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -3222,7 +3305,9 @@ function QuotaPolicyDrawer(props: {
             <SideDrawerSection>
               <SideDrawerSectionHeader
                 title={t('Rolling Windows')}
-                description={t('Window length in seconds. Use 0 to disable rolling windows.')}
+                description={t(
+                  'Window length in seconds. Use 0 to disable rolling windows.'
+                )}
               />
               <div className='grid gap-4 sm:grid-cols-2'>
                 <FormField
