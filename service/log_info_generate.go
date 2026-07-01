@@ -81,7 +81,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)
 	appendParamOverrideInfo(relayInfo, other)
-	appendStreamStatus(relayInfo, other)
+	AppendStreamStatus(relayInfo, other)
 	return other
 }
 
@@ -92,7 +92,7 @@ func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other map[string]
 	other["po"] = relayInfo.ParamOverrideAudit
 }
 
-func appendStreamStatus(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+func AppendStreamStatus(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
 	if relayInfo == nil || other == nil || !relayInfo.IsStream || relayInfo.StreamStatus == nil {
 		return
 	}
