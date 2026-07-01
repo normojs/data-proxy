@@ -79,4 +79,8 @@ type StreamErrorMappingRule struct {
 	Retryable               *bool  `json:"retryable,omitempty"`
 	ChannelFailureCandidate *bool  `json:"channel_failure_candidate,omitempty"`
 	MaxChunks               int    `json:"max_chunks,omitempty"`
+	MaxContentChars         int    `json:"max_content_chars,omitempty"`
+	MaxRawChars             int    `json:"max_raw_chars,omitempty"`
+	PreFlushMaxChunks       int    `json:"pre_flush_max_chunks,omitempty"`
+	PreFlushTimeoutMs       int    `json:"pre_flush_timeout_ms,omitempty"`
 }

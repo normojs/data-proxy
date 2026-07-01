@@ -3,6 +3,7 @@ package helper
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -107,6 +108,59 @@ func TestMatchStreamErrorMapping_MaxChunksAndDisabledRules(t *testing.T) {
 
 	_, ok = matchStreamErrorMapping("late-match", info, 1)
 	require.True(t, ok)
+}
+
+func TestMatchStreamErrorMapping_MaxContentChars(t *testing.T) {
+	t.Parallel()
+
+	info := streamErrorMappingInfo(dto.StreamErrorMappingRule{
+		Target:          "text",
+		Operator:        "contains",
+		Pattern:         "公益token睡眠中",
+		MaxContentChars: 8,
+	})
+
+	_, ok := matchStreamErrorMapping(`{"choices":[{"delta":{"content":"公益token睡眠中"}}]}`, info, 1)
+	require.False(t, ok)
+
+	info.ChannelOtherSettings.StreamErrorMapping[0].MaxContentChars = 20
+	_, ok = matchStreamErrorMapping(`{"choices":[{"delta":{"content":"公益token睡眠中"}}]}`, info, 1)
+	require.True(t, ok)
+}
+
+func TestMatchStreamErrorMapping_MaxRawChars(t *testing.T) {
+	t.Parallel()
+
+	info := streamErrorMappingInfo(dto.StreamErrorMappingRule{
+		Target:      "raw",
+		Operator:    "contains",
+		Pattern:     "公益token睡眠中",
+		MaxRawChars: 8,
+	})
+
+	_, ok := matchStreamErrorMapping(`{"error":"公益token睡眠中"}`, info, 1)
+	require.False(t, ok)
+
+	info.ChannelOtherSettings.StreamErrorMapping[0].MaxRawChars = 30
+	_, ok = matchStreamErrorMapping(`{"error":"公益token睡眠中"}`, info, 1)
+	require.True(t, ok)
+}
+
+func TestStreamErrorMappingPreFlushConfig_DefaultTimeout(t *testing.T) {
+	t.Parallel()
+
+	info := streamErrorMappingInfo(dto.StreamErrorMappingRule{
+		Target:            "text",
+		Operator:          "contains",
+		Pattern:           "公益token睡眠中",
+		PreFlushMaxChunks: 3,
+		PreFlushTimeoutMs: 0,
+	})
+
+	config := streamErrorMappingPreFlushConfigFromInfo(info)
+	require.True(t, config.Enabled)
+	require.Equal(t, 3, config.MaxChunks)
+	require.Equal(t, 60*time.Second, config.Timeout)
 }
 
 func TestBuildStreamErrorMappingMatch_DefaultsAndSkipRetry(t *testing.T) {

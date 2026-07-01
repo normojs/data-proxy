@@ -235,6 +235,95 @@ func TestStreamScannerHandler_MappedErrorAfterWriteDoesNotReturnError(t *testing
 	require.Equal(t, "upstream_key_sleeping", info.StreamStatus.MappedErrorCode)
 }
 
+func TestStreamScannerHandler_PreFlushMappedErrorBeforeFirstWrite(t *testing.T) {
+	t.Parallel()
+
+	body := strings.Join([]string{
+		`data: {"choices":[{"delta":{"content":"normal-token"}}]}`,
+		`data: {"choices":[{"delta":{"content":"公益token睡眠中 https://dc.hhhl.cc/chat/room/amlc1bekzi"}}]}`,
+	}, "\n") + "\n"
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+	info.ChannelOtherSettings = dto.ChannelOtherSettings{
+		StreamErrorMapping: []dto.StreamErrorMappingRule{
+			{
+				Name:              "sleeping-key",
+				Target:            "text",
+				Operator:          "contains",
+				Pattern:           "公益token睡眠中",
+				StatusCode:        http.StatusTooManyRequests,
+				ErrorCode:         "upstream_key_sleeping",
+				Message:           "上游公益 token 睡眠中",
+				Retryable:         boolPtr(true),
+				MaxChunks:         3,
+				PreFlushMaxChunks: 3,
+			},
+		},
+	}
+
+	var called atomic.Bool
+	err := StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		called.Store(true)
+	})
+
+	require.NotNil(t, err)
+	require.Equal(t, http.StatusTooManyRequests, err.StatusCode)
+	require.False(t, called.Load())
+	require.False(t, c.Writer.Written())
+	require.Equal(t, 1, info.ReceivedResponseCount)
+	require.Equal(t, relaycommon.StreamEndReasonMappedError, info.StreamStatus.EndReason)
+	require.Equal(t, "upstream_key_sleeping", info.StreamStatus.MappedErrorCode)
+}
+
+func TestStreamScannerHandler_PreFlushTimeoutReleasesBufferedChunk(t *testing.T) {
+	reader, writer := io.Pipe()
+	c, resp, info := setupStreamTest(t, reader)
+	info.ChannelOtherSettings = dto.ChannelOtherSettings{
+		StreamErrorMapping: []dto.StreamErrorMappingRule{
+			{
+				Name:              "sleeping-key",
+				Target:            "text",
+				Operator:          "contains",
+				Pattern:           "公益token睡眠中",
+				StatusCode:        http.StatusTooManyRequests,
+				ErrorCode:         "upstream_key_sleeping",
+				MaxChunks:         2,
+				PreFlushMaxChunks: 2,
+				PreFlushTimeoutMs: 50,
+			},
+		},
+	}
+
+	firstHandled := make(chan struct{})
+	result := make(chan *types.NewAPIError, 1)
+	go func() {
+		result <- StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+			if strings.Contains(data, "normal-token") {
+				close(firstHandled)
+			}
+		})
+	}()
+
+	_, err := writer.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"normal-token\"}}]}\n"))
+	require.NoError(t, err)
+
+	select {
+	case <-firstHandled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("pre-flush timeout did not release buffered chunk")
+	}
+
+	_, err = writer.Write([]byte("data: [DONE]\n"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	select {
+	case err := <-result:
+		require.Nil(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("stream scanner did not finish")
+	}
+}
+
 func TestStreamScannerHandler_1000Chunks(t *testing.T) {
 	t.Parallel()
 

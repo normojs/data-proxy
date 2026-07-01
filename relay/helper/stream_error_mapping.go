@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -15,9 +17,10 @@ import (
 )
 
 const (
-	defaultStreamErrorMappingStatusCode = http.StatusTooManyRequests
-	defaultStreamErrorMappingCode       = "upstream_stream_mapped_error"
-	defaultStreamErrorMappingMessage    = "upstream stream content matched an error mapping rule"
+	defaultStreamErrorMappingStatusCode      = http.StatusTooManyRequests
+	defaultStreamErrorMappingCode            = "upstream_stream_mapped_error"
+	defaultStreamErrorMappingMessage         = "upstream stream content matched an error mapping rule"
+	defaultStreamErrorMappingPreFlushTimeout = 60 * time.Second
 )
 
 type streamErrorMappingMatch struct {
@@ -27,6 +30,12 @@ type streamErrorMappingMatch struct {
 	Message                 string
 	Retryable               bool
 	ChannelFailureCandidate bool
+}
+
+type streamErrorMappingPreFlushConfig struct {
+	Enabled   bool
+	MaxChunks int
+	Timeout   time.Duration
 }
 
 func matchStreamErrorMapping(data string, info *relaycommon.RelayInfo, chunkIndex int) (*streamErrorMappingMatch, bool) {
@@ -41,6 +50,9 @@ func matchStreamErrorMapping(data string, info *relaycommon.RelayInfo, chunkInde
 		if rule.MaxChunks > 0 && chunkIndex > rule.MaxChunks {
 			continue
 		}
+		if rule.MaxRawChars > 0 && utf8.RuneCountInString(data) > rule.MaxRawChars {
+			continue
+		}
 		if strings.TrimSpace(rule.Pattern) == "" {
 			continue
 		}
@@ -49,6 +61,39 @@ func matchStreamErrorMapping(data string, info *relaycommon.RelayInfo, chunkInde
 		}
 	}
 	return nil, false
+}
+
+func streamErrorMappingPreFlushConfigFromInfo(info *relaycommon.RelayInfo) streamErrorMappingPreFlushConfig {
+	if info == nil || len(info.ChannelOtherSettings.StreamErrorMapping) == 0 {
+		return streamErrorMappingPreFlushConfig{}
+	}
+
+	maxChunks := 0
+	timeoutMs := 0
+	for _, rule := range info.ChannelOtherSettings.StreamErrorMapping {
+		if !streamErrorMappingRuleEnabled(rule) || strings.TrimSpace(rule.Pattern) == "" || rule.PreFlushMaxChunks <= 0 {
+			continue
+		}
+		if rule.PreFlushMaxChunks > maxChunks {
+			maxChunks = rule.PreFlushMaxChunks
+		}
+		if rule.PreFlushTimeoutMs > timeoutMs {
+			timeoutMs = rule.PreFlushTimeoutMs
+		}
+	}
+	if maxChunks <= 0 {
+		return streamErrorMappingPreFlushConfig{}
+	}
+
+	timeout := defaultStreamErrorMappingPreFlushTimeout
+	if timeoutMs > 0 {
+		timeout = time.Duration(timeoutMs) * time.Millisecond
+	}
+	return streamErrorMappingPreFlushConfig{
+		Enabled:   true,
+		MaxChunks: maxChunks,
+		Timeout:   timeout,
+	}
 }
 
 func streamErrorMappingRuleEnabled(rule dto.StreamErrorMappingRule) bool {
@@ -61,6 +106,9 @@ func streamErrorMappingRuleMatches(rule dto.StreamErrorMappingRule, data string)
 		return false
 	}
 	for _, candidate := range candidates {
+		if rule.MaxContentChars > 0 && utf8.RuneCountInString(candidate) > rule.MaxContentChars {
+			continue
+		}
 		if matchStreamErrorMappingText(candidate, rule.Pattern, rule.Operator, rule.CaseSensitive) {
 			return true
 		}

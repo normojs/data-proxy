@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -87,6 +88,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	logger.LogDebug(c, "streaming timeout seconds: %d", int64(streamingTimeout.Seconds()))
 	logger.LogDebug(c, "ping interval seconds: %d", int64(pingInterval.Seconds()))
 
+	preFlushConfig := streamErrorMappingPreFlushConfigFromInfo(info)
+	var preFlushComplete atomic.Bool
+	preFlushComplete.Store(!preFlushConfig.Enabled)
+
 	// 改进资源清理，确保所有 goroutine 正确退出
 	defer func() {
 		// 通知所有 goroutine 停止
@@ -143,6 +148,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			for {
 				select {
 				case <-pingTicker.C:
+					if !preFlushComplete.Load() {
+						logger.LogDebug(c, "skip ping before stream pre-flush")
+						continue
+					}
 					// 使用超时机制防止写操作阻塞
 					done := make(chan error, 1)
 					gopool.Go(func() {
@@ -184,10 +193,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	dataChan := make(chan string, 10)
+	scannerDataChan := make(chan string, 10)
+	dataHandlerDone := make(chan struct{})
 
 	wg.Add(1)
 	gopool.Go(func() {
 		defer func() {
+			close(dataHandlerDone)
 			wg.Done()
 			if r := recover(); r != nil {
 				logger.LogError(c, fmt.Sprintf("data handler goroutine panic: %v", r))
@@ -207,11 +219,17 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		}
 	})
 
+	wg.Add(1)
+	gopool.Go(func() {
+		defer wg.Done()
+		runStreamDataDispatcher(c, ctx, scannerDataChan, dataChan, info.StreamStatus, preFlushConfig, &preFlushComplete)
+	})
+
 	// Scanner goroutine with improved error handling
 	wg.Add(1)
 	common.RelayCtxGo(ctx, func() {
 		defer func() {
-			close(dataChan)
+			close(scannerDataChan)
 			wg.Done()
 			if r := recover(); r != nil {
 				logger.LogError(c, fmt.Sprintf("scanner goroutine panic: %v", r))
@@ -268,7 +286,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				info.ReceivedResponseCount++
 
 				select {
-				case dataChan <- data:
+				case scannerDataChan <- data:
 				case <-ctx.Done():
 					return
 				case <-stopChan:
@@ -296,6 +314,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
 	case <-stopChan:
 		// EndReason already set by the goroutine that triggered stopChan
+		waitForStreamPipelineDrain(c, info.StreamStatus, dataHandlerDone)
 	case <-c.Request.Context().Done():
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
 	}
@@ -309,4 +328,149 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	streamErrMu.Lock()
 	defer streamErrMu.Unlock()
 	return streamErr
+}
+
+func waitForStreamPipelineDrain(c *gin.Context, status *relaycommon.StreamStatus, done <-chan struct{}) {
+	if !shouldWaitForStreamPipelineDrain(status) {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		logger.LogError(c, "timeout waiting for stream data handler to drain")
+	}
+}
+
+func shouldWaitForStreamPipelineDrain(status *relaycommon.StreamStatus) bool {
+	if status == nil {
+		return false
+	}
+	switch status.EndReason {
+	case relaycommon.StreamEndReasonDone,
+		relaycommon.StreamEndReasonEOF,
+		relaycommon.StreamEndReasonMappedError,
+		relaycommon.StreamEndReasonScannerErr,
+		relaycommon.StreamEndReasonClientGone,
+		relaycommon.StreamEndReasonHandlerStop,
+		relaycommon.StreamEndReasonPanic:
+		return true
+	default:
+		return false
+	}
+}
+
+func runStreamDataDispatcher(
+	c *gin.Context,
+	ctx context.Context,
+	scannerDataChan <-chan string,
+	dataChan chan<- string,
+	status *relaycommon.StreamStatus,
+	preFlushConfig streamErrorMappingPreFlushConfig,
+	preFlushComplete *atomic.Bool,
+) {
+	defer close(dataChan)
+
+	flushed := !preFlushConfig.Enabled
+	if flushed && preFlushComplete != nil {
+		preFlushComplete.Store(true)
+	}
+
+	var (
+		buffer []string
+		timer  *time.Timer
+		timerC <-chan time.Time
+	)
+
+	stopTimer := func() {
+		if timer == nil {
+			return
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer = nil
+		timerC = nil
+	}
+
+	requestDone := func() <-chan struct{} {
+		if c == nil || c.Request == nil {
+			return nil
+		}
+		return c.Request.Context().Done()
+	}
+
+	send := func(data string) bool {
+		select {
+		case dataChan <- data:
+			return true
+		case <-ctx.Done():
+			return false
+		case <-requestDone():
+			return false
+		}
+	}
+
+	flush := func() bool {
+		if flushed {
+			return true
+		}
+		stopTimer()
+		flushed = true
+		if preFlushComplete != nil {
+			preFlushComplete.Store(true)
+		}
+		for _, data := range buffer {
+			if !send(data) {
+				return false
+			}
+		}
+		buffer = nil
+		return true
+	}
+
+	for {
+		select {
+		case data, ok := <-scannerDataChan:
+			if !ok {
+				if status != nil && status.EndReason == relaycommon.StreamEndReasonMappedError {
+					stopTimer()
+					if preFlushComplete != nil {
+						preFlushComplete.Store(true)
+					}
+					return
+				}
+				flush()
+				return
+			}
+			if flushed {
+				if !send(data) {
+					return
+				}
+				continue
+			}
+			buffer = append(buffer, data)
+			if len(buffer) == 1 && preFlushConfig.Timeout > 0 {
+				timer = time.NewTimer(preFlushConfig.Timeout)
+				timerC = timer.C
+			}
+			if len(buffer) >= preFlushConfig.MaxChunks {
+				if !flush() {
+					return
+				}
+			}
+		case <-timerC:
+			if !flush() {
+				return
+			}
+		case <-ctx.Done():
+			stopTimer()
+			return
+		case <-requestDone():
+			stopTimer()
+			return
+		}
+	}
 }

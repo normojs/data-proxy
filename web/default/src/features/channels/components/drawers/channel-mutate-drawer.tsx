@@ -218,6 +218,43 @@ const STREAM_ERROR_MAPPING_TEMPLATE = [
     retryable: true,
     channel_failure_candidate: true,
     max_chunks: 3,
+    max_content_chars: 200,
+    max_raw_chars: 2000,
+    pre_flush_max_chunks: 3,
+    pre_flush_timeout_ms: 60000,
+  },
+]
+
+const STREAM_ERROR_MAPPING_FIELD_TIPS = [
+  {
+    label: 'pattern',
+    description:
+      'Error text to match. For example, 公益token睡眠中 or 这是一个广告.',
+  },
+  {
+    label: 'status_code',
+    description:
+      'Internal mapped status code. It can still be remapped by Status Code Mapping before returning to the client.',
+  },
+  {
+    label: 'max_content_chars',
+    description:
+      'Skip matching when extracted text content is longer than this value. Use it to avoid replacing normal long answers.',
+  },
+  {
+    label: 'max_raw_chars',
+    description:
+      'Skip matching when the raw SSE/JSON chunk is longer than this value.',
+  },
+  {
+    label: 'pre_flush_max_chunks',
+    description:
+      'Hold at most this many initial chunks before the first client flush, so early upstream error text can still become an HTTP error.',
+  },
+  {
+    label: 'pre_flush_timeout_ms',
+    description:
+      'Maximum pre-flush wait in milliseconds. If omitted, the backend default is 60000 ms.',
   },
 ]
 
@@ -2809,6 +2846,18 @@ export function ChannelMutateDrawer({
                                       'Map successful streaming chunks that contain upstream error text'
                                     )}
                                   </FormDescription>
+                                  <div className='text-muted-foreground space-y-1.5 rounded-md border bg-muted/30 p-3 text-xs leading-relaxed'>
+                                    <p>
+                                      {t(
+                                        'Stream error mapping only changes the final HTTP status before the first stream flush. After data has been sent, it records the mapped error and stops the stream.'
+                                      )}
+                                    </p>
+                                    <p>
+                                      {t(
+                                        'Pre-flush limits are OR conditions: chunk count, timeout, or a matched rule releases the buffer immediately.'
+                                      )}
+                                    </p>
+                                  </div>
                                 </div>
                                 <div className='flex flex-wrap gap-2'>
                                   <Button
@@ -2853,6 +2902,18 @@ export function ChannelMutateDrawer({
                                   className='max-h-72 min-h-40 resize-y overflow-auto font-mono text-xs'
                                 />
                               </FormControl>
+                              <div className='grid gap-2 rounded-md border bg-background p-3 text-xs sm:grid-cols-2'>
+                                {STREAM_ERROR_MAPPING_FIELD_TIPS.map((tip) => (
+                                  <div key={tip.label} className='space-y-0.5'>
+                                    <code className='rounded bg-muted px-1 py-0.5 text-[11px]'>
+                                      {tip.label}
+                                    </code>
+                                    <p className='text-muted-foreground'>
+                                      {t(tip.description)}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
                               <FormMessage />
                             </FormItem>
                           )}

@@ -170,6 +170,10 @@ export interface StreamErrorMappingRule {
   retryable?: boolean
   channel_failure_candidate?: boolean
   max_chunks?: number
+  max_content_chars?: number
+  max_raw_chars?: number
+  pre_flush_max_chunks?: number
+  pre_flush_timeout_ms?: number
 }
 
 // ============================================================================
