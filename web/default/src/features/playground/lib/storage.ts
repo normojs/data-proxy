@@ -17,8 +17,45 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { STORAGE_KEYS } from '../constants'
-import type { PlaygroundConfig, ParameterEnabled, Message } from '../types'
+import type {
+  PlaygroundConfig,
+  ParameterEnabled,
+  Message,
+  PlaygroundResponseDetails,
+} from '../types'
 import { sanitizeMessagesOnLoad } from './message-utils'
+
+const MAX_PERSISTED_STREAM_EVENTS = 20
+
+function trimDetailsForStorage(
+  details?: PlaygroundResponseDetails
+): PlaygroundResponseDetails | undefined {
+  if (!details?.raw_chunks?.length) {
+    return details
+  }
+
+  const rawChunks = details.raw_chunks.slice(0, MAX_PERSISTED_STREAM_EVENTS)
+
+  return {
+    ...details,
+    raw_chunks: rawChunks,
+    stored_chunk_count: rawChunks.length,
+    truncated_chunks:
+      details.truncated_chunks ||
+      (details.chunk_count ?? details.raw_chunks.length) > rawChunks.length,
+  }
+}
+
+function trimMessagesForStorage(messages: Message[]): Message[] {
+  return messages.map((message) =>
+    message.details
+      ? {
+          ...message,
+          details: trimDetailsForStorage(message.details),
+        }
+      : message
+  )
+}
 
 /**
  * Load playground config from localStorage
@@ -111,7 +148,10 @@ export function loadMessages(): Message[] | null {
  */
 export function saveMessages(messages: Message[]): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages))
+    localStorage.setItem(
+      STORAGE_KEYS.MESSAGES,
+      JSON.stringify(trimMessagesForStorage(messages))
+    )
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Failed to save messages:', error)

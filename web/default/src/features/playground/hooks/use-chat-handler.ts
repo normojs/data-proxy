@@ -27,7 +27,12 @@ import {
   processStreamingContent,
   finalizeMessage,
 } from '../lib'
-import type { Message, PlaygroundConfig, ParameterEnabled } from '../types'
+import type {
+  Message,
+  PlaygroundConfig,
+  ParameterEnabled,
+  PlaygroundResponseDetails,
+} from '../types'
 import { useStreamRequest } from './use-stream-request'
 
 interface UseChatHandlerOptions {
@@ -45,6 +50,18 @@ export function useChatHandler({
   onMessageUpdate,
 }: UseChatHandlerOptions) {
   const { sendStreamRequest, stopStream, isStreaming } = useStreamRequest()
+
+  const handleStreamDetailsUpdate = useCallback(
+    (details: PlaygroundResponseDetails) => {
+      onMessageUpdate((prev) =>
+        updateLastAssistantMessage(prev, (message) => ({
+          ...message,
+          details,
+        }))
+      )
+    },
+    [onMessageUpdate]
+  )
 
   // Handle stream update
   const handleStreamUpdate = useCallback(
@@ -78,23 +95,34 @@ export function useChatHandler({
   )
 
   // Handle stream complete
-  const handleStreamComplete = useCallback(() => {
-    onMessageUpdate((prev) =>
-      updateLastAssistantMessage(prev, (message) =>
-        message.status === MESSAGE_STATUS.COMPLETE ||
-        message.status === MESSAGE_STATUS.ERROR
-          ? message
-          : { ...finalizeMessage(message), status: MESSAGE_STATUS.COMPLETE }
+  const handleStreamComplete = useCallback(
+    (details?: PlaygroundResponseDetails) => {
+      onMessageUpdate((prev) =>
+        updateLastAssistantMessage(prev, (message) =>
+          message.status === MESSAGE_STATUS.COMPLETE ||
+          message.status === MESSAGE_STATUS.ERROR
+            ? message
+            : {
+                ...finalizeMessage(message),
+                status: MESSAGE_STATUS.COMPLETE,
+                details: details ?? message.details,
+              }
+        )
       )
-    )
-  }, [onMessageUpdate])
+    },
+    [onMessageUpdate]
+  )
 
   // Handle stream error
   const handleStreamError = useCallback(
-    (error: string, errorCode?: string) => {
+    (
+      error: string,
+      errorCode?: string,
+      details?: PlaygroundResponseDetails
+    ) => {
       toast.error(error)
       onMessageUpdate((prev) =>
-        updateAssistantMessageWithError(prev, error, errorCode)
+        updateAssistantMessageWithError(prev, error, errorCode, details)
       )
     },
     [onMessageUpdate]
@@ -112,7 +140,8 @@ export function useChatHandler({
         payload,
         handleStreamUpdate,
         handleStreamComplete,
-        handleStreamError
+        handleStreamError,
+        handleStreamDetailsUpdate
       )
     },
     [
@@ -122,6 +151,7 @@ export function useChatHandler({
       handleStreamUpdate,
       handleStreamComplete,
       handleStreamError,
+      handleStreamDetailsUpdate,
     ]
   )
 
@@ -135,9 +165,17 @@ export function useChatHandler({
       )
 
       try {
-        const response = await sendChatCompletion(payload)
+        const result = await sendChatCompletion(payload)
+        const response = result.data
         const choice = response.choices?.[0]
-        if (!choice) return
+        if (!choice) {
+          handleStreamError(
+            ERROR_MESSAGES.PARSE_ERROR,
+            undefined,
+            result.details
+          )
+          return
+        }
 
         onMessageUpdate((prev) =>
           updateLastAssistantMessage(prev, (message) => ({
@@ -154,20 +192,30 @@ export function useChatHandler({
               choice.message?.reasoning_content
             ),
             status: MESSAGE_STATUS.COMPLETE,
+            details: result.details,
           }))
         )
       } catch (error: unknown) {
         const err = error as {
+          playgroundDetails?: PlaygroundResponseDetails
           response?: {
-            data?: { message?: string; error?: { code?: string } }
+            data?: {
+              message?: string
+              error?: { message?: string; code?: string }
+              error_code?: string
+            }
           }
           message?: string
         }
         handleStreamError(
           err?.response?.data?.message ||
+            err?.response?.data?.error?.message ||
             err?.message ||
             ERROR_MESSAGES.API_REQUEST_ERROR,
-          err?.response?.data?.error?.code || undefined
+          err?.response?.data?.error?.code ||
+            err?.response?.data?.error_code ||
+            undefined,
+          err.playgroundDetails
         )
       }
     },
@@ -188,12 +236,16 @@ export function useChatHandler({
 
   // Stop generation
   const stopGeneration = useCallback(() => {
-    stopStream()
+    const details = stopStream()
     onMessageUpdate((prev) =>
       updateLastAssistantMessage(prev, (message) =>
         message.status === MESSAGE_STATUS.LOADING ||
         message.status === MESSAGE_STATUS.STREAMING
-          ? { ...finalizeMessage(message), status: MESSAGE_STATUS.COMPLETE }
+          ? {
+              ...finalizeMessage(message),
+              status: MESSAGE_STATUS.COMPLETE,
+              details: details ?? message.details,
+            }
           : message
       )
     )

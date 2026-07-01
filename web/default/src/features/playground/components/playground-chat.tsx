@@ -53,6 +53,7 @@ import { getMessageContentStyles } from '../lib/message-styles'
 import { parseThinkTags } from '../lib/message-utils'
 import type { Message as MessageType } from '../types'
 import { MessageActions } from './message-actions'
+import { MessageDetails } from './message-details'
 import { MessageError } from './message-error'
 
 interface PlaygroundChatProps {
@@ -192,6 +193,10 @@ export function PlaygroundChat({
                                   className='mt-1'
                                 />
                               )
+                              const details =
+                                isAssistant && message.details ? (
+                                  <MessageDetails details={message.details} />
+                                ) : null
 
                               return (
                                 <>
@@ -245,19 +250,25 @@ export function PlaygroundChat({
                                         message={message}
                                         className='mb-2'
                                       />
+                                      {details}
                                       {actions}
                                     </>
                                   ) : (
-                                    showMessageContent && (
+                                    (showMessageContent || details) && (
                                       <>
-                                        <MessageContent
-                                          variant='flat'
-                                          className={cn(
-                                            getMessageContentStyles()
-                                          )}
-                                        >
-                                          <Response>{displayContent}</Response>
-                                        </MessageContent>
+                                        {showMessageContent && (
+                                          <MessageContent
+                                            variant='flat'
+                                            className={cn(
+                                              getMessageContentStyles()
+                                            )}
+                                          >
+                                            <Response>
+                                              {displayContent}
+                                            </Response>
+                                          </MessageContent>
+                                        )}
+                                        {details}
                                         {actions}
                                       </>
                                     )

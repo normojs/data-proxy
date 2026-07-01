@@ -23,6 +23,7 @@ import type {
   MessageVersion,
   ChatCompletionMessage,
   ContentPart,
+  PlaygroundResponseDetails,
 } from '../types'
 
 /**
@@ -219,7 +220,8 @@ export function parseThinkTags(content: string): {
 export function updateAssistantMessageWithError(
   messages: Message[],
   errorMessage: string,
-  errorCode?: string
+  errorCode?: string,
+  details?: PlaygroundResponseDetails
 ): Message[] {
   return updateLastAssistantMessage(messages, (message) => {
     const updatedMessage = updateCurrentVersionContent(
@@ -231,6 +233,7 @@ export function updateAssistantMessageWithError(
       status: MESSAGE_STATUS.ERROR,
       isReasoningStreaming: false,
       errorCode: errorCode || null,
+      details: details ?? message.details,
     }
   })
 }

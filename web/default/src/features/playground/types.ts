@@ -40,6 +40,7 @@ export interface Message {
   isContentComplete?: boolean
   status?: MessageStatus
   errorCode?: string | null
+  details?: PlaygroundResponseDetails
 }
 
 // API payload types
@@ -74,7 +75,7 @@ export interface ChatCompletionChunk {
   object: string
   created: number
   model: string
-  choices: Array<{
+  choices?: Array<{
     index: number
     delta: {
       role?: MessageRole
@@ -83,6 +84,13 @@ export interface ChatCompletionChunk {
     }
     finish_reason: string | null
   }>
+  usage?: ChatCompletionUsage
+}
+
+export interface ChatCompletionUsage {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
 }
 
 export interface ChatCompletionResponse {
@@ -99,11 +107,48 @@ export interface ChatCompletionResponse {
     }
     finish_reason: string
   }>
-  usage?: {
-    prompt_tokens: number
-    completion_tokens: number
-    total_tokens: number
-  }
+  usage?: ChatCompletionUsage
+}
+
+export interface PlaygroundStreamEventDetail {
+  index: number
+  received_at: string
+  event_id?: string
+  raw: string
+  data: unknown
+}
+
+export interface PlaygroundResponseErrorDetail {
+  message: string
+  code?: string
+  status?: number
+  raw?: unknown
+}
+
+export interface PlaygroundResponseDetails {
+  mode: 'stream' | 'non_stream'
+  endpoint: string
+  request: ChatCompletionRequest
+  started_at: string
+  completed_at?: string
+  duration_ms?: number
+  http_status?: number
+  http_status_text?: string
+  response_headers?: Record<string, string | string[]>
+  stream_ready_state?: number
+  response_id?: string
+  object?: string
+  created?: number
+  model?: string
+  finish_reason?: string | null
+  usage?: ChatCompletionUsage
+  raw_response?: unknown
+  raw_chunks?: PlaygroundStreamEventDetail[]
+  chunk_count?: number
+  stored_chunk_count?: number
+  truncated_chunks?: boolean
+  aborted?: boolean
+  error?: PlaygroundResponseErrorDetail
 }
 
 // Configuration types

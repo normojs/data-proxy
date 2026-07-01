@@ -23,18 +23,133 @@ import type {
   ChatCompletionResponse,
   ModelOption,
   GroupOption,
+  PlaygroundResponseDetails,
 } from './types'
+
+export interface ChatCompletionResult {
+  data: ChatCompletionResponse
+  details: PlaygroundResponseDetails
+}
+
+interface ErrorWithPlaygroundDetails {
+  playgroundDetails?: PlaygroundResponseDetails
+  response?: {
+    status?: number
+    statusText?: string
+    headers?: unknown
+    data?: unknown
+  }
+  message?: string
+}
+
+function normalizeHeaders(headers: unknown): Record<string, string | string[]> {
+  const source =
+    headers &&
+    typeof (headers as { toJSON?: () => unknown }).toJSON === 'function'
+      ? (headers as { toJSON: () => unknown }).toJSON()
+      : headers
+
+  if (!source || typeof source !== 'object') return {}
+
+  return Object.entries(source as Record<string, unknown>).reduce<
+    Record<string, string | string[]>
+  >((acc, [key, value]) => {
+    if (Array.isArray(value)) {
+      acc[key] = value.map((item) => String(item))
+      return acc
+    }
+    if (value !== undefined && value !== null) {
+      acc[key] = String(value)
+    }
+    return acc
+  }, {})
+}
+
+function getErrorInfo(data: unknown, fallback?: string) {
+  const record =
+    data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+  const openAIError =
+    record.error && typeof record.error === 'object'
+      ? (record.error as Record<string, unknown>)
+      : {}
+
+  return {
+    message:
+      (typeof record.message === 'string' && record.message) ||
+      (typeof openAIError.message === 'string' && openAIError.message) ||
+      fallback ||
+      'Request failed',
+    code:
+      (typeof openAIError.code === 'string' && openAIError.code) ||
+      (typeof record.error_code === 'string' && record.error_code) ||
+      undefined,
+  }
+}
 
 /**
  * Send chat completion request (non-streaming)
  */
 export async function sendChatCompletion(
   payload: ChatCompletionRequest
-): Promise<ChatCompletionResponse> {
-  const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, {
-    skipErrorHandler: true,
-  } as Record<string, unknown>)
-  return res.data
+): Promise<ChatCompletionResult> {
+  const startedAtMs = Date.now()
+  const startedAt = new Date(startedAtMs).toISOString()
+
+  try {
+    const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, {
+      skipErrorHandler: true,
+    } as Record<string, unknown>)
+    const completedAtMs = Date.now()
+    const data = res.data as ChatCompletionResponse
+    const choice = data.choices?.[0]
+
+    return {
+      data,
+      details: {
+        mode: 'non_stream',
+        endpoint: API_ENDPOINTS.CHAT_COMPLETIONS,
+        request: payload,
+        started_at: startedAt,
+        completed_at: new Date(completedAtMs).toISOString(),
+        duration_ms: completedAtMs - startedAtMs,
+        http_status: res.status,
+        http_status_text: res.statusText,
+        response_headers: normalizeHeaders(res.headers),
+        response_id: data.id,
+        object: data.object,
+        created: data.created,
+        model: data.model,
+        finish_reason: choice?.finish_reason ?? null,
+        usage: data.usage,
+        raw_response: data,
+      },
+    }
+  } catch (error: unknown) {
+    const err = error as ErrorWithPlaygroundDetails
+    const completedAtMs = Date.now()
+    const errorInfo = getErrorInfo(err.response?.data, err.message)
+
+    err.playgroundDetails = {
+      mode: 'non_stream',
+      endpoint: API_ENDPOINTS.CHAT_COMPLETIONS,
+      request: payload,
+      started_at: startedAt,
+      completed_at: new Date(completedAtMs).toISOString(),
+      duration_ms: completedAtMs - startedAtMs,
+      http_status: err.response?.status,
+      http_status_text: err.response?.statusText,
+      response_headers: normalizeHeaders(err.response?.headers),
+      raw_response: err.response?.data,
+      error: {
+        message: errorInfo.message,
+        code: errorInfo.code,
+        status: err.response?.status,
+        raw: err.response?.data,
+      },
+    }
+
+    throw error
+  }
 }
 
 /**
