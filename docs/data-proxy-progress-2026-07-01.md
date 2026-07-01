@@ -5,17 +5,17 @@
 
 ## 当前结论
 
-本轮开发代码已经完成并提交到本地主分支，当前 `HEAD` 为：
+本轮开发代码已经完成并提交到本地主分支，当前生产补丁提交为：
 
 ```text
-5ceae0d0 feat: map streaming content errors
+c5738baf fix: record stream status in error logs
 ```
 
 已经完成的主线包括：模型展示名称、usage logs 默认分页调整、模型筛选下拉宽度、分组价格倍率和最近成交价 fallback、Redis 重新初始化兼容、流式失败细分、流式 chunk 内容错误映射。
 
-生产部署、生产配置落地和真实流式映射冒烟已经完成。当前生产镜像已切到 `data-proxy:5ceae0d0`，容器健康检查通过；线上渠道 `GTP免费2` 已写入 `settings.stream_error_mapping`，真实流式请求已命中 `upstream_key_sleeping` 映射。
+生产部署、生产配置落地和真实流式映射冒烟已经完成。当前生产镜像已切到 `data-proxy:c5738baf`，容器健康检查通过；线上渠道 `GTP免费2` 已写入 `settings.stream_error_mapping`，真实流式请求已命中 `upstream_key_sleeping` 映射，并已确认错误日志包含 `stream_status`。
 
-继续排查时发现一个后续补丁点：错误日志路径原本没有把首包前流式映射失败的 `stream_status` 写入 `logs.other`。本地已补小修复，让错误日志也复用成功日志的 `stream_status` 结构，后续重新构建部署后 usage logs 可直接看到 `mapped_error` 元数据。
+继续排查时发现一个后续补丁点：错误日志路径原本没有把首包前流式映射失败的 `stream_status` 写入 `logs.other`。该修复已提交并部署为 `data-proxy:c5738baf`，usage logs 现在可直接看到 `mapped_error` 元数据。
 
 ## 已完成提交
 
@@ -28,6 +28,7 @@
 | `20776d43` | 支持 Redis 重新初始化；修复 PostgreSQL 下实际成交价查询 | 已完成 |
 | `b4e6b77d` | 修复已有 JSON 状态码映射在可视编辑器里显示为未配置的问题 | 已完成 |
 | `5ceae0d0` | 支持从流式 chunk 内容映射为错误码、错误信息和可重试错误 | 已完成 |
+| `c5738baf` | 修复错误日志缺少流式 `stream_status`；补充生产进度文档 | 已完成并部署 |
 
 ## 流式 Chunk 错误映射
 
@@ -90,11 +91,19 @@ cd web/default && ./node_modules/.bin/tsc -b
 cd web/default && ./node_modules/.bin/rsbuild build
 ```
 
-本地 Docker 镜像构建结果：
+本地 Docker 镜像构建结果（流式映射主版本）：
 
 ```text
 image: data-proxy:5ceae0d0
 image id: sha256:94160acd5ec0d9703ff9a1f2091f68e7ee3ba89bac4b4d7049b0890072f65b37
+```
+
+后续错误日志补丁镜像：
+
+```text
+image: data-proxy:c5738baf
+image id: sha256:4ab6f42f3b48b7ed37d7792c6e6e691629eb2dbfc52d95387d0be570070522a0
+package sha256: 7fa22e6583fa2bb33a90fefb00dd5bbceea89d7abfed1c7ebbbf06132b242b36
 ```
 
 本地部署包：
@@ -103,12 +112,17 @@ image id: sha256:94160acd5ec0d9703ff9a1f2091f68e7ee3ba89bac4b4d7049b0890072f65b3
 /tmp/data-proxy-deploy-5ceae0d0/data-proxy-5ceae0d0-local-linux-amd64.tar.gz
 /tmp/data-proxy-deploy-5ceae0d0/data-proxy-5ceae0d0-local-linux-amd64.sha256
 /tmp/data-proxy-deploy-5ceae0d0/data-proxy-remote-deploy-5ceae0d0.sh
+
+/tmp/data-proxy-deploy-c5738baf/data-proxy-c5738baf-local-linux-amd64.tar.gz
+/tmp/data-proxy-deploy-c5738baf/data-proxy-c5738baf-local-linux-amd64.sha256
+/tmp/data-proxy-deploy-c5738baf/data-proxy-remote-deploy-c5738baf.sh
 ```
 
 包校验：
 
 ```text
 b79f450b1956bdfad09bc97618623fefcc6cf49eba3efca400745203e60bafd5  data-proxy-5ceae0d0-local-linux-amd64.tar.gz
+7fa22e6583fa2bb33a90fefb00dd5bbceea89d7abfed1c7ebbbf06132b242b36  data-proxy-c5738baf-local-linux-amd64.tar.gz
 ```
 
 ## 当前部署状态
@@ -154,18 +168,26 @@ b79f450b1956bdfad09bc97618623fefcc6cf49eba3efca400745203e60bafd5
 data-proxy:5ceae0d0
 ```
 
+后续已部署错误日志补丁镜像：
+
+```text
+data-proxy:c5738baf
+```
+
 4. 已完成部署后验证：
 
 ```text
 container: data-proxy Up (healthy)
 local health: http://127.0.0.1:13002/api/status OK
 public health: https://dp.app.mbu.ltd/api/status OK
+current version: c5738baf
 ```
 
 5. 已归档上一版镜像用于回滚：
 
 ```text
 /root/workspace/dataproxy/image-archive/20260701T113433Z_data-proxy_b4e6b77d.tar
+/root/workspace/dataproxy/image-archive/20260701T123431Z_data-proxy_5ceae0d0.tar
 ```
 
 ## 生产配置状态
@@ -208,7 +230,7 @@ Redis/P6 行为验证：
 
 - [x] 记录部署前镜像：`data-proxy:b4e6b77d`。
 - [x] 确认 `/root/workspace/dataproxy/image-archive` 有上一版镜像归档。
-- [x] 记录本次镜像 `data-proxy:5ceae0d0` 和包 sha256。
+- [x] 记录本次镜像 `data-proxy:5ceae0d0` 和补丁镜像 `data-proxy:c5738baf` 的包 sha256。
 - [x] 确认 `docker-compose.prod.yml` 和 `docker-compose.wechat-pay.yml` 可正常启动。
 
 ## 当前工作区注意事项
@@ -225,15 +247,14 @@ web/default/src/features/playground/types.ts
 web/default/src/features/playground/components/message-details.tsx
 ```
 
-这些文件不要混入本次生产部署提交，也不要在部署前随手回滚。当前部署包是从干净 worktree 基于提交 `5ceae0d0` 构建的。
+这些文件不要混入本次生产部署提交，也不要随手回滚。生产部署包均从干净 worktree 构建，主版本基于 `5ceae0d0`，错误日志补丁基于 `c5738baf`。
 
 ## 下一步
 
 优先顺序：
 
-1. 评审并提交本地错误日志 `stream_status` 补丁。
-2. 若需要 usage logs 立即展示 mapped_error 元数据，基于该补丁重新构建并部署新镜像。
-3. 可选继续跑前端 UI 冒烟：模型广场、模型详情、usage logs 分页和渠道可视编辑器。
+1. 可选继续跑前端 UI 冒烟：模型广场、模型详情、usage logs 分页和渠道可视编辑器。
+2. 可选继续验证 Redis/P6 计数：普通成功、流式成功、流式失败、中途断流、映射错误。
 
 ## 生产冒烟结果
 
@@ -261,14 +282,29 @@ stream ended: reason=mapped_error
 
 ## 后续本地修复
 
-已在本地补丁中修复错误日志缺少 `stream_status` 的问题：
+已提交并部署错误日志缺少 `stream_status` 的修复：
 
 - `service.AppendStreamStatus` 从成功日志路径抽出复用。
 - `controller.processChannelError` 记录错误日志时追加 `stream_status`。
 - 新增测试覆盖：最终 error status 为 `503` 时，`stream_status.mapped_status_code` 仍保留规则原始 `429`。
+- 已构建并部署 `data-proxy:c5738baf`，生产健康检查返回 `version=c5738baf`。
 
 已通过验证：
 
 ```bash
 go test ./service ./controller -run 'TestGenerateTextOtherInfoIncludes|TestProcessChannelErrorRecordsStreamStatusInErrorLog|TestShouldRetryUsesTransientFailureRulesForFailover|TestChannelFailoverTrace'
+```
+
+补丁部署后真实流式冒烟再次完成：
+
+```text
+request_id: 202607011238366288041108268d9d6ETkdb4dT
+error_log_id: 28988
+client_status: 503
+error_code: upstream_key_sleeping
+stream_status.end_reason: mapped_error
+stream_status.failure_category: upstream_mapped_error
+stream_status.mapped_error_code: upstream_key_sleeping
+stream_status.mapped_status_code: 429
+stream_status.mapped_rule: 公益 token 睡眠
 ```
