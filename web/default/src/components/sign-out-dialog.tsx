@@ -25,9 +25,14 @@ import { logout } from '@/features/auth/api'
 interface SignOutDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  redirectTo?: string
 }
 
-export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
+export function SignOutDialog({
+  open,
+  onOpenChange,
+  redirectTo,
+}: SignOutDialogProps) {
   const { t } = useTranslation()
   const { auth } = useAuthStore()
 
@@ -40,14 +45,20 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
     auth.reset()
     try {
       if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('user')
         window.localStorage.removeItem('uid')
       }
     } catch {
       /* empty */
     }
     toast.success(t('Signed out'))
-    // Refresh the page to clear all state and update UI
     if (typeof window !== 'undefined') {
+      if (redirectTo) {
+        window.location.assign(redirectTo)
+        return
+      }
+
+      // Refresh the page to clear all state and update UI
       window.location.reload()
     }
   }

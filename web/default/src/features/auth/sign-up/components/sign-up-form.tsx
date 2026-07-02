@@ -125,7 +125,6 @@ export function SignUpForm({
     status?.oidc_enabled ||
     status?.linuxdo_oauth ||
     status?.hstation_oauth ||
-    status?.telegram_oauth ||
     (status?.custom_oauth_providers?.length ?? 0) > 0
   )
   const hasOAuthRegister =
@@ -420,6 +419,7 @@ export function SignUpForm({
           <OAuthProviders
             status={status}
             disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+            showTelegram={false}
             onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
             isWeChatLoading={isWeChatSubmitting}
             className='pt-2'

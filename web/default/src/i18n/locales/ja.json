@@ -6557,6 +6557,11 @@
     "Maximum pre-flush wait in milliseconds. If omitted, the backend default is 60000 ms.": "最大事前フラッシュ待機時間 (ミリ秒)。省略した場合、バックエンドのデフォルトは 60000 ミリ秒です。",
     "Path to apiclient_key.pem on the server": "サーバー上の apiclient_key.pem へのパス",
     "Skip matching when extracted text content is longer than this value. Use it to avoid replacing normal long answers.": "抽出されたテキスト コンテンツがこの値より長い場合、マッチングをスキップします。通常の長い回答の置き換えを避けるために使用します。",
-    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "生の SSE/JSON チャンクがこの値より長い場合、マッチングをスキップします。"
+    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "生の SSE/JSON チャンクがこの値より長い場合、マッチングをスキップします。",
+    "After authorization, you'll return to your profile automatically.": "認証後、自動的にプロフィールに戻ります。",
+    "Authorize with Telegram to bind this account to your profile.": "Telegram で認証して、このアカウントをプロフィールに連携します。",
+    "Failed to start Telegram login": "Telegram ログインを開始できませんでした",
+    "Signed in via Telegram": "Telegram でログインしました",
+    "Telegram bot is not configured": "Telegram Bot が設定されていません"
   }
 }

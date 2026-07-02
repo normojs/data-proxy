@@ -22,7 +22,7 @@ type PublicSubsiteState = {
   slug: string
   name: string
   title: string
-  runtimeStatus: 'disabled' | 'expired'
+  runtimeStatus: 'disabled' | 'expired' | 'enabled'
   accessCode: string
   accessMessage: string
   disabledReason?: string
@@ -36,7 +36,37 @@ type CommonMockOptions = {
 
 const now = Math.floor(Date.now() / 1000)
 
+function quotaMetric(limit = 100000): {
+  limit: number
+  used: number
+  remaining: number
+  window_start: number
+  window_end: number
+  next_reset_time: number
+  window_seconds: number
+} {
+  return {
+    limit,
+    used: 0,
+    remaining: limit,
+    window_start: now - 3600,
+    window_end: now + 3600,
+    next_reset_time: now + 3600,
+    window_seconds: 3600,
+  }
+}
+
 const publicSubsites: Record<string, PublicSubsiteState> = {
+  'logout-smoke': {
+    slug: 'logout-smoke',
+    name: 'Logout Smoke Site',
+    title: 'Logout Smoke Site',
+    runtimeStatus: 'enabled',
+    accessCode: '',
+    accessMessage: '',
+    startsAt: now - 3600,
+    endsAt: now + 86400,
+  },
   'closed-smoke': {
     slug: 'closed-smoke',
     name: 'Closed Smoke Site',
@@ -80,6 +110,17 @@ async function installCommonMocks(page: Page, options: CommonMockOptions = {}) {
       return
     }
 
+    if (path === '/api/user/logout') {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          message: '',
+        }),
+      })
+      return
+    }
+
     const publicMatch = path.match(/^\/api\/subsites\/([^/]+)\/public$/)
 
     if (publicMatch) {
@@ -117,11 +158,83 @@ async function installCommonMocks(page: Page, options: CommonMockOptions = {}) {
             starts_at: subsite.startsAt,
             ends_at: subsite.endsAt,
             access: {
-              allowed: false,
+              allowed: subsite.runtimeStatus === 'enabled',
               status: subsite.runtimeStatus,
               code: subsite.accessCode,
               message: subsite.accessMessage,
             },
+          },
+        }),
+      })
+      return
+    }
+
+    if (path === '/api/subsites/logout-smoke/dashboard') {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            subsite: {
+              id: 101,
+              slug: 'logout-smoke',
+              name: 'Logout Smoke Site',
+              title: 'Logout Smoke Site',
+              logo_url: '',
+              favicon_url: '',
+              theme_color: '#2563eb',
+              status: 'enabled',
+              runtime_status: 'enabled',
+              registration_policy: 'open',
+              starts_at: now - 3600,
+              ends_at: now + 86400,
+              access: {
+                allowed: true,
+                status: 'enabled',
+                code: '',
+                message: '',
+              },
+            },
+            member: {
+              subsite_id: 101,
+              user_id: 7001,
+              role: 'member',
+              status: 'active',
+              can_access: true,
+              can_manage: false,
+              joined_at: now - 1800,
+            },
+            base_url: 'http://127.0.0.1:4174/s/logout-smoke/v1',
+            token: {
+              id: 9001,
+              name: 'Subsite key',
+              masked_key: 'sk-smoke...tail',
+              status: 1,
+              created_time: now - 1200,
+              accessed_time: 0,
+              expired_time: -1,
+              unlimited_quota: false,
+            },
+            quota: {
+              site_daily_quota: quotaMetric(),
+              site_window_quota: quotaMetric(),
+              user_daily_quota: quotaMetric(),
+              user_window_quota: quotaMetric(),
+              site_daily_requests: quotaMetric(100),
+              site_window_requests: quotaMetric(100),
+              user_daily_requests: quotaMetric(100),
+              user_window_requests: quotaMetric(100),
+            },
+            stats_24h: {
+              window_seconds: 86400,
+              calls: 0,
+              prompt_tokens: 0,
+              output_tokens: 0,
+              total_tokens: 0,
+              quota: 0,
+              last_request_at: 0,
+            },
+            recent_logs: [],
           },
         }),
       })
@@ -240,5 +353,61 @@ test.describe('subsite quota state', () => {
     await expect(page.getByRole('heading', { name: 'Quota exceeded' })).toBeVisible()
     await expect(page.getByText('Site daily quota exceeded')).toBeVisible()
     await expectNoHorizontalOverflow(page)
+  })
+})
+
+test.describe('subsite dashboard sign out', () => {
+  test.beforeEach(async ({ page }) => {
+    await installCommonMocks(page)
+    await page.addInitScript(() => {
+      if (!window.location.pathname.endsWith('/dashboard')) return
+
+      window.localStorage.setItem(
+        'user',
+        JSON.stringify({
+          id: 7001,
+          username: 'smoke-user',
+          display_name: 'Smoke User',
+          role: 1,
+          status: 1,
+          group: 'default',
+        })
+      )
+      window.localStorage.setItem('uid', '7001')
+    })
+  })
+
+  test('sign out from subsite dashboard returns to the subsite entry', async ({
+    page,
+  }) => {
+    let logoutRequested = false
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/user/logout') {
+        logoutRequested = true
+      }
+    })
+
+    await page.goto('/s/logout-smoke/dashboard')
+    await expect(
+      page.getByRole('heading', { name: 'Subsite console' })
+    ).toBeVisible()
+
+    await page.getByRole('button', { name: 'Sign out' }).click()
+    const dialog = page.getByRole('alertdialog')
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Sign out' }).click()
+
+    await expect(page).toHaveURL(/\/s\/logout-smoke$/)
+    await expect
+      .poll(() => logoutRequested, { message: 'logout endpoint was called' })
+      .toBe(true)
+    await expect
+      .poll(() =>
+        page.evaluate(() => ({
+          user: window.localStorage.getItem('user'),
+          uid: window.localStorage.getItem('uid'),
+        }))
+      )
+      .toEqual({ user: null, uid: null })
   })
 })

@@ -6557,6 +6557,11 @@
     "Maximum pre-flush wait in milliseconds. If omitted, the backend default is 60000 ms.": "Attente maximale de pré-vidage en millisecondes. En cas d'omission, la valeur par défaut du backend est de 60 000 ms.",
     "Path to apiclient_key.pem on the server": "Chemin d'accès à apiclient_key.pem sur le serveur",
     "Skip matching when extracted text content is longer than this value. Use it to avoid replacing normal long answers.": "Ignorer la correspondance lorsque le contenu du texte extrait est plus long que cette valeur. Utilisez-le pour éviter de remplacer les réponses longues normales.",
-    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "Ignorer la correspondance lorsque le bloc brut SSE/JSON est plus long que cette valeur."
+    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "Ignorer la correspondance lorsque le bloc brut SSE/JSON est plus long que cette valeur.",
+    "After authorization, you'll return to your profile automatically.": "Après autorisation, vous reviendrez automatiquement à votre profil.",
+    "Authorize with Telegram to bind this account to your profile.": "Autorisez avec Telegram pour lier ce compte à votre profil.",
+    "Failed to start Telegram login": "Impossible de démarrer la connexion Telegram",
+    "Signed in via Telegram": "Connecté via Telegram",
+    "Telegram bot is not configured": "Le bot Telegram n'est pas configuré"
   }
 }

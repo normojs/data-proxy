@@ -320,6 +320,7 @@ export function UserAuthForm({
       <OAuthProviders
         status={status}
         disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+        redirectTo={redirectTo}
         onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
         isWeChatLoading={isWeChatSubmitting}
       />

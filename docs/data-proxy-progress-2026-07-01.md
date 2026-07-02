@@ -5,6 +5,14 @@
 
 ## 当前结论
 
+2026-07-03 本地继续开发进展：
+
+- 已完成子站控制台退出登录回到当前子站入口 `/s/:slug`，并显式清理 `user`、`uid` 本地认证缓存。
+- 已完成 Telegram legacy Login Widget 前端接入：登录页使用 `onauth` 回调调用 `/api/oauth/telegram/login`，个人资料绑定弹窗使用 `auth_url` 调用 `/api/oauth/telegram/bind`。
+- 已确认当前 Telegram 后端只支持已绑定账号登录，不支持自动注册；注册页不再显示 Telegram 登录入口，避免用户在注册流程误用后得到“该 Telegram 账户未绑定”。
+- 已补齐新增 Telegram 文案的 `en`、`zh`、`ja`、`ru`、`fr`、`vi` 翻译，并更新 i18n 同步报告。
+- 本轮只做本地验证，没有部署、没有生产冒烟、没有改动服务器。
+
 本轮开发代码已经完成并提交到本地主分支，当前生产补丁提交为：
 
 ```text

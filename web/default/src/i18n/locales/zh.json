@@ -6557,6 +6557,11 @@
     "Maximum pre-flush wait in milliseconds. If omitted, the backend default is 60000 ms.": "首次输出前最长等待毫秒数；省略时后端默认 60000 ms。",
     "Path to apiclient_key.pem on the server": "服务器上的 apiclient_key.pem 路径",
     "Skip matching when extracted text content is longer than this value. Use it to avoid replacing normal long answers.": "解析出的正文内容超过该长度时跳过匹配，用于避免误替换正常长回答。",
-    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "原始 SSE/JSON 流块超过该长度时跳过匹配。"
+    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "原始 SSE/JSON 流块超过该长度时跳过匹配。",
+    "After authorization, you'll return to your profile automatically.": "授权后，你将自动返回个人资料页。",
+    "Authorize with Telegram to bind this account to your profile.": "使用 Telegram 授权，将此账号绑定到你的个人资料。",
+    "Failed to start Telegram login": "启动 Telegram 登录失败",
+    "Signed in via Telegram": "已通过 Telegram 登录",
+    "Telegram bot is not configured": "未配置 Telegram Bot"
   }
 }

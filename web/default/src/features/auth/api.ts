@@ -23,6 +23,7 @@ import type {
   Login2FAResponse,
   TwoFAPayload,
   RegisterPayload,
+  TelegramAuthPayload,
   ApiResponse,
 } from './types'
 
@@ -96,6 +97,41 @@ export async function getOAuthState(): Promise<string> {
 // WeChat login by authorization code
 export async function wechatLoginByCode(code: string): Promise<ApiResponse> {
   const res = await api.get('/api/oauth/wechat', { params: { code } })
+  return res.data
+}
+
+function telegramAuthParams(payload: TelegramAuthPayload) {
+  const params: Record<string, string> = {
+    id: String(payload.id),
+    auth_date: String(payload.auth_date),
+    hash: payload.hash,
+  }
+
+  if (payload.first_name) params.first_name = payload.first_name
+  if (payload.last_name) params.last_name = payload.last_name
+  if (payload.username) params.username = payload.username
+  if (payload.photo_url) params.photo_url = payload.photo_url
+
+  return params
+}
+
+export async function telegramLogin(
+  payload: TelegramAuthPayload
+): Promise<ApiResponse> {
+  const res = await api.get('/api/oauth/telegram/login', {
+    params: telegramAuthParams(payload),
+    disableDuplicate: true,
+  })
+  return res.data
+}
+
+export async function telegramBind(
+  payload: TelegramAuthPayload
+): Promise<ApiResponse> {
+  const res = await api.get('/api/oauth/telegram/bind', {
+    params: telegramAuthParams(payload),
+    disableDuplicate: true,
+  })
   return res.data
 }
 

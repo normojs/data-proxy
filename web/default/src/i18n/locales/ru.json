@@ -6557,6 +6557,11 @@
     "Maximum pre-flush wait in milliseconds. If omitted, the backend default is 60000 ms.": "Максимальное время ожидания перед очисткой в миллисекундах. Если этот параметр опущен, серверная часть по умолчанию составляет 60 000 мс.",
     "Path to apiclient_key.pem on the server": "Путь к apiclient_key.pem на сервере",
     "Skip matching when extracted text content is longer than this value. Use it to avoid replacing normal long answers.": "Пропустить сопоставление, если длина извлеченного текстового содержимого превышает это значение. Используйте его, чтобы не заменять обычные длинные ответы.",
-    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "Пропустить сопоставление, если необработанный фрагмент SSE/JSON длиннее этого значения."
+    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "Пропустить сопоставление, если необработанный фрагмент SSE/JSON длиннее этого значения.",
+    "After authorization, you'll return to your profile automatically.": "После авторизации вы автоматически вернетесь в профиль.",
+    "Authorize with Telegram to bind this account to your profile.": "Авторизуйтесь через Telegram, чтобы привязать эту учетную запись к профилю.",
+    "Failed to start Telegram login": "Не удалось начать вход через Telegram",
+    "Signed in via Telegram": "Выполнен вход через Telegram",
+    "Telegram bot is not configured": "Telegram-бот не настроен"
   }
 }

@@ -107,6 +107,7 @@ export interface SystemStatus {
     hstation_authorization_endpoint?: string
     hstation_scopes?: string
     telegram_oauth?: boolean
+    telegram_bot_name?: string
     passkey_login?: boolean
     wechat_login?: boolean
     wechat_qrcode?: string
@@ -154,6 +155,7 @@ export interface SystemStatus {
   hstation_authorization_endpoint?: string
   hstation_scopes?: string
   telegram_oauth?: boolean
+  telegram_bot_name?: string
   passkey_login?: boolean
   wechat_login?: boolean
   wechat_qrcode?: string
@@ -211,6 +213,16 @@ export interface CustomOAuthProviderInfo {
   client_id: string
   authorization_endpoint: string
   scopes: string
+}
+
+export interface TelegramAuthPayload {
+  id: number | string
+  first_name?: string
+  last_name?: string
+  username?: string
+  photo_url?: string
+  auth_date: number | string
+  hash: string
 }
 
 // ============================================================================

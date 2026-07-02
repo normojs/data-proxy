@@ -29,11 +29,14 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useOAuthLogin } from '../hooks/use-oauth-login'
 import type { SystemStatus } from '../types'
+import { TelegramLoginWidget } from './telegram-login-widget'
 
 type OAuthProvidersProps = {
   status: SystemStatus | null
   disabled?: boolean
   className?: string
+  redirectTo?: string
+  showTelegram?: boolean
   onWeChatLogin?: () => void
   isWeChatLoading?: boolean
 }
@@ -50,6 +53,8 @@ export function OAuthProviders({
   status,
   disabled = false,
   className,
+  redirectTo,
+  showTelegram = true,
   onWeChatLogin,
   isWeChatLoading = false,
 }: OAuthProvidersProps) {
@@ -124,13 +129,9 @@ export function OAuthProviders({
     })
   }
 
-  if (status?.telegram_oauth) {
-    providerButtons.push({
-      key: 'telegram',
-      label: t('Continue with Telegram'),
-      onClick: handleTelegramLogin,
-    })
-  }
+  const hasTelegramLogin = showTelegram && Boolean(status?.telegram_oauth)
+  const telegramBotName =
+    status?.telegram_bot_name || status?.data?.telegram_bot_name
 
   // Custom OAuth providers
   const customProviders = status?.custom_oauth_providers
@@ -144,7 +145,7 @@ export function OAuthProviders({
     }
   }
 
-  if (providerButtons.length === 0) return null
+  if (providerButtons.length === 0 && !hasTelegramLogin) return null
 
   return (
     <div className={cn('space-y-3', className)}>
@@ -174,6 +175,15 @@ export function OAuthProviders({
               {label}
             </Button>
           )
+        )}
+        {hasTelegramLogin && (
+          <TelegramLoginWidget
+            botName={
+              typeof telegramBotName === 'string' ? telegramBotName : undefined
+            }
+            disabled={disabled || isLoading}
+            onAuth={(payload) => handleTelegramLogin(payload, redirectTo)}
+          />
         )}
       </div>
     </div>

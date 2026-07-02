@@ -29,6 +29,7 @@ import {
   ExternalLink,
   Gauge,
   KeyRound,
+  LogOut,
   LockKeyhole,
   Megaphone,
   Plus,
@@ -59,6 +60,7 @@ import { CopyButton } from '@/components/copy-button'
 import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { PublicLayout } from '@/components/layout'
+import { SignOutDialog } from '@/components/sign-out-dialog'
 import { TermsFooter } from '@/features/auth/components/terms-footer'
 import { UserAuthForm } from '@/features/auth/sign-in/components/user-auth-form'
 import { SignUpForm } from '@/features/auth/sign-up/components/sign-up-form'
@@ -1232,140 +1234,164 @@ function SubsiteDashboardConsole({
   dashboardQueryKey: DashboardQueryKey
 }) {
   const { t } = useTranslation()
+  const [signOutOpen, setSignOutOpen] = useState(false)
   const displayName = dashboard.subsite.title || dashboard.subsite.name || slug
   const stats = dashboard.stats_24h
 
   return (
-    <PublicLayout
-      showAuthButtons={false}
-      showNotifications={false}
-      siteName={displayName}
-      logo={<SubsiteLogo subsite={dashboard.subsite} />}
-      headerProps={{ homeUrl: `/s/${slug}` }}
-    >
-      <div className='mx-auto max-w-7xl space-y-5 py-2'>
-        <div className='flex flex-col gap-4 border-b pb-5 md:flex-row md:items-start md:justify-between'>
-          <div className='flex min-w-0 items-start gap-3'>
-            <div className='bg-muted flex size-10 shrink-0 items-center justify-center rounded-lg border'>
-              <SubsiteLogo subsite={dashboard.subsite} />
-            </div>
-            <div className='min-w-0 space-y-1'>
-              <div className='flex flex-wrap items-center gap-2'>
-                <Badge variant='outline'>{displayName}</Badge>
-                <Badge variant='outline'>
-                  {t(humanizeValue(dashboard.member.role))}
-                </Badge>
+    <>
+      <PublicLayout
+        showAuthButtons={false}
+        showNotifications={false}
+        siteName={displayName}
+        logo={<SubsiteLogo subsite={dashboard.subsite} />}
+        headerProps={{ homeUrl: `/s/${slug}` }}
+      >
+        <div className='mx-auto max-w-7xl space-y-5 py-2'>
+          <div className='flex flex-col gap-4 border-b pb-5 md:flex-row md:items-start md:justify-between'>
+            <div className='flex min-w-0 items-start gap-3'>
+              <div className='bg-muted flex size-10 shrink-0 items-center justify-center rounded-lg border'>
+                <SubsiteLogo subsite={dashboard.subsite} />
               </div>
-              <h1 className='truncate text-xl leading-tight font-semibold tracking-normal'>
-                {t('Subsite console')}
-              </h1>
-              <p className='text-muted-foreground max-w-3xl text-sm'>
-                /s/{slug} · {t('Scoped API access, quota, and recent usage')}
-              </p>
+              <div className='min-w-0 space-y-1'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Badge variant='outline'>{displayName}</Badge>
+                  <Badge variant='outline'>
+                    {t(humanizeValue(dashboard.member.role))}
+                  </Badge>
+                </div>
+                <h1 className='truncate text-xl leading-tight font-semibold tracking-normal'>
+                  {t('Subsite console')}
+                </h1>
+                <p className='text-muted-foreground max-w-3xl text-sm'>
+                  /s/{slug} · {t('Scoped API access, quota, and recent usage')}
+                </p>
+              </div>
+            </div>
+            <div className='flex flex-wrap gap-2'>
+              <Badge
+                variant='outline'
+                className={
+                  dashboard.subsite.runtime_status === 'enabled'
+                    ? 'border-success/25 bg-success/10 text-success'
+                    : undefined
+                }
+              >
+                {t(humanizeValue(dashboard.subsite.runtime_status))}
+              </Badge>
+              <Badge variant='outline'>
+                {dashboard.member.can_access
+                  ? t('Member active')
+                  : t('No access')}
+              </Badge>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='gap-1.5'
+                onClick={() => setSignOutOpen(true)}
+              >
+                <LogOut className='size-4' aria-hidden />
+                {t('Sign out')}
+              </Button>
             </div>
           </div>
-          <div className='flex flex-wrap gap-2'>
-            <Badge
-              variant='outline'
-              className={
-                dashboard.subsite.runtime_status === 'enabled'
-                  ? 'border-success/25 bg-success/10 text-success'
-                  : undefined
+
+          <SubsiteApiAccessPanel
+            slug={slug}
+            dashboard={dashboard}
+            dashboardQueryKey={dashboardQueryKey}
+          />
+
+          <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
+            <DashboardStat
+              label='Calls in 24h'
+              value={formatCount(stats.calls)}
+              detail={
+                t('Last request') +
+                ': ' +
+                formatDashboardTime(stats.last_request_at)
+              }
+            />
+            <DashboardStat
+              label='Tokens in 24h'
+              value={formatTokenVolume(stats.total_tokens)}
+              detail={`${t('Input')} ${formatTokenVolume(stats.prompt_tokens)} · ${t(
+                'Output'
+              )} ${formatTokenVolume(stats.output_tokens)}`}
+            />
+            <DashboardStat
+              label='Quota in 24h'
+              value={formatLogQuota(stats.quota)}
+              detail={t('Deducted from scoped usage')}
+            />
+            <DashboardStat
+              label='Window'
+              value={formatWindowSeconds(stats.window_seconds)}
+              detail={t('Rolling usage summary')}
+            />
+          </div>
+
+          <div className='grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]'>
+            <AnnouncementPanel subsite={dashboard.subsite} />
+            <DashboardPanel
+              title='Member'
+              description='Current account membership for this subsite'
+              action={
+                <KeyRound
+                  className='text-muted-foreground size-4'
+                  aria-hidden
+                />
               }
             >
-              {t(humanizeValue(dashboard.subsite.runtime_status))}
-            </Badge>
-            <Badge variant='outline'>
-              {dashboard.member.can_access
-                ? t('Member active')
-                : t('No access')}
-            </Badge>
+              <div className='grid gap-3 sm:grid-cols-3'>
+                <div>
+                  <div className='text-muted-foreground text-xs'>
+                    {t('Role')}
+                  </div>
+                  <div className='mt-1 font-medium'>
+                    {t(humanizeValue(dashboard.member.role))}
+                  </div>
+                </div>
+                <div>
+                  <div className='text-muted-foreground text-xs'>
+                    {t('Status')}
+                  </div>
+                  <div className='mt-1 font-medium'>
+                    {t(humanizeValue(dashboard.member.status))}
+                  </div>
+                </div>
+                <div>
+                  <div className='text-muted-foreground text-xs'>
+                    {t('Manage')}
+                  </div>
+                  <div className='mt-1 font-medium'>
+                    {dashboard.member.can_manage
+                      ? t('Allowed')
+                      : t('Member only')}
+                  </div>
+                </div>
+              </div>
+            </DashboardPanel>
           </div>
-        </div>
 
-        <SubsiteApiAccessPanel
-          slug={slug}
-          dashboard={dashboard}
-          dashboardQueryKey={dashboardQueryKey}
-        />
+          <SubsiteQuotaPanels dashboard={dashboard} />
 
-        <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
-          <DashboardStat
-            label='Calls in 24h'
-            value={formatCount(stats.calls)}
-            detail={
-              t('Last request') +
-              ': ' +
-              formatDashboardTime(stats.last_request_at)
-            }
-          />
-          <DashboardStat
-            label='Tokens in 24h'
-            value={formatTokenVolume(stats.total_tokens)}
-            detail={`${t('Input')} ${formatTokenVolume(stats.prompt_tokens)} · ${t(
-              'Output'
-            )} ${formatTokenVolume(stats.output_tokens)}`}
-          />
-          <DashboardStat
-            label='Quota in 24h'
-            value={formatLogQuota(stats.quota)}
-            detail={t('Deducted from scoped usage')}
-          />
-          <DashboardStat
-            label='Window'
-            value={formatWindowSeconds(stats.window_seconds)}
-            detail={t('Rolling usage summary')}
-          />
-        </div>
-
-        <div className='grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]'>
-          <AnnouncementPanel subsite={dashboard.subsite} />
           <DashboardPanel
-            title='Member'
-            description='Current account membership for this subsite'
-            action={
-              <KeyRound className='text-muted-foreground size-4' aria-hidden />
-            }
+            title='Recent requests'
+            description='Latest subsite-scoped consume and error logs'
           >
-            <div className='grid gap-3 sm:grid-cols-3'>
-              <div>
-                <div className='text-muted-foreground text-xs'>{t('Role')}</div>
-                <div className='mt-1 font-medium'>
-                  {t(humanizeValue(dashboard.member.role))}
-                </div>
-              </div>
-              <div>
-                <div className='text-muted-foreground text-xs'>
-                  {t('Status')}
-                </div>
-                <div className='mt-1 font-medium'>
-                  {t(humanizeValue(dashboard.member.status))}
-                </div>
-              </div>
-              <div>
-                <div className='text-muted-foreground text-xs'>
-                  {t('Manage')}
-                </div>
-                <div className='mt-1 font-medium'>
-                  {dashboard.member.can_manage
-                    ? t('Allowed')
-                    : t('Member only')}
-                </div>
-              </div>
-            </div>
+            <RecentLogsTable logs={dashboard.recent_logs ?? []} />
           </DashboardPanel>
         </div>
+      </PublicLayout>
 
-        <SubsiteQuotaPanels dashboard={dashboard} />
-
-        <DashboardPanel
-          title='Recent requests'
-          description='Latest subsite-scoped consume and error logs'
-        >
-          <RecentLogsTable logs={dashboard.recent_logs ?? []} />
-        </DashboardPanel>
-      </div>
-    </PublicLayout>
+      <SignOutDialog
+        open={signOutOpen}
+        onOpenChange={setSignOutOpen}
+        redirectTo={`/s/${slug}`}
+      />
+    </>
   )
 }
 

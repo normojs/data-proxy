@@ -6557,6 +6557,11 @@
     "Maximum pre-flush wait in milliseconds. If omitted, the backend default is 60000 ms.": "Thời gian chờ xả trước tối đa tính bằng mili giây. Nếu bị bỏ qua, mặc định phụ trợ là 60000 ms.",
     "Path to apiclient_key.pem on the server": "Đường dẫn đến apiclient_key.pem trên máy chủ",
     "Skip matching when extracted text content is longer than this value. Use it to avoid replacing normal long answers.": "Bỏ qua việc so khớp khi nội dung văn bản được trích xuất dài hơn giá trị này. Sử dụng nó để tránh thay thế các câu trả lời dài thông thường.",
-    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "Bỏ qua việc khớp khi đoạn SSE/JSON thô dài hơn giá trị này."
+    "Skip matching when the raw SSE/JSON chunk is longer than this value.": "Bỏ qua việc khớp khi đoạn SSE/JSON thô dài hơn giá trị này.",
+    "After authorization, you'll return to your profile automatically.": "Sau khi ủy quyền, bạn sẽ tự động quay lại hồ sơ.",
+    "Authorize with Telegram to bind this account to your profile.": "Ủy quyền bằng Telegram để liên kết tài khoản này với hồ sơ của bạn.",
+    "Failed to start Telegram login": "Không thể bắt đầu đăng nhập Telegram",
+    "Signed in via Telegram": "Đã đăng nhập qua Telegram",
+    "Telegram bot is not configured": "Chưa cấu hình bot Telegram"
   }
 }

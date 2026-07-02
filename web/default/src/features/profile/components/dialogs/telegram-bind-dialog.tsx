@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { TelegramLoginWidget } from '@/features/auth/components/telegram-login-widget'
 
 // ============================================================================
 // Telegram Bind Dialog Component
@@ -44,6 +45,11 @@ export function TelegramBindDialog({
   botName,
 }: TelegramBindDialogProps) {
   const { t } = useTranslation()
+  const telegramBindUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/api/oauth/telegram/bind`
+      : '/api/oauth/telegram/bind'
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='sm:max-w-md'>
@@ -59,7 +65,7 @@ export function TelegramBindDialog({
             <Send className='h-4 w-4' />
             <AlertDescription>
               {t(
-                'You will be redirected to Telegram to complete the binding process.'
+                'Authorize with Telegram to bind this account to your profile.'
               )}
             </AlertDescription>
           </Alert>
@@ -76,18 +82,12 @@ export function TelegramBindDialog({
               </p>
               <p className='text-muted-foreground mt-1 text-xs'>
                 {t(
-                  "After clicking the button, you'll be asked to authorize the bot"
+                  "After authorization, you'll return to your profile automatically."
                 )}
               </p>
             </div>
 
-            {/* Telegram Login Widget will be injected here by react-telegram-login */}
-            <div id='telegram-login-widget' className='flex justify-center'>
-              {/* This would require the react-telegram-login library */}
-              <div className='text-muted-foreground rounded-lg border border-dashed px-6 py-3 text-sm'>
-                {t('Telegram Login Widget')}
-              </div>
-            </div>
+            <TelegramLoginWidget botName={botName} authUrl={telegramBindUrl} />
           </div>
 
           <p className='text-muted-foreground text-center text-xs'>
