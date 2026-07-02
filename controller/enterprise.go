@@ -2364,45 +2364,15 @@ func ListEnterpriseAuditLogs(c *gin.Context) {
 		return
 	}
 	pageInfo := common.GetPageQuery(c)
-	query := model.DB.Model(&model.EnterpriseAuditLog{}).Where("enterprise_id = ?", enterprise.Id)
 	access, err := enterpriseAccessForRequest(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	query = applyEnterpriseAuditScope(query, enterprise.Id, access)
-	if action := strings.TrimSpace(c.Query("action")); action != "" {
-		query = query.Where("action = ?", action)
-	}
-	if targetType := strings.TrimSpace(c.Query("target_type")); targetType != "" {
-		query = query.Where("target_type = ?", targetType)
-	}
-	if targetId, err := parseOptionalIntQuery(c, "target_id"); err != nil {
+	query, err := buildEnterpriseAuditLogQuery(c, enterprise.Id, access)
+	if err != nil {
 		common.ApiError(c, err)
 		return
-	} else if targetId > 0 {
-		query = query.Where("target_id = ?", targetId)
-	}
-	if actorUserId, err := parseOptionalIntQuery(c, "actor_user_id"); err != nil {
-		common.ApiError(c, err)
-		return
-	} else if actorUserId > 0 {
-		query = query.Where("actor_user_id = ?", actorUserId)
-	}
-	if requestId := strings.TrimSpace(c.Query("request_id")); requestId != "" {
-		query = query.Where("request_id = ?", requestId)
-	}
-	if startTime, err := parseOptionalInt64Query(c, "start_time"); err != nil {
-		common.ApiError(c, err)
-		return
-	} else if startTime > 0 {
-		query = query.Where("created_at >= ?", startTime)
-	}
-	if endTime, err := parseOptionalInt64Query(c, "end_time"); err != nil {
-		common.ApiError(c, err)
-		return
-	} else if endTime > 0 {
-		query = query.Where("created_at <= ?", endTime)
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -2417,6 +2387,38 @@ func ListEnterpriseAuditLogs(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(service.RedactEnterpriseAuditLogsForVisibility(logs))
 	common.ApiSuccess(c, pageInfo)
+}
+
+func ExportEnterpriseAuditLogs(c *gin.Context) {
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	query, err := buildEnterpriseAuditLogQuery(c, enterprise.Id, access)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var logs []model.EnterpriseAuditLog
+	if err := query.Order("created_at desc, id desc").Limit(10000).Find(&logs).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	payload, err := enterpriseAuditLogsCSV(service.RedactEnterpriseAuditLogsForVisibility(logs))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	filename := fmt.Sprintf("enterprise-audit-logs-%d.csv", time.Now().Unix())
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", payload)
 }
 
 func ListEnterpriseGovernanceQueueAdmissions(c *gin.Context) {
@@ -4114,6 +4116,86 @@ func enterpriseUsageBreakdownCSV(items []enterpriseUsageBreakdownItem) ([]byte, 
 			strconv.FormatInt(item.PromptTokens, 10),
 			strconv.FormatInt(item.CompletionTokens, 10),
 			strconv.FormatInt(item.TotalTokens, 10),
+		}); err != nil {
+			return nil, err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func buildEnterpriseAuditLogQuery(c *gin.Context, enterpriseId int, access service.EnterpriseAccess) (*gorm.DB, error) {
+	query := model.DB.Model(&model.EnterpriseAuditLog{}).Where("enterprise_id = ?", enterpriseId)
+	query = applyEnterpriseAuditScope(query, enterpriseId, access)
+	if action := strings.TrimSpace(c.Query("action")); action != "" {
+		query = query.Where("action = ?", action)
+	}
+	if targetType := strings.TrimSpace(c.Query("target_type")); targetType != "" {
+		query = query.Where("target_type = ?", targetType)
+	}
+	if targetId, err := parseOptionalIntQuery(c, "target_id"); err != nil {
+		return nil, err
+	} else if targetId > 0 {
+		query = query.Where("target_id = ?", targetId)
+	}
+	if actorUserId, err := parseOptionalIntQuery(c, "actor_user_id"); err != nil {
+		return nil, err
+	} else if actorUserId > 0 {
+		query = query.Where("actor_user_id = ?", actorUserId)
+	}
+	if requestId := strings.TrimSpace(c.Query("request_id")); requestId != "" {
+		query = query.Where("request_id = ?", requestId)
+	}
+	if startTime, err := parseOptionalInt64Query(c, "start_time"); err != nil {
+		return nil, err
+	} else if startTime > 0 {
+		query = query.Where("created_at >= ?", startTime)
+	}
+	if endTime, err := parseOptionalInt64Query(c, "end_time"); err != nil {
+		return nil, err
+	} else if endTime > 0 {
+		query = query.Where("created_at <= ?", endTime)
+	}
+	return query, nil
+}
+
+func enterpriseAuditLogsCSV(logs []model.EnterpriseAuditLog) ([]byte, error) {
+	var buffer bytes.Buffer
+	buffer.Write([]byte{0xEF, 0xBB, 0xBF})
+	writer := csv.NewWriter(&buffer)
+	if err := writer.Write([]string{
+		"id",
+		"created_at",
+		"actor_user_id",
+		"action",
+		"target_type",
+		"target_id",
+		"scope_user_id",
+		"scope_org_unit_id",
+		"scope_project_id",
+		"request_id",
+		"before_json",
+		"after_json",
+	}); err != nil {
+		return nil, err
+	}
+	for _, log := range logs {
+		if err := writer.Write([]string{
+			strconv.FormatInt(log.Id, 10),
+			strconv.FormatInt(log.CreatedAt, 10),
+			strconv.Itoa(log.ActorUserId),
+			log.Action,
+			log.TargetType,
+			strconv.Itoa(log.TargetId),
+			strconv.Itoa(log.ScopeUserId),
+			strconv.Itoa(log.ScopeOrgUnitId),
+			strconv.Itoa(log.ScopeProjectId),
+			log.RequestId,
+			log.BeforeJson,
+			log.AfterJson,
 		}); err != nil {
 			return nil, err
 		}

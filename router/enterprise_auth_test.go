@@ -1327,6 +1327,17 @@ func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
 		require.NotEqual(t, salesId, item.ScopeOrgUnitId)
 		require.NotEqual(t, otherProject.Id, item.ScopeProjectId)
 	}
+	departmentAuditExport := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs/export", "", departmentCookies, departmentAdminId)
+	require.Equal(t, http.StatusOK, departmentAuditExport.Code)
+	require.Contains(t, departmentAuditExport.Header().Get("Content-Type"), "text/csv")
+	departmentAuditRecords, err := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(departmentAuditExport.Body.Bytes(), []byte{0xEF, 0xBB, 0xBF}))).ReadAll()
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{
+		"audit-engineering-org",
+		"audit-engineering-user",
+		"audit-engineering-request",
+		"audit-engineering-relay",
+	}, enterpriseAuditRequestIdsFromCSVForTest(departmentAuditRecords))
 
 	projectAudit := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs?page_size=50", "", projectCookies, projectAdminId)
 	require.Equal(t, http.StatusOK, projectAudit.Code)
@@ -1336,6 +1347,13 @@ func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
 		"audit-engineering-relay",
 	}, enterpriseAuditRequestIdsForTest(projectAuditPage.Data.Items))
 	require.Equal(t, ownedProject.Id, projectAuditPage.Data.Items[0].ScopeProjectId)
+	projectAuditExport := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs/export", "", projectCookies, projectAdminId)
+	require.Equal(t, http.StatusOK, projectAuditExport.Code)
+	projectAuditRecords, err := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(projectAuditExport.Body.Bytes(), []byte{0xEF, 0xBB, 0xBF}))).ReadAll()
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{
+		"audit-engineering-relay",
+	}, enterpriseAuditRequestIdsFromCSVForTest(projectAuditRecords))
 
 	departmentAdmissions := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/queue-admissions?page_size=50", "", departmentCookies, departmentAdminId)
 	require.Equal(t, http.StatusOK, departmentAdmissions.Code)
@@ -1800,6 +1818,17 @@ func enterpriseAuditRequestIdsForTest(items []enterpriseAuditLogItemForTest) []s
 	requestIds := make([]string, 0, len(items))
 	for _, item := range items {
 		requestIds = append(requestIds, item.RequestId)
+	}
+	return requestIds
+}
+
+func enterpriseAuditRequestIdsFromCSVForTest(records [][]string) []string {
+	requestIds := make([]string, 0, len(records))
+	for idx, record := range records {
+		if idx == 0 || len(record) <= 9 {
+			continue
+		}
+		requestIds = append(requestIds, record[9])
 	}
 	return requestIds
 }

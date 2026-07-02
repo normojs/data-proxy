@@ -394,6 +394,9 @@ export type EnterpriseAuditLog = {
   action: string
   target_type: string
   target_id: number
+  scope_user_id: number
+  scope_org_unit_id: number
+  scope_project_id: number
   before_json: string
   after_json: string
   request_id: string

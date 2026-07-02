@@ -545,6 +545,20 @@ export async function getEnterpriseAuditLogs(
   return res.data
 }
 
+export async function downloadEnterpriseAuditLogsExport(
+  params: EnterpriseAuditLogParams = {}
+) {
+  const res = await api.get<Blob>(
+    withQuery(`${ENTERPRISE_API}/audit-logs/export`, params),
+    {
+      responseType: 'blob',
+      disableDuplicate: true,
+      skipBusinessError: true,
+    }
+  )
+  return res.data
+}
+
 export async function getEnterpriseAnomalyProtections(
   params: EnterpriseAnomalyProtectionParams = {}
 ) {

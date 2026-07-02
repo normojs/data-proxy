@@ -609,6 +609,7 @@ func SetApiRouter(router *gin.Engine) {
 			auditLogEnterpriseRoute.Use(middleware.EnterpriseAnyCapabilityAuth(service.EnterpriseCapabilityAuditRead, service.EnterpriseCapabilityDepartmentManage, service.EnterpriseCapabilityProjectRead, service.EnterpriseCapabilityProjectManage))
 			{
 				auditLogEnterpriseRoute.GET("/audit-logs", controller.ListEnterpriseAuditLogs)
+				auditLogEnterpriseRoute.GET("/audit-logs/export", controller.ExportEnterpriseAuditLogs)
 				auditLogEnterpriseRoute.GET("/queue-admissions", controller.ListEnterpriseGovernanceQueueAdmissions)
 				auditLogEnterpriseRoute.GET("/shared-pool-trends", controller.ListEnterpriseGovernanceSharedPoolTrends)
 				auditLogEnterpriseRoute.GET("/shared-pools", controller.ListEnterpriseGovernanceSharedPools)

@@ -167,6 +167,7 @@ import {
   submitEnterpriseQuotaRequest,
   withdrawEnterpriseQuotaRequest,
   applyEnterpriseOrgSync,
+  downloadEnterpriseAuditLogsExport,
   downloadEnterpriseUsageBreakdownExport,
 } from './api'
 import { QuotaRequestDetailSheet } from './components/quota-request-detail-sheet'
@@ -1481,8 +1482,7 @@ function SsoOrgSyncPanel() {
           (conflict.provider_user_id &&
             String(member.provider_user_id ?? '') ===
               conflict.provider_user_id) ||
-          (conflict.email &&
-            String(member.email ?? '') === conflict.email) ||
+          (conflict.email && String(member.email ?? '') === conflict.email) ||
           (conflict.username &&
             String(member.username ?? '') === conflict.username) ||
           ((conflict.user_id ?? 0) > 0 &&
@@ -1530,7 +1530,9 @@ function SsoOrgSyncPanel() {
       setResult(response.data)
       toast.success(t('Synced'))
       queryClient.invalidateQueries({ queryKey: ['enterprise'] })
-      queryClient.invalidateQueries({ queryKey: ['enterprise', 'org-sync-runs'] })
+      queryClient.invalidateQueries({
+        queryKey: ['enterprise', 'org-sync-runs'],
+      })
     },
   })
 
@@ -1548,7 +1550,9 @@ function SsoOrgSyncPanel() {
       }
       toast.success(t('Rolled back'))
       queryClient.invalidateQueries({ queryKey: ['enterprise'] })
-      queryClient.invalidateQueries({ queryKey: ['enterprise', 'org-sync-runs'] })
+      queryClient.invalidateQueries({
+        queryKey: ['enterprise', 'org-sync-runs'],
+      })
       queryClient.invalidateQueries({ queryKey: ['enterprise', 'audit-logs'] })
     },
   })
@@ -3937,6 +3941,8 @@ function AuditTab(props: {
   setStartDate: (value: string) => void
   endDate: string
   setEndDate: (value: string) => void
+  onExport: () => void
+  exportPending: boolean
   onRequestQuota: (initialValues: QuotaRequestInitialValues) => void
   canManageQueue: boolean
   canManageSharedPool: boolean
@@ -3950,6 +3956,18 @@ function AuditTab(props: {
     <Panel
       title='Audit Logs'
       description='Administrative changes and relay governance audit events.'
+      actions={
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={props.onExport}
+          disabled={props.exportPending}
+        >
+          <Download className='size-4' />
+          {t('Export CSV')}
+        </Button>
+      }
     >
       <div className='space-y-3'>
         <DryRunObservationsPanel
@@ -9977,6 +9995,31 @@ export function EnterpriseGovernance() {
       }),
     enabled: canReadAudit,
   })
+  const exportAuditMutation = useMutation({
+    mutationFn: () =>
+      downloadEnterpriseAuditLogsExport({
+        action: auditAction,
+        target_type: auditTargetType,
+        target_id: auditTargetIdValue,
+        actor_user_id: auditActorUserIdValue,
+        request_id: auditRequestId,
+        start_time: auditStartTime,
+        end_time: auditEndTime,
+      }),
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const start = auditStartDate || 'all'
+      const end = auditEndDate || 'all'
+      link.href = url
+      link.download = `enterprise-audit-logs-${start}-${end}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      toast.success(t('Exported'))
+    },
+  })
   const dryRunObservationStartTime = startOfDayUnix(daysAgoInputValue(7))
   const dryRunObservationEndTime = endOfDayUnix(todayInputValue())
   const dryRunObservationsQuery = useQuery({
@@ -10530,6 +10573,8 @@ export function EnterpriseGovernance() {
                   setStartDate={setAuditStartDate}
                   endDate={auditEndDate}
                   setEndDate={setAuditEndDate}
+                  onExport={() => exportAuditMutation.mutate()}
+                  exportPending={exportAuditMutation.isPending}
                   onRequestQuota={(initialValues) => {
                     setQuotaRequestInitialValues(initialValues)
                     setQuotaRequestDialogOpen(true)
