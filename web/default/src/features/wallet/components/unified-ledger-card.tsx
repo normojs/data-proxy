@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getRouteApi } from '@tanstack/react-router'
+import { Link, getRouteApi } from '@tanstack/react-router'
 import {
   type ColumnDef,
   type VisibilityState,
@@ -29,6 +29,7 @@ import { useMediaQuery } from '@/hooks'
 import {
   FileText,
   History,
+  ListFilter,
   MoreHorizontal,
   ReceiptText,
   RefreshCw,
@@ -466,9 +467,26 @@ function useLedgerColumns(options: {
         ),
         cell: ({ row }) =>
           row.original.request_id ? (
-            <LongText className='max-w-[180px] font-mono text-xs'>
-              {row.original.request_id}
-            </LongText>
+            <div className='flex max-w-[220px] items-center gap-1.5'>
+              <LongText className='min-w-0 flex-1 font-mono text-xs'>
+                {row.original.request_id}
+              </LongText>
+              <Button
+                variant='ghost'
+                size='icon'
+                className='text-muted-foreground hover:text-foreground size-6 shrink-0'
+                aria-label={t('Filter by Request ID')}
+                render={
+                  <Link
+                    to='/usage-logs/$section'
+                    params={{ section: 'common' }}
+                    search={{ requestId: row.original.request_id }}
+                  />
+                }
+              >
+                <ListFilter className='size-3.5' aria-hidden />
+              </Button>
+            </div>
           ) : (
             <span className='text-muted-foreground'>-</span>
           ),
