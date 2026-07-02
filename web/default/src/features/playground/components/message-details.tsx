@@ -132,7 +132,7 @@ function JsonBlock({
           )}
         </Button>
       </div>
-      <ScrollArea className='max-h-72'>
+      <ScrollArea className='max-h-72 overflow-y-auto'>
         <pre className='m-0 min-w-0 overflow-x-auto p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap'>
           {content || '-'}
         </pre>
@@ -209,7 +209,7 @@ export function MessageDetails({ details, className }: MessageDetailsProps) {
         />
       </CollapsibleTrigger>
 
-      <CollapsibleContent className='border-t'>
+      <CollapsibleContent className='max-h-[min(70svh,44rem)] overflow-y-auto overscroll-contain border-t'>
         <Tabs defaultValue='overview' className='gap-0'>
           <TabsList
             variant='line'
