@@ -17,20 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import {
   Check,
   Database,
   Download,
   Eye,
   Filter,
+  ListFilter,
   RefreshCw,
   X,
 } from 'lucide-react'
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { formatTimestampToDate } from '@/lib/format'
@@ -184,7 +182,7 @@ function SectionPanel(props: React.ComponentProps<'section'>) {
   return (
     <section
       {...props}
-      className={cn('rounded-lg border bg-card p-3', props.className)}
+      className={cn('bg-card rounded-lg border p-3', props.className)}
     />
   )
 }
@@ -478,7 +476,7 @@ export function TrainingData() {
                       />
                     </div>
                   </div>
-                  <div className='flex items-start gap-2 rounded-lg border bg-muted/30 p-2'>
+                  <div className='bg-muted/30 flex items-start gap-2 rounded-lg border p-2'>
                     <Checkbox
                       id='training-dataset-include-errored'
                       checked={buildForm.includeErrored}
@@ -620,7 +618,10 @@ export function TrainingData() {
                             <TableCell>
                               <StatusBadge
                                 label={t(
-                                  displayLabel(dataset.status, datasetStatusLabel)
+                                  displayLabel(
+                                    dataset.status,
+                                    datasetStatusLabel
+                                  )
                                 )}
                                 variant={
                                   datasetStatusVariant[dataset.status] ??
@@ -637,7 +638,9 @@ export function TrainingData() {
                             <TableCell>
                               {formatCount(dataset.sample_count)}
                             </TableCell>
-                            <TableCell>{formatBytes(dataset.size_bytes)}</TableCell>
+                            <TableCell>
+                              {formatBytes(dataset.size_bytes)}
+                            </TableCell>
                             <TableCell>
                               {formatTimestampToDate(dataset.built_at)}
                             </TableCell>
@@ -703,7 +706,8 @@ export function TrainingData() {
                     {selectedDataset
                       ? t('Reviewing {{name}} / {{version}}', {
                           name: selectedDataset.name || '-',
-                          version: selectedDataset.version || `#${selectedDataset.id}`,
+                          version:
+                            selectedDataset.version || `#${selectedDataset.id}`,
                         })
                       : t('Select a dataset version to review samples.')}
                   </p>
@@ -772,7 +776,9 @@ export function TrainingData() {
                 <Empty className='min-h-[14rem] border'>
                   <EmptyTitle>{t('No dataset selected')}</EmptyTitle>
                   <EmptyDescription>
-                    {t('Select or build a dataset version before reviewing samples.')}
+                    {t(
+                      'Select or build a dataset version before reviewing samples.'
+                    )}
                   </EmptyDescription>
                 </Empty>
               ) : samplesQuery.isLoading ? (
@@ -806,18 +812,46 @@ export function TrainingData() {
                       {samples.map((sample) => (
                         <TableRow key={sample.id}>
                           <TableCell>
-                            <span className='block max-w-[260px] truncate font-mono text-xs'>
-                              {sample.request_id || '-'}
-                            </span>
+                            {sample.request_id ? (
+                              <div className='flex max-w-[300px] items-center gap-1.5'>
+                                <span className='min-w-0 flex-1 truncate font-mono text-xs'>
+                                  {sample.request_id}
+                                </span>
+                                <Button
+                                  variant='ghost'
+                                  size='icon'
+                                  className='text-muted-foreground hover:text-foreground size-6 shrink-0'
+                                  aria-label={t('Filter by Request ID')}
+                                  render={
+                                    <Link
+                                      to='/usage-logs/$section'
+                                      params={{ section: 'common' }}
+                                      search={{
+                                        requestId: sample.request_id,
+                                      }}
+                                    />
+                                  }
+                                >
+                                  <ListFilter
+                                    className='size-3.5'
+                                    aria-hidden
+                                  />
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className='text-muted-foreground'>-</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <span className='block max-w-[220px] truncate font-mono text-xs'>
                               {sample.model_name || '-'}
                             </span>
                           </TableCell>
-                          <TableCell>{qualityLabel(sample.quality_score)}</TableCell>
                           <TableCell>
-                              <StatusBadge
+                            {qualityLabel(sample.quality_score)}
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge
                               label={t(
                                 displayLabel(
                                   sample.redaction_status,
@@ -969,7 +1003,7 @@ function SamplePreviewDialog(props: {
         ) : props.preview ? (
           <div className='grid min-h-0 gap-3 lg:grid-cols-[1fr_280px]'>
             <div className='min-h-0 overflow-hidden rounded-lg border'>
-              <div className='flex items-center justify-between border-b bg-muted/40 px-3 py-2'>
+              <div className='bg-muted/40 flex items-center justify-between border-b px-3 py-2'>
                 <span className='text-sm font-medium'>
                   {t('Redacted JSONL line')}
                 </span>
@@ -979,7 +1013,7 @@ function SamplePreviewDialog(props: {
                   )}
                   variant={
                     sample
-                      ? reviewStatusVariant[sample.review_status] ?? 'neutral'
+                      ? (reviewStatusVariant[sample.review_status] ?? 'neutral')
                       : 'neutral'
                   }
                   copyable={false}
@@ -992,10 +1026,16 @@ function SamplePreviewDialog(props: {
 
             <div className='space-y-3 rounded-lg border p-3'>
               <div className='space-y-2 text-sm'>
-                <DetailRow label={t('Dataset')} value={props.preview.dataset.name} />
+                <DetailRow
+                  label={t('Dataset')}
+                  value={props.preview.dataset.name}
+                />
                 <DetailRow
                   label={t('Version')}
-                  value={props.preview.dataset.version || `#${props.preview.dataset.id}`}
+                  value={
+                    props.preview.dataset.version ||
+                    `#${props.preview.dataset.id}`
+                  }
                 />
                 <DetailRow
                   label={t('Quality')}
@@ -1018,7 +1058,9 @@ function SamplePreviewDialog(props: {
                   id='training-sample-review-comment'
                   value={props.comment}
                   placeholder={t('Optional reviewer note')}
-                  onChange={(event) => props.onCommentChange(event.target.value)}
+                  onChange={(event) =>
+                    props.onCommentChange(event.target.value)
+                  }
                 />
               </div>
             </div>
