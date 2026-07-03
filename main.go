@@ -121,6 +121,9 @@ func main() {
 	// Enterprise notification outbox delivery task
 	service.StartEnterpriseNotificationOutboxTask()
 
+	// Enterprise audit log retention cleanup task (disabled by default)
+	service.StartEnterpriseAuditLogRetentionTask()
+
 	// Enterprise governance queue stale admission recovery task
 	service.StartEnterpriseGovernanceQueueRecoveryTask()
 
