@@ -6563,6 +6563,25 @@
     "Authorize with Telegram to bind this account to your profile.": "使用 Telegram 授权，将此账号绑定到你的个人资料。",
     "Failed to start Telegram login": "启动 Telegram 登录失败",
     "Signed in via Telegram": "已通过 Telegram 登录",
-    "Telegram bot is not configured": "未配置 Telegram Bot"
+    "Telegram bot is not configured": "未配置 Telegram Bot",
+    "Department bindings for this project.": "此项目绑定的部门。",
+    "Last 30 days usage summary for this project.": "此项目近 30 天用量摘要。",
+    "Manage Members": "管理成员",
+    "Open Quota Requests": "打开额度申请",
+    "Project context and recent activity.": "项目上下文和最近活动。",
+    "Project Detail": "项目详情",
+    "Project-scoped policy preview.": "项目范围策略预览。",
+    "Quota Policies": "额度策略",
+    "Recent audit events for this project.": "此项目的最近审计事件。",
+    "Recent members with direct project access.": "最近拥有项目直接访问权限的成员。",
+    "Recent project-specific quota requests.": "最近的项目专属额度申请。",
+    "View Usage": "查看用量",
+    "You do not have permission to view audit logs.": "你没有查看审计日志的权限。",
+    "You do not have permission to view usage.": "你没有查看用量的权限。",
+    "No quota policies": "暂无额度策略",
+    "No quota requests": "暂无额度申请",
+    "Project changes and member events will appear here.": "项目变更和成员事件会显示在这里。",
+    "Project-specific quota policies will appear here.": "项目专属额度策略会显示在这里。",
+    "Project-specific quota requests will appear here.": "项目专属额度申请会显示在这里。"
   }
 }

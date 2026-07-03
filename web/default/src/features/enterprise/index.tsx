@@ -88,6 +88,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -99,6 +106,13 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  SideDrawerSection,
+  SideDrawerSectionHeader,
+  sideDrawerContentClassName,
+  sideDrawerFormClassName,
+  sideDrawerHeaderClassName,
+} from '@/components/drawer-layout'
 import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
@@ -2456,6 +2470,7 @@ function ProjectsTab(props: {
   setOrgUnitId: (value: string) => void
   onCreate: () => void
   onEdit: (project: EnterpriseProject) => void
+  onViewDetails: (project: EnterpriseProject) => void
   onManageMembers: (project: EnterpriseProject) => void
   onDisable: (project: EnterpriseProject) => void
   onViewUsage: (project: EnterpriseProject) => void
@@ -2572,6 +2587,14 @@ function ProjectsTab(props: {
                         <Button
                           variant='ghost'
                           size='icon-sm'
+                          onClick={() => props.onViewDetails(project)}
+                        >
+                          <Eye className='size-3.5' />
+                          <span className='sr-only'>{t('View Details')}</span>
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='icon-sm'
                           onClick={() => props.onViewUsage(project)}
                         >
                           <Gauge className='size-3.5' />
@@ -2649,6 +2672,435 @@ function ProjectOrgUnitList(props: { names: string[] }) {
       {remaining > 0 && (
         <Badge variant='outline'>+{formatNumber(remaining)}</Badge>
       )}
+    </div>
+  )
+}
+
+function ProjectDetailSheet(props: {
+  open: boolean
+  project: EnterpriseProject | null
+  canViewUsage: boolean
+  canViewAudit: boolean
+  onOpenChange: (open: boolean) => void
+  onManageMembers: (project: EnterpriseProject) => void
+  onViewUsage: (project: EnterpriseProject) => void
+  onViewQuotaRequests: (project: EnterpriseProject) => void
+  onViewAudit: (project: EnterpriseProject) => void
+}) {
+  const { t } = useTranslation()
+  const project = props.project
+  const projectId = project?.id ?? 0
+  const startTime = startOfDayUnix(daysAgoInputValue(30))
+  const endTime = endOfDayUnix(todayInputValue())
+
+  const membersQuery = useQuery({
+    queryKey: ['enterprise', 'projects', projectId, 'members', 'detail'],
+    queryFn: () =>
+      getEnterpriseProjectMembers(projectId, {
+        p: 1,
+        page_size: 5,
+      }),
+    enabled: props.open && projectId > 0,
+  })
+  const policiesQuery = useQuery({
+    queryKey: ['enterprise', 'projects', projectId, 'policies', 'detail'],
+    queryFn: () =>
+      getEnterpriseQuotaPolicies({
+        p: 1,
+        page_size: 5,
+        target_type: 'project',
+        target_id: projectId,
+      }),
+    enabled: props.open && projectId > 0,
+  })
+  const quotaRequestsQuery = useQuery({
+    queryKey: ['enterprise', 'projects', projectId, 'quota-requests', 'detail'],
+    queryFn: () =>
+      getEnterpriseQuotaRequests({
+        p: 1,
+        page_size: 5,
+        project_id: projectId,
+      }),
+    enabled: props.open && projectId > 0,
+  })
+  const usageQuery = useQuery({
+    queryKey: [
+      'enterprise',
+      'projects',
+      projectId,
+      'usage',
+      'detail',
+      startTime,
+      endTime,
+    ],
+    queryFn: () =>
+      getEnterpriseUsageSummary({
+        start_time: startTime,
+        end_time: endTime,
+        project_id: projectId,
+      }),
+    enabled: props.open && projectId > 0 && props.canViewUsage,
+  })
+  const auditQuery = useQuery({
+    queryKey: ['enterprise', 'projects', projectId, 'audit', 'detail'],
+    queryFn: () =>
+      getEnterpriseAuditLogs({
+        p: 1,
+        page_size: 5,
+        target_type: 'project',
+        target_id: projectId,
+      }),
+    enabled: props.open && projectId > 0 && props.canViewAudit,
+  })
+
+  const members = getPageItems(membersQuery.data)
+  const policies = getPageItems(policiesQuery.data)
+  const quotaRequests = getPageItems(quotaRequestsQuery.data)
+  const auditLogs = getPageItems(auditQuery.data)
+  const usage = usageQuery.data?.data?.total
+
+  return (
+    <Sheet open={props.open} onOpenChange={props.onOpenChange}>
+      <SheetContent className={sideDrawerContentClassName('sm:max-w-3xl')}>
+        <SheetHeader className={sideDrawerHeaderClassName('pr-12')}>
+          <SheetTitle>{project?.name || t('Project Detail')}</SheetTitle>
+          <SheetDescription>
+            {project
+              ? `${project.slug} · #${project.id}`
+              : t('Project context and recent activity.')}
+          </SheetDescription>
+        </SheetHeader>
+
+        {project ? (
+          <div className={sideDrawerFormClassName('gap-5')}>
+            <SideDrawerSection>
+              <div className='grid gap-3 sm:grid-cols-2'>
+                <AuditDetailField label='Project ID' value={`#${project.id}`} />
+                <AuditDetailField
+                  label='Owner'
+                  value={
+                    project.owner_name ||
+                    (project.owner_user_id > 0
+                      ? `#${project.owner_user_id}`
+                      : '-')
+                  }
+                />
+                <AuditDetailField
+                  label='Members'
+                  value={formatNumber(project.member_count)}
+                />
+                <AuditDetailField
+                  label='Policies'
+                  value={formatNumber(project.policy_count)}
+                />
+                <AuditDetailField
+                  label='Status'
+                  value={t(
+                    project.status === DISABLED_STATUS ? 'Disabled' : 'Enabled'
+                  )}
+                />
+                <AuditDetailField
+                  label='Updated'
+                  value={formatDateTime(project.updated_at)}
+                />
+              </div>
+              {project.description ? (
+                <div className='text-muted-foreground rounded-lg border p-3 text-sm leading-6'>
+                  {project.description}
+                </div>
+              ) : null}
+            </SideDrawerSection>
+
+            <SideDrawerSection>
+              <SideDrawerSectionHeader
+                title={t('Org Units')}
+                description={t('Department bindings for this project.')}
+                icon={<Building2 className='size-4' />}
+              />
+              <ProjectOrgUnitList names={project.org_unit_names} />
+            </SideDrawerSection>
+
+            <SideDrawerSection>
+              <SideDrawerSectionHeader
+                title={t('Project Members')}
+                description={t('Recent members with direct project access.')}
+                icon={<Users className='size-4' />}
+              />
+              <QueryState
+                query={{
+                  data: membersQuery.data,
+                  isLoading: membersQuery.isLoading,
+                  isError: membersQuery.isError,
+                  error: membersQuery.error,
+                  refetch: membersQuery.refetch,
+                }}
+                empty={members.length === 0}
+                emptyTitle='No members'
+                emptyDescription='Add users by ID to delegate project access.'
+              >
+                <CompactMemberList members={members} />
+              </QueryState>
+              <div>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() => props.onManageMembers(project)}
+                >
+                  <Users className='size-3.5' />
+                  {t('Manage Members')}
+                </Button>
+              </div>
+            </SideDrawerSection>
+
+            <SideDrawerSection>
+              <SideDrawerSectionHeader
+                title={t('Quota Policies')}
+                description={t('Project-scoped policy preview.')}
+                icon={<ShieldCheck className='size-4' />}
+              />
+              <QueryState
+                query={{
+                  data: policiesQuery.data,
+                  isLoading: policiesQuery.isLoading,
+                  isError: policiesQuery.isError,
+                  error: policiesQuery.error,
+                  refetch: policiesQuery.refetch,
+                }}
+                empty={policies.length === 0}
+                emptyTitle='No quota policies'
+                emptyDescription='Project-specific quota policies will appear here.'
+              >
+                <CompactPolicyList policies={policies} />
+              </QueryState>
+            </SideDrawerSection>
+
+            <SideDrawerSection>
+              <SideDrawerSectionHeader
+                title={t('Usage')}
+                description={t('Last 30 days usage summary for this project.')}
+                icon={<Gauge className='size-4' />}
+              />
+              {props.canViewUsage ? (
+                <QueryState
+                  query={{
+                    data: usageQuery.data,
+                    isLoading: usageQuery.isLoading,
+                    isError: usageQuery.isError,
+                    error: usageQuery.error,
+                    refetch: usageQuery.refetch,
+                  }}
+                  empty={!usage}
+                  emptyTitle='No usage records'
+                  emptyDescription='Governance usage attribution has not produced rows for this filter.'
+                >
+                  <div className='grid gap-3 sm:grid-cols-3'>
+                    <StatCell
+                      icon={Activity}
+                      label='Requests'
+                      value={formatNumber(usage?.request_count)}
+                    />
+                    <StatCell
+                      icon={Gauge}
+                      label='Quota'
+                      value={formatNumber(usage?.quota)}
+                    />
+                    <StatCell
+                      icon={ClipboardList}
+                      label='Total Tokens'
+                      value={formatNumber(usage?.total_tokens)}
+                    />
+                  </div>
+                </QueryState>
+              ) : (
+                <div className='text-muted-foreground rounded-lg border p-3 text-sm'>
+                  {t('You do not have permission to view usage.')}
+                </div>
+              )}
+              {props.canViewUsage ? (
+                <div>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => props.onViewUsage(project)}
+                  >
+                    <Gauge className='size-3.5' />
+                    {t('View Usage')}
+                  </Button>
+                </div>
+              ) : null}
+            </SideDrawerSection>
+
+            <SideDrawerSection>
+              <SideDrawerSectionHeader
+                title={t('Quota Requests')}
+                description={t('Recent project-specific quota requests.')}
+                icon={<TimerReset className='size-4' />}
+              />
+              <QueryState
+                query={{
+                  data: quotaRequestsQuery.data,
+                  isLoading: quotaRequestsQuery.isLoading,
+                  isError: quotaRequestsQuery.isError,
+                  error: quotaRequestsQuery.error,
+                  refetch: quotaRequestsQuery.refetch,
+                }}
+                empty={quotaRequests.length === 0}
+                emptyTitle='No quota requests'
+                emptyDescription='Project-specific quota requests will appear here.'
+              >
+                <CompactQuotaRequestList requests={quotaRequests} />
+              </QueryState>
+              <div>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() => props.onViewQuotaRequests(project)}
+                >
+                  <TimerReset className='size-3.5' />
+                  {t('Open Quota Requests')}
+                </Button>
+              </div>
+            </SideDrawerSection>
+
+            <SideDrawerSection>
+              <SideDrawerSectionHeader
+                title={t('Audit')}
+                description={t('Recent audit events for this project.')}
+                icon={<Activity className='size-4' />}
+              />
+              {props.canViewAudit ? (
+                <QueryState
+                  query={{
+                    data: auditQuery.data,
+                    isLoading: auditQuery.isLoading,
+                    isError: auditQuery.isError,
+                    error: auditQuery.error,
+                    refetch: auditQuery.refetch,
+                  }}
+                  empty={auditLogs.length === 0}
+                  emptyTitle='No related audit events'
+                  emptyDescription='Project changes and member events will appear here.'
+                >
+                  <CompactAuditList logs={auditLogs} />
+                </QueryState>
+              ) : (
+                <div className='text-muted-foreground rounded-lg border p-3 text-sm'>
+                  {t('You do not have permission to view audit logs.')}
+                </div>
+              )}
+              {props.canViewAudit ? (
+                <div>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => props.onViewAudit(project)}
+                  >
+                    <Activity className='size-3.5' />
+                    {t('Open Audit Logs')}
+                  </Button>
+                </div>
+              ) : null}
+            </SideDrawerSection>
+          </div>
+        ) : null}
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+function CompactMemberList(props: { members: EnterpriseMember[] }) {
+  const { t } = useTranslation()
+  return (
+    <div className='divide-y rounded-lg border'>
+      {props.members.map((member) => (
+        <div
+          key={member.user_id}
+          className='flex items-center justify-between gap-3 px-3 py-2 text-sm'
+        >
+          <div className='min-w-0'>
+            <div className='truncate font-medium'>
+              {member.display_name || member.username || `#${member.user_id}`}
+            </div>
+            <div className='text-muted-foreground truncate text-xs'>
+              #{member.user_id} · {member.email || member.username || '-'}
+            </div>
+          </div>
+          <Badge variant='secondary'>
+            {t(member.role === 'admin' ? 'Admin' : 'Member')}
+          </Badge>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CompactPolicyList(props: { policies: EnterpriseQuotaPolicy[] }) {
+  const { t } = useTranslation()
+  return (
+    <div className='divide-y rounded-lg border'>
+      {props.policies.map((policy) => (
+        <div key={policy.id} className='space-y-2 px-3 py-2 text-sm'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <div className='min-w-0'>
+              <div className='truncate font-medium'>{policy.name}</div>
+              <div className='text-muted-foreground mt-0.5 text-xs'>
+                {t(formatMetric(policy.metric))} ·{' '}
+                {t(formatPeriod(policy.period))} ·{' '}
+                {t(formatPolicyAction(policy.action))}
+              </div>
+            </div>
+            <StatusBadge status={policy.status} />
+          </div>
+          <UsageBar used={policy.used_value} limit={policy.limit_value} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CompactQuotaRequestList(props: {
+  requests: EnterpriseQuotaRequest[]
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className='divide-y rounded-lg border'>
+      {props.requests.map((request) => (
+        <div
+          key={request.id}
+          className='flex items-center justify-between gap-3 px-3 py-2 text-sm'
+        >
+          <div className='min-w-0'>
+            <div className='truncate font-medium'>
+              #{request.id} · {request.policy_name || t('Policy')}
+            </div>
+            <div className='text-muted-foreground truncate text-xs'>
+              {formatNumber(request.limit_delta)} ·{' '}
+              {formatDateTime(request.created_at)}
+            </div>
+          </div>
+          <QuotaRequestStatusBadge status={request.status} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CompactAuditList(props: { logs: EnterpriseAuditLog[] }) {
+  return (
+    <div className='divide-y rounded-lg border'>
+      {props.logs.map((log) => (
+        <div key={log.id} className='min-w-0 px-3 py-2 text-sm'>
+          <div className='truncate font-medium'>{log.action}</div>
+          <div className='text-muted-foreground mt-0.5 truncate text-xs'>
+            #{log.id} · {formatDateTime(log.created_at)}
+            {log.request_id ? ` · ${log.request_id}` : ''}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -9399,6 +9851,8 @@ export function EnterpriseGovernance() {
   const [memberProject, setMemberProject] = useState<EnterpriseProject | null>(
     null
   )
+  const [viewingProject, setViewingProject] =
+    useState<EnterpriseProject | null>(null)
   const [quotaPolicyDialogOpen, setQuotaPolicyDialogOpen] = useState(false)
   const [editingQuotaPolicy, setEditingQuotaPolicy] =
     useState<EnterpriseQuotaPolicy | null>(null)
@@ -9622,6 +10076,22 @@ export function EnterpriseGovernance() {
         tab: 'audit',
         audit_target_type: 'quota_request',
         audit_target_id: request.id,
+        audit_action: undefined,
+      }),
+    })
+  }
+  const viewProjectAudit = (project: EnterpriseProject) => {
+    setViewingProject(null)
+    setAuditActorUserId('')
+    setAuditRequestId('')
+    setAuditStartDate('')
+    setAuditEndDate('')
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        tab: 'audit',
+        audit_target_type: 'project',
+        audit_target_id: project.id,
         audit_action: undefined,
       }),
     })
@@ -10278,6 +10748,7 @@ export function EnterpriseGovernance() {
                     setEditingProject(project)
                     setProjectDialogOpen(true)
                   }}
+                  onViewDetails={setViewingProject}
                   onManageMembers={(project) => {
                     setMemberProject(project)
                     setProjectMembersDialogOpen(true)
@@ -10708,6 +11179,34 @@ export function EnterpriseGovernance() {
           }}
         />
       ) : null}
+      <ProjectDetailSheet
+        open={Boolean(viewingProject)}
+        project={viewingProject}
+        canViewUsage={canReadFinance}
+        canViewAudit={canReadAudit}
+        onManageMembers={(project) => {
+          setViewingProject(null)
+          setMemberProject(project)
+          setProjectMembersDialogOpen(true)
+        }}
+        onViewUsage={(project) => {
+          setViewingProject(null)
+          setUsageProjectId(String(project.id))
+          setUsageDimension('project')
+          setUsagePage(1)
+          setActiveTab('usage')
+        }}
+        onViewQuotaRequests={(project) => {
+          setViewingProject(null)
+          setQuotaRequestProjectId(String(project.id))
+          setSelectedQuotaRequestIds([])
+          setActiveTab('quota-requests')
+        }}
+        onViewAudit={viewProjectAudit}
+        onOpenChange={(open) => {
+          if (!open) setViewingProject(null)
+        }}
+      />
       <QuotaRequestDetailSheet
         open={Boolean(viewingQuotaRequest)}
         request={viewingQuotaRequest}

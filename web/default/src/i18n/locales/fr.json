@@ -6563,6 +6563,25 @@
     "Authorize with Telegram to bind this account to your profile.": "Autorisez avec Telegram pour lier ce compte à votre profil.",
     "Failed to start Telegram login": "Impossible de démarrer la connexion Telegram",
     "Signed in via Telegram": "Connecté via Telegram",
-    "Telegram bot is not configured": "Le bot Telegram n'est pas configuré"
+    "Telegram bot is not configured": "Le bot Telegram n'est pas configuré",
+    "Department bindings for this project.": "Départements associés à ce projet.",
+    "Last 30 days usage summary for this project.": "Synthèse d'utilisation de ce projet sur les 30 derniers jours.",
+    "Manage Members": "Gérer les membres",
+    "Open Quota Requests": "Ouvrir les demandes de quota",
+    "Project context and recent activity.": "Contexte du projet et activité récente.",
+    "Project Detail": "Détail du projet",
+    "Project-scoped policy preview.": "Aperçu des politiques limitées à ce projet.",
+    "Quota Policies": "Politiques de quota",
+    "Recent audit events for this project.": "Événements d'audit récents pour ce projet.",
+    "Recent members with direct project access.": "Membres récents disposant d’un accès direct au projet.",
+    "Recent project-specific quota requests.": "Demandes de quota récentes propres au projet.",
+    "View Usage": "Voir l'utilisation",
+    "You do not have permission to view audit logs.": "Vous n'avez pas l'autorisation de consulter les journaux d'audit.",
+    "You do not have permission to view usage.": "Vous n'avez pas l'autorisation de consulter l'utilisation.",
+    "No quota policies": "Aucune politique de quota",
+    "No quota requests": "Aucune demande de quota",
+    "Project changes and member events will appear here.": "Les changements du projet et les événements des membres apparaîtront ici.",
+    "Project-specific quota policies will appear here.": "Les politiques de quota propres au projet apparaîtront ici.",
+    "Project-specific quota requests will appear here.": "Les demandes de quota propres au projet apparaîtront ici."
   }
 }

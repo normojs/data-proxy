@@ -1775,9 +1775,15 @@ func ListEnterpriseQuotaPolicies(c *gin.Context) {
 	}
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Model(&model.EnterpriseQuotaPolicy{}).Where("enterprise_id = ?", enterprise.Id)
-	query = applyDepartmentQuotaPolicyScope(query, enterprise.Id, access)
+	query = applyEnterpriseQuotaPolicyScope(query, enterprise.Id, access)
 	if targetType := strings.TrimSpace(c.Query("target_type")); targetType != "" {
 		query = query.Where("target_type = ?", targetType)
+	}
+	if targetId, err := parseOptionalIntQuery(c, "target_id"); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if targetId > 0 {
+		query = query.Where("target_id = ?", targetId)
 	}
 	if metric := strings.TrimSpace(c.Query("metric")); metric != "" {
 		query = query.Where("metric = ?", metric)
@@ -3389,6 +3395,16 @@ func requireProjectOwnerUpdateInScope(c *gin.Context, access service.EnterpriseA
 	return nil
 }
 
+func applyEnterpriseQuotaPolicyScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	if access.HasDepartmentScope() {
+		return applyDepartmentQuotaPolicyScope(query, enterpriseId, access)
+	}
+	if access.HasProjectScope() {
+		return applyProjectQuotaPolicyScope(query, enterpriseId, access)
+	}
+	return query
+}
+
 func applyDepartmentQuotaPolicyScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
 	if !access.HasDepartmentScope() {
 		return query
@@ -3397,15 +3413,28 @@ func applyDepartmentQuotaPolicyScope(query *gorm.DB, enterpriseId int, access se
 		Select("user_id").
 		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
 	scopedPolicyGroupIds := departmentScopedPolicyGroupIds(enterpriseId, access)
+	scopedProjectIds := departmentScopedProjectIds(enterpriseId, access)
 	return query.Where(
-		"(target_type = ? AND target_id IN ?) OR (target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?))",
+		"(target_type = ? AND target_id IN ?) OR (target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?)) OR (target_type = ? AND target_id IN (?))",
 		model.PolicyTargetOrgUnit,
 		access.ScopedOrgUnitIds,
 		model.PolicyTargetUser,
 		scopedUserIds,
 		model.PolicyTargetPolicyGroup,
 		scopedPolicyGroupIds,
+		model.PolicyTargetProject,
+		scopedProjectIds,
 	)
+}
+
+func applyProjectQuotaPolicyScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	if !access.HasProjectScope() {
+		return query
+	}
+	if len(access.ScopedProjectIds) == 0 {
+		return query.Where("1 = 0")
+	}
+	return query.Where("enterprise_id = ? AND target_type = ? AND target_id IN ?", enterpriseId, model.PolicyTargetProject, access.ScopedProjectIds)
 }
 
 func requireDepartmentQuotaPolicyInScope(enterpriseId int, access service.EnterpriseAccess, policy model.EnterpriseQuotaPolicy) error {
@@ -3423,9 +3452,30 @@ func requireDepartmentQuotaPolicyInScope(enterpriseId int, access service.Enterp
 			return err
 		}
 		return requireDepartmentPolicyGroupInScope(access, group)
+	case model.PolicyTargetProject:
+		return requireDepartmentProjectInScope(enterpriseId, access, policy.TargetId)
 	default:
 		return scopedEnterpriseError()
 	}
+}
+
+func requireDepartmentProjectInScope(enterpriseId int, access service.EnterpriseAccess, projectId int) error {
+	if !access.HasDepartmentScope() {
+		return nil
+	}
+	if projectId <= 0 {
+		return scopedEnterpriseError()
+	}
+	var count int64
+	if err := model.DB.Model(&model.EnterpriseProjectOrgUnit{}).
+		Where("enterprise_id = ? AND project_id = ? AND org_unit_id IN ?", enterpriseId, projectId, access.ScopedOrgUnitIds).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return scopedEnterpriseError()
+	}
+	return nil
 }
 
 func applyDepartmentQuotaRequestScope(query *gorm.DB, enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
@@ -3586,9 +3636,7 @@ func departmentScopedSharedPoolPolicyIds(enterpriseId int, access service.Enterp
 	scopedUserIds := model.DB.Model(&model.EnterpriseOrgMembership{}).
 		Select("user_id").
 		Where("enterprise_id = ? AND is_primary = ? AND org_unit_id IN ?", enterpriseId, true, access.ScopedOrgUnitIds)
-	scopedProjectIds := model.DB.Model(&model.EnterpriseProjectOrgUnit{}).
-		Select("project_id").
-		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
+	scopedProjectIds := departmentScopedProjectIds(enterpriseId, access)
 	scopedPolicyGroupIds := departmentScopedPolicyGroupIds(enterpriseId, access)
 	return model.DB.Model(&model.EnterpriseQuotaPolicy{}).
 		Select("id").
@@ -3604,6 +3652,12 @@ func departmentScopedSharedPoolPolicyIds(enterpriseId int, access service.Enterp
 			model.PolicyTargetProject,
 			scopedProjectIds,
 		)
+}
+
+func departmentScopedProjectIds(enterpriseId int, access service.EnterpriseAccess) *gorm.DB {
+	return model.DB.Model(&model.EnterpriseProjectOrgUnit{}).
+		Select("project_id").
+		Where("enterprise_id = ? AND org_unit_id IN ?", enterpriseId, access.ScopedOrgUnitIds)
 }
 
 func projectScopedSharedPoolPolicyIds(enterpriseId int, access service.EnterpriseAccess) *gorm.DB {

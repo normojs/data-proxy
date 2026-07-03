@@ -6563,6 +6563,25 @@
     "Authorize with Telegram to bind this account to your profile.": "Авторизуйтесь через Telegram, чтобы привязать эту учетную запись к профилю.",
     "Failed to start Telegram login": "Не удалось начать вход через Telegram",
     "Signed in via Telegram": "Выполнен вход через Telegram",
-    "Telegram bot is not configured": "Telegram-бот не настроен"
+    "Telegram bot is not configured": "Telegram-бот не настроен",
+    "Department bindings for this project.": "Подразделения, привязанные к этому проекту.",
+    "Last 30 days usage summary for this project.": "Сводка использования проекта за последние 30 дней.",
+    "Manage Members": "Управлять участниками",
+    "Open Quota Requests": "Открыть запросы квоты",
+    "Project context and recent activity.": "Контекст проекта и последние действия.",
+    "Project Detail": "Сведения о проекте",
+    "Project-scoped policy preview.": "Предпросмотр политик в области проекта.",
+    "Quota Policies": "Политики квот",
+    "Recent audit events for this project.": "Последние события аудита для этого проекта.",
+    "Recent members with direct project access.": "Недавние участники с прямым доступом к проекту.",
+    "Recent project-specific quota requests.": "Недавние запросы квоты для проекта.",
+    "View Usage": "Посмотреть использование",
+    "You do not have permission to view audit logs.": "У вас нет прав для просмотра журналов аудита.",
+    "You do not have permission to view usage.": "У вас нет прав для просмотра использования.",
+    "No quota policies": "Нет политик квот",
+    "No quota requests": "Нет запросов квоты",
+    "Project changes and member events will appear here.": "Здесь появятся изменения проекта и события участников.",
+    "Project-specific quota policies will appear here.": "Здесь появятся политики квот этого проекта.",
+    "Project-specific quota requests will appear here.": "Здесь появятся запросы квоты этого проекта."
   }
 }

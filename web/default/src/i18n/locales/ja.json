@@ -6563,6 +6563,25 @@
     "Authorize with Telegram to bind this account to your profile.": "Telegram で認証して、このアカウントをプロフィールに連携します。",
     "Failed to start Telegram login": "Telegram ログインを開始できませんでした",
     "Signed in via Telegram": "Telegram でログインしました",
-    "Telegram bot is not configured": "Telegram Bot が設定されていません"
+    "Telegram bot is not configured": "Telegram Bot が設定されていません",
+    "Department bindings for this project.": "このプロジェクトに紐づく部門です。",
+    "Last 30 days usage summary for this project.": "このプロジェクトの直近 30 日間の使用量サマリーです。",
+    "Manage Members": "メンバーを管理",
+    "Open Quota Requests": "クォータ申請を開く",
+    "Project context and recent activity.": "プロジェクトのコンテキストと最近のアクティビティ。",
+    "Project Detail": "プロジェクト詳細",
+    "Project-scoped policy preview.": "プロジェクト範囲のポリシープレビュー。",
+    "Quota Policies": "クォータポリシー",
+    "Recent audit events for this project.": "このプロジェクトの最近の監査イベント。",
+    "Recent members with direct project access.": "プロジェクトへ直接アクセスできる最近のメンバー。",
+    "Recent project-specific quota requests.": "最近のプロジェクト固有クォータ申請。",
+    "View Usage": "使用量を表示",
+    "You do not have permission to view audit logs.": "監査ログを表示する権限がありません。",
+    "You do not have permission to view usage.": "使用量を表示する権限がありません。",
+    "No quota policies": "クォータポリシーはありません",
+    "No quota requests": "クォータ申請はありません",
+    "Project changes and member events will appear here.": "プロジェクト変更とメンバーイベントがここに表示されます。",
+    "Project-specific quota policies will appear here.": "プロジェクト固有のクォータポリシーがここに表示されます。",
+    "Project-specific quota requests will appear here.": "プロジェクト固有のクォータ申請がここに表示されます。"
   }
 }

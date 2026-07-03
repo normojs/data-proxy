@@ -773,6 +773,7 @@ export type EnterprisePolicyGroupShareRequestsParams = EnterpriseListParams & {
 
 export type EnterpriseQuotaPoliciesParams = EnterpriseListParams & {
   target_type?: string
+  target_id?: number
   metric?: string
 }
 

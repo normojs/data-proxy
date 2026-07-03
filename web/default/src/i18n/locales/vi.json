@@ -6563,6 +6563,25 @@
     "Authorize with Telegram to bind this account to your profile.": "Ủy quyền bằng Telegram để liên kết tài khoản này với hồ sơ của bạn.",
     "Failed to start Telegram login": "Không thể bắt đầu đăng nhập Telegram",
     "Signed in via Telegram": "Đã đăng nhập qua Telegram",
-    "Telegram bot is not configured": "Chưa cấu hình bot Telegram"
+    "Telegram bot is not configured": "Chưa cấu hình bot Telegram",
+    "Department bindings for this project.": "Các phòng ban được gắn với dự án này.",
+    "Last 30 days usage summary for this project.": "Tóm tắt mức sử dụng của dự án trong 30 ngày qua.",
+    "Manage Members": "Quản lý thành viên",
+    "Open Quota Requests": "Mở yêu cầu hạn mức",
+    "Project context and recent activity.": "Ngữ cảnh dự án và hoạt động gần đây.",
+    "Project Detail": "Chi tiết dự án",
+    "Project-scoped policy preview.": "Xem trước chính sách trong phạm vi dự án.",
+    "Quota Policies": "Chính sách hạn mức",
+    "Recent audit events for this project.": "Sự kiện kiểm toán gần đây của dự án này.",
+    "Recent members with direct project access.": "Thành viên gần đây có quyền truy cập trực tiếp vào dự án.",
+    "Recent project-specific quota requests.": "Yêu cầu hạn mức riêng của dự án gần đây.",
+    "View Usage": "Xem mức sử dụng",
+    "You do not have permission to view audit logs.": "Bạn không có quyền xem nhật ký kiểm toán.",
+    "You do not have permission to view usage.": "Bạn không có quyền xem mức sử dụng.",
+    "No quota policies": "Chưa có chính sách hạn mức",
+    "No quota requests": "Chưa có yêu cầu hạn mức",
+    "Project changes and member events will appear here.": "Các thay đổi dự án và sự kiện thành viên sẽ hiển thị tại đây.",
+    "Project-specific quota policies will appear here.": "Chính sách hạn mức riêng của dự án sẽ hiển thị tại đây.",
+    "Project-specific quota requests will appear here.": "Yêu cầu hạn mức riêng của dự án sẽ hiển thị tại đây."
   }
 }

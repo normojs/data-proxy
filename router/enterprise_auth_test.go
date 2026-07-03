@@ -1313,6 +1313,20 @@ func TestEnterpriseRBACScopedAuditLogs(t *testing.T) {
 	departmentCookies := loginEnterpriseRouterUserForTest(t, router, departmentAdminId, common.RoleCommonUser)
 	projectCookies := loginEnterpriseRouterUserForTest(t, router, projectAdminId, common.RoleCommonUser)
 
+	departmentProjectPolicies := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/quota-policies?target_type=project&target_id="+strconv.Itoa(ownedProject.Id)+"&page_size=20", "", departmentCookies, departmentAdminId)
+	require.Equal(t, http.StatusOK, departmentProjectPolicies.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, departmentProjectPolicies).Success)
+	departmentProjectPolicyPage := decodeEnterprisePageResponseForTest[enterpriseQuotaPolicyItemForTest](t, departmentProjectPolicies)
+	require.Len(t, departmentProjectPolicyPage.Data.Items, 1)
+	require.Equal(t, ownedProjectPolicy.Id, departmentProjectPolicyPage.Data.Items[0].Id)
+
+	projectScopedPolicies := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/quota-policies?target_type=project&target_id="+strconv.Itoa(ownedProject.Id)+"&page_size=20", "", projectCookies, projectAdminId)
+	require.Equal(t, http.StatusOK, projectScopedPolicies.Code)
+	require.True(t, decodeEnterpriseAuthResponse(t, projectScopedPolicies).Success)
+	projectScopedPolicyPage := decodeEnterprisePageResponseForTest[enterpriseQuotaPolicyItemForTest](t, projectScopedPolicies)
+	require.Len(t, projectScopedPolicyPage.Data.Items, 1)
+	require.Equal(t, ownedProjectPolicy.Id, projectScopedPolicyPage.Data.Items[0].Id)
+
 	departmentAudit := requestEnterpriseForTest(t, router, http.MethodGet, "/api/enterprise/audit-logs?page_size=50", "", departmentCookies, departmentAdminId)
 	require.Equal(t, http.StatusOK, departmentAudit.Code)
 	require.True(t, decodeEnterpriseAuthResponse(t, departmentAudit).Success)

@@ -6563,6 +6563,25 @@
     "Authorize with Telegram to bind this account to your profile.": "Authorize with Telegram to bind this account to your profile.",
     "Failed to start Telegram login": "Failed to start Telegram login",
     "Signed in via Telegram": "Signed in via Telegram",
-    "Telegram bot is not configured": "Telegram bot is not configured"
+    "Telegram bot is not configured": "Telegram bot is not configured",
+    "Department bindings for this project.": "Department bindings for this project.",
+    "Last 30 days usage summary for this project.": "Last 30 days usage summary for this project.",
+    "Manage Members": "Manage Members",
+    "Open Quota Requests": "Open Quota Requests",
+    "Project context and recent activity.": "Project context and recent activity.",
+    "Project Detail": "Project Detail",
+    "Project-scoped policy preview.": "Project-scoped policy preview.",
+    "Quota Policies": "Quota Policies",
+    "Recent audit events for this project.": "Recent audit events for this project.",
+    "Recent members with direct project access.": "Recent members with direct project access.",
+    "Recent project-specific quota requests.": "Recent project-specific quota requests.",
+    "View Usage": "View Usage",
+    "You do not have permission to view audit logs.": "You do not have permission to view audit logs.",
+    "You do not have permission to view usage.": "You do not have permission to view usage.",
+    "No quota policies": "No quota policies",
+    "No quota requests": "No quota requests",
+    "Project changes and member events will appear here.": "Project changes and member events will appear here.",
+    "Project-specific quota policies will appear here.": "Project-specific quota policies will appear here.",
+    "Project-specific quota requests will appear here.": "Project-specific quota requests will appear here."
   }
 }
