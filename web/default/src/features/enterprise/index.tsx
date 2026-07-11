@@ -6303,7 +6303,10 @@ function NotificationsTab() {
     queryKey: ['enterprise', 'notification-preferences'],
     queryFn: getEnterpriseNotificationPreferences,
   })
-  const preferences = preferencesQuery.data?.data ?? []
+  const preferences = useMemo(
+    () => preferencesQuery.data?.data ?? [],
+    [preferencesQuery.data?.data]
+  )
   const byKey = useMemo(() => {
     const result = new Map<string, EnterpriseNotificationPreference>()
     preferences.forEach((preference) => {
@@ -7317,7 +7320,14 @@ function EnterpriseDialog(props: {
 
   useEffect(() => {
     if (!props.open) return
-    setForm(buildEnterpriseFormState(props.enterprise))
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setForm(buildEnterpriseFormState(props.enterprise))
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.open, props.enterprise])
 
   const mutation = useMutation({
@@ -9536,8 +9546,15 @@ function QuotaRequestBatchDecisionDialog(props: {
   const failedItems = result?.items.filter((item) => !item.success) ?? []
 
   useEffect(() => {
-    setDecisionReason('')
-    setResult(null)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setDecisionReason('')
+      setResult(null)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.action, props.ids])
 
   const mutation = useMutation({
@@ -9790,7 +9807,6 @@ export function EnterpriseGovernance() {
     [
       canManageEnterprise,
       canManageDepartment,
-      canManageProjects,
       canReadProjects,
       canReadAudit,
       canReadEnterprise,

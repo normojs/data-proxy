@@ -18,8 +18,14 @@ import (
 // https://developers.generativeai.google/api/rest/generativelanguage/models/generateMessage#request-body
 // https://developers.generativeai.google/api/rest/generativelanguage/models/generateMessage#response-body
 
-func responsePaLM2OpenAI(response *PaLMChatResponse) *dto.OpenAITextResponse {
+func responsePaLM2OpenAI(response *PaLMChatResponse, model string) *dto.OpenAITextResponse {
+	if model == "" {
+		model = "palm2"
+	}
 	fullTextResponse := dto.OpenAITextResponse{
+		Model:   model,
+		Object:  "chat.completion",
+		Created: common.GetTimestamp(),
 		Choices: make([]dto.OpenAITextResponseChoice, 0, len(response.Candidates)),
 	}
 	for i, candidate := range response.Candidates {
@@ -36,7 +42,10 @@ func responsePaLM2OpenAI(response *PaLMChatResponse) *dto.OpenAITextResponse {
 	return &fullTextResponse
 }
 
-func streamResponsePaLM2OpenAI(palmResponse *PaLMChatResponse) *dto.ChatCompletionsStreamResponse {
+func streamResponsePaLM2OpenAI(palmResponse *PaLMChatResponse, model string) *dto.ChatCompletionsStreamResponse {
+	if model == "" {
+		model = "palm2"
+	}
 	var choice dto.ChatCompletionsStreamResponseChoice
 	if len(palmResponse.Candidates) > 0 {
 		choice.Delta.SetContentString(palmResponse.Candidates[0].Content)
@@ -44,19 +53,23 @@ func streamResponsePaLM2OpenAI(palmResponse *PaLMChatResponse) *dto.ChatCompleti
 	choice.FinishReason = &constant.FinishReasonStop
 	var response dto.ChatCompletionsStreamResponse
 	response.Object = "chat.completion.chunk"
-	response.Model = "palm2"
+	response.Model = model
 	response.Choices = []dto.ChatCompletionsStreamResponseChoice{choice}
 	return &response
 }
 
-func palmStreamHandler(c *gin.Context, resp *http.Response) (*types.NewAPIError, string) {
+func palmStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, string) {
 	responseText := ""
 	responseId := helper.GetResponseID(c)
 	createdTime := common.GetTimestamp()
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+	}
 	dataChan := make(chan string)
 	stopChan := make(chan bool)
 	go func() {
-		responseBody, err := io.ReadAll(resp.Body)
+		responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 		if err != nil {
 			common.SysLog("error reading stream response: " + err.Error())
 			stopChan <- true
@@ -70,7 +83,7 @@ func palmStreamHandler(c *gin.Context, resp *http.Response) (*types.NewAPIError,
 			stopChan <- true
 			return
 		}
-		fullTextResponse := streamResponsePaLM2OpenAI(&palmResponse)
+		fullTextResponse := streamResponsePaLM2OpenAI(&palmResponse, model)
 		fullTextResponse.Id = responseId
 		fullTextResponse.Created = createdTime
 		if len(palmResponse.Candidates) > 0 {
@@ -101,7 +114,7 @@ func palmStreamHandler(c *gin.Context, resp *http.Response) (*types.NewAPIError,
 }
 
 func palmHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
@@ -119,7 +132,11 @@ func palmHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respons
 			Code:    palmResponse.Error.Code,
 		}, resp.StatusCode)
 	}
-	fullTextResponse := responsePaLM2OpenAI(&palmResponse)
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+	}
+	fullTextResponse := responsePaLM2OpenAI(&palmResponse, model)
 	usage := service.ResponseText2Usage(c, palmResponse.Candidates[0].Content, info.UpstreamModelName, info.GetEstimatePromptTokens())
 	fullTextResponse.Usage = *usage
 	jsonResponse, err := common.Marshal(fullTextResponse)

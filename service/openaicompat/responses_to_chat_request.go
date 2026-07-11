@@ -229,11 +229,8 @@ func ChannelPrefersChatResponsesCompatibility(channelType int) bool {
 	case constant.ChannelTypeSiliconFlow,
 		constant.ChannelTypeDeepSeek,
 		constant.ChannelTypeMoonshot,
-		constant.ChannelTypeMiniMax,
 		constant.ChannelTypeMistral,
 		constant.ChannelTypeOpenRouter,
-		constant.ChannelTypeOllama,
-		constant.ChannelTypeTencent,
 		constant.ChannelTypeZhipu_v4,
 		constant.ChannelTypeBaiduV2:
 		return true

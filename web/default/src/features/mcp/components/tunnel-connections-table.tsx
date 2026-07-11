@@ -564,8 +564,15 @@ function TunnelAgentSetupDialog(props: {
 
   useEffect(() => {
     if (props.open) return
-    setSetup(null)
-    setRotate(false)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setSetup(null)
+      setRotate(false)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.open])
 
   const mutation = useMutation({
@@ -813,13 +820,27 @@ function CreateTunnelConnectionDialog(props: {
 
   useEffect(() => {
     if (!props.open) return
-    setForm((current) => normalizeFormForApp(current, props.app))
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setForm((current) => normalizeFormForApp(current, props.app))
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.app, props.open])
 
   useEffect(() => {
     if (props.open) return
-    setCreated(null)
-    setForm(buildInitialForm(props.app))
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setCreated(null)
+      setForm(buildInitialForm(props.app))
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.app, props.open])
 
   const mutation = useMutation({
@@ -1108,7 +1129,14 @@ function EditTunnelConnectionDialog(props: {
 
   useEffect(() => {
     if (!props.open) return
-    setForm(buildEditForm(props.connection))
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setForm(buildEditForm(props.connection))
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.connection, props.open])
 
   const mutation = useMutation({
@@ -1811,15 +1839,22 @@ export function TunnelConnectionsTable() {
     placeholderData: (previousData) => previousData,
   })
 
-  const apps = appsData ?? []
+  const apps = useMemo(() => appsData ?? [], [appsData])
   useEffect(() => {
-    const requestedAppId = search.tunnelConnectionAppId
-    if (requestedAppId && apps.some((app) => app.id === requestedAppId)) {
-      if (selectedAppId !== requestedAppId) setSelectedAppId(requestedAppId)
-      return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      const requestedAppId = search.tunnelConnectionAppId
+      if (requestedAppId && apps.some((app) => app.id === requestedAppId)) {
+        if (selectedAppId !== requestedAppId) setSelectedAppId(requestedAppId)
+        return
+      }
+      if (selectedAppId && apps.some((app) => app.id === selectedAppId)) return
+      setSelectedAppId(apps[0]?.id)
+    })
+    return () => {
+      cancelled = true
     }
-    if (selectedAppId && apps.some((app) => app.id === selectedAppId)) return
-    setSelectedAppId(apps[0]?.id)
   }, [apps, search.tunnelConnectionAppId, selectedAppId])
 
   const selectedApp =

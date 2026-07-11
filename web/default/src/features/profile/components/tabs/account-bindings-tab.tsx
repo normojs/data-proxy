@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Mail, Shield, Send, Link2, Unlink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { SiGithub, SiWechat, SiLinux } from 'react-icons/si'
@@ -79,7 +79,33 @@ export function AccountBindingsTab({
     | Array<{ id: string; name: string }>
     | undefined
 
-  const fetchCustomBindings = useCallback(async () => {
+  useEffect(() => {
+    if (!customProviders || customProviders.length === 0) return
+
+    let cancelled = false
+
+    const fetchCustomBindings = async () => {
+      await Promise.resolve()
+      if (cancelled) return
+
+      try {
+        const res = await getSelfOAuthBindings()
+        if (!cancelled && res.success && res.data) {
+          setCustomBindings(res.data)
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    void fetchCustomBindings()
+
+    return () => {
+      cancelled = true
+    }
+  }, [customProviders])
+
+  const refreshCustomBindings = async () => {
     if (!customProviders || customProviders.length === 0) return
     try {
       const res = await getSelfOAuthBindings()
@@ -89,11 +115,7 @@ export function AccountBindingsTab({
     } catch {
       // ignore
     }
-  }, [customProviders])
-
-  useEffect(() => {
-    fetchCustomBindings()
-  }, [fetchCustomBindings])
+  }
 
   const handleUnbindCustom = async () => {
     if (!unbindTarget) return
@@ -106,7 +128,7 @@ export function AccountBindingsTab({
             provider: unbindTarget.provider_name,
           })
         )
-        await fetchCustomBindings()
+        await refreshCustomBindings()
         onUpdate()
       } else {
         toast.error(res.message || t('Unbind failed'))
@@ -144,7 +166,9 @@ export function AccountBindingsTab({
 
   const handleBindCustomOAuth = (provider: { id: string; name: string }) => {
     const redirectUrl = `${window.location.origin}/oauth/${provider.id}?bind=true`
-    window.location.href = `/api/oauth/${provider.id}?redirect=${encodeURIComponent(redirectUrl)}`
+    window.location.assign(
+      `/api/oauth/${provider.id}?redirect=${encodeURIComponent(redirectUrl)}`
+    )
   }
 
   useEffect(() => {

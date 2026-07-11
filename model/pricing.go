@@ -41,27 +41,31 @@ type Pricing struct {
 }
 
 type PricingActualPrice struct {
-	WindowSeconds             int64   `json:"window_seconds"`
-	StartedAt                 int64   `json:"started_at"`
-	EndedAt                   int64   `json:"ended_at"`
-	LastTransactionAt         int64   `json:"last_transaction_at,omitempty"`
-	RequestCount              int64   `json:"request_count"`
-	AmountQuota               int64   `json:"amount_quota"`
-	Cost                      float64 `json:"cost"`
-	PromptTokens              int64   `json:"prompt_tokens"`
-	CompletionTokens          int64   `json:"completion_tokens"`
-	TotalTokens               int64   `json:"total_tokens"`
-	InputTokens               int64   `json:"input_tokens"`
-	OutputTokens              int64   `json:"output_tokens"`
-	CacheTokens               int64   `json:"cache_tokens"`
-	CacheCreationTokens       int64   `json:"cache_creation_tokens"`
-	TotalBillableTokens       int64   `json:"total_billable_tokens"`
-	EffectivePricePer1MTokens float64 `json:"effective_price_per_1m_tokens,omitempty"`
-	EffectivePricePer1KTokens float64 `json:"effective_price_per_1k_tokens,omitempty"`
-	EffectivePricePerRequest  float64 `json:"effective_price_per_request,omitempty"`
-	PriceUnit                 string  `json:"price_unit"`
-	IsFallback                bool    `json:"is_fallback,omitempty"`
-	PriceMayHaveChanged       bool    `json:"price_may_have_changed,omitempty"`
+	WindowSeconds             int64               `json:"window_seconds"`
+	SampleLimit               int64               `json:"sample_limit,omitempty"`
+	CacheTokenThreshold       int64               `json:"cache_token_threshold,omitempty"`
+	StartedAt                 int64               `json:"started_at"`
+	EndedAt                   int64               `json:"ended_at"`
+	LastTransactionAt         int64               `json:"last_transaction_at,omitempty"`
+	RequestCount              int64               `json:"request_count"`
+	AmountQuota               int64               `json:"amount_quota"`
+	Cost                      float64             `json:"cost"`
+	PromptTokens              int64               `json:"prompt_tokens"`
+	CompletionTokens          int64               `json:"completion_tokens"`
+	TotalTokens               int64               `json:"total_tokens"`
+	InputTokens               int64               `json:"input_tokens"`
+	OutputTokens              int64               `json:"output_tokens"`
+	CacheTokens               int64               `json:"cache_tokens"`
+	CacheCreationTokens       int64               `json:"cache_creation_tokens"`
+	TotalBillableTokens       int64               `json:"total_billable_tokens"`
+	EffectivePricePer1MTokens float64             `json:"effective_price_per_1m_tokens,omitempty"`
+	EffectivePricePer1KTokens float64             `json:"effective_price_per_1k_tokens,omitempty"`
+	EffectivePricePerRequest  float64             `json:"effective_price_per_request,omitempty"`
+	PriceUnit                 string              `json:"price_unit"`
+	IsFallback                bool                `json:"is_fallback,omitempty"`
+	PriceMayHaveChanged       bool                `json:"price_may_have_changed,omitempty"`
+	CachedPrice               *PricingActualPrice `json:"cached_price,omitempty"`
+	NoCachePrice              *PricingActualPrice `json:"no_cache_price,omitempty"`
 }
 
 type PricingVendor struct {
@@ -90,17 +94,14 @@ var (
 )
 
 func GetPricing() []Pricing {
+	updatePricingLock.Lock()
+	defer updatePricingLock.Unlock()
 	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		updatePricingLock.Lock()
-		defer updatePricingLock.Unlock()
-		// Double check after acquiring the lock
-		if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-			modelSupportEndpointsLock.Lock()
-			defer modelSupportEndpointsLock.Unlock()
-			updatePricing()
-		}
+		modelSupportEndpointsLock.Lock()
+		updatePricing()
+		modelSupportEndpointsLock.Unlock()
 	}
-	return pricingMap
+	return clonePricingList(pricingMap)
 }
 
 func InvalidatePricingCache() {
@@ -114,11 +115,14 @@ func InvalidatePricingCache() {
 
 // GetVendors 返回当前定价接口使用到的供应商信息
 func GetVendors() []PricingVendor {
+	updatePricingLock.Lock()
+	defer updatePricingLock.Unlock()
 	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		// 保证先刷新一次
-		GetPricing()
+		modelSupportEndpointsLock.Lock()
+		updatePricing()
+		modelSupportEndpointsLock.Unlock()
 	}
-	return vendorsList
+	return append([]PricingVendor(nil), vendorsList...)
 }
 
 func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
@@ -128,9 +132,53 @@ func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
 	modelSupportEndpointsLock.RLock()
 	defer modelSupportEndpointsLock.RUnlock()
 	if endpoints, ok := modelSupportEndpointTypes[model]; ok {
-		return endpoints
+		return append([]constant.EndpointType(nil), endpoints...)
 	}
 	return make([]constant.EndpointType, 0)
+}
+
+func clonePricingList(source []Pricing) []Pricing {
+	if len(source) == 0 {
+		return source
+	}
+	cloned := make([]Pricing, len(source))
+	for i := range source {
+		cloned[i] = clonePricing(source[i])
+	}
+	return cloned
+}
+
+func clonePricing(source Pricing) Pricing {
+	source.EnableGroup = append([]string(nil), source.EnableGroup...)
+	source.SupportedEndpointTypes = append([]constant.EndpointType(nil), source.SupportedEndpointTypes...)
+	if source.ActualPrice != nil {
+		actual := clonePricingActualPrice(*source.ActualPrice)
+		source.ActualPrice = &actual
+	}
+	if len(source.ActualPriceByGroup) > 0 {
+		source.ActualPriceByGroup = clonePricingActualPriceMap(source.ActualPriceByGroup)
+	}
+	return source
+}
+
+func clonePricingActualPriceMap(source map[string]PricingActualPrice) map[string]PricingActualPrice {
+	cloned := make(map[string]PricingActualPrice, len(source))
+	for key, value := range source {
+		cloned[key] = clonePricingActualPrice(value)
+	}
+	return cloned
+}
+
+func clonePricingActualPrice(source PricingActualPrice) PricingActualPrice {
+	if source.CachedPrice != nil {
+		cached := clonePricingActualPrice(*source.CachedPrice)
+		source.CachedPrice = &cached
+	}
+	if source.NoCachePrice != nil {
+		noCache := clonePricingActualPrice(*source.NoCachePrice)
+		source.NoCachePrice = &noCache
+	}
+	return source
 }
 
 func updatePricing() {
@@ -387,5 +435,14 @@ func updatePricing() {
 
 // GetSupportedEndpointMap 返回全局端点到路径的映射
 func GetSupportedEndpointMap() map[string]common.EndpointInfo {
-	return supportedEndpointMap
+	modelSupportEndpointsLock.RLock()
+	defer modelSupportEndpointsLock.RUnlock()
+	if len(supportedEndpointMap) == 0 {
+		return map[string]common.EndpointInfo{}
+	}
+	cloned := make(map[string]common.EndpointInfo, len(supportedEndpointMap))
+	for key, value := range supportedEndpointMap {
+		cloned[key] = value
+	}
+	return cloned
 }

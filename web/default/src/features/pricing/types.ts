@@ -79,6 +79,8 @@ export type PricingModel = {
 
 export type PricingActualPrice = {
   window_seconds: number
+  sample_limit?: number
+  cache_token_threshold?: number
   started_at: number
   ended_at: number
   last_transaction_at?: number
@@ -99,6 +101,8 @@ export type PricingActualPrice = {
   price_unit: string
   is_fallback?: boolean
   price_may_have_changed?: boolean
+  cached_price?: PricingActualPrice
+  no_cache_price?: PricingActualPrice
 }
 
 /** Input/output modalities supported by a model. */

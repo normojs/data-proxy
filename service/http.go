@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	MaxErrorResponseBodyBytes = 1 << 20  // 1 MiB
+	MaxRelayResponseBodyBytes = 64 << 20 // 64 MiB
+)
+
+var ErrResponseBodyTooLarge = errors.New("response body exceeds configured limit")
+
 func CloseResponseBodyGracefully(httpResponse *http.Response) {
 	if httpResponse == nil || httpResponse.Body == nil {
 		return
@@ -21,6 +29,23 @@ func CloseResponseBodyGracefully(httpResponse *http.Response) {
 	if err != nil {
 		common.SysError("failed to close response body: " + err.Error())
 	}
+}
+
+func ReadAllLimited(reader io.Reader, maxBytes int64) ([]byte, error) {
+	if reader == nil {
+		return nil, nil
+	}
+	if maxBytes <= 0 {
+		return io.ReadAll(reader)
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return data[:maxBytes], fmt.Errorf("%w: max=%d", ErrResponseBodyTooLarge, maxBytes)
+	}
+	return data, nil
 }
 
 // ShouldCopyUpstreamHeader checks whether a given upstream response header
@@ -55,6 +80,9 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	if src != nil {
 		for k, v := range src.Header {
 			if !ShouldCopyUpstreamHeader(c, k, v) {
+				continue
+			}
+			if len(v) == 0 {
 				continue
 			}
 			c.Writer.Header().Set(k, v[0])

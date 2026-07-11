@@ -136,19 +136,21 @@ Completed work:
 
 ## Intentional Unsupported / Do Not Batch-Implement
 
-### OpenAI-compatible routes intentionally returning 501
+### OpenAI-compatible management routes
 
-Source: `router/relay-router.go`, `controller/relay.go`
+Source: `router/relay-router.go`, `controller/openai_management_proxy.go`
 
 Routes such as `/files`, `/fine-tunes`, `/images/variations`, model delete, and
-Responses compact currently use explicit not-implemented handling. These should
-stay explicit 501-style responses until product decides to proxy or implement
-those APIs.
+Responses compact used to be grouped with explicit not-implemented handling.
+Files, Fine-tunes, image variations, and model delete now route through
+`RelayOpenAIManagement`, which selects an upstream OpenAI-compatible channel and
+passes the request through without entering the normal model-priced relay flow.
+Responses compact remains limited to native OpenAI/Codex or the safe
+Responses-to-Chat compatibility matrix.
 
-The OpenAI-compatible route subset is now regression-covered: controller tests
-lock the OpenAI-style 501 response shape and router tests lock route
-registration to the explicit `RelayNotImplemented` handler so these routes do
-not drift to 404 or generic relay handling accidentally.
+The OpenAI-compatible route subset is regression-covered so these management
+routes do not drift back to the generic `RelayNotImplemented` handler or to a
+plain 404.
 
 ### Provider adaptor unsupported feature errors
 

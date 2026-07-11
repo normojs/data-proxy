@@ -203,7 +203,7 @@ const RESPONSES_NATIVE_CHANNEL_TYPES = new Set([
   1, 3, 17, 27, 39, 45, 48, 53, 57,
 ])
 const RESPONSES_CHAT_COMPAT_CHANNEL_TYPES = new Set([
-  4, 20, 23, 25, 26, 35, 40, 42, 43, 46,
+  20, 25, 26, 40, 42, 43, 46,
 ])
 const STREAM_ERROR_MAPPING_TEMPLATE = [
   {
@@ -305,11 +305,6 @@ function getResponsesReasoningHint(
       return {
         badge: t('OpenRouter'),
         description: t('Use Auto or OpenRouter reasoning.effort.'),
-      }
-    case 35:
-      return {
-        badge: t('MiniMax'),
-        description: t('Use Auto or MiniMax reasoning_split.'),
       }
     case 43:
       return {

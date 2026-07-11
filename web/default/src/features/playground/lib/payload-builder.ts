@@ -21,8 +21,15 @@ import type {
   Message,
   PlaygroundConfig,
   ParameterEnabled,
+  ResponsesInputMessage,
+  ResponsesRequest,
+  PlaygroundRequest,
 } from '../types'
-import { formatMessageForAPI, isValidMessage } from './message-utils'
+import {
+  formatMessageForAPI,
+  getCurrentVersion,
+  isValidMessage,
+} from './message-utils'
 
 /**
  * Build API request payload from messages and config
@@ -64,4 +71,75 @@ export function buildChatCompletionPayload(
   })
 
   return payload
+}
+
+function formatMessageForResponsesInput(
+  message: Message
+): ResponsesInputMessage | null {
+  if (message.from === 'system') return null
+
+  const content = getCurrentVersion(message).content
+  const type = message.from === 'assistant' ? 'output_text' : 'input_text'
+
+  return {
+    type: 'message',
+    role: message.from,
+    content: [
+      {
+        type,
+        text: content,
+      },
+    ],
+  }
+}
+
+export function buildResponsesPayload(
+  messages: Message[],
+  config: PlaygroundConfig,
+  parameterEnabled: ParameterEnabled
+): ResponsesRequest {
+  const validMessages = messages.filter(isValidMessage)
+  const instructions = validMessages
+    .filter((message) => message.from === 'system')
+    .map((message) => getCurrentVersion(message).content.trim())
+    .filter(Boolean)
+    .join('\n\n')
+
+  const input = validMessages
+    .map(formatMessageForResponsesInput)
+    .filter((message): message is ResponsesInputMessage => message !== null)
+
+  const payload: ResponsesRequest = {
+    model: config.model,
+    group: config.group,
+    input,
+    stream: config.stream,
+  }
+
+  if (instructions) {
+    payload.instructions = instructions
+  }
+
+  if (parameterEnabled.temperature) {
+    payload.temperature = config.temperature
+  }
+  if (parameterEnabled.top_p) {
+    payload.top_p = config.top_p
+  }
+  if (parameterEnabled.max_tokens && config.max_tokens > 0) {
+    payload.max_output_tokens = config.max_tokens
+  }
+
+  return payload
+}
+
+export function buildPlaygroundPayload(
+  messages: Message[],
+  config: PlaygroundConfig,
+  parameterEnabled: ParameterEnabled
+): PlaygroundRequest {
+  if (config.endpoint === 'responses') {
+    return buildResponsesPayload(messages, config, parameterEnabled)
+  }
+  return buildChatCompletionPayload(messages, config, parameterEnabled)
 }

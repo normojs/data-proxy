@@ -228,7 +228,10 @@ export function TrainingData() {
       }),
   })
 
-  const datasets = datasetsQuery.data?.data?.items ?? []
+  const datasets = useMemo(
+    () => datasetsQuery.data?.data?.items ?? [],
+    [datasetsQuery.data?.data?.items]
+  )
   const datasetTotal = datasetsQuery.data?.data?.total ?? 0
   const selectedDataset = useMemo(
     () => datasets.find((dataset) => dataset.id === selectedDatasetId),
@@ -237,7 +240,9 @@ export function TrainingData() {
 
   useEffect(() => {
     if (!selectedDatasetId && datasets.length > 0) {
-      setSelectedDatasetId(datasets[0].id)
+      queueMicrotask(() => {
+        setSelectedDatasetId(datasets[0].id)
+      })
     }
   }, [datasets, selectedDatasetId])
 

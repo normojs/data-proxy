@@ -53,3 +53,41 @@ func TestDoAwsClientRequest_AppliesRuntimeHeaderOverrideToAnthropicBeta(t *testi
 	require.True(t, ok)
 	require.Equal(t, []any{"computer-use-2025-01-24"}, values)
 }
+
+func TestNovaResponseTextConcatenatesContentSegments(t *testing.T) {
+	t.Parallel()
+
+	var payload novaResponsePayload
+	require.NoError(t, common.Unmarshal([]byte(`{
+		"output": {
+			"message": {
+				"content": [
+					{"text": "hello"},
+					{"text": " world"}
+				]
+			}
+		}
+	}`), &payload))
+
+	text, err := novaResponseText(&payload)
+	require.NoError(t, err)
+	require.Equal(t, "hello world", text)
+}
+
+func TestNovaResponseTextRejectsEmptyContent(t *testing.T) {
+	t.Parallel()
+
+	var payload novaResponsePayload
+	require.NoError(t, common.Unmarshal([]byte(`{
+		"output": {
+			"message": {
+				"content": []
+			}
+		}
+	}`), &payload))
+
+	text, err := novaResponseText(&payload)
+	require.Error(t, err)
+	require.Empty(t, text)
+	require.Contains(t, err.Error(), "content is empty")
+}

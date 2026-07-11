@@ -19,13 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState } from 'react'
 import { getRouteApi } from '@tanstack/react-router'
 import { type ColumnDef } from '@tanstack/react-table'
-import {
-  CircleAlert,
-  Sparkles,
-  KeyRound,
-  ListFilter,
-  Route,
-} from 'lucide-react'
+import { CircleAlert, Sparkles, KeyRound } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
@@ -37,7 +31,6 @@ import {
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -69,6 +62,7 @@ import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { ModelBadge } from '../model-badge'
 import { useUsageLogsContext } from '../usage-logs-provider'
+import { RequestIdCell } from './request-id-cell'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
@@ -103,106 +97,29 @@ function getGroupRatioText(other: LogOtherData | null): string | null {
   return null
 }
 
+function getReasoningEffortVariant(
+  effort: string
+): StatusBadgeProps['variant'] {
+  switch (effort.toLowerCase()) {
+    case 'minimal':
+    case 'low':
+      return 'green'
+    case 'medium':
+      return 'yellow'
+    case 'high':
+      return 'orange'
+    case 'xhigh':
+    case 'max':
+      return 'red'
+    default:
+      return 'neutral'
+  }
+}
+
 function splitQuotaDisplay(value: string): { prefix: string; amount: string } {
   const match = value.match(/^([^0-9+\-.,\s]+)(.+)$/)
   if (!match) return { prefix: '', amount: value }
   return { prefix: match[1], amount: match[2] }
-}
-
-function formatRequestId(value: string): string {
-  if (!value) return ''
-  if (value.length <= 16) return value
-  return `${value.slice(0, 6)}...${value.slice(-6)}`
-}
-
-interface RequestIdCellProps {
-  log: UsageLog
-  isAdmin: boolean
-  onFilter: (requestId: string, subsiteId?: number) => void
-}
-
-function RequestIdCell({ log, isAdmin, onFilter }: RequestIdCellProps) {
-  const { t } = useTranslation()
-  const [traceOpen, setTraceOpen] = useState(false)
-  const requestId = log.request_id
-
-  if (!requestId) {
-    return <span className='text-muted-foreground/50 text-xs'>-</span>
-  }
-
-  return (
-    <>
-      <div className='flex max-w-[210px] items-center gap-1'>
-        <TooltipProvider delay={300}>
-          <Tooltip>
-            <TooltipTrigger render={<div className='min-w-0 flex-1' />}>
-              <StatusBadge
-                label={formatRequestId(requestId)}
-                copyText={requestId}
-                size='sm'
-                showDot={false}
-                className='border-border/60 bg-muted/30 text-foreground h-6 max-w-full gap-1.5 overflow-hidden rounded-md border px-2 py-0.5 font-mono'
-              />
-            </TooltipTrigger>
-            <TooltipContent
-              side='top'
-              className='max-w-xs font-mono text-xs break-all'
-            >
-              {requestId}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant='ghost'
-                  size='icon'
-                  className='text-muted-foreground hover:text-foreground size-6 shrink-0'
-                  aria-label={t('View request trace')}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setTraceOpen(true)
-                  }}
-                />
-              }
-            >
-              <Route className='size-3.5' aria-hidden='true' />
-            </TooltipTrigger>
-            <TooltipContent side='top'>
-              {t('View request trace')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant='ghost'
-                  size='icon'
-                  className='text-muted-foreground hover:text-foreground size-6 shrink-0'
-                  aria-label={t('Filter by Request ID')}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onFilter(requestId, log.subsite_id)
-                  }}
-                />
-              }
-            >
-              <ListFilter className='size-3.5' aria-hidden='true' />
-            </TooltipTrigger>
-            <TooltipContent side='top'>
-              {t('Filter by Request ID')}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-      <DetailsDialog
-        log={log}
-        isAdmin={isAdmin}
-        open={traceOpen}
-        onOpenChange={setTraceOpen}
-      />
-    </>
-  )
 }
 
 function buildDetailSegments(
@@ -678,6 +595,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         if (!isDisplayableLogType(log.type)) return null
 
         const modelInfo = formatModelName(log)
+        const reasoningEffort = parseLogOther(log.other)?.reasoning_effort?.trim()
 
         return (
           <div className='flex w-fit flex-col gap-0.5'>
@@ -685,6 +603,15 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               modelName={modelInfo.name}
               actualModel={modelInfo.actualModel}
             />
+            {reasoningEffort && (
+              <StatusBadge
+                label={`${t('Reasoning Effort')}: ${reasoningEffort}`}
+                variant={getReasoningEffortVariant(reasoningEffort)}
+                size='sm'
+                copyable={false}
+                className='text-xs'
+              />
+            )}
           </div>
         )
       },

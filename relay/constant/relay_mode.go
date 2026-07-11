@@ -55,6 +55,7 @@ const (
 )
 
 func Path2RelayMode(path string) int {
+	path = stripSubsiteRelayPrefix(path)
 	relayMode := RelayModeUnknown
 	if strings.HasPrefix(path, "/v1/chat/completions") || strings.HasPrefix(path, "/pg/chat/completions") {
 		relayMode = RelayModeChatCompletions
@@ -74,7 +75,7 @@ func Path2RelayMode(path string) int {
 		relayMode = RelayModeEdits
 	} else if strings.HasPrefix(path, "/v1/responses/compact") {
 		relayMode = RelayModeResponsesCompact
-	} else if strings.HasPrefix(path, "/v1/responses") {
+	} else if strings.HasPrefix(path, "/v1/responses") || strings.HasPrefix(path, "/pg/responses") {
 		relayMode = RelayModeResponses
 	} else if strings.HasPrefix(path, "/v1/audio/speech") {
 		relayMode = RelayModeAudioSpeech
@@ -92,6 +93,21 @@ func Path2RelayMode(path string) int {
 		relayMode = Path2RelayModeMidjourney(path)
 	}
 	return relayMode
+}
+
+func stripSubsiteRelayPrefix(path string) string {
+	if !strings.HasPrefix(path, "/s/") {
+		return path
+	}
+	rest := strings.TrimPrefix(path, "/s/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 {
+		return path
+	}
+	if parts[1] == "v1" || strings.HasPrefix(parts[1], "v1/") || parts[1] == "v1beta" || strings.HasPrefix(parts[1], "v1beta/") {
+		return "/" + parts[1]
+	}
+	return path
 }
 
 func Path2RelayModeMidjourney(path string) int {

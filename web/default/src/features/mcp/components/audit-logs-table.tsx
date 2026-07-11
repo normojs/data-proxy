@@ -56,7 +56,8 @@ import {
   TimestampCell,
   TraceCell,
 } from './table-cells'
-import { TimeRangeFilter, timestampMsToSeconds } from './time-range-filter'
+import { TimeRangeFilter } from './time-range-filter'
+import { timestampMsToSeconds } from './time-range-utils'
 
 const route = getRouteApi('/_authenticated/mcp/$section')
 

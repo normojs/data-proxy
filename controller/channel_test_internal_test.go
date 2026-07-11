@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -229,4 +230,46 @@ func TestResolveChannelTestModelDefaultsOnlyForOfficialOpenAI(t *testing.T) {
 		Type: constant.ChannelTypeSiliconFlow,
 	}, "")
 	require.ErrorContains(t, err, "test model is empty")
+}
+
+func TestChannelTestRequestShapeDefaultsCodexToResponses(t *testing.T) {
+	channel := &model.Channel{
+		Type: constant.ChannelTypeCodex,
+	}
+
+	endpointType := normalizeChannelTestEndpoint(channel, "gpt-5.5", "")
+	requestPath := channelTestRequestPath(channel, "gpt-5.5", endpointType)
+	relayFormat := channelTestRelayFormat(requestPath, endpointType)
+
+	require.Equal(t, string(constant.EndpointTypeOpenAIResponse), endpointType)
+	require.Equal(t, "/v1/responses", requestPath)
+	require.Equal(t, types.RelayFormat(types.RelayFormatOpenAIResponses), relayFormat)
+}
+
+func TestChannelTestRequestShapeUsesMappedCompactModel(t *testing.T) {
+	channel := &model.Channel{
+		Type: constant.ChannelTypeOpenAI,
+	}
+	mappedModel := "gpt-5.5" + ratio_setting.CompactModelSuffix
+
+	endpointType := normalizeChannelTestEndpoint(channel, mappedModel, "")
+	requestPath := channelTestRequestPath(channel, mappedModel, endpointType)
+	relayFormat := channelTestRelayFormat(requestPath, endpointType)
+
+	require.Equal(t, string(constant.EndpointTypeOpenAIResponseCompact), endpointType)
+	require.Equal(t, "/v1/responses/compact", requestPath)
+	require.Equal(t, types.RelayFormat(types.RelayFormatOpenAIResponsesCompaction), relayFormat)
+}
+
+func TestChannelTestRequestShapeKeepsEmbeddingPathAndBodyConsistent(t *testing.T) {
+	channel := &model.Channel{
+		Type: constant.ChannelTypeMokaAI,
+	}
+
+	endpointType := normalizeChannelTestEndpoint(channel, "text-embed-large", "")
+	requestPath := channelTestRequestPath(channel, "text-embed-large", endpointType)
+	request := buildTestRequest("text-embed-large", endpointType, channel, false)
+
+	require.Equal(t, "/v1/embeddings", requestPath)
+	require.IsType(t, &dto.EmbeddingRequest{}, request)
 }

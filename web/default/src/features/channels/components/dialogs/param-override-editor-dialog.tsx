@@ -1121,34 +1121,50 @@ export function ParamOverrideEditorDialog(
   // Initialize state when dialog opens
   useEffect(() => {
     if (!props.open) return
-    const state = parseInitialState(props.value)
-    setEditMode(state.editMode)
-    setVisualMode(state.visualMode)
-    setLegacyValue(state.legacyValue)
-    setOperations(state.operations)
-    setJsonText(state.jsonText)
-    setJsonError(state.jsonError)
-    setOperationSearch('')
-    setSelectedOperationId(state.operations[0]?.id || '')
-    setExpandedConditions({})
-    setDraggedOperationId('')
-    setDragOverOperationId('')
-    setDragOverPosition('before')
-    if (state.visualMode === 'legacy') {
-      setTemplatePresetKey('legacy_default')
-    } else {
-      setTemplatePresetKey('operations_default')
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+
+      const state = parseInitialState(props.value)
+      setEditMode(state.editMode)
+      setVisualMode(state.visualMode)
+      setLegacyValue(state.legacyValue)
+      setOperations(state.operations)
+      setJsonText(state.jsonText)
+      setJsonError(state.jsonError)
+      setOperationSearch('')
+      setSelectedOperationId(state.operations[0]?.id || '')
+      setExpandedConditions({})
+      setDraggedOperationId('')
+      setDragOverOperationId('')
+      setDragOverPosition('before')
+      if (state.visualMode === 'legacy') {
+        setTemplatePresetKey('legacy_default')
+      } else {
+        setTemplatePresetKey('operations_default')
+      }
+    })
+    return () => {
+      cancelled = true
     }
   }, [props.open, props.value])
 
   // Keep selectedOperationId valid
   useEffect(() => {
-    if (operations.length === 0) {
-      setSelectedOperationId('')
-      return
-    }
-    if (!operations.some((o) => o.id === selectedOperationId)) {
-      setSelectedOperationId(operations[0].id)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+
+      if (operations.length === 0) {
+        setSelectedOperationId('')
+        return
+      }
+      if (!operations.some((o) => o.id === selectedOperationId)) {
+        setSelectedOperationId(operations[0].id)
+      }
+    })
+    return () => {
+      cancelled = true
     }
   }, [operations, selectedOperationId])
 

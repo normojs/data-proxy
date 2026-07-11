@@ -226,6 +226,7 @@ export function RequestDiagnosticCandidatesDialog(
       filters.source,
       filters.modelName,
       filters.channelId,
+      normalizedChannelId,
     ],
     queryFn: () =>
       getRequestDiagnosticCandidates({
@@ -235,7 +236,8 @@ export function RequestDiagnosticCandidatesDialog(
         subsite_id: props.subsiteId,
         severity:
           filters.severity === ALL_FILTER_VALUE ? undefined : filters.severity,
-        source: filters.source === ALL_FILTER_VALUE ? undefined : filters.source,
+        source:
+          filters.source === ALL_FILTER_VALUE ? undefined : filters.source,
         model_name: filters.modelName.trim() || undefined,
         channel_id:
           Number.isFinite(normalizedChannelId) && normalizedChannelId > 0
@@ -315,7 +317,7 @@ export function RequestDiagnosticCandidatesDialog(
             </Button>
           </div>
 
-          <div className='grid gap-2 rounded-md border bg-muted/30 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_7rem_auto] sm:items-center'>
+          <div className='bg-muted/30 grid gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_7rem_auto] sm:items-center'>
             <Select
               value={filters.severity}
               onValueChange={(value) =>
@@ -362,7 +364,9 @@ export function RequestDiagnosticCandidatesDialog(
                   <SelectItem value='channel_failover'>
                     {t('Channel Failover')}
                   </SelectItem>
-                  <SelectItem value='capture'>{t('Request Capture')}</SelectItem>
+                  <SelectItem value='capture'>
+                    {t('Request Capture')}
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 )
@@ -48,7 +47,7 @@ func FetchCodexWhamUsage(
 	}
 	defer resp.Body.Close()
 
-	body, err = io.ReadAll(resp.Body)
+	body, err = ReadAllLimited(resp.Body, MaxRelayResponseBodyBytes)
 	if err != nil {
 		return resp.StatusCode, nil, err
 	}

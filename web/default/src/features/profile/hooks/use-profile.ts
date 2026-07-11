@@ -120,7 +120,15 @@ export function useProfile() {
 
   // Initial fetch
   useEffect(() => {
-    fetchProfile()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void fetchProfile()
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [fetchProfile])
 
   return {

@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, AlertTriangle, RefreshCw } from 'lucide-react'
@@ -107,10 +106,7 @@ export function ServiceStatusIndicator(props: ServiceStatusIndicatorProps) {
   const overallStatus = getOverallStatus(data?.summary)
   const meta = getStatusMeta(overallStatus)
   const StatusIcon = statusQuery.isError ? AlertTriangle : meta.icon
-  const label = useMemo(
-    () => buildIndicatorLabel(data, overallStatus, t),
-    [data, overallStatus, t]
-  )
+  const label = buildIndicatorLabel(data, overallStatus, t)
   const displayLabel = props.labelMode === 'title' ? t('Service Status') : label
   const activeAlerts = data?.summary.active_alerts ?? 0
 

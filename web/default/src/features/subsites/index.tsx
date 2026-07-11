@@ -838,7 +838,15 @@ function SubsiteApiAccessPanel({
   )
 
   useEffect(() => {
-    setRevealedKey(dashboard.token?.key ?? null)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setRevealedKey(dashboard.token?.key ?? null)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [dashboard.token?.id, dashboard.token?.key])
 
   const updateCachedToken = (token: SubsiteTokenInfo) => {

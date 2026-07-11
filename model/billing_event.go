@@ -36,17 +36,17 @@ const (
 )
 
 type BillingEvent struct {
-	Id int64 `json:"id"`
+	Id int64 `json:"id" gorm:"index:idx_billing_events_pricing_actual,priority:5"`
 
 	EventId   string `json:"event_id" gorm:"type:varchar(128);not null;uniqueIndex"`
 	SubsiteId int64  `json:"subsite_id" gorm:"not null;default:0;index"`
 	UserId    int    `json:"user_id" gorm:"not null;index"`
 	TokenId   int    `json:"token_id" gorm:"index"`
 
-	Source    string `json:"source" gorm:"type:varchar(64);not null;index:idx_billing_events_source_ref,priority:1"`
+	Source    string `json:"source" gorm:"type:varchar(64);not null;index:idx_billing_events_source_ref,priority:1;index:idx_billing_events_pricing_actual,priority:1"`
 	SourceId  string `json:"source_id" gorm:"type:varchar(128);not null;index:idx_billing_events_source_ref,priority:2"`
-	EventType string `json:"event_type" gorm:"type:varchar(32);not null;index"`
-	Status    string `json:"status" gorm:"type:varchar(32);not null;default:'settled';index"`
+	EventType string `json:"event_type" gorm:"type:varchar(32);not null;index;index:idx_billing_events_pricing_actual,priority:2"`
+	Status    string `json:"status" gorm:"type:varchar(32);not null;default:'settled';index;index:idx_billing_events_pricing_actual,priority:3"`
 
 	RequestId string `json:"request_id" gorm:"type:varchar(128);default:'';index"`
 	Group     string `json:"group" gorm:"type:varchar(64);default:'';index"`
@@ -60,7 +60,7 @@ type BillingEvent struct {
 	Cost        float64 `json:"cost" gorm:"type:decimal(18,8);not null;default:0"`
 
 	Metadata  string `json:"metadata" gorm:"type:text"`
-	CreatedAt int64  `json:"created_at" gorm:"bigint;index"`
+	CreatedAt int64  `json:"created_at" gorm:"bigint;index;index:idx_billing_events_pricing_actual,priority:4"`
 }
 
 func (BillingEvent) TableName() string {

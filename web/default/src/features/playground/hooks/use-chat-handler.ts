@@ -19,19 +19,26 @@ For commercial licensing, please contact support@quantumnous.com
 import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { sendChatCompletion } from '../api'
-import { MESSAGE_STATUS, ERROR_MESSAGES } from '../constants'
 import {
-  buildChatCompletionPayload,
+  MESSAGE_STATUS,
+  ERROR_MESSAGES,
+  PLAYGROUND_ENDPOINTS,
+} from '../constants'
+import {
+  buildPlaygroundPayload,
   updateAssistantMessageWithError,
   updateLastAssistantMessage,
   processStreamingContent,
   finalizeMessage,
 } from '../lib'
 import type {
+  ChatCompletionResponse,
   Message,
   PlaygroundConfig,
   ParameterEnabled,
   PlaygroundResponseDetails,
+  PlaygroundResponse,
+  ResponsesResponse,
 } from '../types'
 import { useStreamRequest } from './use-stream-request'
 
@@ -39,6 +46,41 @@ interface UseChatHandlerOptions {
   config: PlaygroundConfig
   parameterEnabled: ParameterEnabled
   onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
+}
+
+function isChatCompletionResponse(
+  response: PlaygroundResponse
+): response is ChatCompletionResponse {
+  return Array.isArray((response as ChatCompletionResponse).choices)
+}
+
+function extractResponsesOutputText(response: ResponsesResponse): string {
+  const output = Array.isArray(response.output) ? response.output : []
+  const parts: string[] = []
+
+  for (const item of output) {
+    if (!item || typeof item !== 'object') continue
+
+    const record = item as Record<string, unknown>
+    if (record.type === 'output_text' && typeof record.text === 'string') {
+      parts.push(record.text)
+      continue
+    }
+
+    const content = Array.isArray(record.content) ? record.content : []
+    for (const part of content) {
+      if (!part || typeof part !== 'object') continue
+      const contentRecord = part as Record<string, unknown>
+      if (
+        contentRecord.type === 'output_text' &&
+        typeof contentRecord.text === 'string'
+      ) {
+        parts.push(contentRecord.text)
+      }
+    }
+  }
+
+  return parts.join('')
 }
 
 /**
@@ -131,13 +173,14 @@ export function useChatHandler({
   // Send streaming chat request
   const sendStreamingChat = useCallback(
     (messages: Message[]) => {
-      const payload = buildChatCompletionPayload(
+      const payload = buildPlaygroundPayload(
         messages,
         config,
         parameterEnabled
       )
       sendStreamRequest(
         payload,
+        config.endpoint,
         handleStreamUpdate,
         handleStreamComplete,
         handleStreamError,
@@ -158,22 +201,56 @@ export function useChatHandler({
   // Send non-streaming chat request
   const sendNonStreamingChat = useCallback(
     async (messages: Message[]) => {
-      const payload = buildChatCompletionPayload(
+      const payload = buildPlaygroundPayload(
         messages,
         config,
         parameterEnabled
       )
 
       try {
-        const result = await sendChatCompletion(payload)
+        const result = await sendChatCompletion(payload, config.endpoint)
         const response = result.data
+
+        if (
+          config.endpoint === PLAYGROUND_ENDPOINTS.RESPONSES &&
+          !isChatCompletionResponse(response)
+        ) {
+          if (response.error?.message) {
+            handleStreamError(
+              response.error.message,
+              response.error.code,
+              result.details
+            )
+            return
+          }
+
+          const content = extractResponsesOutputText(response)
+          onMessageUpdate((prev) =>
+            updateLastAssistantMessage(prev, (message) => ({
+              ...finalizeMessage({
+                ...message,
+                versions: [
+                  {
+                    ...message.versions[0],
+                    content,
+                  },
+                ],
+              }),
+              status: MESSAGE_STATUS.COMPLETE,
+              details: result.details,
+            }))
+          )
+          return
+        }
+
+        if (!isChatCompletionResponse(response)) {
+          handleStreamError(ERROR_MESSAGES.PARSE_ERROR, undefined, result.details)
+          return
+        }
+
         const choice = response.choices?.[0]
         if (!choice) {
-          handleStreamError(
-            ERROR_MESSAGES.PARSE_ERROR,
-            undefined,
-            result.details
-          )
+          handleStreamError(ERROR_MESSAGES.PARSE_ERROR, undefined, result.details)
           return
         }
 

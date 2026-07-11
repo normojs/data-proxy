@@ -70,7 +70,15 @@ export function usePasskeyManagement(
   }, [onStatusChange])
 
   useEffect(() => {
-    fetchStatus()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void fetchStatus()
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [fetchStatus])
 
   useEffect(() => {

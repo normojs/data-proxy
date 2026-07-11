@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import type { LucideIcon } from 'lucide-react'
 import {
   Activity,
   ArrowRight,
@@ -28,6 +27,7 @@ import {
   ExternalLink,
   KeyRound,
   ShieldCheck,
+  type LucideIcon,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStatus } from '@/hooks/use-status'

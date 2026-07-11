@@ -47,21 +47,19 @@ type LogoutRequestConfig = AxiosRequestConfig & {
 export function useOAuthLogin(status: SystemStatus | null) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
-  const [githubButtonText, setGithubButtonText] = useState('')
+  const [githubButtonText, setGithubButtonText] = useState<string | null>(null)
   const [githubButtonDisabled, setGithubButtonDisabled] = useState(false)
   const githubTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const { auth } = useAuthStore()
   const { handleLoginSuccess } = useAuthRedirect()
 
   useEffect(() => {
-    setGithubButtonText(t('Continue with GitHub'))
-
     return () => {
       if (githubTimeoutRef.current) {
         clearTimeout(githubTimeoutRef.current)
       }
     }
-  }, [t])
+  }, [])
 
   const resetSession = async () => {
     try {
@@ -107,7 +105,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
           clearTimeout(githubTimeoutRef.current)
         }
         setIsLoading(false)
-        setGithubButtonText(t('Continue with GitHub'))
+        setGithubButtonText(null)
         setGithubButtonDisabled(false)
         return
       }
@@ -120,7 +118,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
         clearTimeout(githubTimeoutRef.current)
       }
       setIsLoading(false)
-      setGithubButtonText(t('Continue with GitHub'))
+      setGithubButtonText(null)
       setGithubButtonDisabled(false)
     }
   }
@@ -274,7 +272,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
 
   return {
     isLoading,
-    githubButtonText,
+    githubButtonText: githubButtonText ?? t('Continue with GitHub'),
     githubButtonDisabled,
     handleGitHubLogin,
     handleDiscordLogin,

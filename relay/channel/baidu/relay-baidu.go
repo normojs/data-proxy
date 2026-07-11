@@ -3,7 +3,6 @@ package baidu
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -55,7 +54,10 @@ func requestOpenAI2Baidu(request dto.GeneralOpenAIRequest) *BaiduChatRequest {
 	return &baiduRequest
 }
 
-func responseBaidu2OpenAI(response *BaiduChatResponse) *dto.OpenAITextResponse {
+func responseBaidu2OpenAI(response *BaiduChatResponse, model string) *dto.OpenAITextResponse {
+	if model == "" {
+		model = "ernie-bot"
+	}
 	choice := dto.OpenAITextResponseChoice{
 		Index: 0,
 		Message: dto.Message{
@@ -66,6 +68,7 @@ func responseBaidu2OpenAI(response *BaiduChatResponse) *dto.OpenAITextResponse {
 	}
 	fullTextResponse := dto.OpenAITextResponse{
 		Id:      response.Id,
+		Model:   model,
 		Object:  "chat.completion",
 		Created: response.Created,
 		Choices: []dto.OpenAITextResponseChoice{choice},
@@ -74,7 +77,10 @@ func responseBaidu2OpenAI(response *BaiduChatResponse) *dto.OpenAITextResponse {
 	return &fullTextResponse
 }
 
-func streamResponseBaidu2OpenAI(baiduResponse *BaiduChatStreamResponse) *dto.ChatCompletionsStreamResponse {
+func streamResponseBaidu2OpenAI(baiduResponse *BaiduChatStreamResponse, model string) *dto.ChatCompletionsStreamResponse {
+	if model == "" {
+		model = "ernie-bot"
+	}
 	var choice dto.ChatCompletionsStreamResponseChoice
 	choice.Delta.SetContentString(baiduResponse.Result)
 	if baiduResponse.IsEnd {
@@ -84,7 +90,7 @@ func streamResponseBaidu2OpenAI(baiduResponse *BaiduChatStreamResponse) *dto.Cha
 		Id:      baiduResponse.Id,
 		Object:  "chat.completion.chunk",
 		Created: baiduResponse.Created,
-		Model:   "ernie-bot",
+		Model:   model,
 		Choices: []dto.ChatCompletionsStreamResponseChoice{choice},
 	}
 	return &response
@@ -96,11 +102,14 @@ func embeddingRequestOpenAI2Baidu(request dto.EmbeddingRequest) *BaiduEmbeddingR
 	}
 }
 
-func embeddingResponseBaidu2OpenAI(response *BaiduEmbeddingResponse) *dto.OpenAIEmbeddingResponse {
+func embeddingResponseBaidu2OpenAI(response *BaiduEmbeddingResponse, model string) *dto.OpenAIEmbeddingResponse {
+	if model == "" {
+		model = "baidu-embedding"
+	}
 	openAIEmbeddingResponse := dto.OpenAIEmbeddingResponse{
 		Object: "list",
 		Data:   make([]dto.OpenAIEmbeddingResponseItem, 0, len(response.Data)),
-		Model:  "baidu-embedding",
+		Model:  model,
 		Usage:  response.Usage,
 	}
 	for _, item := range response.Data {
@@ -127,7 +136,11 @@ func baiduStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 			usage.PromptTokens = baiduResponse.Usage.PromptTokens
 			usage.CompletionTokens = baiduResponse.Usage.TotalTokens - baiduResponse.Usage.PromptTokens
 		}
-		response := streamResponseBaidu2OpenAI(&baiduResponse)
+		model := ""
+		if info != nil {
+			model = info.UpstreamModelName
+		}
+		response := streamResponseBaidu2OpenAI(&baiduResponse, model)
 		if err := helper.ObjectData(c, response); err != nil {
 			common.SysLog("error sending stream response: " + err.Error())
 			sr.Error(err)
@@ -142,7 +155,7 @@ func baiduStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 
 func baiduHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, *dto.Usage) {
 	var baiduResponse BaiduChatResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeBadResponseBody), nil
 	}
@@ -154,7 +167,11 @@ func baiduHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 	if baiduResponse.ErrorMsg != "" {
 		return types.NewError(fmt.Errorf("%s", baiduResponse.ErrorMsg), types.ErrorCodeBadResponseBody), nil
 	}
-	fullTextResponse := responseBaidu2OpenAI(&baiduResponse)
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+	}
+	fullTextResponse := responseBaidu2OpenAI(&baiduResponse, model)
 	jsonResponse, err := common.Marshal(fullTextResponse)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeBadResponseBody), nil
@@ -167,7 +184,7 @@ func baiduHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 
 func baiduEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, *dto.Usage) {
 	var baiduResponse BaiduEmbeddingResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeBadResponseBody), nil
 	}
@@ -179,7 +196,11 @@ func baiduEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 	if baiduResponse.ErrorMsg != "" {
 		return types.NewError(fmt.Errorf("%s", baiduResponse.ErrorMsg), types.ErrorCodeBadResponseBody), nil
 	}
-	fullTextResponse := embeddingResponseBaidu2OpenAI(&baiduResponse)
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+	}
+	fullTextResponse := embeddingResponseBaidu2OpenAI(&baiduResponse, model)
 	jsonResponse, err := common.Marshal(fullTextResponse)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeBadResponseBody), nil

@@ -1131,7 +1131,7 @@ func FetchModels(c *gin.Context) {
 		return
 	}
 
-	client := &http.Client{}
+	client := service.GetHttpClientWithTimeout(service.DefaultShortHTTPTimeout)
 	url := fmt.Sprintf("%s/v1/models", baseURL)
 
 	request, err := http.NewRequest("GET", url, nil)

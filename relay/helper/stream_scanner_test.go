@@ -43,6 +43,27 @@ func setStreamingTimeoutForTest(t *testing.T, timeout int) {
 	})
 }
 
+func TestGetStreamingTimeoutDefaultsWhenUnset(t *testing.T) {
+	lockStreamScannerGlobals(t)
+	setStreamingTimeoutForTest(t, 0)
+
+	require.Equal(t, DefaultStreamingTimeout, getStreamingTimeout())
+}
+
+func TestStreamScannerHandlerIgnoresNilRelayInfo(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader("data: [DONE]\n"))}
+
+	require.NotPanics(t, func() {
+		err := StreamScannerHandler(c, resp, nil, func(data string, sr *StreamResult) {})
+		require.Nil(t, err)
+	})
+}
+
 func setupStreamTest(t *testing.T, body io.Reader) (*gin.Context, *http.Response, *relaycommon.RelayInfo) {
 	t.Helper()
 

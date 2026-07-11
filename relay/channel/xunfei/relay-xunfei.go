@@ -54,7 +54,10 @@ func requestOpenAI2Xunfei(request dto.GeneralOpenAIRequest, xunfeiAppId string, 
 	return &xunfeiRequest
 }
 
-func responseXunfei2OpenAI(response *XunfeiChatResponse) *dto.OpenAITextResponse {
+func responseXunfei2OpenAI(response *XunfeiChatResponse, model string) *dto.OpenAITextResponse {
+	if model == "" {
+		model = "SparkDesk"
+	}
 	if len(response.Payload.Choices.Text) == 0 {
 		response.Payload.Choices.Text = []XunfeiChatResponseTextItem{
 			{
@@ -72,6 +75,7 @@ func responseXunfei2OpenAI(response *XunfeiChatResponse) *dto.OpenAITextResponse
 	}
 	fullTextResponse := dto.OpenAITextResponse{
 		Object:  "chat.completion",
+		Model:   model,
 		Created: common.GetTimestamp(),
 		Choices: []dto.OpenAITextResponseChoice{choice},
 		Usage:   response.Payload.Usage.Text,
@@ -79,7 +83,10 @@ func responseXunfei2OpenAI(response *XunfeiChatResponse) *dto.OpenAITextResponse
 	return &fullTextResponse
 }
 
-func streamResponseXunfei2OpenAI(xunfeiResponse *XunfeiChatResponse) *dto.ChatCompletionsStreamResponse {
+func streamResponseXunfei2OpenAI(xunfeiResponse *XunfeiChatResponse, model string) *dto.ChatCompletionsStreamResponse {
+	if model == "" {
+		model = "SparkDesk"
+	}
 	if len(xunfeiResponse.Payload.Choices.Text) == 0 {
 		xunfeiResponse.Payload.Choices.Text = []XunfeiChatResponseTextItem{
 			{
@@ -95,7 +102,7 @@ func streamResponseXunfei2OpenAI(xunfeiResponse *XunfeiChatResponse) *dto.ChatCo
 	response := dto.ChatCompletionsStreamResponse{
 		Object:  "chat.completion.chunk",
 		Created: common.GetTimestamp(),
-		Model:   "SparkDesk",
+		Model:   model,
 		Choices: []dto.ChatCompletionsStreamResponseChoice{choice},
 	}
 	return &response
@@ -141,7 +148,7 @@ func xunfeiStreamHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, a
 			usage.PromptTokens += xunfeiResponse.Payload.Usage.Text.PromptTokens
 			usage.CompletionTokens += xunfeiResponse.Payload.Usage.Text.CompletionTokens
 			usage.TotalTokens += xunfeiResponse.Payload.Usage.Text.TotalTokens
-			response := streamResponseXunfei2OpenAI(&xunfeiResponse)
+			response := streamResponseXunfei2OpenAI(&xunfeiResponse, textRequest.Model)
 			jsonResponse, err := common.Marshal(response)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
@@ -189,7 +196,7 @@ func xunfeiHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId s
 	}
 	xunfeiResponse.Payload.Choices.Text[0].Content = content
 
-	response := responseXunfei2OpenAI(&xunfeiResponse)
+	response := responseXunfei2OpenAI(&xunfeiResponse, textRequest.Model)
 	jsonResponse, err := common.Marshal(response)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)

@@ -181,23 +181,31 @@ function QuotaRequestDialog(props: {
   useEffect(() => {
     if (!props.open) return
     const initialValues = props.initialValues
-    setProjectId(
-      initialValues?.projectId && initialValues.projectId > 0
-        ? String(initialValues.projectId)
-        : NO_PROJECT_VALUE
-    )
-    setPolicyId(
-      initialValues?.policyId && initialValues.policyId > 0
-        ? String(initialValues.policyId)
-        : ''
-    )
-    setLimitDelta(
-      initialValues?.limitDelta && initialValues.limitDelta > 0
-        ? String(initialValues.limitDelta)
-        : ''
-    )
-    setExpiresAt(todayInputValue())
-    setReason(initialValues?.reason ?? '')
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+
+      setProjectId(
+        initialValues?.projectId && initialValues.projectId > 0
+          ? String(initialValues.projectId)
+          : NO_PROJECT_VALUE
+      )
+      setPolicyId(
+        initialValues?.policyId && initialValues.policyId > 0
+          ? String(initialValues.policyId)
+          : ''
+      )
+      setLimitDelta(
+        initialValues?.limitDelta && initialValues.limitDelta > 0
+          ? String(initialValues.limitDelta)
+          : ''
+      )
+      setExpiresAt(todayInputValue())
+      setReason(initialValues?.reason ?? '')
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.open, props.initialValues])
 
   const projectsQuery = useQuery({
@@ -498,13 +506,21 @@ export function QuotaRequests() {
 
   useEffect(() => {
     if (!requestQuota) return
-    setQuotaRequestInitialValues({
-      projectId: search.project_id,
-      policyId: search.policy_id,
-      limitDelta: search.limit_delta,
-      reason: search.reason,
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+
+      setQuotaRequestInitialValues({
+        projectId: search.project_id,
+        policyId: search.policy_id,
+        limitDelta: search.limit_delta,
+        reason: search.reason,
+      })
+      setDialogOpen(true)
     })
-    setDialogOpen(true)
+    return () => {
+      cancelled = true
+    }
   }, [
     requestQuota,
     search.project_id,

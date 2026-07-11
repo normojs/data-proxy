@@ -115,10 +115,14 @@ export function UserAuthForm({
     passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
 
   useEffect(() => {
-    if (requiresLegalConsent) {
-      setAgreedToLegal(false)
-    } else {
-      setAgreedToLegal(true)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setAgreedToLegal(!requiresLegalConsent)
+      }
+    })
+    return () => {
+      cancelled = true
     }
   }, [requiresLegalConsent])
 

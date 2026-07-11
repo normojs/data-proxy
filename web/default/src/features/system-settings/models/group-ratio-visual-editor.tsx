@@ -767,16 +767,24 @@ function GroupPricingTable({
   )
 
   useEffect(() => {
-    const incomingSignature = sourceGroupPricingSignature(
-      groupRatio,
-      userUsableGroups
-    )
-    setRows((currentRows) => {
-      if (groupPricingSignature(currentRows) === incomingSignature) {
-        return currentRows
-      }
-      return buildGroupPricingRows(groupRatio, userUsableGroups)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+
+      const incomingSignature = sourceGroupPricingSignature(
+        groupRatio,
+        userUsableGroups
+      )
+      setRows((currentRows) => {
+        if (groupPricingSignature(currentRows) === incomingSignature) {
+          return currentRows
+        }
+        return buildGroupPricingRows(groupRatio, userUsableGroups)
+      })
     })
+    return () => {
+      cancelled = true
+    }
   }, [groupRatio, userUsableGroups])
 
   const emitRows = useCallback(
@@ -998,14 +1006,22 @@ function SimpleGroupDialog({
   const title = type === 'groupRatio' ? t('group ratio') : t('top-up ratio')
 
   useEffect(() => {
-    if (!open) {
-      setName('')
-      setValue('')
-      return
-    }
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
 
-    setName(editData?.name ?? '')
-    setValue(editData?.value ?? '')
+      if (!open) {
+        setName('')
+        setValue('')
+        return
+      }
+
+      setName(editData?.name ?? '')
+      setValue(editData?.value ?? '')
+    })
+    return () => {
+      cancelled = true
+    }
   }, [editData, open])
 
   const handleSave = () => {
@@ -1086,14 +1102,22 @@ function GroupOverrideDialog({
   const [ratio, setRatio] = useState('')
 
   useEffect(() => {
-    if (!open) {
-      setTargetGroup('')
-      setRatio('')
-      return
-    }
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
 
-    setTargetGroup(editData?.targetGroup ?? '')
-    setRatio(editData ? String(editData.ratio) : '')
+      if (!open) {
+        setTargetGroup('')
+        setRatio('')
+        return
+      }
+
+      setTargetGroup(editData?.targetGroup ?? '')
+      setRatio(editData ? String(editData.ratio) : '')
+    })
+    return () => {
+      cancelled = true
+    }
   }, [editData, open])
 
   const handleSave = () => {

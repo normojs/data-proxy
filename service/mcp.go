@@ -85,6 +85,8 @@ type MCPToolCallResponse struct {
 	ErrorData    any
 }
 
+var errCustomMCPToolExecutorUnavailable = errors.New("custom MCP tools cannot be enabled until an executor is configured")
+
 func setMCPExecutorRegistryForTest(registry *mcpexecutor.Registry) func() {
 	previous := defaultMCPExecutorRegistry
 	if registry == nil {
@@ -842,12 +844,15 @@ func CreateMCPToolForAdmin(req dto.MCPToolCreateRequest) (*dto.MCPToolAdminItem,
 		}
 		freeQuota = *req.FreeQuota
 	}
-	status := model.MCPToolStatusEnabled
+	status := model.MCPToolStatusDisabled
 	if req.Status != nil {
 		if err := validateMCPToolStatus(*req.Status); err != nil {
 			return nil, err
 		}
 		status = *req.Status
+	}
+	if status == model.MCPToolStatusEnabled {
+		return nil, errCustomMCPToolExecutorUnavailable
 	}
 	sortOrder := 0
 	if req.SortOrder != nil {
@@ -870,6 +875,12 @@ func CreateMCPToolForAdmin(req dto.MCPToolCreateRequest) (*dto.MCPToolAdminItem,
 	}
 	if err := model.CreateMCPTool(tool); err != nil {
 		return nil, err
+	}
+	if status == model.MCPToolStatusDisabled {
+		tool, err = model.UpdateMCPToolFields(tool.Id, map[string]any{"status": model.MCPToolStatusDisabled})
+		if err != nil {
+			return nil, err
+		}
 	}
 	item := mcpModelToAdminItem(*tool)
 	return &item, nil
@@ -911,6 +922,15 @@ func UpdateMCPToolForAdmin(id int, req dto.MCPToolUpdateRequest) (*dto.MCPToolAd
 	if req.Status != nil {
 		if err := validateMCPToolStatus(*req.Status); err != nil {
 			return nil, err
+		}
+		if *req.Status == model.MCPToolStatusEnabled {
+			tool, err := model.GetMCPToolById(id)
+			if err != nil {
+				return nil, err
+			}
+			if tool.Source == model.MCPToolSourceCustom {
+				return nil, errCustomMCPToolExecutorUnavailable
+			}
 		}
 		updates["status"] = *req.Status
 	}

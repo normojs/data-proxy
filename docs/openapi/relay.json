@@ -61,13 +61,10 @@
       "name": "Realtime"
     },
     {
-      "name": "未实现"
+      "name": "OpenAI管理端代理(Fine-tunes)"
     },
     {
-      "name": "未实现/Fine-tunes"
-    },
-    {
-      "name": "未实现/Files"
+      "name": "OpenAI管理端代理(Files)"
     }
   ],
   "paths": {
@@ -1918,17 +1915,17 @@
     },
     "/v1/fine-tunes": {
       "get": {
-        "summary": "列出微调任务 (未实现)",
+        "summary": "列出微调任务",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "listFineTunes",
         "tags": [
-          "未实现/Fine-tunes"
+          "OpenAI管理端代理(Fine-tunes)"
         ],
         "parameters": [],
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {
@@ -1946,12 +1943,12 @@
         ]
       },
       "post": {
-        "summary": "创建微调任务 (未实现)",
+        "summary": "创建微调任务",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "createFineTune",
         "tags": [
-          "未实现/Fine-tunes"
+          "OpenAI管理端代理(Fine-tunes)"
         ],
         "parameters": [],
         "requestBody": {
@@ -1965,8 +1962,8 @@
           }
         },
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {
@@ -1986,12 +1983,12 @@
     },
     "/v1/fine-tunes/{fine_tune_id}": {
       "get": {
-        "summary": "获取微调任务详情 (未实现)",
+        "summary": "获取微调任务详情",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "retrieveFineTune",
         "tags": [
-          "未实现/Fine-tunes"
+          "OpenAI管理端代理(Fine-tunes)"
         ],
         "parameters": [
           {
@@ -2006,8 +2003,8 @@
           }
         ],
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {
@@ -2027,12 +2024,12 @@
     },
     "/v1/fine-tunes/{fine_tune_id}/cancel": {
       "post": {
-        "summary": "取消微调任务 (未实现)",
+        "summary": "取消微调任务",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "cancelFineTune",
         "tags": [
-          "未实现/Fine-tunes"
+          "OpenAI管理端代理(Fine-tunes)"
         ],
         "parameters": [
           {
@@ -2047,8 +2044,8 @@
           }
         ],
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {
@@ -2068,12 +2065,12 @@
     },
     "/v1/fine-tunes/{fine_tune_id}/events": {
       "get": {
-        "summary": "获取微调任务事件 (未实现)",
+        "summary": "获取微调任务事件",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "listFineTuneEvents",
         "tags": [
-          "未实现/Fine-tunes"
+          "OpenAI管理端代理(Fine-tunes)"
         ],
         "parameters": [
           {
@@ -2088,8 +2085,8 @@
           }
         ],
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {
@@ -2109,17 +2106,17 @@
     },
     "/v1/files": {
       "get": {
-        "summary": "列出文件 (未实现)",
+        "summary": "列出文件",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "listFiles",
         "tags": [
-          "未实现/Files"
+          "OpenAI管理端代理(Files)"
         ],
         "parameters": [],
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {
@@ -2137,12 +2134,12 @@
         ]
       },
       "post": {
-        "summary": "上传文件 (未实现)",
+        "summary": "上传文件",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "createFile",
         "tags": [
-          "未实现/Files"
+          "OpenAI管理端代理(Files)"
         ],
         "parameters": [],
         "requestBody": {
@@ -2166,8 +2163,8 @@
           }
         },
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {
@@ -2187,12 +2184,12 @@
     },
     "/v1/files/{file_id}": {
       "get": {
-        "summary": "获取文件信息 (未实现)",
+        "summary": "获取文件信息",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "retrieveFile",
         "tags": [
-          "未实现/Files"
+          "OpenAI管理端代理(Files)"
         ],
         "parameters": [
           {
@@ -2207,8 +2204,8 @@
           }
         ],
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {
@@ -2226,12 +2223,12 @@
         ]
       },
       "delete": {
-        "summary": "删除文件 (未实现)",
+        "summary": "删除文件",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "deleteFile",
         "tags": [
-          "未实现/Files"
+          "OpenAI管理端代理(Files)"
         ],
         "parameters": [
           {
@@ -2246,8 +2243,8 @@
           }
         ],
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {
@@ -2267,12 +2264,12 @@
     },
     "/v1/files/{file_id}/content": {
       "get": {
-        "summary": "获取文件内容 (未实现)",
+        "summary": "获取文件内容",
         "deprecated": false,
-        "description": "此接口尚未实现",
+        "description": "通过选中的 OpenAI-compatible 上游渠道透传。实际状态码和响应体来自上游。",
         "operationId": "downloadFile",
         "tags": [
-          "未实现/Files"
+          "OpenAI管理端代理(Files)"
         ],
         "parameters": [
           {
@@ -2287,8 +2284,8 @@
           }
         ],
         "responses": {
-          "501": {
-            "description": "未实现",
+          "default": {
+            "description": "上游响应透传",
             "content": {
               "application/json": {
                 "schema": {

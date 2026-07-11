@@ -112,21 +112,11 @@ export function MultiKeyManageDialog({
     useState<MultiKeyConfirmAction | null>(null)
   const [isPerformingAction, setIsPerformingAction] = useState(false)
 
-  // Reset and load data when dialog opens
-  useEffect(() => {
-    if (open && currentRow) {
-      setCurrentPage(1)
-      setStatusFilter(null)
-      loadKeyStatus(1, pageSize, null)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, currentRow?.id])
-
-  const loadKeyStatus = async (
+  async function loadKeyStatus(
     page: number = currentPage,
     size: number = pageSize,
     status: number | null = statusFilter
-  ) => {
+  ) {
     if (!currentRow) return
 
     setIsLoading(true)
@@ -158,6 +148,24 @@ export function MultiKeyManageDialog({
       setIsLoading(false)
     }
   }
+
+  // Reset and load data when dialog opens
+  useEffect(() => {
+    if (open && currentRow) {
+      let cancelled = false
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setCurrentPage(1)
+          setStatusFilter(null)
+          void loadKeyStatus(1, pageSize, null)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, currentRow?.id])
 
   const handleStatusFilterChange = (value: string) => {
     const newFilter = value === 'all' ? null : parseInt(value)

@@ -33,6 +33,9 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 		if !service.ShouldCopyUpstreamHeader(c, k, v) {
 			continue
 		}
+		if len(v) == 0 {
+			continue
+		}
 		c.Writer.Header().Set(k, v[0])
 	}
 	c.Writer.WriteHeader(resp.StatusCode)

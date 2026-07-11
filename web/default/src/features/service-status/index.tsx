@@ -22,8 +22,10 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  CheckCircle2,
   Clock3,
   Eye,
+  MinusCircle,
   Radio,
   RefreshCw,
   Server,
@@ -60,7 +62,6 @@ import { getServiceStatusSummary } from './api'
 import {
   getOverallStatus,
   getSignalClassName,
-  getSignalIcon,
   getSignalLabelKey,
   getStatusMeta,
 } from './status-meta'
@@ -210,13 +211,21 @@ function SeriesStrip(props: { channel: ServiceStatusChannel }) {
 }
 
 function SignalBadge(props: { state: ServiceSignalState; label: string }) {
-  const Icon = getSignalIcon(props.state)
   return (
     <span className='bg-muted/40 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs'>
-      <Icon className={cn('size-3.5', getSignalClassName(props.state))} />
+      <SignalIcon state={props.state} />
       <span className='text-muted-foreground'>{props.label}</span>
     </span>
   )
+}
+
+function SignalIcon(props: { state: ServiceSignalState }) {
+  const className = cn('size-3.5', getSignalClassName(props.state))
+  if (props.state === 'observed') return <CheckCircle2 className={className} />
+  if (props.state === 'not_configured') {
+    return <MinusCircle className={className} />
+  }
+  return <ShieldAlert className={className} />
 }
 
 function ServiceStatusSkeleton() {

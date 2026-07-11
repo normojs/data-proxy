@@ -996,6 +996,7 @@ function SubsiteManagementTable(props: {
       'managed-subsites',
       pagination.pageIndex + 1,
       pagination.pageSize,
+      t,
     ],
     queryFn: async () => {
       const result = await getManagedSubsites({
@@ -1737,7 +1738,7 @@ function ChannelsDrawer(props: {
     isLoading,
     isFetching,
   } = useQuery({
-    queryKey: ['managed-subsite-channels', subsiteId],
+    queryKey: ['managed-subsite-channels', subsiteId, t],
     enabled: props.open && subsiteId > 0,
     queryFn: async () => {
       const result = await getManagedSubsiteChannels(subsiteId)
@@ -1751,9 +1752,16 @@ function ChannelsDrawer(props: {
 
   useEffect(() => {
     if (!props.open) {
-      setEditingChannel(undefined)
-      setChannelToDelete(undefined)
-      form.reset(channelToFormValues())
+      let cancelled = false
+      queueMicrotask(() => {
+        if (cancelled) return
+        setEditingChannel(undefined)
+        setChannelToDelete(undefined)
+        form.reset(channelToFormValues())
+      })
+      return () => {
+        cancelled = true
+      }
     }
   }, [form, props.open])
 
@@ -2492,7 +2500,7 @@ function MembersDrawer(props: {
     isLoading,
     isFetching,
   } = useQuery({
-    queryKey: ['managed-subsite-members', subsiteId],
+    queryKey: ['managed-subsite-members', subsiteId, t],
     enabled: props.open && subsiteId > 0,
     queryFn: async () => {
       const result = await getManagedSubsiteMembers(subsiteId)
@@ -2968,7 +2976,7 @@ function ActivityDrawer(props: {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ['managed-subsite-activity', subsiteId],
+    queryKey: ['managed-subsite-activity', subsiteId, t],
     enabled: props.open && subsiteId > 0,
     queryFn: async () => {
       const result = await getManagedSubsiteActivity(subsiteId)

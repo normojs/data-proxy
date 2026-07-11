@@ -2,7 +2,7 @@
   "base": "en.json",
   "sourceLocale": "en",
   "baseStrategy": "source_locale_with_source_scan_and_locale_key_union",
-  "runtimeKeyCount": 5756,
+  "runtimeKeyCount": 5762,
   "sourceMissingRuntimeKeyCount": 0,
   "locales": {
     "en": {

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import {
@@ -66,6 +66,21 @@ type RiskAcknowledgementDialogProps = {
 export function RiskAcknowledgementDialog({
   open,
   onOpenChange,
+  ...contentProps
+}: RiskAcknowledgementDialogProps) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      {open ? <RiskAcknowledgementDialogContent {...contentProps} /> : null}
+    </AlertDialog>
+  )
+}
+
+type RiskAcknowledgementDialogContentProps = Omit<
+  RiskAcknowledgementDialogProps,
+  'open' | 'onOpenChange'
+>
+
+function RiskAcknowledgementDialogContent({
   title,
   description,
   items = [],
@@ -81,25 +96,26 @@ export function RiskAcknowledgementDialog({
   isLoading = false,
   onConfirm,
   className,
-}: RiskAcknowledgementDialogProps) {
+}: RiskAcknowledgementDialogContentProps) {
   const { t } = useTranslation()
-  const [checkedItems, setCheckedItems] = useState<boolean[]>([])
-  const [typedText, setTypedText] = useState('')
-  const [typedTextParts, setTypedTextParts] = useState<string[]>([])
 
   const normalizedRequiredTextParts = useMemo<
     NormalizedRequiredTextPart[]
-  >(() => {
-    let inputIndex = 0
-    return requiredTextParts.map((part) => {
-      if (part.type === 'input') {
-        const normalizedPart = { ...part, inputIndex }
-        inputIndex += 1
-        return normalizedPart
-      }
-      return part
-    })
-  }, [requiredTextParts])
+  >(
+    () =>
+      requiredTextParts.map((part, index) =>
+        part.type === 'input'
+          ? {
+              ...part,
+              inputIndex: requiredTextParts
+                .slice(0, index)
+                .filter((previousPart) => previousPart.type === 'input')
+                .length,
+            }
+          : part
+      ),
+    [requiredTextParts]
+  )
 
   const requiredTextInputCount = useMemo(
     () =>
@@ -112,12 +128,13 @@ export function RiskAcknowledgementDialog({
     ? normalizedRequiredTextParts.map((part) => part.text).join('')
     : requiredText
 
-  useEffect(() => {
-    if (!open) return
-    setCheckedItems(Array(checklist.length).fill(false))
-    setTypedText('')
-    setTypedTextParts(Array(requiredTextInputCount).fill(''))
-  }, [open, checklist.length, requiredTextInputCount])
+  const [checkedItems, setCheckedItems] = useState<boolean[]>(() =>
+    Array(checklist.length).fill(false)
+  )
+  const [typedText, setTypedText] = useState('')
+  const [typedTextParts, setTypedTextParts] = useState<string[]>(() =>
+    Array(requiredTextInputCount).fill('')
+  )
 
   const allChecked = useMemo(() => {
     if (checklist.length === 0) return true
@@ -166,13 +183,12 @@ export function RiskAcknowledgementDialog({
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent
-        className={cn(
-          'flex max-h-[min(88dvh,760px)] w-[calc(100vw-1.5rem)] !max-w-[44rem] grid-rows-none flex-col gap-0 overflow-hidden !p-0 sm:w-[min(44rem,calc(100vw-3rem))]',
-          className
-        )}
-      >
+    <AlertDialogContent
+      className={cn(
+        'flex max-h-[min(88dvh,760px)] w-[calc(100vw-1.5rem)] !max-w-[44rem] grid-rows-none flex-col gap-0 overflow-hidden !p-0 sm:w-[min(44rem,calc(100vw-3rem))]',
+        className
+      )}
+    >
         <AlertDialogHeader className='shrink-0 px-4 pt-4 pb-3 text-left sm:px-6 sm:pt-6'>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description ? (
@@ -254,7 +270,7 @@ export function RiskAcknowledgementDialog({
                           inputPlaceholder ??
                           t('Type the confirmation text here')
                         }
-                        autoFocus={open && part.inputIndex === 0}
+                        autoFocus={part.inputIndex === 0}
                         onCopy={(event) => event.preventDefault()}
                         onCut={(event) => event.preventDefault()}
                         onPaste={(event) => event.preventDefault()}
@@ -272,7 +288,7 @@ export function RiskAcknowledgementDialog({
                   placeholder={
                     inputPlaceholder ?? t('Type the confirmation text here')
                   }
-                  autoFocus={open}
+                  autoFocus
                   onCopy={(event) => event.preventDefault()}
                   onCut={(event) => event.preventDefault()}
                   onPaste={(event) => event.preventDefault()}
@@ -302,7 +318,6 @@ export function RiskAcknowledgementDialog({
             {confirmText ?? t('Confirm')}
           </Button>
         </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    </AlertDialogContent>
   )
 }

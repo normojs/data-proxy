@@ -17,17 +17,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import { API_ENDPOINTS } from './constants'
+import { API_ENDPOINTS, PLAYGROUND_ENDPOINTS } from './constants'
 import type {
-  ChatCompletionRequest,
   ChatCompletionResponse,
+  ChatCompletionUsage,
   ModelOption,
   GroupOption,
+  PlaygroundEndpoint,
+  PlaygroundRequest,
+  PlaygroundResponse,
   PlaygroundResponseDetails,
+  ProviderCheckRequest,
+  ProviderCheckResult,
+  ResponsesResponse,
 } from './types'
 
 export interface ChatCompletionResult {
-  data: ChatCompletionResponse
+  data: PlaygroundResponse
   details: PlaygroundResponseDetails
 }
 
@@ -40,6 +46,12 @@ interface ErrorWithPlaygroundDetails {
     data?: unknown
   }
   message?: string
+}
+
+interface ApiResponse<T> {
+  success: boolean
+  message?: string
+  data: T
 }
 
 function normalizeHeaders(headers: unknown): Record<string, string | string[]> {
@@ -86,28 +98,80 @@ function getErrorInfo(data: unknown, fallback?: string) {
   }
 }
 
+export function getPlaygroundEndpointPath(endpoint: PlaygroundEndpoint): string {
+  return endpoint === PLAYGROUND_ENDPOINTS.RESPONSES
+    ? API_ENDPOINTS.RESPONSES
+    : API_ENDPOINTS.CHAT_COMPLETIONS
+}
+
+function isChatCompletionResponse(
+  data: PlaygroundResponse
+): data is ChatCompletionResponse {
+  return Array.isArray((data as ChatCompletionResponse).choices)
+}
+
+function responsesUsageToChatUsage(
+  usage?: ResponsesResponse['usage']
+): ChatCompletionUsage | undefined {
+  if (!usage) return undefined
+  return {
+    prompt_tokens: usage.input_tokens ?? 0,
+    completion_tokens: usage.output_tokens ?? 0,
+    total_tokens: usage.total_tokens ?? 0,
+  }
+}
+
+function getResponseDetailsPatch(
+  data: PlaygroundResponse,
+  endpoint: PlaygroundEndpoint
+): Partial<PlaygroundResponseDetails> {
+  if (isChatCompletionResponse(data)) {
+    const choice = data.choices?.[0]
+    return {
+      response_id: data.id,
+      object: data.object,
+      created: data.created,
+      model: data.model,
+      finish_reason: choice?.finish_reason ?? null,
+      usage: data.usage,
+    }
+  }
+
+  return {
+    response_id: data.id,
+    object: data.object,
+    created: data.created_at,
+    model: data.model,
+    finish_reason:
+      endpoint === PLAYGROUND_ENDPOINTS.RESPONSES ? data.status || null : null,
+    usage: responsesUsageToChatUsage(data.usage),
+  }
+}
+
 /**
- * Send chat completion request (non-streaming)
+ * Send playground request (non-streaming)
  */
 export async function sendChatCompletion(
-  payload: ChatCompletionRequest
+  payload: PlaygroundRequest,
+  endpoint: PlaygroundEndpoint = PLAYGROUND_ENDPOINTS.CHAT_COMPLETIONS
 ): Promise<ChatCompletionResult> {
   const startedAtMs = Date.now()
   const startedAt = new Date(startedAtMs).toISOString()
+  const endpointPath = getPlaygroundEndpointPath(endpoint)
 
   try {
-    const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, {
+    const res = await api.post(endpointPath, payload, {
       skipErrorHandler: true,
     } as Record<string, unknown>)
     const completedAtMs = Date.now()
-    const data = res.data as ChatCompletionResponse
-    const choice = data.choices?.[0]
+    const data = res.data as PlaygroundResponse
 
     return {
       data,
       details: {
         mode: 'non_stream',
-        endpoint: API_ENDPOINTS.CHAT_COMPLETIONS,
+        endpoint: endpointPath,
+        protocol: endpoint,
         request: payload,
         started_at: startedAt,
         completed_at: new Date(completedAtMs).toISOString(),
@@ -115,12 +179,7 @@ export async function sendChatCompletion(
         http_status: res.status,
         http_status_text: res.statusText,
         response_headers: normalizeHeaders(res.headers),
-        response_id: data.id,
-        object: data.object,
-        created: data.created,
-        model: data.model,
-        finish_reason: choice?.finish_reason ?? null,
-        usage: data.usage,
+        ...getResponseDetailsPatch(data, endpoint),
         raw_response: data,
       },
     }
@@ -131,7 +190,8 @@ export async function sendChatCompletion(
 
     err.playgroundDetails = {
       mode: 'non_stream',
-      endpoint: API_ENDPOINTS.CHAT_COMPLETIONS,
+      endpoint: endpointPath,
+      protocol: endpoint,
       request: payload,
       started_at: startedAt,
       completed_at: new Date(completedAtMs).toISOString(),
@@ -150,6 +210,25 @@ export async function sendChatCompletion(
 
     throw error
   }
+}
+
+export async function checkPlaygroundProvider(
+  payload: ProviderCheckRequest
+): Promise<ProviderCheckResult> {
+  const res = await api.post<ApiResponse<ProviderCheckResult>>(
+    API_ENDPOINTS.PROVIDER_CHECK,
+    payload,
+    {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
+  )
+
+  if (!res.data.success) {
+    throw new Error(res.data.message || 'Provider check failed')
+  }
+
+  return res.data.data
 }
 
 /**

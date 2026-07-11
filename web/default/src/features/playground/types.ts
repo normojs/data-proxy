@@ -21,6 +21,8 @@ export type MessageRole = 'user' | 'assistant' | 'system'
 
 export type MessageStatus = 'loading' | 'streaming' | 'complete' | 'error'
 
+export type PlaygroundEndpoint = 'chat_completions' | 'responses'
+
 export interface MessageVersion {
   id: string
   content: string
@@ -70,6 +72,30 @@ export interface ChatCompletionRequest {
   seed?: number
 }
 
+export interface ResponsesInputContentPart {
+  type: 'input_text' | 'output_text'
+  text: string
+}
+
+export interface ResponsesInputMessage {
+  type: 'message'
+  role: Exclude<MessageRole, 'system'>
+  content: ResponsesInputContentPart[]
+}
+
+export interface ResponsesRequest {
+  model: string
+  group?: string
+  input: ResponsesInputMessage[]
+  instructions?: string
+  stream: boolean
+  temperature?: number
+  top_p?: number
+  max_output_tokens?: number
+}
+
+export type PlaygroundRequest = ChatCompletionRequest | ResponsesRequest
+
 export interface ChatCompletionChunk {
   id: string
   object: string
@@ -110,9 +136,69 @@ export interface ChatCompletionResponse {
   usage?: ChatCompletionUsage
 }
 
+export interface ResponsesUsage {
+  input_tokens?: number
+  output_tokens?: number
+  total_tokens?: number
+}
+
+export interface ResponsesResponse {
+  id?: string
+  object?: string
+  created_at?: number
+  model?: string
+  status?: string
+  output?: unknown[]
+  usage?: ResponsesUsage
+  error?: {
+    message?: string
+    code?: string
+    type?: string
+  } | null
+}
+
+export interface ResponsesStreamEvent {
+  type?: string
+  delta?: string
+  response?: ResponsesResponse
+  error?: {
+    message?: string
+    code?: string
+    type?: string
+  } | null
+  [key: string]: unknown
+}
+
+export type PlaygroundResponse = ChatCompletionResponse | ResponsesResponse
+
+export interface ProviderCheckRequest {
+  base_url: string
+  key: string
+  model: string
+  prompt?: string
+  timeout_seconds?: number
+}
+
+export interface ProviderCheckResult {
+  ok: boolean
+  endpoint: string
+  status_code?: number
+  status?: string
+  duration_ms: number
+  response_id?: string
+  response_model?: string
+  output_preview?: string
+  error_message?: string
+  error_code?: string
+  response_preview?: string
+  response_truncated?: boolean
+  request_body: Record<string, unknown>
+}
+
 export interface PlaygroundStreamEventDetail {
   index: number
   received_at: string
+  event?: string
   event_id?: string
   raw: string
   data: unknown
@@ -128,7 +214,8 @@ export interface PlaygroundResponseErrorDetail {
 export interface PlaygroundResponseDetails {
   mode: 'stream' | 'non_stream'
   endpoint: string
-  request: ChatCompletionRequest
+  protocol: PlaygroundEndpoint
+  request: PlaygroundRequest
   started_at: string
   completed_at?: string
   duration_ms?: number
@@ -153,6 +240,7 @@ export interface PlaygroundResponseDetails {
 
 // Configuration types
 export interface PlaygroundConfig {
+  endpoint: PlaygroundEndpoint
   model: string
   group: string
   temperature: number

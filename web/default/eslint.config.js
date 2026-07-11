@@ -26,6 +26,12 @@ export default defineConfig(
     rules: {
       ...reactHooks.configs.recommended.rules,
       'react-hooks/incompatible-library': 'off',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/preserve-manual-memoization': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/refs': 'warn',
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/static-components': 'warn',
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

@@ -386,15 +386,22 @@ export function TunnelSessionsTable() {
     placeholderData: (previousData) => previousData,
   })
 
-  const apps = appsData ?? []
+  const apps = useMemo(() => appsData ?? [], [appsData])
   useEffect(() => {
-    const requestedAppId = search.tunnelSessionAppId
-    if (requestedAppId && apps.some((app) => app.id === requestedAppId)) {
-      if (selectedAppId !== requestedAppId) setSelectedAppId(requestedAppId)
-      return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      const requestedAppId = search.tunnelSessionAppId
+      if (requestedAppId && apps.some((app) => app.id === requestedAppId)) {
+        if (selectedAppId !== requestedAppId) setSelectedAppId(requestedAppId)
+        return
+      }
+      if (selectedAppId && apps.some((app) => app.id === selectedAppId)) return
+      setSelectedAppId(apps[0]?.id)
+    })
+    return () => {
+      cancelled = true
     }
-    if (selectedAppId && apps.some((app) => app.id === selectedAppId)) return
-    setSelectedAppId(apps[0]?.id)
   }, [apps, search.tunnelSessionAppId, selectedAppId])
 
   const selectedApp =
@@ -442,7 +449,7 @@ export function TunnelSessionsTable() {
     placeholderData: (previousData) => previousData,
   })
 
-  const connections = connectionsData ?? []
+  const connections = useMemo(() => connectionsData ?? [], [connectionsData])
   const selectedConnectionId =
     typeof search.tunnelSessionConnectionId === 'number'
       ? search.tunnelSessionConnectionId

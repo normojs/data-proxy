@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -195,6 +196,21 @@ func TestGetModelFromRequestUnknownContentTypeIsNoop(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, req.Model)
 	require.Empty(t, req.Group)
+}
+
+func TestGetModelRequestExtractsSubsiteGeminiPathModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/s/team-a/v1beta/models/gemini-2.0-flash:generateContent", nil)
+
+	req, shouldSelectChannel, err := getModelRequest(c)
+
+	require.NoError(t, err)
+	require.True(t, shouldSelectChannel)
+	require.Equal(t, "gemini-2.0-flash", req.Model)
+	require.Equal(t, relayconstant.RelayModeGemini, c.GetInt("relay_mode"))
 }
 
 func newDistributorTestContext() *gin.Context {

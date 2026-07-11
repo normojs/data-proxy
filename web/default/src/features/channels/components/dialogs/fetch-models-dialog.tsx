@@ -128,14 +128,7 @@ export function FetchModelsDialog({
     })
   }, [fetchedModelSet, redirectSourceKeysSet, searchKeyword, selectedModels])
 
-  useEffect(() => {
-    if (open && (activeChannel || customFetcher)) {
-      handleFetchModels()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, activeChannel?.id, customFetcher])
-
-  const handleFetchModels = async () => {
+  async function handleFetchModels() {
     if (!activeChannel && !customFetcher) return
 
     setIsFetching(true)
@@ -166,6 +159,21 @@ export function FetchModelsDialog({
       setIsFetching(false)
     }
   }
+
+  useEffect(() => {
+    if (open && (activeChannel || customFetcher)) {
+      let cancelled = false
+      queueMicrotask(() => {
+        if (!cancelled) {
+          void handleFetchModels()
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, activeChannel?.id, customFetcher])
 
   const handleSave = async () => {
     // If onModelsSelected callback is provided, use it (form filling mode)

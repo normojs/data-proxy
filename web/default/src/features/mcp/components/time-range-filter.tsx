@@ -33,11 +33,6 @@ function toDate(value: unknown): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date
 }
 
-export function timestampMsToSeconds(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
-  return Math.floor(value / 1000)
-}
-
 export function TimeRangeFilter(props: TimeRangeFilterProps) {
   const search = route.useSearch()
   const navigate = route.useNavigate()

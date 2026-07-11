@@ -107,6 +107,7 @@ export function SubscriptionPlansCard({
   >([])
   const [billingPreference, setBillingPreference] =
     useState('subscription_first')
+  const [subscriptionSnapshotTime, setSubscriptionSnapshotTime] = useState(0)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -136,6 +137,7 @@ export function SubscriptionPlansCard({
   const fetchSelfSubscription = useCallback(async () => {
     try {
       const res = await getSelfSubscriptionFull()
+      const fetchedAt = Math.floor(Date.now() / 1000)
       if (res.success && res.data) {
         setBillingPreference(
           res.data.billing_preference || 'subscription_first'
@@ -143,7 +145,9 @@ export function SubscriptionPlansCard({
         setActiveSubscriptions(res.data.subscriptions || [])
         setAllSubscriptions(res.data.all_subscriptions || [])
       }
+      setSubscriptionSnapshotTime(fetchedAt)
     } catch {
+      setSubscriptionSnapshotTime(Math.floor(Date.now() / 1000))
       // ignore
     }
   }, [])
@@ -219,10 +223,9 @@ export function SubscriptionPlansCard({
     return map
   }, [plans])
 
-  const getRemainingDays = (sub: UserSubscriptionRecord) => {
+  const getRemainingDays = (sub: UserSubscriptionRecord, now: number) => {
     const endTime = sub?.subscription?.end_time || 0
-    if (!endTime) return 0
-    const now = Date.now() / 1000
+    if (!endTime || now <= 0) return 0
     return Math.max(0, Math.ceil((endTime - now) / 86400))
   }
 
@@ -401,10 +404,14 @@ export function SubscriptionPlansCard({
                     totalAmount > 0 ? Math.max(0, totalAmount - usedAmount) : 0
                   const planTitle =
                     planTitleMap.get(subscription?.plan_id) || ''
-                  const remainDays = getRemainingDays(sub)
+                  const remainDays = getRemainingDays(
+                    sub,
+                    subscriptionSnapshotTime
+                  )
                   const usagePercent = getUsagePercent(sub)
-                  const now = Date.now() / 1000
-                  const isExpired = (subscription?.end_time || 0) < now
+                  const isExpired =
+                    subscriptionSnapshotTime > 0 &&
+                    (subscription?.end_time || 0) < subscriptionSnapshotTime
                   const isCancelled = subscription?.status === 'cancelled'
                   const isActive =
                     subscription?.status === 'active' && !isExpired

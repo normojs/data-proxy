@@ -68,10 +68,18 @@ for hosted tools unless the selected provider/runtime has that capability.
 
 ## Operational Guidance
 
-Use `auto` for most channels. For providers such as SiliconFlow that support
-`/v1/chat/completions` but not `/v1/responses`, either leave `auto` enabled if
-the channel type is recognized or set the mode explicitly to
-`chat_completions`.
+Use `auto` for most channels. For providers such as SiliconFlow, DeepSeek,
+Moonshot, Mistral, OpenRouter, Zhipu V4, and Baidu V2 that return
+OpenAI-compatible Chat Completions JSON/SSE but not native `/v1/responses`,
+leave `auto` enabled if the channel type is recognized or set the mode
+explicitly to `chat_completions`.
+
+Do not add a provider to the automatic Chat compatibility list only because it
+can accept a Chat-like request. The compatibility path wraps upstream Chat
+JSON/SSE directly back into Responses shape, so providers with native response
+formats such as Ollama `/api/chat`, Tencent Hunyuan, legacy Zhipu, or MiniMax
+`chatcompletion_v2` need dedicated response adapters before they can be enabled
+by default.
 
 Use `native` for providers with real Responses support. Use `disabled` when a
 channel must never receive Responses traffic.

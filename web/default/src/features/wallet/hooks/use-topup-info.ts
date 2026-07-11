@@ -214,7 +214,15 @@ export function useTopupInfo() {
   }
 
   useEffect(() => {
-    fetchTopupInfo()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void fetchTopupInfo()
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   return {

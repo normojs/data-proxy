@@ -303,8 +303,15 @@ function BridgeAgentSetupDialog(props: {
 
   useEffect(() => {
     if (props.open) return
-    setForm(buildInitialBridgeAgentSetupForm())
-    setSetup(null)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setForm(buildInitialBridgeAgentSetupForm())
+      setSetup(null)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.open])
 
   const selectedClient = findClient(props.bridgeClients, form.clientId)
@@ -634,23 +641,38 @@ function CreateTunnelAppDialog(props: {
 
   useEffect(() => {
     if (!props.open) return
-    setForm((current) => {
-      if (current.bridgeClientId) return current
-      return {
-        ...current,
-        bridgeClientId: props.bridgeClients[0]?.client_id ?? '',
-        name:
-          current.name ||
-          props.bridgeClients[0]?.name ||
-          props.bridgeClients[0]?.client_id ||
-          '',
-      }
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setForm((current) => {
+        if (current.bridgeClientId) return current
+        return {
+          ...current,
+          bridgeClientId: props.bridgeClients[0]?.client_id ?? '',
+          name:
+            current.name ||
+            props.bridgeClients[0]?.name ||
+            props.bridgeClients[0]?.client_id ||
+            '',
+        }
+      })
     })
+    return () => {
+      cancelled = true
+    }
   }, [props.bridgeClients, props.open])
 
   useEffect(() => {
     if (props.open) return
-    setForm(buildInitialForm())
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setForm(buildInitialForm())
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.open])
 
   const selectedClient = findClient(props.bridgeClients, form.bridgeClientId)

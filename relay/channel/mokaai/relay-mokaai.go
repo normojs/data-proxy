@@ -1,7 +1,6 @@
 package mokaai
 
 import (
-	"io"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -34,11 +33,14 @@ func embeddingRequestOpenAI2Moka(request dto.GeneralOpenAIRequest) *dto.Embeddin
 	}
 }
 
-func embeddingResponseMoka2OpenAI(response *dto.EmbeddingResponse) *dto.OpenAIEmbeddingResponse {
+func embeddingResponseMoka2OpenAI(response *dto.EmbeddingResponse, model string) *dto.OpenAIEmbeddingResponse {
+	if model == "" {
+		model = response.Model
+	}
 	openAIEmbeddingResponse := dto.OpenAIEmbeddingResponse{
 		Object: "list",
 		Data:   make([]dto.OpenAIEmbeddingResponseItem, 0, len(response.Data)),
-		Model:  "baidu-embedding",
+		Model:  model,
 		Usage:  response.Usage,
 	}
 	for _, item := range response.Data {
@@ -52,26 +54,21 @@ func embeddingResponseMoka2OpenAI(response *dto.EmbeddingResponse) *dto.OpenAIEm
 }
 
 func mokaEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	var baiduResponse dto.EmbeddingResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	var mokaResponse dto.EmbeddingResponse
+	responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
 	service.CloseResponseBodyGracefully(resp)
-	err = common.Unmarshal(responseBody, &baiduResponse)
+	err = common.Unmarshal(responseBody, &mokaResponse)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
-	// if baiduResponse.ErrorMsg != "" {
-	// 	return &dto.OpenAIErrorWithStatusCode{
-	// 		Error: dto.OpenAIError{
-	// 			Type:    "baidu_error",
-	// 			Param:   "",
-	// 		},
-	// 		StatusCode: resp.StatusCode,
-	// 	}, nil
-	// }
-	fullTextResponse := embeddingResponseMoka2OpenAI(&baiduResponse)
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+	}
+	fullTextResponse := embeddingResponseMoka2OpenAI(&mokaResponse, model)
 	jsonResponse, err := common.Marshal(fullTextResponse)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)

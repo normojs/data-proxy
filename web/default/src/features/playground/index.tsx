@@ -18,14 +18,23 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import { Server, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { getUserModels, getUserGroups } from './api'
 import { PlaygroundChat } from './components/playground-chat'
 import { PlaygroundInput } from './components/playground-input'
+import { PLAYGROUND_ENDPOINTS } from './constants'
 import { usePlaygroundState, useChatHandler } from './hooks'
 import { createUserMessage, createLoadingAssistantMessage } from './lib'
-import type { Message as MessageType } from './types'
+import type { Message as MessageType, PlaygroundEndpoint } from './types'
+
+const CLEAR_CHAT_CONFIRMATION = 'CLEAR'
 
 export function Playground() {
   const { t } = useTranslation()
@@ -39,6 +48,7 @@ export function Playground() {
     setModels,
     setGroups,
     updateConfig,
+    clearMessages,
   } = usePlaygroundState()
 
   const { sendChat, stopGeneration, isGenerating } = useChatHandler({
@@ -51,10 +61,12 @@ export function Playground() {
   const [editingMessageKey, setEditingMessageKey] = useState<string | null>(
     null
   )
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false)
+  const [clearConfirmationText, setClearConfirmationText] = useState('')
 
   // Load models
   const { data: modelsData, isLoading: isLoadingModels } = useQuery({
-    queryKey: ['playground-models'],
+    queryKey: ['playground-models', t],
     queryFn: async () => {
       try {
         return await getUserModels()
@@ -71,7 +83,7 @@ export function Playground() {
 
   // Load groups
   const { data: groupsData } = useQuery({
-    queryKey: ['playground-groups'],
+    queryKey: ['playground-groups', t],
     queryFn: async () => {
       try {
         return await getUserGroups()
@@ -188,8 +200,111 @@ export function Playground() {
     updateMessages(newMessages)
   }
 
+  const handleClearDialogOpenChange = useCallback((open: boolean) => {
+    setIsClearDialogOpen(open)
+    if (!open) {
+      setClearConfirmationText('')
+    }
+  }, [])
+
+  const handleClearMessages = useCallback(() => {
+    clearMessages()
+    setEditingMessageKey(null)
+    handleClearDialogOpenChange(false)
+    toast.success(t('Chat history cleared'))
+  }, [clearMessages, handleClearDialogOpenChange, t])
+
+  const handleEndpointChange = useCallback(
+    (value: string | null) => {
+      if (!value) return
+      updateConfig('endpoint', value as PlaygroundEndpoint)
+    },
+    [updateConfig]
+  )
+
   return (
     <div className='relative flex size-full flex-col overflow-hidden'>
+      <div className='bg-background/95 border-b px-4 py-2'>
+        <div className='mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-2 sm:gap-3'>
+          <div className='min-w-0'>
+            <div className='text-sm leading-tight font-medium'>
+              {t('Playground')}
+            </div>
+          </div>
+          <div className='flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2'>
+            <Tabs
+              value={config.endpoint}
+              onValueChange={handleEndpointChange}
+              className='shrink-0'
+            >
+              <TabsList className='h-8'>
+                <TabsTrigger
+                  value={PLAYGROUND_ENDPOINTS.CHAT_COMPLETIONS}
+                  disabled={isGenerating}
+                  className='px-2.5 text-xs'
+                >
+                  {t('Chat')}
+                </TabsTrigger>
+                <TabsTrigger
+                  value={PLAYGROUND_ENDPOINTS.RESPONSES}
+                  disabled={isGenerating}
+                  className='px-2.5 text-xs'
+                >
+                  {t('Responses')}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button
+              size='sm'
+              variant='outline'
+              disabled={isGenerating || messages.length === 0}
+              onClick={() => handleClearDialogOpenChange(true)}
+            >
+              <Trash2 className='size-4' aria-hidden='true' />
+              <span className='hidden sm:inline'>{t('Clear')}</span>
+              <span className='sr-only sm:hidden'>{t('Clear')}</span>
+            </Button>
+            <Button
+              size='sm'
+              variant='outline'
+              render={<Link to='/playground/provider-check' />}
+            >
+              <Server className='size-4' aria-hidden='true' />
+              <span className='hidden sm:inline'>{t('Provider Check')}</span>
+              <span className='sr-only sm:hidden'>{t('Provider Check')}</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <ConfirmDialog
+        open={isClearDialogOpen}
+        onOpenChange={handleClearDialogOpenChange}
+        title={t('Clear all chat history?')}
+        desc={
+          <span>
+            {t(
+              'This will remove all Playground chat messages from this browser. Type {{value}} to confirm.',
+              {
+                value: CLEAR_CHAT_CONFIRMATION,
+              }
+            )}
+          </span>
+        }
+        destructive
+        confirmText={t('Clear history')}
+        disabled={clearConfirmationText.trim() !== CLEAR_CHAT_CONFIRMATION}
+        handleConfirm={handleClearMessages}
+      >
+        <Input
+          autoComplete='off'
+          value={clearConfirmationText}
+          onChange={(event) => setClearConfirmationText(event.target.value)}
+          placeholder={CLEAR_CHAT_CONFIRMATION}
+          aria-label={t('Confirmation text')}
+        />
+      </ConfirmDialog>
+
       {/* Full-width scroll container: scrolling works even over side whitespace */}
       <div className='flex flex-1 flex-col overflow-hidden'>
         <PlaygroundChat

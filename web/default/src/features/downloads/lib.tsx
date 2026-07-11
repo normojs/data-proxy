@@ -16,19 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ElementType } from 'react'
-import {
-  Apple,
-  Bot,
-  Cloud,
-  Code2,
-  Download,
-  Laptop,
-  MonitorDown,
-  Package,
-  Terminal,
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
 import {
   DOWNLOAD_ICON_KEYS,
   type DownloadIconKey,
@@ -54,19 +41,6 @@ export const DOWNLOAD_ICON_OPTIONS: Array<{
 
   return { value, label: labels[value] }
 })
-
-const iconMap = {
-  terminal: Terminal,
-  code: Code2,
-  package: Package,
-  bot: Bot,
-  cloud: Cloud,
-  desktop: MonitorDown,
-  apple: Apple,
-  windows: Laptop,
-  linux: Terminal,
-  download: Download,
-} satisfies Record<DownloadIconKey, ElementType>
 
 export function normalizeDownloadItem(
   item: Partial<DownloadItem>,
@@ -117,26 +91,4 @@ export function parseDownloadItems(data: unknown): DownloadItem[] {
     if (normalized) items.push(normalized)
     return items
   }, [])
-}
-
-export function DownloadIcon({
-  item,
-  className,
-}: {
-  item: Pick<DownloadItem, 'name' | 'icon' | 'customIconUrl'>
-  className?: string
-}) {
-  if (item.customIconUrl) {
-    return (
-      <img
-        src={item.customIconUrl}
-        alt=''
-        className={cn('size-5 rounded-sm object-contain', className)}
-        loading='lazy'
-      />
-    )
-  }
-
-  const Icon = iconMap[item.icon] ?? Download
-  return <Icon className={cn('size-5', className)} aria-hidden />
 }

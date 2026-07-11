@@ -21,6 +21,8 @@ var (
 	proxyClients    = make(map[string]*http.Client)
 )
 
+const DefaultShortHTTPTimeout = 30 * time.Second
+
 func checkRedirect(req *http.Request, via []*http.Request) error {
 	fetchSetting := system_setting.GetFetchSetting()
 	urlStr := req.URL.String()
@@ -61,6 +63,21 @@ func InitHttpClient() {
 
 func GetHttpClient() *http.Client {
 	return httpClient
+}
+
+func GetHttpClientWithTimeout(timeout time.Duration) *http.Client {
+	if timeout <= 0 {
+		timeout = DefaultShortHTTPTimeout
+	}
+	base := GetHttpClient()
+	if base == nil {
+		return &http.Client{Timeout: timeout}
+	}
+	client := *base
+	if client.Timeout == 0 || client.Timeout > timeout {
+		client.Timeout = timeout
+	}
+	return &client
 }
 
 // GetHttpClientWithProxy returns the default client or a proxy-enabled one when proxyURL is provided.

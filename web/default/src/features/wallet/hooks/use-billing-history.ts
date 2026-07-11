@@ -141,7 +141,15 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
 
   // Fetch data when dependencies change
   useEffect(() => {
-    fetchBillingHistory()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void fetchBillingHistory()
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [fetchBillingHistory])
 
   return {

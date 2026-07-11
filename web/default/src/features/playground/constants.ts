@@ -35,8 +35,15 @@ export const MESSAGE_STATUS = {
 // API endpoints
 export const API_ENDPOINTS = {
   CHAT_COMPLETIONS: '/pg/chat/completions',
+  RESPONSES: '/pg/responses',
+  PROVIDER_CHECK: '/api/playground/provider-check',
   USER_MODELS: '/api/user/models',
   USER_GROUPS: '/api/user/self/groups',
+} as const
+
+export const PLAYGROUND_ENDPOINTS = {
+  CHAT_COMPLETIONS: 'chat_completions',
+  RESPONSES: 'responses',
 } as const
 
 // Default group — uses 'default' as the safe fallback; auto-group is
@@ -45,6 +52,7 @@ export const DEFAULT_GROUP = 'default' as const
 
 // Default configuration
 export const DEFAULT_CONFIG: PlaygroundConfig = {
+  endpoint: PLAYGROUND_ENDPOINTS.CHAT_COMPLETIONS,
   model: 'gpt-4o',
   group: DEFAULT_GROUP,
   temperature: 0.7,

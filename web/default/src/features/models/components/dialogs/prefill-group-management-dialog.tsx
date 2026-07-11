@@ -140,8 +140,16 @@ export function PrefillGroupManagementDialog({
 
   useEffect(() => {
     if (!open) {
-      setDeleteState({ open: false, group: null })
-      setIsDeleting(false)
+      let cancelled = false
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setDeleteState({ open: false, group: null })
+          setIsDeleting(false)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
     }
   }, [open])
 

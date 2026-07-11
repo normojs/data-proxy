@@ -103,9 +103,13 @@ func requestOpenAI2Zhipu(request dto.GeneralOpenAIRequest) *ZhipuRequest {
 	}
 }
 
-func responseZhipu2OpenAI(response *ZhipuResponse) *dto.OpenAITextResponse {
+func responseZhipu2OpenAI(response *ZhipuResponse, model string) *dto.OpenAITextResponse {
+	if model == "" {
+		model = "chatglm"
+	}
 	fullTextResponse := dto.OpenAITextResponse{
 		Id:      response.Data.TaskId,
+		Model:   model,
 		Object:  "chat.completion",
 		Created: common.GetTimestamp(),
 		Choices: make([]dto.OpenAITextResponseChoice, 0, len(response.Data.Choices)),
@@ -128,19 +132,25 @@ func responseZhipu2OpenAI(response *ZhipuResponse) *dto.OpenAITextResponse {
 	return &fullTextResponse
 }
 
-func streamResponseZhipu2OpenAI(zhipuResponse string) *dto.ChatCompletionsStreamResponse {
+func streamResponseZhipu2OpenAI(zhipuResponse string, model string) *dto.ChatCompletionsStreamResponse {
+	if model == "" {
+		model = "chatglm"
+	}
 	var choice dto.ChatCompletionsStreamResponseChoice
 	choice.Delta.SetContentString(zhipuResponse)
 	response := dto.ChatCompletionsStreamResponse{
 		Object:  "chat.completion.chunk",
 		Created: common.GetTimestamp(),
-		Model:   "chatglm",
+		Model:   model,
 		Choices: []dto.ChatCompletionsStreamResponseChoice{choice},
 	}
 	return &response
 }
 
-func streamMetaResponseZhipu2OpenAI(zhipuResponse *ZhipuStreamMetaResponse) (*dto.ChatCompletionsStreamResponse, *dto.Usage) {
+func streamMetaResponseZhipu2OpenAI(zhipuResponse *ZhipuStreamMetaResponse, model string) (*dto.ChatCompletionsStreamResponse, *dto.Usage) {
+	if model == "" {
+		model = "chatglm"
+	}
 	var choice dto.ChatCompletionsStreamResponseChoice
 	choice.Delta.SetContentString("")
 	choice.FinishReason = &constant.FinishReasonStop
@@ -148,7 +158,7 @@ func streamMetaResponseZhipu2OpenAI(zhipuResponse *ZhipuStreamMetaResponse) (*dt
 		Id:      zhipuResponse.RequestId,
 		Object:  "chat.completion.chunk",
 		Created: common.GetTimestamp(),
-		Model:   "chatglm",
+		Model:   model,
 		Choices: []dto.ChatCompletionsStreamResponseChoice{choice},
 	}
 	return &response, &zhipuResponse.Usage
@@ -185,10 +195,14 @@ func zhipuStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		stopChan <- true
 	}()
 	helper.SetEventStreamHeaders(c)
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+	}
 	c.Stream(func(w io.Writer) bool {
 		select {
 		case data := <-dataChan:
-			response := streamResponseZhipu2OpenAI(data)
+			response := streamResponseZhipu2OpenAI(data, model)
 			jsonResponse, err := common.Marshal(response)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
@@ -203,7 +217,7 @@ func zhipuStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 				common.SysLog("error unmarshalling stream response: " + err.Error())
 				return true
 			}
-			response, zhipuUsage := streamMetaResponseZhipu2OpenAI(&zhipuResponse)
+			response, zhipuUsage := streamMetaResponseZhipu2OpenAI(&zhipuResponse, model)
 			jsonResponse, err := common.Marshal(response)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
@@ -223,7 +237,7 @@ func zhipuStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 
 func zhipuHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	var zhipuResponse ZhipuResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
@@ -238,7 +252,11 @@ func zhipuHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 			Code:    zhipuResponse.Code,
 		}, resp.StatusCode)
 	}
-	fullTextResponse := responseZhipu2OpenAI(&zhipuResponse)
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+	}
+	fullTextResponse := responseZhipu2OpenAI(&zhipuResponse, model)
 	jsonResponse, err := common.Marshal(fullTextResponse)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)

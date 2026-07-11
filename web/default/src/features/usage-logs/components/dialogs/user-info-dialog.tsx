@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -38,6 +38,21 @@ interface UserInfoDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+function InfoItem({
+  label,
+  value,
+}: {
+  label: string
+  value: string | number
+}) {
+  return (
+    <div className='space-y-1.5'>
+      <Label className='text-muted-foreground text-xs'>{label}</Label>
+      <div className='text-sm font-semibold'>{value}</div>
+    </div>
+  )
+}
+
 export function UserInfoDialog({
   userId,
   open,
@@ -45,47 +60,52 @@ export function UserInfoDialog({
 }: UserInfoDialogProps) {
   const { t } = useTranslation()
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [loadingUserId, setLoadingUserId] = useState<number | null>(null)
 
-  const fetchUserInfo = useCallback(
-    async (id: number) => {
-      setIsLoading(true)
+  useEffect(() => {
+    if (!open || !userId) return
+
+    let cancelled = false
+
+    const fetchUserInfo = async () => {
+      await Promise.resolve()
+      if (cancelled) return
+
+      setLoadingUserId(userId)
+      setUserInfo(null)
       try {
-        const result = await getUserInfo(id)
+        const result = await getUserInfo(userId)
+        if (cancelled) return
+
         if (result.success) {
           setUserInfo(result.data || null)
         } else {
+          setUserInfo(null)
           toast.error(result.message || t('Failed to fetch user information'))
         }
       } catch (error) {
+        if (cancelled) return
+
+        setUserInfo(null)
         // eslint-disable-next-line no-console
         console.error('Failed to fetch user info:', error)
         toast.error(t('Failed to fetch user information'))
       } finally {
-        setIsLoading(false)
+        if (!cancelled) {
+          setLoadingUserId(null)
+        }
       }
-    },
-    [t]
-  )
-
-  useEffect(() => {
-    if (open && userId) {
-      fetchUserInfo(userId)
     }
-  }, [open, userId, fetchUserInfo])
 
-  const InfoItem = ({
-    label,
-    value,
-  }: {
-    label: string
-    value: string | number
-  }) => (
-    <div className='space-y-1.5'>
-      <Label className='text-muted-foreground text-xs'>{label}</Label>
-      <div className='text-sm font-semibold'>{value}</div>
-    </div>
-  )
+    void fetchUserInfo()
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, t, userId])
+
+  const isLoading = open && !!userId && loadingUserId === userId
+  const displayedUserInfo = userInfo?.id === userId ? userInfo : null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -103,15 +123,18 @@ export function UserInfoDialog({
           <div className='flex items-center justify-center py-8'>
             <Loader2 className='text-muted-foreground size-6 animate-spin' />
           </div>
-        ) : userInfo ? (
+        ) : displayedUserInfo ? (
           <div className='space-y-4 py-4'>
             {/* Basic Info */}
             <div className='grid grid-cols-2 gap-4'>
-              <InfoItem label={t('Username')} value={userInfo.username} />
-              {userInfo.display_name && (
+              <InfoItem
+                label={t('Username')}
+                value={displayedUserInfo.username}
+              />
+              {displayedUserInfo.display_name && (
                 <InfoItem
                   label={t('Display Name')}
-                  value={userInfo.display_name}
+                  value={displayedUserInfo.display_name}
                 />
               )}
             </div>
@@ -120,11 +143,11 @@ export function UserInfoDialog({
             <div className='grid grid-cols-2 gap-4'>
               <InfoItem
                 label={t('Balance')}
-                value={formatQuota(userInfo.quota)}
+                value={formatQuota(displayedUserInfo.quota)}
               />
               <InfoItem
                 label={t('Used Quota')}
-                value={formatQuota(userInfo.used_quota)}
+                value={formatQuota(displayedUserInfo.used_quota)}
               />
             </div>
 
@@ -132,50 +155,55 @@ export function UserInfoDialog({
             <div className='grid grid-cols-2 gap-4'>
               <InfoItem
                 label={t('Request Count')}
-                value={formatCompactNumber(userInfo.request_count)}
+                value={formatCompactNumber(displayedUserInfo.request_count)}
               />
-              {userInfo.group && (
-                <InfoItem label={t('User Group')} value={userInfo.group} />
+              {displayedUserInfo.group && (
+                <InfoItem
+                  label={t('User Group')}
+                  value={displayedUserInfo.group}
+                />
               )}
             </div>
 
             {/* Invitation Info */}
-            {(userInfo.aff_code ||
-              userInfo.aff_count !== undefined ||
-              (userInfo.aff_quota !== undefined && userInfo.aff_quota > 0)) && (
+            {(displayedUserInfo.aff_code ||
+              displayedUserInfo.aff_count !== undefined ||
+              (displayedUserInfo.aff_quota !== undefined &&
+                displayedUserInfo.aff_quota > 0)) && (
               <>
                 <div className='grid grid-cols-2 gap-4'>
-                  {userInfo.aff_code && (
+                  {displayedUserInfo.aff_code && (
                     <InfoItem
                       label={t('Invitation Code')}
-                      value={userInfo.aff_code}
+                      value={displayedUserInfo.aff_code}
                     />
                   )}
-                  {userInfo.aff_count !== undefined && (
+                  {displayedUserInfo.aff_count !== undefined && (
                     <InfoItem
                       label={t('Invited Users')}
-                      value={formatCompactNumber(userInfo.aff_count)}
+                      value={formatCompactNumber(displayedUserInfo.aff_count)}
                     />
                   )}
                 </div>
 
-                {userInfo.aff_quota !== undefined && userInfo.aff_quota > 0 && (
-                  <InfoItem
-                    label={t('Invitation Quota')}
-                    value={formatQuota(userInfo.aff_quota)}
-                  />
-                )}
+                {displayedUserInfo.aff_quota !== undefined &&
+                  displayedUserInfo.aff_quota > 0 && (
+                    <InfoItem
+                      label={t('Invitation Quota')}
+                      value={formatQuota(displayedUserInfo.aff_quota)}
+                    />
+                  )}
               </>
             )}
 
             {/* Remark */}
-            {userInfo.remark && (
+            {displayedUserInfo.remark && (
               <div className='space-y-1.5'>
                 <Label className='text-muted-foreground text-xs'>
                   {t('Remark')}
                 </Label>
                 <div className='text-sm leading-relaxed font-semibold break-words'>
-                  {userInfo.remark}
+                  {displayedUserInfo.remark}
                 </div>
               </div>
             )}

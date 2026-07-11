@@ -89,7 +89,7 @@ func Distribute() func(c *gin.Context) {
 				var selectGroup string
 				usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 				// check path is /pg/chat/completions
-				if strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") {
+				if isPlaygroundRelayPath(c.Request.URL.Path) {
 					playgroundRequest := &dto.PlayGroundRequest{}
 					err = common.UnmarshalBodyReusable(c, playgroundRequest)
 					if err != nil {
@@ -328,7 +328,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		if _, ok := c.Get("relay_mode"); !ok {
 			c.Set("relay_mode", relayMode)
 		}
-	} else if strings.HasPrefix(c.Request.URL.Path, "/v1beta/models/") || strings.HasPrefix(c.Request.URL.Path, "/v1/models/") {
+	} else if isGeminiModelRequestPath(c.Request.URL.Path) {
 		// Gemini API 路径处理: /v1beta/models/gemini-2.0-flash:generateContent
 		relayMode := relayconstant.RelayModeGemini
 		modelName := extractModelNameFromGeminiPath(c.Request.URL.Path)
@@ -391,8 +391,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		}
 		c.Set("relay_mode", relayMode)
 	}
-	if strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") {
-		// playground chat completions
+	if isPlaygroundRelayPath(c.Request.URL.Path) {
+		// playground relay
 		req, err := getModelFromRequest(c)
 		if err != nil {
 			return nil, false, err
@@ -406,6 +406,11 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		modelRequest.Model = ratio_setting.WithCompactModelSuffix(modelRequest.Model)
 	}
 	return &modelRequest, shouldSelectChannel, nil
+}
+
+func isPlaygroundRelayPath(path string) bool {
+	return strings.HasPrefix(path, "/pg/chat/completions") ||
+		strings.HasPrefix(path, "/pg/responses")
 }
 
 // 修复 #4834: GET /v1/video/generations/:task_id && /v1/video/:task_id 此前不解析 model，
@@ -499,6 +504,13 @@ func setupProviderMetadataContext(c *gin.Context, channel *model.Channel) {
 	case constant.ChannelTypeCoze:
 		c.Set("bot_id", channel.Other)
 	}
+}
+
+func isGeminiModelRequestPath(path string) bool {
+	return strings.HasPrefix(path, "/v1beta/models/") ||
+		strings.HasPrefix(path, "/v1/models/") ||
+		strings.Contains(path, "/v1beta/models/") ||
+		strings.Contains(path, "/v1/models/")
 }
 
 // extractModelNameFromGeminiPath 从 Gemini API URL 路径中提取模型名

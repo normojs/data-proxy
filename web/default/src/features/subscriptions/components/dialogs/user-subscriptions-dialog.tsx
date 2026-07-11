@@ -72,10 +72,10 @@ interface Props {
 function SubscriptionStatusBadge(props: {
   sub: UserSubscriptionRecord['subscription']
   t: (key: string) => string
+  now: number
 }) {
-  // eslint-disable-next-line react-hooks/purity
-  const now = Date.now() / 1000
-  const isExpired = (props.sub.end_time || 0) > 0 && props.sub.end_time < now
+  const isExpired =
+    props.now > 0 && (props.sub.end_time || 0) > 0 && props.sub.end_time < props.now
   const isActive = props.sub.status === 'active' && !isExpired
   if (isActive)
     return (
@@ -104,10 +104,12 @@ function SubscriptionStatusBadge(props: {
 
 export function UserSubscriptionsDialog(props: Props) {
   const { t } = useTranslation()
+  const userId = props.user?.id ?? null
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [plans, setPlans] = useState<PlanRecord[]>([])
   const [subs, setSubs] = useState<UserSubscriptionRecord[]>([])
+  const [subscriptionSnapshotTime, setSubscriptionSnapshotTime] = useState(0)
   const [selectedPlanId, setSelectedPlanId] = useState<string>('')
   const [confirmAction, setConfirmAction] = useState<{
     type: 'invalidate' | 'delete'
@@ -122,38 +124,52 @@ export function UserSubscriptionsDialog(props: Props) {
     return map
   }, [plans])
 
-  const loadData = useCallback(async () => {
-    if (!props.user?.id) return
+  const loadData = useCallback(async (resetSelection = false) => {
+    if (!userId) return
+    await Promise.resolve()
+    if (resetSelection) {
+      setSelectedPlanId('')
+    }
     setLoading(true)
     try {
       const [plansRes, subsRes] = await Promise.all([
         getAdminPlans(),
-        getUserSubscriptions(props.user.id),
+        getUserSubscriptions(userId),
       ])
+      setSubscriptionSnapshotTime(Math.floor(Date.now() / 1000))
       if (plansRes.success) setPlans(plansRes.data || [])
       if (subsRes.success) setSubs(subsRes.data || [])
     } catch {
+      setSubscriptionSnapshotTime(Math.floor(Date.now() / 1000))
       toast.error(t('Loading failed'))
     } finally {
       setLoading(false)
     }
-  }, [props.user?.id, t])
+  }, [t, userId])
 
   useEffect(() => {
-    if (props.open && props.user?.id) {
-      setSelectedPlanId('')
-      loadData()
+    if (!props.open || !userId) return
+
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void loadData(true)
+      }
+    })
+
+    return () => {
+      cancelled = true
     }
-  }, [props.open, props.user?.id, loadData])
+  }, [props.open, loadData, userId])
 
   const handleCreate = async () => {
-    if (!props.user?.id || !selectedPlanId) {
+    if (!userId || !selectedPlanId) {
       toast.error(t('Please select a subscription plan'))
       return
     }
     setCreating(true)
     try {
-      const res = await createUserSubscription(props.user.id, {
+      const res = await createUserSubscription(userId, {
         plan_id: Number(selectedPlanId),
       })
       if (res.success) {
@@ -276,9 +292,10 @@ export function UserSubscriptionsDialog(props: Props) {
                   ) : (
                     subs.map((record) => {
                       const sub = record.subscription
-                      const now = Date.now() / 1000
                       const isExpired =
-                        (sub.end_time || 0) > 0 && sub.end_time < now
+                        subscriptionSnapshotTime > 0 &&
+                        (sub.end_time || 0) > 0 &&
+                        sub.end_time < subscriptionSnapshotTime
                       const isActive = sub.status === 'active' && !isExpired
                       const total = Number(sub.amount_total || 0)
                       const used = Number(sub.amount_used || 0)
@@ -300,7 +317,11 @@ export function UserSubscriptionsDialog(props: Props) {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <SubscriptionStatusBadge sub={sub} t={t} />
+                            <SubscriptionStatusBadge
+                              sub={sub}
+                              t={t}
+                              now={subscriptionSnapshotTime}
+                            />
                           </TableCell>
                           <TableCell>
                             <div className='text-sm'>

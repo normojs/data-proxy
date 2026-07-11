@@ -19,15 +19,41 @@ For commercial licensing, please contact support@quantumnous.com
 import { useCallback, useRef } from 'react'
 import { SSE, type ReadyStateEvent, type SSEvent } from 'sse.js'
 import { getCommonHeaders } from '@/lib/api'
-import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants'
+import { getPlaygroundEndpointPath } from '../api'
+import { ERROR_MESSAGES, PLAYGROUND_ENDPOINTS } from '../constants'
 import type {
-  ChatCompletionRequest,
   ChatCompletionChunk,
+  ChatCompletionUsage,
+  PlaygroundEndpoint,
+  PlaygroundRequest,
   PlaygroundResponseDetails,
   PlaygroundStreamEventDetail,
+  ResponsesResponse,
+  ResponsesStreamEvent,
 } from '../types'
 
 const MAX_STORED_STREAM_EVENTS = 200
+const RESPONSE_STREAM_EVENT_TYPES = [
+  'response.created',
+  'response.in_progress',
+  'response.output_item.added',
+  'response.content_part.added',
+  'response.output_text.delta',
+  'response.output_text.done',
+  'response.reasoning_summary_part.added',
+  'response.reasoning_summary_text.delta',
+  'response.reasoning_summary_text.done',
+  'response.reasoning_summary_part.done',
+  'response.function_call_arguments.delta',
+  'response.function_call_arguments.done',
+  'response.custom_tool_call_input.delta',
+  'response.custom_tool_call_input.done',
+  'response.content_part.done',
+  'response.output_item.done',
+  'response.completed',
+  'response.failed',
+  'response.error',
+] as const
 
 function normalizeSseHeaders(
   headers?: Record<string, string[]>
@@ -54,11 +80,13 @@ function serializeEventData(data: unknown): string {
 function buildStreamEventDetail(
   event: Pick<SSEvent, 'data' | 'id' | 'lastEventId'>,
   index: number,
-  data: unknown
+  data: unknown,
+  eventName?: string
 ): PlaygroundStreamEventDetail {
   return {
     index,
     received_at: new Date().toISOString(),
+    event: eventName,
     event_id: event.lastEventId || event.id || undefined,
     raw: serializeEventData(event.data),
     data,
@@ -100,6 +128,53 @@ function getChunkDetailsPatch(
   if (chunk.usage) patch.usage = chunk.usage
 
   return patch
+}
+
+function responsesUsageToChatUsage(
+  usage?: ResponsesResponse['usage']
+): ChatCompletionUsage | undefined {
+  if (!usage) return undefined
+  return {
+    prompt_tokens: usage.input_tokens ?? 0,
+    completion_tokens: usage.output_tokens ?? 0,
+    total_tokens: usage.total_tokens ?? 0,
+  }
+}
+
+function getResponsesEventDetailsPatch(
+  event: ResponsesStreamEvent
+): Partial<PlaygroundResponseDetails> {
+  const response = event.response
+  if (!response) return {}
+
+  return {
+    response_id: response.id,
+    object: response.object,
+    created: response.created_at,
+    model: response.model,
+    finish_reason: response.status || null,
+    usage: responsesUsageToChatUsage(response.usage),
+    raw_response: response,
+  }
+}
+
+function getResponsesEventError(event: ResponsesStreamEvent): {
+  message?: string
+  code?: string
+} {
+  const directError = event.error
+  if (directError?.message || directError?.code) {
+    return {
+      message: directError.message,
+      code: directError.code,
+    }
+  }
+
+  const responseError = event.response?.error
+  return {
+    message: responseError?.message,
+    code: responseError?.code,
+  }
 }
 
 function getParsedError(data: string): { message?: string; code?: string } {
@@ -173,7 +248,8 @@ export function useStreamRequest() {
 
   const sendStreamRequest = useCallback(
     (
-      payload: ChatCompletionRequest,
+      payload: PlaygroundRequest,
+      endpoint: PlaygroundEndpoint,
       onUpdate: (type: 'reasoning' | 'content', chunk: string) => void,
       onComplete: (details?: PlaygroundResponseDetails) => void,
       onError: (
@@ -184,7 +260,8 @@ export function useStreamRequest() {
       onDetailsUpdate?: (details: PlaygroundResponseDetails) => void
     ) => {
       const startedAtMs = Date.now()
-      const source = new SSE(API_ENDPOINTS.CHAT_COMPLETIONS, {
+      const endpointPath = getPlaygroundEndpointPath(endpoint)
+      const source = new SSE(endpointPath, {
         headers: getCommonHeaders(),
         method: 'POST',
         payload: JSON.stringify(payload),
@@ -196,7 +273,8 @@ export function useStreamRequest() {
       onDetailsUpdateRef.current = onDetailsUpdate
       streamDetailsRef.current = {
         mode: 'stream',
-        endpoint: API_ENDPOINTS.CHAT_COMPLETIONS,
+        endpoint: endpointPath,
+        protocol: endpoint,
         request: payload,
         started_at: new Date(startedAtMs).toISOString(),
         raw_chunks: [],
@@ -250,7 +328,7 @@ export function useStreamRequest() {
           updateDetails((details) =>
             appendStreamEvent(
               details,
-              buildStreamEventDetail(e, eventIndex, '[DONE]')
+              buildStreamEventDetail(e, eventIndex, '[DONE]', 'message')
             )
           )
           isStreamCompleteRef.current = true
@@ -270,7 +348,7 @@ export function useStreamRequest() {
           updateDetails((details) => ({
             ...appendStreamEvent(
               details,
-              buildStreamEventDetail(e, eventIndex, chunk)
+              buildStreamEventDetail(e, eventIndex, chunk, 'message')
             ),
             ...getChunkDetailsPatch(chunk),
           }))
@@ -290,12 +368,80 @@ export function useStreamRequest() {
           updateDetails((details) =>
             appendStreamEvent(
               details,
-              buildStreamEventDetail(e, eventIndex, e.data)
+              buildStreamEventDetail(e, eventIndex, e.data, 'message')
             )
           )
           handleError(ERROR_MESSAGES.PARSE_ERROR, undefined, e.data)
         }
       })
+
+      const handleResponsesEvent = (eventName: string, e: SSEvent) => {
+        if (isStreamCompleteRef.current) return
+
+        const eventIndex = (streamDetailsRef.current?.chunk_count ?? 0) + 1
+        try {
+          const parsed = JSON.parse(e.data) as ResponsesStreamEvent
+          const eventData: ResponsesStreamEvent = {
+            ...parsed,
+            type: parsed.type || eventName,
+          }
+
+          updateDetails((details) => ({
+            ...appendStreamEvent(
+              details,
+              buildStreamEventDetail(e, eventIndex, eventData, eventName)
+            ),
+            ...getResponsesEventDetailsPatch(eventData),
+          }))
+
+          if (eventData.type === 'response.output_text.delta' && eventData.delta) {
+            onUpdate('content', eventData.delta)
+          } else if (
+            eventData.type === 'response.reasoning_summary_text.delta' &&
+            eventData.delta
+          ) {
+            onUpdate('reasoning', eventData.delta)
+          } else if (eventData.type === 'response.completed') {
+            isStreamCompleteRef.current = true
+            const finalDetails = finalizeDetails({
+              http_status:
+                source.xhr?.status || streamDetailsRef.current?.http_status,
+              http_status_text: source.xhr?.statusText,
+              stream_ready_state: source.readyState,
+            })
+            closeSource()
+            onComplete(finalDetails ?? undefined)
+          } else if (
+            eventData.type === 'response.failed' ||
+            eventData.type === 'response.error'
+          ) {
+            const parsedError = getResponsesEventError(eventData)
+            handleError(
+              parsedError.message || ERROR_MESSAGES.API_REQUEST_ERROR,
+              parsedError.code,
+              eventData
+            )
+          }
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to parse Responses SSE event:', error)
+          updateDetails((details) =>
+            appendStreamEvent(
+              details,
+              buildStreamEventDetail(e, eventIndex, e.data, eventName)
+            )
+          )
+          handleError(ERROR_MESSAGES.PARSE_ERROR, undefined, e.data)
+        }
+      }
+
+      if (endpoint === PLAYGROUND_ENDPOINTS.RESPONSES) {
+        RESPONSE_STREAM_EVENT_TYPES.forEach((eventName) => {
+          source.addEventListener(eventName, (e: SSEvent) =>
+            handleResponsesEvent(eventName, e)
+          )
+        })
+      }
 
       source.addEventListener('error', (e: SSEvent) => {
         if (isStreamCompleteRef.current) return
@@ -313,7 +459,7 @@ export function useStreamRequest() {
           updateDetails((details) =>
             appendStreamEvent(
               details,
-              buildStreamEventDetail(e, eventIndex, rawData)
+              buildStreamEventDetail(e, eventIndex, rawData, 'error')
             )
           )
         }

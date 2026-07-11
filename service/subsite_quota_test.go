@@ -358,7 +358,6 @@ func (f *fakeSubsiteQuotaAtomicCounter) onlySnapshot(t *testing.T) subsiteQuotaC
 }
 
 func newSubsiteQuotaTestContext(subsiteId int64, userId int) *gin.Context {
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/s/test/v1/chat/completions", nil)

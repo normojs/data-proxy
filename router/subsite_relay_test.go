@@ -87,6 +87,16 @@ func TestSubsiteRelayTokenScopeIsolation(t *testing.T) {
 		c.Status(http.StatusNoContent)
 	})
 
+	gemini := engine.Group("/s/:slug/v1beta")
+	gemini.Use(middleware.SubsiteContext(true))
+	gemini.Use(middleware.TokenAuth())
+	gemini.Use(middleware.SubsiteTokenScopeAuth())
+	gemini.GET("/models", func(c *gin.Context) {
+		require.Equal(t, siteA.Id, c.GetInt64(middleware.SubsiteIDContextKey))
+		require.Equal(t, siteA.Id, c.GetInt64("token_subsite_id"))
+		c.Status(http.StatusNoContent)
+	})
+
 	mainKey := performSubsiteRelayRequestWithToken(engine, "site-a", "mainrelaytoken")
 	require.Equal(t, http.StatusForbidden, mainKey.Code, mainKey.Body.String())
 	require.Contains(t, mainKey.Body.String(), model.SubsiteAccessCodeTokenScope)
@@ -97,6 +107,32 @@ func TestSubsiteRelayTokenScopeIsolation(t *testing.T) {
 
 	siteKey := performSubsiteRelayRequestWithToken(engine, "site-a", "sitearelaytoken")
 	require.Equal(t, http.StatusNoContent, siteKey.Code, siteKey.Body.String())
+
+	mainQueryKey := performSubsiteRelayRawRequest(engine, http.MethodGet, "/s/site-a/v1beta/models?key=sk-mainrelaytoken", "")
+	require.Equal(t, http.StatusForbidden, mainQueryKey.Code, mainQueryKey.Body.String())
+	require.Contains(t, mainQueryKey.Body.String(), model.SubsiteAccessCodeTokenScope)
+
+	wrongSubsiteQueryKey := performSubsiteRelayRawRequest(engine, http.MethodGet, "/s/site-a/v1beta/models?key=sk-sitebrelaytoken", "")
+	require.Equal(t, http.StatusForbidden, wrongSubsiteQueryKey.Code, wrongSubsiteQueryKey.Body.String())
+	require.Contains(t, wrongSubsiteQueryKey.Body.String(), model.SubsiteAccessCodeTokenScope)
+
+	siteQueryKey := performSubsiteRelayRawRequest(engine, http.MethodGet, "/s/site-a/v1beta/models?key=sk-sitearelaytoken", "")
+	require.Equal(t, http.StatusNoContent, siteQueryKey.Code, siteQueryKey.Body.String())
+}
+
+func TestSubsiteGeminiNativeRoutesRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	SetRelayRouter(engine)
+
+	registered := make(map[string]bool)
+	for _, route := range engine.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+
+	require.True(t, registered[http.MethodGet+" /s/:slug/v1beta/models"])
+	require.True(t, registered[http.MethodGet+" /s/:slug/v1beta/openai/models"])
+	require.True(t, registered[http.MethodPost+" /s/:slug/v1beta/models/*path"])
 }
 
 func TestMainRelayRejectsSubsiteToken(t *testing.T) {
@@ -146,8 +182,12 @@ func performSubsiteRelayRequest(engine *gin.Engine, slug string) *httptest.Respo
 }
 
 func performSubsiteRelayRequestWithToken(engine *gin.Engine, slug string, key string) *httptest.ResponseRecorder {
+	return performSubsiteRelayRawRequest(engine, http.MethodPost, "/s/"+slug+"/v1/chat/completions", key)
+}
+
+func performSubsiteRelayRawRequest(engine *gin.Engine, method string, path string, key string) *httptest.ResponseRecorder {
 	recorder := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/s/"+slug+"/v1/chat/completions", nil)
+	req := httptest.NewRequest(method, path, nil)
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer sk-"+key)
 	}

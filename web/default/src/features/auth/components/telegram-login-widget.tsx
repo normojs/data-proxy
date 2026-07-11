@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { Send } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
@@ -60,9 +60,7 @@ export function TelegramLoginWidget({
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const onAuthRef = useRef(onAuth)
-  const callbackKeyRef = useRef(
-    `telegram_auth_${Math.random().toString(36).slice(2)}`
-  )
+  const callbackKey = `telegram_auth_${useId()}`
   const normalizedBotName = normalizeTelegramBotName(botName)
 
   useEffect(() => {
@@ -92,27 +90,25 @@ export function TelegramLoginWidget({
     if (authUrl) {
       script.setAttribute('data-auth-url', authUrl)
     } else if (onAuthRef.current) {
-      const callbackKey = callbackKeyRef.current
       window.__newApiTelegramAuth = window.__newApiTelegramAuth ?? {}
       window.__newApiTelegramAuth[callbackKey] = (payload) => {
         void onAuthRef.current?.(payload)
       }
       script.setAttribute(
         'data-onauth',
-        `window.__newApiTelegramAuth["${callbackKey}"](user)`
+        `window.__newApiTelegramAuth[${JSON.stringify(callbackKey)}](user)`
       )
     }
 
     container.appendChild(script)
 
     return () => {
-      const callbackKey = callbackKeyRef.current
       if (window.__newApiTelegramAuth?.[callbackKey]) {
         delete window.__newApiTelegramAuth[callbackKey]
       }
       container.innerHTML = ''
     }
-  }, [authUrl, disabled, normalizedBotName, radius, size])
+  }, [authUrl, callbackKey, disabled, normalizedBotName, radius, size])
 
   if (!normalizedBotName) {
     return (

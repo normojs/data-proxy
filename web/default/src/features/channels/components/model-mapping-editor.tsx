@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Code, Plus, Table, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
@@ -70,12 +70,12 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
   const nextRowIdRef = useRef(0)
   const duplicateSources = useMemo(() => getDuplicateSources(rows), [rows])
 
-  const createRowId = () => {
+  const createRowId = useCallback(() => {
     nextRowIdRef.current += 1
     return `mapping-${nextRowIdRef.current}`
-  }
+  }, [])
 
-  const parseJsonToRows = (json: string): boolean => {
+  const parseJsonToRows = useCallback((json: string): boolean => {
     try {
       if (!json.trim()) {
         setRows([])
@@ -124,14 +124,14 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
       setJsonError(t('Model mapping must be valid JSON format'))
       return false
     }
-  }
+  }, [createRowId, t])
 
   // Parse JSON to rows when value changes externally
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setJsonValue(props.value)
     parseJsonToRows(props.value)
-  }, [props.value])
+  }, [parseJsonToRows, props.value])
 
   const convertRowsToJson = (updatedRows: MappingRow[]): string => {
     if (updatedRows.length === 0) {

@@ -22,7 +22,8 @@ import { useStatus } from '@/hooks/use-status'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PublicLayout } from '@/components/layout'
-import { DownloadIcon, parseDownloadItems } from './lib'
+import { DownloadIcon } from './download-icon'
+import { parseDownloadItems } from './lib'
 
 function DownloadListSkeleton() {
   return (

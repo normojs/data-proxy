@@ -149,6 +149,27 @@ func TestTypedUnsupportedAdaptorFeatures(t *testing.T) {
 			feature:  "ConvertGeminiRequest",
 		},
 		{
+			name:     "xai claude",
+			convert:  func() (any, error) { return (&xai.Adaptor{}).ConvertClaudeRequest(nil, nil, &dto.ClaudeRequest{}) },
+			provider: "xai",
+			feature:  "ConvertClaudeRequest",
+		},
+		{
+			name: "xai audio",
+			convert: func() (any, error) {
+				reader, err := (&xai.Adaptor{}).ConvertAudioRequest(nil, nil, dto.AudioRequest{})
+				return reader, err
+			},
+			provider: "xai",
+			feature:  "ConvertAudioRequest",
+		},
+		{
+			name:     "xai embedding",
+			convert:  func() (any, error) { return (&xai.Adaptor{}).ConvertEmbeddingRequest(nil, nil, dto.EmbeddingRequest{}) },
+			provider: "xai",
+			feature:  "ConvertEmbeddingRequest",
+		},
+		{
 			name: "deepseek gemini",
 			convert: func() (any, error) {
 				return (&deepseek.Adaptor{}).ConvertGeminiRequest(nil, nil, &dto.GeminiChatRequest{})
@@ -301,5 +322,115 @@ func TestTypedUnsupportedAdaptorFeatures(t *testing.T) {
 				t.Fatalf("expected not implemented wording, got %q", err.Error())
 			}
 		})
+	}
+}
+
+func TestUnsupportedRerankAdaptorsReturnTypedErrors(t *testing.T) {
+	tests := []struct {
+		provider string
+		convert  func() (any, error)
+	}{
+		{provider: "aws", convert: func() (any, error) { return (&aws.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "baidu", convert: func() (any, error) { return (&baidu.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "claude", convert: func() (any, error) { return (&claude.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "deepseek", convert: func() (any, error) { return (&deepseek.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "dify", convert: func() (any, error) { return (&dify.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "gemini", convert: func() (any, error) { return (&gemini.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "minimax", convert: func() (any, error) { return (&minimax.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "mistral", convert: func() (any, error) { return (&mistral.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "mokaai", convert: func() (any, error) { return (&mokaai.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "ollama", convert: func() (any, error) { return (&ollama.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "palm", convert: func() (any, error) { return (&palm.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "perplexity", convert: func() (any, error) { return (&perplexity.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "tencent", convert: func() (any, error) { return (&tencent.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "vertex", convert: func() (any, error) { return (&vertex.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "xai", convert: func() (any, error) { return (&xai.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "xunfei", convert: func() (any, error) { return (&xunfei.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "zhipu", convert: func() (any, error) { return (&zhipu.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+		{provider: "zhipu_4v", convert: func() (any, error) { return (&zhipu_4v.Adaptor{}).ConvertRerankRequest(nil, 0, dto.RerankRequest{}) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			result, err := tt.convert()
+			if err == nil {
+				t.Fatal("expected unsupported feature error")
+			}
+			if result != nil {
+				t.Fatalf("expected nil result, got %T", result)
+			}
+
+			var unsupported *channel.UnsupportedFeatureError
+			if !errors.As(err, &unsupported) {
+				t.Fatalf("expected UnsupportedFeatureError, got %T: %v", err, err)
+			}
+			if unsupported.Provider != tt.provider || unsupported.Feature != "ConvertRerankRequest" {
+				t.Fatalf("unexpected unsupported feature context: provider=%q feature=%q", unsupported.Provider, unsupported.Feature)
+			}
+		})
+	}
+}
+
+func TestVolcengineRerankAdaptorKeepsOpenAICompatibleRequest(t *testing.T) {
+	req := dto.RerankRequest{Model: "doubao-rerank"}
+
+	result, err := (&volcengine.Adaptor{}).ConvertRerankRequest(nil, 0, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, ok := result.(dto.RerankRequest)
+	if !ok {
+		t.Fatalf("expected dto.RerankRequest, got %T", result)
+	}
+	if got.Model != req.Model {
+		t.Fatalf("model = %q, want %q", got.Model, req.Model)
+	}
+}
+
+func TestBaiduV2EmbeddingAdaptorKeepsOpenAICompatibleRequest(t *testing.T) {
+	req := dto.EmbeddingRequest{Model: "embedding-v1", Input: "hello"}
+
+	result, err := (&baidu_v2.Adaptor{}).ConvertEmbeddingRequest(nil, nil, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, ok := result.(dto.EmbeddingRequest)
+	if !ok {
+		t.Fatalf("expected dto.EmbeddingRequest, got %T", result)
+	}
+	if got.Model != req.Model || got.Input != req.Input {
+		t.Fatalf("embedding request = %#v, want %#v", got, req)
+	}
+}
+
+func TestMistralEmbeddingAdaptorKeepsOpenAICompatibleRequest(t *testing.T) {
+	req := dto.EmbeddingRequest{Model: "mistral-embed", Input: []string{"hello", "world"}}
+
+	result, err := (&mistral.Adaptor{}).ConvertEmbeddingRequest(nil, nil, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, ok := result.(dto.EmbeddingRequest)
+	if !ok {
+		t.Fatalf("expected dto.EmbeddingRequest, got %T", result)
+	}
+	if got.Model != req.Model || got.Input == nil {
+		t.Fatalf("embedding request = %#v, want %#v", got, req)
+	}
+}
+
+func TestBaiduV2RerankAdaptorKeepsOpenAICompatibleRequest(t *testing.T) {
+	req := dto.RerankRequest{Model: "bce-reranker-base_v1", Query: "hello", Documents: []any{"world"}}
+
+	result, err := (&baidu_v2.Adaptor{}).ConvertRerankRequest(nil, 0, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, ok := result.(dto.RerankRequest)
+	if !ok {
+		t.Fatalf("expected dto.RerankRequest, got %T", result)
+	}
+	if got.Model != req.Model || got.Query != req.Query || len(got.Documents) != len(req.Documents) {
+		t.Fatalf("rerank request = %#v, want %#v", got, req)
 	}
 }

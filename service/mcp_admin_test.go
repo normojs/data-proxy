@@ -76,7 +76,7 @@ func TestMCPToolAdminServiceSmoke(t *testing.T) {
 	})
 	price := 0.0025
 	freeQuota := 3
-	status := model.MCPToolStatusEnabled
+	status := model.MCPToolStatusDisabled
 	created, err := CreateMCPToolForAdmin(dto.MCPToolCreateRequest{
 		Name:         customName,
 		DisplayName:  "Custom Tool Smoke",
@@ -117,6 +117,34 @@ func TestMCPToolAdminServiceSmoke(t *testing.T) {
 	if _, err := GetMCPToolForAdmin(created.Id); err == nil {
 		t.Fatal("expected deleted custom tool to be hidden from normal queries")
 	}
+}
+
+func TestCustomMCPToolCannotBeEnabledWithoutExecutor(t *testing.T) {
+	setupMCPProxyServiceTestDB(t)
+
+	enabled := model.MCPToolStatusEnabled
+	_, err := CreateMCPToolForAdmin(dto.MCPToolCreateRequest{
+		Name:        "custom_executor_missing",
+		DisplayName: "Custom Executor Missing",
+		Category:    "custom",
+		InputSchema: map[string]any{"type": "object"},
+		PriceUnit:   model.MCPToolPriceUnitPerCall,
+		Status:      &enabled,
+	})
+	require.ErrorIs(t, err, errCustomMCPToolExecutorUnavailable)
+
+	created, err := CreateMCPToolForAdmin(dto.MCPToolCreateRequest{
+		Name:        "custom_executor_disabled",
+		DisplayName: "Custom Executor Disabled",
+		Category:    "custom",
+		InputSchema: map[string]any{"type": "object"},
+		PriceUnit:   model.MCPToolPriceUnitPerCall,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.MCPToolStatusDisabled, created.Status)
+
+	_, err = UpdateMCPToolForAdmin(created.Id, dto.MCPToolUpdateRequest{Status: &enabled})
+	require.ErrorIs(t, err, errCustomMCPToolExecutorUnavailable)
 }
 
 func TestMCPToolAdminValidation(t *testing.T) {
@@ -617,6 +645,248 @@ func TestMCPBuiltinJSONPrettyCall(t *testing.T) {
 		t.Fatalf("summary mismatch, got %s", call.ResultSummary)
 	}
 	assertNoBillingEventForRequest(t, "mcp-builtin-json-pretty")
+}
+
+func TestMCPBuiltinJSONQueryCall(t *testing.T) {
+	truncate(t)
+	withServiceTestQuotaPerUnit(t, 500000)
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+
+	resp, err := CallMCPTool(MCPToolCallRequest{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: token.UnlimitedQuota,
+		TokenQuota:     token.RemainQuota,
+		UsingGroup:     "default",
+		RequestId:      "mcp-builtin-json-query",
+		RequestIP:      "127.0.0.1",
+		Params: dto.MCPToolCallParams{
+			Name: "json_query",
+			Arguments: map[string]any{
+				"json":    `{"items":[{"name":"alpha"},{"name":"beta"}]}`,
+				"pointer": "/items/1/name",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallMCPTool failed: %v", err)
+	}
+	if resp == nil || resp.Result == nil || len(resp.Result.Content) != 1 {
+		t.Fatalf("expected MCP result, got %#v", resp)
+	}
+	if !strings.Contains(resp.Result.Content[0].Text, `"value": "beta"`) ||
+		!strings.Contains(resp.Result.Content[0].Text, `"exists": true`) {
+		t.Fatalf("json_query result mismatch: %s", resp.Result.Content[0].Text)
+	}
+
+	var call model.MCPToolCall
+	if err := model.DB.Where("request_id = ?", "mcp-builtin-json-query").First(&call).Error; err != nil {
+		t.Fatalf("load MCP tool call failed: %v", err)
+	}
+	if call.Status != model.MCPToolCallStatusSuccess {
+		t.Fatalf("call status mismatch, got %s", call.Status)
+	}
+	if call.Quota != 0 || call.Cost != 0 {
+		t.Fatalf("free built-in call should not charge quota: %#v", call)
+	}
+	if call.ResultSummary != "json pointer /items/1/name (string)" {
+		t.Fatalf("summary mismatch, got %s", call.ResultSummary)
+	}
+	assertNoBillingEventForRequest(t, "mcp-builtin-json-query")
+}
+
+func TestMCPBuiltinTextHashCall(t *testing.T) {
+	truncate(t)
+	withServiceTestQuotaPerUnit(t, 500000)
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+
+	resp, err := CallMCPTool(MCPToolCallRequest{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: token.UnlimitedQuota,
+		TokenQuota:     token.RemainQuota,
+		UsingGroup:     "default",
+		RequestId:      "mcp-builtin-text-hash",
+		RequestIP:      "127.0.0.1",
+		Params: dto.MCPToolCallParams{
+			Name: "text_hash",
+			Arguments: map[string]any{
+				"text":      "hello",
+				"algorithm": "sha256",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallMCPTool failed: %v", err)
+	}
+	if resp == nil || resp.Result == nil || len(resp.Result.Content) != 1 {
+		t.Fatalf("expected MCP result, got %#v", resp)
+	}
+	if !strings.Contains(resp.Result.Content[0].Text, "2cf24dba5fb0a30e26e83b2ac5b9e29e") {
+		t.Fatalf("text_hash result mismatch: %s", resp.Result.Content[0].Text)
+	}
+
+	var call model.MCPToolCall
+	if err := model.DB.Where("request_id = ?", "mcp-builtin-text-hash").First(&call).Error; err != nil {
+		t.Fatalf("load MCP tool call failed: %v", err)
+	}
+	if call.Status != model.MCPToolCallStatusSuccess {
+		t.Fatalf("call status mismatch, got %s", call.Status)
+	}
+	if call.Quota != 0 || call.Cost != 0 {
+		t.Fatalf("free built-in call should not charge quota: %#v", call)
+	}
+	if call.ResultSummary != "sha256 hash (5 bytes)" {
+		t.Fatalf("summary mismatch, got %s", call.ResultSummary)
+	}
+	assertNoBillingEventForRequest(t, "mcp-builtin-text-hash")
+}
+
+func TestMCPBuiltinTextStatsCall(t *testing.T) {
+	truncate(t)
+	withServiceTestQuotaPerUnit(t, 500000)
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+
+	resp, err := CallMCPTool(MCPToolCallRequest{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: token.UnlimitedQuota,
+		TokenQuota:     token.RemainQuota,
+		UsingGroup:     "default",
+		RequestId:      "mcp-builtin-text-stats",
+		RequestIP:      "127.0.0.1",
+		Params: dto.MCPToolCallParams{
+			Name: "text_stats",
+			Arguments: map[string]any{
+				"text": " hello 世界\nsecond line\n ",
+				"trim": true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallMCPTool failed: %v", err)
+	}
+	if resp == nil || resp.Result == nil || len(resp.Result.Content) != 1 {
+		t.Fatalf("expected MCP result, got %#v", resp)
+	}
+	if !strings.Contains(resp.Result.Content[0].Text, `"words": 4`) ||
+		!strings.Contains(resp.Result.Content[0].Text, `"lines": 2`) {
+		t.Fatalf("text_stats result mismatch: %s", resp.Result.Content[0].Text)
+	}
+
+	var call model.MCPToolCall
+	if err := model.DB.Where("request_id = ?", "mcp-builtin-text-stats").First(&call).Error; err != nil {
+		t.Fatalf("load MCP tool call failed: %v", err)
+	}
+	if call.Status != model.MCPToolCallStatusSuccess {
+		t.Fatalf("call status mismatch, got %s", call.Status)
+	}
+	if call.Quota != 0 || call.Cost != 0 {
+		t.Fatalf("free built-in call should not charge quota: %#v", call)
+	}
+	if call.ResultSummary != "text stats (4 words, 2 lines)" {
+		t.Fatalf("summary mismatch, got %s", call.ResultSummary)
+	}
+	assertNoBillingEventForRequest(t, "mcp-builtin-text-stats")
+}
+
+func TestMCPBuiltinBase64CodecCall(t *testing.T) {
+	truncate(t)
+	withServiceTestQuotaPerUnit(t, 500000)
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+
+	resp, err := CallMCPTool(MCPToolCallRequest{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: token.UnlimitedQuota,
+		TokenQuota:     token.RemainQuota,
+		UsingGroup:     "default",
+		RequestId:      "mcp-builtin-base64-codec",
+		RequestIP:      "127.0.0.1",
+		Params: dto.MCPToolCallParams{
+			Name: "base64_codec",
+			Arguments: map[string]any{
+				"input":     "aGVsbG8=",
+				"operation": "decode",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallMCPTool failed: %v", err)
+	}
+	if resp == nil || resp.Result == nil || len(resp.Result.Content) != 1 {
+		t.Fatalf("expected MCP result, got %#v", resp)
+	}
+	if !strings.Contains(resp.Result.Content[0].Text, `"text": "hello"`) {
+		t.Fatalf("base64_codec result mismatch: %s", resp.Result.Content[0].Text)
+	}
+
+	var call model.MCPToolCall
+	if err := model.DB.Where("request_id = ?", "mcp-builtin-base64-codec").First(&call).Error; err != nil {
+		t.Fatalf("load MCP tool call failed: %v", err)
+	}
+	if call.Status != model.MCPToolCallStatusSuccess {
+		t.Fatalf("call status mismatch, got %s", call.Status)
+	}
+	if call.Quota != 0 || call.Cost != 0 {
+		t.Fatalf("free built-in call should not charge quota: %#v", call)
+	}
+	if call.ResultSummary != "base64 decode (5 bytes)" {
+		t.Fatalf("summary mismatch, got %s", call.ResultSummary)
+	}
+	assertNoBillingEventForRequest(t, "mcp-builtin-base64-codec")
+}
+
+func TestMCPBuiltinURLCodecCall(t *testing.T) {
+	truncate(t)
+	withServiceTestQuotaPerUnit(t, 500000)
+	user, token := seedMCPBillingUserAndToken(t, 100000, 100000, false)
+
+	resp, err := CallMCPTool(MCPToolCallRequest{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: token.UnlimitedQuota,
+		TokenQuota:     token.RemainQuota,
+		UsingGroup:     "default",
+		RequestId:      "mcp-builtin-url-codec",
+		RequestIP:      "127.0.0.1",
+		Params: dto.MCPToolCallParams{
+			Name: "url_codec",
+			Arguments: map[string]any{
+				"input":     "hello+world%2Bplus",
+				"operation": "decode",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallMCPTool failed: %v", err)
+	}
+	if resp == nil || resp.Result == nil || len(resp.Result.Content) != 1 {
+		t.Fatalf("expected MCP result, got %#v", resp)
+	}
+	if !strings.Contains(resp.Result.Content[0].Text, `"decoded": "hello world+plus"`) {
+		t.Fatalf("url_codec result mismatch: %s", resp.Result.Content[0].Text)
+	}
+
+	var call model.MCPToolCall
+	if err := model.DB.Where("request_id = ?", "mcp-builtin-url-codec").First(&call).Error; err != nil {
+		t.Fatalf("load MCP tool call failed: %v", err)
+	}
+	if call.Status != model.MCPToolCallStatusSuccess {
+		t.Fatalf("call status mismatch, got %s", call.Status)
+	}
+	if call.Quota != 0 || call.Cost != 0 {
+		t.Fatalf("free built-in call should not charge quota: %#v", call)
+	}
+	if call.ResultSummary != "url query decode (16 bytes)" {
+		t.Fatalf("summary mismatch, got %s", call.ResultSummary)
+	}
+	assertNoBillingEventForRequest(t, "mcp-builtin-url-codec")
 }
 
 func TestMCPToolCallSettlementPersistsCost(t *testing.T) {

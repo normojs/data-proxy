@@ -187,11 +187,14 @@ func requestOpenAI2Dify(c *gin.Context, info *relaycommon.RelayInfo, request dto
 	return &difyReq
 }
 
-func streamResponseDify2OpenAI(difyResponse DifyChunkChatCompletionResponse) *dto.ChatCompletionsStreamResponse {
+func streamResponseDify2OpenAI(difyResponse DifyChunkChatCompletionResponse, model string) *dto.ChatCompletionsStreamResponse {
+	if model == "" {
+		model = "dify"
+	}
 	response := dto.ChatCompletionsStreamResponse{
 		Object:  "chat.completion.chunk",
 		Created: common.GetTimestamp(),
-		Model:   "dify",
+		Model:   model,
 	}
 	var choice dto.ChatCompletionsStreamResponseChoice
 	if strings.HasPrefix(difyResponse.Event, "workflow_") {
@@ -243,7 +246,11 @@ func difyStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 			sr.Stop(fmt.Errorf("dify error event"))
 			return
 		}
-		openaiResponse := *streamResponseDify2OpenAI(difyResponse)
+		model := ""
+		if info != nil {
+			model = info.UpstreamModelName
+		}
+		openaiResponse := *streamResponseDify2OpenAI(difyResponse, model)
 		if len(openaiResponse.Choices) != 0 {
 			responseText += openaiResponse.Choices[0].Delta.GetContentString()
 			if openaiResponse.Choices[0].Delta.ReasoningContent != nil {
@@ -268,7 +275,7 @@ func difyStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 
 func difyHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	var difyResponse DifyChatCompletionResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
@@ -283,6 +290,11 @@ func difyHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respons
 		Object:  "chat.completion",
 		Created: common.GetTimestamp(),
 		Usage:   difyResponse.MetaData.Usage,
+	}
+	if info != nil && info.UpstreamModelName != "" {
+		fullTextResponse.Model = info.UpstreamModelName
+	} else {
+		fullTextResponse.Model = "dify"
 	}
 	choice := dto.OpenAITextResponseChoice{
 		Index: 0,

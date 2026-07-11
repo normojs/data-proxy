@@ -63,17 +63,31 @@ func TestUpdateAllChannelsBalanceStartsAsyncAndPreventsOverlap(t *testing.T) {
 	require.Empty(t, finalSnapshot.LastError)
 }
 
-func TestChannelSupportsBalanceQuerySkipsAzure(t *testing.T) {
+func TestChannelSupportsBalanceQueryOnlyAllowsImplementedProviders(t *testing.T) {
 	require.False(t, channelSupportsBalanceQuery(nil))
 	require.False(t, channelSupportsBalanceQuery(&model.Channel{Type: constant.ChannelTypeAzure}))
+	require.False(t, channelSupportsBalanceQuery(&model.Channel{Type: constant.ChannelTypeGemini}))
 	require.True(t, channelSupportsBalanceQuery(&model.Channel{Type: constant.ChannelTypeOpenAI}))
+	require.True(t, channelSupportsBalanceQuery(&model.Channel{Type: constant.ChannelTypeSiliconFlow}))
 }
 
-func TestUpdateChannelBalanceReturnsUnsupportedForAzure(t *testing.T) {
-	_, err := updateChannelBalance(&model.Channel{Type: constant.ChannelTypeAzure})
+func TestUpdateChannelBalanceReturnsUnsupportedForUnimplementedProviders(t *testing.T) {
+	testCases := []struct {
+		name        string
+		channelType int
+		wantName    string
+	}{
+		{name: "azure", channelType: constant.ChannelTypeAzure, wantName: "Azure"},
+		{name: "gemini", channelType: constant.ChannelTypeGemini, wantName: "Gemini"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := updateChannelBalance(&model.Channel{Type: testCase.channelType})
 
-	require.ErrorIs(t, err, errChannelBalanceQueryUnsupported)
-	require.Contains(t, err.Error(), "Azure")
+			require.ErrorIs(t, err, errChannelBalanceQueryUnsupported)
+			require.Contains(t, err.Error(), testCase.wantName)
+		})
+	}
 }
 
 func resetChannelBalanceRefreshForTest(t *testing.T) {

@@ -166,17 +166,25 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
 
   useEffect(() => {
     if (channels.length === 0) return
-    setChannelEndpoints((prev) => {
-      let mutated = false
-      const next = { ...prev }
-      for (const channel of channels) {
-        if (!next[channel.id]) {
-          next[channel.id] = getDefaultEndpointForChannel(channel)
-          mutated = true
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+
+      setChannelEndpoints((prev) => {
+        let mutated = false
+        const next = { ...prev }
+        for (const channel of channels) {
+          if (!next[channel.id]) {
+            next[channel.id] = getDefaultEndpointForChannel(channel)
+            mutated = true
+          }
         }
-      }
-      return mutated ? next : prev
+        return mutated ? next : prev
+      })
     })
+    return () => {
+      cancelled = true
+    }
   }, [channels])
 
   const fetchMutation = useMutation({

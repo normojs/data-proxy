@@ -100,14 +100,13 @@ func TestRunRequestCaptureFinalizerOnceSkipsConcurrentRun(t *testing.T) {
 func TestStartRequestCaptureFinalizerTaskRecoversStaleActiveSpoolOnStartup(t *testing.T) {
 	previousMasterNode := common.IsMasterNode
 	previousFinalizePending := requestCaptureFinalizePending
-	previousFinalizerOnce := requestCaptureFinalizerOnce
 	requestCaptureFinalizerRunning.Store(false)
 	requestCaptureFinalizerOnce = sync.Once{}
 	t.Cleanup(func() {
 		common.IsMasterNode = previousMasterNode
 		requestCaptureFinalizePending = previousFinalizePending
 		requestCaptureFinalizerRunning.Store(false)
-		requestCaptureFinalizerOnce = previousFinalizerOnce
+		requestCaptureFinalizerOnce = sync.Once{}
 	})
 
 	previousDB := model.DB

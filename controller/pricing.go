@@ -91,7 +91,7 @@ func attachPlatformActualPricing(pricing []model.Pricing) {
 	if len(pricing) == 0 {
 		return
 	}
-	byModel, byGroup, err := service.GetPlatformPricingActualPricesForPricing(3600, pricing)
+	byModel, byGroup, err := service.GetPlatformPricingActualPricesForPricing(0, pricing)
 	if err != nil {
 		common.SysLog("failed to attach platform actual pricing: " + err.Error())
 		return

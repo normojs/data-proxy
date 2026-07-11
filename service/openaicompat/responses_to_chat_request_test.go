@@ -19,9 +19,52 @@ func rawJSON(t *testing.T, value any) json.RawMessage {
 }
 
 func TestShouldConvertResponsesToChat(t *testing.T) {
-	require.True(t, ShouldConvertResponsesToChat(constant.ChannelTypeSiliconFlow, ""))
+	chatCompatChannels := []int{
+		constant.ChannelTypeSiliconFlow,
+		constant.ChannelTypeDeepSeek,
+		constant.ChannelTypeMoonshot,
+		constant.ChannelTypeMistral,
+		constant.ChannelTypeOpenRouter,
+		constant.ChannelTypeZhipu_v4,
+		constant.ChannelTypeBaiduV2,
+	}
+	for _, channelType := range chatCompatChannels {
+		require.True(t, ShouldConvertResponsesToChat(channelType, ""), "channel type %d should auto-convert Responses to Chat Completions", channelType)
+		require.False(t, ChannelSupportsNativeResponses(channelType), "channel type %d should not be marked native", channelType)
+		require.True(t, ChannelPrefersChatResponsesCompatibility(channelType), "channel type %d should prefer chat compatibility", channelType)
+	}
+
+	nativeChannels := []int{
+		constant.ChannelTypeOpenAI,
+		constant.ChannelTypeAzure,
+		constant.ChannelTypeAli,
+		constant.ChannelCloudflare,
+		constant.ChannelTypeCodex,
+		constant.ChannelTypePerplexity,
+		constant.ChannelTypeSubmodel,
+		constant.ChannelTypeVolcEngine,
+		constant.ChannelTypeXai,
+	}
+	for _, channelType := range nativeChannels {
+		require.False(t, ShouldConvertResponsesToChat(channelType, ""), "channel type %d should prefer native Responses", channelType)
+		require.True(t, ChannelSupportsNativeResponses(channelType), "channel type %d should be marked native", channelType)
+		require.False(t, ChannelPrefersChatResponsesCompatibility(channelType), "channel type %d should not prefer chat compatibility", channelType)
+	}
+
+	providerNativeResponseChannels := []int{
+		constant.ChannelTypeMiniMax,
+		constant.ChannelTypeOllama,
+		constant.ChannelTypeTencent,
+		constant.ChannelTypeZhipu,
+		constant.ChannelTypeXunfei,
+	}
+	for _, channelType := range providerNativeResponseChannels {
+		require.False(t, ShouldConvertResponsesToChat(channelType, ""), "channel type %d has provider-native chat responses and needs a dedicated Responses adapter", channelType)
+		require.False(t, ChannelSupportsNativeResponses(channelType), "channel type %d should not be marked native", channelType)
+		require.False(t, ChannelPrefersChatResponsesCompatibility(channelType), "channel type %d should not auto-convert through OpenAI Chat JSON", channelType)
+	}
+
 	require.True(t, ShouldConvertResponsesToChat(constant.ChannelTypeOpenAI, ResponsesProtocolChatCompletions))
-	require.False(t, ShouldConvertResponsesToChat(constant.ChannelTypeOpenAI, ""))
 	require.False(t, ShouldConvertResponsesToChat(constant.ChannelTypeSiliconFlow, ResponsesProtocolNative))
 	require.True(t, IsResponsesProtocolDisabled(ResponsesProtocolDisabled))
 }

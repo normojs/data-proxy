@@ -89,7 +89,7 @@ func (c BridgeClient) handleToolCall(ctx context.Context, toolName string, args 
 	default:
 		return dto.BridgeToolCallResult{}, ToolError{
 			Code:    "TOOL_NOT_SUPPORTED",
-			Message: fmt.Sprintf("data-proxy-agent Go CLI has not implemented tool %q yet", toolName),
+			Message: fmt.Sprintf("data-proxy-agent Go CLI does not support tool %q", toolName),
 		}
 	}
 }
@@ -99,11 +99,8 @@ func (c BridgeClient) handleHTTPTunnelRequest(ctx context.Context, args map[stri
 	if err := decodeBridgeData(args, &input); err != nil {
 		return dto.BridgeToolCallResult{}, ToolError{Code: "HTTP_TUNNEL_INVALID_ARGUMENTS", Message: err.Error()}
 	}
-	if input.StreamResponse || input.WebSocket {
-		return dto.BridgeToolCallResult{}, ToolError{
-			Code:    "HTTP_TUNNEL_STREAM_NOT_IMPLEMENTED",
-			Message: "data-proxy-agent Go CLI does not support streaming HTTP tunnel requests yet",
-		}
+	if httpTunnelRequiresStream(args) {
+		return c.handleHTTPTunnelStreamRequest(ctx, args, nil, nil)
 	}
 	target, err := allowedHTTPTarget(c.Config, input.Target)
 	if err != nil {

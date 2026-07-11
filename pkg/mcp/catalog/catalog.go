@@ -219,6 +219,60 @@ func BuiltinTools() []ToolDefinition {
 				"indent": integerProp("可选，缩进空格数，默认 2，范围 0-8。"),
 			}),
 		},
+		{
+			Name:        "json_query",
+			DisplayName: "JSON 查询",
+			Description: "使用 JSON Pointer 从 JSON 文档中查询字段或数组元素。",
+			Category:    CategoryProject,
+			InputSchema: objectSchema([]string{"json"}, map[string]any{
+				"json":    stringProp("要查询的 JSON 字符串。"),
+				"pointer": stringProp("可选，JSON Pointer，例如 /items/0/name；空值或 $ 表示根对象。"),
+			}),
+		},
+		{
+			Name:        "text_hash",
+			DisplayName: "文本哈希",
+			Description: "在 data-proxy 服务器上计算文本的 SHA/MD5 哈希，返回 hex 与 base64 摘要。",
+			Category:    CategoryProject,
+			InputSchema: objectSchema([]string{"text"}, map[string]any{
+				"text":      stringProp("要计算哈希的 UTF-8 文本。"),
+				"algorithm": stringProp("可选，sha256、sha1、sha512 或 md5，默认 sha256。"),
+			}),
+		},
+		{
+			Name:        "base64_codec",
+			DisplayName: "Base64 编解码",
+			Description: "在 data-proxy 服务器上执行 Base64/Base64URL 编码或解码。",
+			Category:    CategoryProject,
+			InputSchema: objectSchema([]string{"input"}, map[string]any{
+				"input":     stringProp("编码时为原始 UTF-8 文本；解码时为 Base64 字符串。"),
+				"operation": stringProp("可选，encode 或 decode，默认 encode。"),
+				"url_safe":  booleanProp("可选，使用 Base64URL 字母表。"),
+				"raw":       booleanProp("可选，使用无填充格式。"),
+			}),
+		},
+		{
+			Name:        "url_codec",
+			DisplayName: "URL 编解码",
+			Description: "在 data-proxy 服务器上执行 URL query/path 编码或解码。",
+			Category:    CategoryProject,
+			InputSchema: objectSchema([]string{"input"}, map[string]any{
+				"input":     stringProp("要编码的文本，或要解码的 URL 编码字符串。"),
+				"operation": stringProp("可选，encode 或 decode，默认 encode。"),
+				"mode":      stringProp("可选，query 或 path，默认 query。"),
+			}),
+		},
+		{
+			Name:        "text_stats",
+			DisplayName: "文本统计",
+			Description: "在 data-proxy 服务器上统计文本的字节数、字符数、行数和词数。",
+			Category:    CategoryProject,
+			InputSchema: objectSchema([]string{"text"}, map[string]any{
+				"text":             stringProp("要统计的 UTF-8 文本。"),
+				"trim":             booleanProp("可选，统计前去除首尾空白。"),
+				"normalize_spaces": booleanProp("可选，统计前将连续空白归一化为单个空格。"),
+			}),
+		},
 	}
 
 	for i := range tools {

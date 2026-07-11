@@ -81,6 +81,7 @@ func TestMain(m *testing.M) {
 func truncate(t *testing.T) {
 	t.Helper()
 	clean := func() {
+		InvalidatePricingActualCache()
 		model.DB.Exec("DELETE FROM tasks")
 		model.DB.Exec("DELETE FROM midjourneys")
 		model.DB.Exec("DELETE FROM users")

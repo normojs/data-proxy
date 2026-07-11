@@ -59,6 +59,7 @@ func main() {
 	if common.DebugEnabled {
 		common.SysLog("running in debug mode")
 	}
+	validateSessionSecretForRuntime()
 
 	defer func() {
 		err := model.CloseDB()
@@ -219,7 +220,7 @@ func main() {
 		Path:     "/",
 		MaxAge:   2592000, // 30 days
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   sessionCookieSecure(),
 		SameSite: http.SameSiteStrictMode,
 	})
 	server.Use(sessions.Sessions("session", store))
@@ -245,6 +246,20 @@ func main() {
 	if err != nil {
 		common.FatalLog("failed to start HTTP server: " + err.Error())
 	}
+}
+
+func validateSessionSecretForRuntime() {
+	if os.Getenv("SESSION_SECRET") != "" || os.Getenv("GIN_MODE") == "debug" || common.GetEnvOrDefaultBool("ALLOW_RANDOM_SESSION_SECRET", false) {
+		return
+	}
+	common.FatalLog("SESSION_SECRET must be set when GIN_MODE is not debug; set ALLOW_RANDOM_SESSION_SECRET=true only for local throwaway instances")
+}
+
+func sessionCookieSecure() bool {
+	if value := strings.TrimSpace(os.Getenv("SESSION_COOKIE_SECURE")); value != "" {
+		return common.GetEnvOrDefaultBool("SESSION_COOKIE_SECURE", true)
+	}
+	return os.Getenv("GIN_MODE") != "debug"
 }
 
 func newEnterpriseGovernanceQueueReplayExecutor(server *gin.Engine) service.EnterpriseGovernanceQueueReplayExecutor {

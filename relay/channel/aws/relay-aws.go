@@ -28,6 +28,21 @@ import (
 	"github.com/aws/smithy-go/auth/bearer"
 )
 
+type novaResponsePayload struct {
+	Output struct {
+		Message struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"message"`
+	} `json:"output"`
+	Usage struct {
+		InputTokens  int `json:"inputTokens"`
+		OutputTokens int `json:"outputTokens"`
+		TotalTokens  int `json:"totalTokens"`
+	} `json:"usage"`
+}
+
 // getAwsErrorStatusCode extracts HTTP status code from AWS SDK error
 func getAwsErrorStatusCode(err error) int {
 	// Check for HTTP response error which contains status code
@@ -292,6 +307,20 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 	return nil, claudeInfo.Usage
 }
 
+func novaResponseText(resp *novaResponsePayload) (string, error) {
+	if resp == nil {
+		return "", errors.New("nova response is nil")
+	}
+	if len(resp.Output.Message.Content) == 0 {
+		return "", errors.New("nova response content is empty")
+	}
+	var builder strings.Builder
+	for _, content := range resp.Output.Message.Content {
+		builder.WriteString(content.Text)
+	}
+	return builder.String(), nil
+}
+
 // Nova模型处理函数
 func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types.NewAPIError, *dto.Usage) {
 
@@ -305,23 +334,14 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 	}
 
 	// 解析Nova响应
-	var novaResp struct {
-		Output struct {
-			Message struct {
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"message"`
-		} `json:"output"`
-		Usage struct {
-			InputTokens  int `json:"inputTokens"`
-			OutputTokens int `json:"outputTokens"`
-			TotalTokens  int `json:"totalTokens"`
-		} `json:"usage"`
-	}
+	var novaResp novaResponsePayload
 
 	if err := common.Unmarshal(awsResp.Body, &novaResp); err != nil {
 		return types.NewError(errors.Wrap(err, "unmarshal nova response"), types.ErrorCodeBadResponseBody), nil
+	}
+	responseText, err := novaResponseText(&novaResp)
+	if err != nil {
+		return types.NewError(errors.Wrap(err, "parse nova response"), types.ErrorCodeBadResponseBody), nil
 	}
 
 	// 构造OpenAI格式响应
@@ -334,7 +354,7 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 			Index: 0,
 			Message: dto.Message{
 				Role:    "assistant",
-				Content: novaResp.Output.Message.Content[0].Text,
+				Content: responseText,
 			},
 			FinishReason: "stop",
 		}},

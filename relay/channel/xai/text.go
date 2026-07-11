@@ -1,7 +1,7 @@
 package xai
 
 import (
-	"io"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -50,6 +50,12 @@ func xAIStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			sr.Error(err)
 			return
 		}
+		if xAIResp == nil {
+			err := errors.New("xai stream response is empty")
+			common.SysLog(err.Error())
+			sr.Stop(err)
+			return
+		}
 
 		// 把 xAI 的usage转换为 OpenAI 的usage
 		if xAIResp.Usage != nil {
@@ -84,7 +90,7 @@ func xAIStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 func xAIHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}

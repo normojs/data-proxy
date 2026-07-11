@@ -59,6 +59,91 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	return normalized
 }
 
+func channelTestRequestPath(channel *model.Channel, modelName, endpointType string) string {
+	if endpointType != "" {
+		if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
+			return endpointInfo.Path
+		}
+		return "/v1/chat/completions"
+	}
+
+	testModelLower := strings.ToLower(modelName)
+	if strings.Contains(testModelLower, "rerank") {
+		return "/v1/rerank"
+	}
+
+	if channelTestUsesEmbeddingRequest(channel, modelName) {
+		return "/v1/embeddings"
+	}
+
+	if channel != nil && channel.Type == constant.ChannelTypeVolcEngine && strings.Contains(modelName, "seedream") {
+		return "/v1/images/generations"
+	}
+
+	if strings.Contains(testModelLower, "codex") {
+		return "/v1/responses"
+	}
+
+	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
+		return "/v1/responses/compact"
+	}
+
+	return "/v1/chat/completions"
+}
+
+func channelTestUsesEmbeddingRequest(channel *model.Channel, modelName string) bool {
+	modelLower := strings.ToLower(modelName)
+	return strings.Contains(modelLower, "embedding") ||
+		strings.HasPrefix(modelName, "m3e") ||
+		strings.Contains(modelName, "bge-") ||
+		strings.Contains(modelLower, "embed") ||
+		(channel != nil && channel.Type == constant.ChannelTypeMokaAI)
+}
+
+func channelTestRelayFormat(requestPath, endpointType string) types.RelayFormat {
+	if endpointType != "" {
+		switch constant.EndpointType(endpointType) {
+		case constant.EndpointTypeOpenAI:
+			return types.RelayFormatOpenAI
+		case constant.EndpointTypeOpenAIResponse:
+			return types.RelayFormatOpenAIResponses
+		case constant.EndpointTypeOpenAIResponseCompact:
+			return types.RelayFormatOpenAIResponsesCompaction
+		case constant.EndpointTypeAnthropic:
+			return types.RelayFormatClaude
+		case constant.EndpointTypeGemini:
+			return types.RelayFormatGemini
+		case constant.EndpointTypeJinaRerank:
+			return types.RelayFormatRerank
+		case constant.EndpointTypeImageGeneration:
+			return types.RelayFormatOpenAIImage
+		case constant.EndpointTypeEmbeddings:
+			return types.RelayFormatEmbedding
+		default:
+			return types.RelayFormatOpenAI
+		}
+	}
+
+	switch {
+	case requestPath == "/v1/embeddings":
+		return types.RelayFormatEmbedding
+	case requestPath == "/v1/images/generations":
+		return types.RelayFormatOpenAIImage
+	case requestPath == "/v1/messages":
+		return types.RelayFormatClaude
+	case strings.Contains(requestPath, "/v1beta/models"):
+		return types.RelayFormatGemini
+	case requestPath == "/v1/rerank" || requestPath == "/rerank":
+		return types.RelayFormatRerank
+	case requestPath == "/v1/responses":
+		return types.RelayFormatOpenAIResponses
+	case strings.HasPrefix(requestPath, "/v1/responses/compact"):
+		return types.RelayFormatOpenAIResponsesCompaction
+	default:
+		return types.RelayFormatOpenAI
+	}
+}
+
 func resolveChannelTestUserID(c *gin.Context) (int, error) {
 	if c != nil {
 		if userID := c.GetInt("id"); userID > 0 {
@@ -142,46 +227,9 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 		}
 	}
 
-	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
-
-	requestPath := "/v1/chat/completions"
-
-	// 如果指定了端点类型，使用指定的端点类型
-	if endpointType != "" {
-		if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
-			requestPath = endpointInfo.Path
-		}
-	} else {
-		// 如果没有指定端点类型，使用原有的自动检测逻辑
-
-		if strings.Contains(strings.ToLower(testModel), "rerank") {
-			requestPath = "/v1/rerank"
-		}
-
-		// 先判断是否为 Embedding 模型
-		if strings.Contains(strings.ToLower(testModel), "embedding") ||
-			strings.HasPrefix(testModel, "m3e") || // m3e 系列模型
-			strings.Contains(testModel, "bge-") || // bge 系列模型
-			strings.Contains(testModel, "embed") ||
-			channel.Type == constant.ChannelTypeMokaAI { // 其他 embedding 模型
-			requestPath = "/v1/embeddings" // 修改请求路径
-		}
-
-		// VolcEngine 图像生成模型
-		if channel.Type == constant.ChannelTypeVolcEngine && strings.Contains(testModel, "seedream") {
-			requestPath = "/v1/images/generations"
-		}
-
-		// responses-only models
-		if strings.Contains(strings.ToLower(testModel), "codex") {
-			requestPath = "/v1/responses"
-		}
-
-		// responses compaction models (must use /v1/responses/compact)
-		if strings.HasSuffix(testModel, ratio_setting.CompactModelSuffix) {
-			requestPath = "/v1/responses/compact"
-		}
-	}
+	requestedEndpointType := strings.TrimSpace(endpointType)
+	endpointType = normalizeChannelTestEndpoint(channel, testModel, requestedEndpointType)
+	requestPath := channelTestRequestPath(channel, testModel, endpointType)
 	if strings.HasPrefix(requestPath, "/v1/responses/compact") {
 		testModel = ratio_setting.WithCompactModelSuffix(testModel)
 	}
@@ -220,55 +268,7 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 	}
 	defer service.FinishAllChannelMultiKeyRequests(c)
 
-	// Determine relay format based on endpoint type or request path
-	var relayFormat types.RelayFormat
-	if endpointType != "" {
-		// 根据指定的端点类型设置 relayFormat
-		switch constant.EndpointType(endpointType) {
-		case constant.EndpointTypeOpenAI:
-			relayFormat = types.RelayFormatOpenAI
-		case constant.EndpointTypeOpenAIResponse:
-			relayFormat = types.RelayFormatOpenAIResponses
-		case constant.EndpointTypeOpenAIResponseCompact:
-			relayFormat = types.RelayFormatOpenAIResponsesCompaction
-		case constant.EndpointTypeAnthropic:
-			relayFormat = types.RelayFormatClaude
-		case constant.EndpointTypeGemini:
-			relayFormat = types.RelayFormatGemini
-		case constant.EndpointTypeJinaRerank:
-			relayFormat = types.RelayFormatRerank
-		case constant.EndpointTypeImageGeneration:
-			relayFormat = types.RelayFormatOpenAIImage
-		case constant.EndpointTypeEmbeddings:
-			relayFormat = types.RelayFormatEmbedding
-		default:
-			relayFormat = types.RelayFormatOpenAI
-		}
-	} else {
-		// 根据请求路径自动检测
-		relayFormat = types.RelayFormatOpenAI
-		if c.Request.URL.Path == "/v1/embeddings" {
-			relayFormat = types.RelayFormatEmbedding
-		}
-		if c.Request.URL.Path == "/v1/images/generations" {
-			relayFormat = types.RelayFormatOpenAIImage
-		}
-		if c.Request.URL.Path == "/v1/messages" {
-			relayFormat = types.RelayFormatClaude
-		}
-		if strings.Contains(c.Request.URL.Path, "/v1beta/models") {
-			relayFormat = types.RelayFormatGemini
-		}
-		if c.Request.URL.Path == "/v1/rerank" || c.Request.URL.Path == "/rerank" {
-			relayFormat = types.RelayFormatRerank
-		}
-		if c.Request.URL.Path == "/v1/responses" {
-			relayFormat = types.RelayFormatOpenAIResponses
-		}
-		if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
-			relayFormat = types.RelayFormatOpenAIResponsesCompaction
-		}
-	}
+	relayFormat := channelTestRelayFormat(c.Request.URL.Path, endpointType)
 
 	request := buildTestRequest(testModel, endpointType, channel, isStream)
 
@@ -300,6 +300,47 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			context:     c,
 			localErr:    err,
 			newAPIError: types.NewError(err, types.ErrorCodeChannelModelMappedError),
+		}
+	}
+
+	if requestedEndpointType == "" {
+		mappedEndpointType := normalizeChannelTestEndpoint(channel, info.UpstreamModelName, "")
+		mappedRequestPath := channelTestRequestPath(channel, info.UpstreamModelName, mappedEndpointType)
+		if strings.HasPrefix(mappedRequestPath, "/v1/responses/compact") {
+			info.UpstreamModelName = ratio_setting.WithCompactModelSuffix(info.UpstreamModelName)
+			mappedRequestPath = channelTestRequestPath(channel, info.UpstreamModelName, mappedEndpointType)
+		}
+		if mappedEndpointType != endpointType || mappedRequestPath != c.Request.URL.Path {
+			endpointType = mappedEndpointType
+			c.Request.URL = &url.URL{Path: mappedRequestPath}
+			request = buildTestRequest(info.UpstreamModelName, endpointType, channel, isStream)
+			relayFormat = channelTestRelayFormat(c.Request.URL.Path, endpointType)
+			info, err = relaycommon.GenRelayInfo(c, relayFormat, request, nil)
+			if err != nil {
+				return testResult{
+					context:     c,
+					localErr:    err,
+					newAPIError: types.NewError(err, types.ErrorCodeGenRelayInfoFailed),
+				}
+			}
+			info.IsChannelTest = true
+			info.InitChannelMeta(c)
+			err = attachTestBillingRequestInput(info, request)
+			if err != nil {
+				return testResult{
+					context:     c,
+					localErr:    err,
+					newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
+				}
+			}
+			err = helper.ModelMappedHelper(c, info, request)
+			if err != nil {
+				return testResult{
+					context:     c,
+					localErr:    err,
+					newAPIError: types.NewError(err, types.ErrorCodeChannelModelMappedError),
+				}
+			}
 		}
 	}
 
@@ -806,9 +847,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	}
 
 	// 先判断是否为 Embedding 模型
-	if strings.Contains(strings.ToLower(model), "embedding") ||
-		strings.HasPrefix(model, "m3e") ||
-		strings.Contains(model, "bge-") {
+	if channelTestUsesEmbeddingRequest(channel, model) {
 		// 返回 EmbeddingRequest
 		return &dto.EmbeddingRequest{
 			Model: model,

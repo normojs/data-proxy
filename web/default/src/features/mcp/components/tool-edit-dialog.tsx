@@ -70,6 +70,11 @@ const DEFAULT_INPUT_SCHEMA = {
 }
 
 function buildInitialForm(tool: MCPTool | null): ToolEditForm {
+  const status =
+    tool == null || tool.source === 'custom'
+      ? MCP_TOOL_STATUS.DISABLED
+      : tool.status
+
   return {
     category: tool?.category ?? '',
     description: tool?.description ?? '',
@@ -84,7 +89,7 @@ function buildInitialForm(tool: MCPTool | null): ToolEditForm {
     pricePerCall: String(tool?.price_per_call ?? 0),
     priceUnit: tool?.price_unit ?? 'per_call',
     sortOrder: String(tool?.sort_order ?? 0),
-    status: String(tool?.status ?? MCP_TOOL_STATUS.ENABLED),
+    status: String(status),
   }
 }
 
@@ -93,7 +98,10 @@ function parseNumber(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function buildPayload(form: ToolEditForm): MCPToolUpdatePayload {
+function buildPayload(
+  form: ToolEditForm,
+  options?: { forceDisabledStatus?: boolean }
+): MCPToolUpdatePayload {
   return {
     category: form.category.trim(),
     description: form.description.trim(),
@@ -102,7 +110,9 @@ function buildPayload(form: ToolEditForm): MCPToolUpdatePayload {
     price_per_call: Math.max(0, parseNumber(form.pricePerCall, 0)),
     price_unit: form.priceUnit,
     sort_order: Math.trunc(parseNumber(form.sortOrder, 0)),
-    status: Math.trunc(parseNumber(form.status, MCP_TOOL_STATUS.ENABLED)),
+    status: options?.forceDisabledStatus
+      ? MCP_TOOL_STATUS.DISABLED
+      : Math.trunc(parseNumber(form.status, MCP_TOOL_STATUS.ENABLED)),
   }
 }
 
@@ -119,7 +129,7 @@ function parseInputSchema(value: string): unknown {
 }
 
 function buildCreatePayload(form: ToolEditForm): MCPToolCreatePayload {
-  const payload = buildPayload(form)
+  const payload = buildPayload(form, { forceDisabledStatus: true })
   return {
     category: payload.category ?? '',
     description: payload.description ?? '',
@@ -130,7 +140,7 @@ function buildCreatePayload(form: ToolEditForm): MCPToolCreatePayload {
     price_per_call: payload.price_per_call ?? 0,
     price_unit: payload.price_unit ?? 'per_call',
     sort_order: payload.sort_order ?? 0,
-    status: payload.status ?? MCP_TOOL_STATUS.ENABLED,
+    status: MCP_TOOL_STATUS.DISABLED,
   }
 }
 
@@ -155,6 +165,7 @@ function ToolEditDialogContent(props: Omit<ToolEditDialogProps, 'open'>) {
     buildInitialForm(props.tool)
   )
   const isCreate = props.tool == null
+  const isCustomTool = isCreate || props.tool?.source === 'custom'
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -162,7 +173,10 @@ function ToolEditDialogContent(props: Omit<ToolEditDialogProps, 'open'>) {
       if (!tool) {
         return createMCPTool(buildCreatePayload(form))
       }
-      return updateMCPTool(tool.id, buildPayload(form))
+      return updateMCPTool(
+        tool.id,
+        buildPayload(form, { forceDisabledStatus: tool.source === 'custom' })
+      )
     },
     onSuccess: (res) => {
       if (!res.success) {
@@ -251,6 +265,7 @@ function ToolEditDialogContent(props: Omit<ToolEditDialogProps, 'open'>) {
           <NativeSelect
             id='mcp-tool-status'
             value={form.status}
+            disabled={isCustomTool}
             onChange={(event) =>
               setForm((current) => ({
                 ...current,

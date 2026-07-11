@@ -54,7 +54,17 @@ export function ExtendDeploymentDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    if (open) setHours(1)
+    if (!open) return
+
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setHours(1)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [open])
 
   const { data: detailsRes, isLoading: isLoadingDetails } = useQuery({

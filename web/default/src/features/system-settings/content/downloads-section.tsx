@@ -79,8 +79,8 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { StatusBadge } from '@/components/status-badge'
+import { DownloadIcon } from '@/features/downloads/download-icon'
 import {
-  DownloadIcon,
   DOWNLOAD_ICON_OPTIONS,
   parseDownloadItems,
 } from '@/features/downloads/lib'
@@ -183,12 +183,25 @@ export function DownloadsSection({ enabled, data }: DownloadsSectionProps) {
   })
 
   useEffect(() => {
-    setDownloadList(parseDownloadItems(data))
-    setHasChanges(false)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setDownloadList(parseDownloadItems(data))
+      setHasChanges(false)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [data])
 
   useEffect(() => {
-    setIsEnabled(enabled)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setIsEnabled(enabled)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [enabled])
 
   const handleToggleEnabled = async (checked: boolean) => {

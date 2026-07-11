@@ -3,7 +3,6 @@ package controller
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -205,7 +204,7 @@ func GetClaudeAuthHeader(token string) http.Header {
 	return h
 }
 
-func GetResponseBody(method, url string, channel *model.Channel, headers http.Header) ([]byte, error) {
+func GetResponseBody(method, url string, channel *model.Channel, headers http.Header) (body []byte, err error) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
 		return nil, err
@@ -221,14 +220,16 @@ func GetResponseBody(method, url string, channel *model.Channel, headers http.He
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		closeErr := res.Body.Close()
+		if err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status code: %d", res.StatusCode)
 	}
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-	err = res.Body.Close()
+	body, err = service.ReadAllLimited(res.Body, service.MaxRelayResponseBodyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -456,7 +457,7 @@ func updateChannelBalance(channel *model.Channel) (float64, error) {
 	case constant.ChannelTypeMoonshot:
 		return updateChannelMoonshotBalance(channel)
 	default:
-		return 0, errors.New("尚未实现")
+		return 0, channelBalanceQueryUnsupportedError(channel.Type)
 	}
 	url := fmt.Sprintf("%s/v1/dashboard/billing/subscription", baseURL)
 
@@ -494,7 +495,20 @@ func channelSupportsBalanceQuery(channel *model.Channel) bool {
 	if channel == nil {
 		return false
 	}
-	return channel.Type != constant.ChannelTypeAzure
+	switch channel.Type {
+	case constant.ChannelTypeOpenAI,
+		constant.ChannelTypeCustom,
+		constant.ChannelTypeAIProxy,
+		constant.ChannelTypeAPI2GPT,
+		constant.ChannelTypeAIGC2D,
+		constant.ChannelTypeSiliconFlow,
+		constant.ChannelTypeDeepSeek,
+		constant.ChannelTypeOpenRouter,
+		constant.ChannelTypeMoonshot:
+		return true
+	default:
+		return false
+	}
 }
 
 func channelBalanceQueryUnsupportedError(channelType int) error {

@@ -1865,7 +1865,15 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
   useEffect(() => {
     if (!props.open) return
-    setActiveTab('user')
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setActiveTab('user')
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [props.open, props.log.id])
 
   const isUserView = !props.isAdmin || activeTab === 'user'

@@ -2,20 +2,29 @@ package service
 
 import (
 	"math"
+	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
 const (
-	defaultPricingActualWindowSeconds int64 = 3600
-	pricingActualFallbackBatchSize          = 500
-	pricingActualFallbackMaxScan            = 20000
+	defaultPricingActualSampleLimit  int64 = 50
+	pricingActualCacheTokenThreshold int64 = 1000
+	pricingActualFallbackBatchSize         = 500
+	pricingActualCacheTTL                  = 30 * time.Second
 )
+
+var pricingActualMaxScan = 20000
 
 type pricingActualAccumulator struct {
 	model.PricingActualPrice
+	cached  *pricingActualAccumulator
+	noCache *pricingActualAccumulator
 }
 
 type pricingActualTargets struct {
@@ -29,32 +38,46 @@ type pricingActualMissing struct {
 	count  int
 }
 
-func GetPlatformPricingActualPrices(windowSeconds int64) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, error) {
-	return getPlatformPricingActualPrices(windowSeconds, nil)
+type pricingActualCacheEntry struct {
+	expiresAt time.Time
+	byModel   map[string]model.PricingActualPrice
+	byGroup   map[string]map[string]model.PricingActualPrice
 }
 
-func GetPlatformPricingActualPricesForPricing(windowSeconds int64, pricing []model.Pricing) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, error) {
-	return getPlatformPricingActualPrices(windowSeconds, pricingActualTargetsFromPricing(pricing))
+var (
+	pricingActualCacheMu sync.Mutex
+	pricingActualCache   = map[string]pricingActualCacheEntry{}
+)
+
+func GetPlatformPricingActualPrices(sampleLimit int64) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, error) {
+	return getPlatformPricingActualPrices(sampleLimit, nil)
 }
 
-func getPlatformPricingActualPrices(windowSeconds int64, targets *pricingActualTargets) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, error) {
-	if windowSeconds <= 0 {
-		windowSeconds = defaultPricingActualWindowSeconds
+func GetPlatformPricingActualPricesForPricing(sampleLimit int64, pricing []model.Pricing) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, error) {
+	return getPlatformPricingActualPrices(sampleLimit, pricingActualTargetsFromPricing(pricing))
+}
+
+func getPlatformPricingActualPrices(sampleLimit int64, targets *pricingActualTargets) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, error) {
+	if sampleLimit <= 0 {
+		sampleLimit = defaultPricingActualSampleLimit
 	}
-	endAt := common.GetTimestamp()
-	startAt := endAt - windowSeconds
+
+	cacheKey := pricingActualCacheKey(sampleLimit, targets)
+	if byModel, byGroup, ok := getPricingActualCache(cacheKey); ok {
+		return byModel, byGroup, nil
+	}
 
 	var events []model.BillingEvent
 	err := model.DB.
 		Model(&model.BillingEvent{}).
 		Select(pricingActualBillingEventSelect()).
-		Where("source = ? AND event_type = ? AND status = ? AND created_at >= ? AND created_at <= ?",
+		Where("source = ? AND event_type = ? AND status = ?",
 			model.BillingEventSourceModelRequest,
 			model.BillingEventTypeDebit,
 			model.BillingEventStatusSettled,
-			startAt,
-			endAt,
 		).
+		Order("created_at desc, id desc").
+		Limit(pricingActualMaxScan).
 		Find(&events).Error
 	if err != nil {
 		return nil, nil, err
@@ -62,8 +85,12 @@ func getPlatformPricingActualPrices(windowSeconds int64, targets *pricingActualT
 
 	byModelAcc := map[string]*pricingActualAccumulator{}
 	byGroupAcc := map[string]map[string]*pricingActualAccumulator{}
+	var cursorCreatedAt int64
+	var cursorId int64
 
 	for _, event := range events {
+		cursorCreatedAt = event.CreatedAt
+		cursorId = event.Id
 		metadata := map[string]any{}
 		_ = common.UnmarshalJsonStr(event.Metadata, &metadata)
 
@@ -76,33 +103,81 @@ func getPlatformPricingActualPrices(windowSeconds int64, targets *pricingActualT
 			group = "default"
 		}
 
-		observePricingActual(byModelAcc, modelName, windowSeconds, startAt, endAt, event, metadata)
-		if _, ok := byGroupAcc[modelName]; !ok {
-			byGroupAcc[modelName] = map[string]*pricingActualAccumulator{}
+		if targets == nil || targetHasModel(targets, modelName) {
+			observePricingActual(byModelAcc, modelName, sampleLimit, event, metadata)
 		}
-		observePricingActual(byGroupAcc[modelName], group, windowSeconds, startAt, endAt, event, metadata)
+		if targets == nil || targetHasGroup(targets, modelName, group) {
+			if _, ok := byGroupAcc[modelName]; !ok {
+				byGroupAcc[modelName] = map[string]*pricingActualAccumulator{}
+			}
+			observePricingActual(byGroupAcc[modelName], group, sampleLimit, event, metadata)
+		}
+
+		if pricingActualTargetsFilled(byModelAcc, byGroupAcc, targets, sampleLimit) {
+			break
+		}
 	}
 
 	byModel := make(map[string]model.PricingActualPrice, len(byModelAcc))
 	for modelName, acc := range byModelAcc {
-		byModel[modelName] = finalizePricingActual(acc.PricingActualPrice)
+		byModel[modelName] = finalizePricingActualAccumulator(acc)
 	}
 
 	byGroup := make(map[string]map[string]model.PricingActualPrice, len(byGroupAcc))
 	for modelName, groups := range byGroupAcc {
 		byGroup[modelName] = make(map[string]model.PricingActualPrice, len(groups))
 		for group, acc := range groups {
-			byGroup[modelName][group] = finalizePricingActual(acc.PricingActualPrice)
+			byGroup[modelName][group] = finalizePricingActualAccumulator(acc)
 		}
 	}
 
 	if !targets.empty() {
-		if err := attachFallbackPricingActuals(byModel, byGroup, targets, startAt); err != nil {
+		if err := attachFallbackPricingActuals(byModel, byGroup, targets, sampleLimit, cursorCreatedAt, cursorId); err != nil {
 			return nil, nil, err
 		}
 	}
 
+	setPricingActualCache(cacheKey, byModel, byGroup)
 	return byModel, byGroup, nil
+}
+
+func targetHasModel(targets *pricingActualTargets, modelName string) bool {
+	if targets == nil || len(targets.models) == 0 {
+		return true
+	}
+	_, ok := targets.models[modelName]
+	return ok
+}
+
+func targetHasGroup(targets *pricingActualTargets, modelName, group string) bool {
+	if targets == nil || len(targets.groups) == 0 {
+		return true
+	}
+	groups := targets.groups[modelName]
+	if len(groups) == 0 {
+		return false
+	}
+	_, ok := groups[group]
+	return ok
+}
+
+func pricingActualTargetsFilled(byModel map[string]*pricingActualAccumulator, byGroup map[string]map[string]*pricingActualAccumulator, targets *pricingActualTargets, sampleLimit int64) bool {
+	if targets == nil || targets.empty() {
+		return false
+	}
+	for modelName := range targets.models {
+		if byModel[modelName] == nil || byModel[modelName].RequestCount < sampleLimit {
+			return false
+		}
+	}
+	for modelName, groups := range targets.groups {
+		for group := range groups {
+			if byGroup[modelName] == nil || byGroup[modelName][group] == nil || byGroup[modelName][group].RequestCount < sampleLimit {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func pricingActualBillingEventSelect() string {
@@ -142,25 +217,29 @@ func (targets *pricingActualTargets) empty() bool {
 	return targets == nil || (len(targets.models) == 0 && len(targets.groups) == 0)
 }
 
-func attachFallbackPricingActuals(byModel map[string]model.PricingActualPrice, byGroup map[string]map[string]model.PricingActualPrice, targets *pricingActualTargets, before int64) error {
+func attachFallbackPricingActuals(
+	byModel map[string]model.PricingActualPrice,
+	byGroup map[string]map[string]model.PricingActualPrice,
+	targets *pricingActualTargets,
+	sampleLimit int64,
+	cursorCreatedAt int64,
+	cursorId int64,
+) error {
 	missing := missingPricingActuals(byModel, byGroup, targets)
 	if missing.count == 0 {
 		return nil
 	}
 
-	var cursorCreatedAt int64
-	var cursorId int64
 	scanned := 0
-	for missing.count > 0 && scanned < pricingActualFallbackMaxScan {
+	for missing.count > 0 && scanned < pricingActualMaxScan {
 		var events []model.BillingEvent
 		query := model.DB.
 			Model(&model.BillingEvent{}).
 			Select(pricingActualBillingEventSelect()).
-			Where("source = ? AND event_type = ? AND status = ? AND created_at < ?",
+			Where("source = ? AND event_type = ? AND status = ?",
 				model.BillingEventSourceModelRequest,
 				model.BillingEventTypeDebit,
 				model.BillingEventStatusSettled,
-				before,
 			)
 		if cursorCreatedAt > 0 {
 			query = query.Where("(created_at < ? OR (created_at = ? AND id < ?))", cursorCreatedAt, cursorCreatedAt, cursorId)
@@ -186,7 +265,7 @@ func attachFallbackPricingActuals(byModel map[string]model.PricingActualPrice, b
 				group = "default"
 			}
 
-			actual := fallbackPricingActual(event, metadata)
+			actual := fallbackPricingActual(event, metadata, sampleLimit)
 			if _, ok := missing.models[modelName]; ok {
 				byModel[modelName] = actual
 				delete(missing.models, modelName)
@@ -205,7 +284,7 @@ func attachFallbackPricingActuals(byModel map[string]model.PricingActualPrice, b
 					}
 				}
 			}
-			if missing.count == 0 || scanned >= pricingActualFallbackMaxScan {
+			if missing.count == 0 || scanned >= pricingActualMaxScan {
 				break
 			}
 		}
@@ -251,30 +330,71 @@ func missingPricingActuals(byModel map[string]model.PricingActualPrice, byGroup 
 	return missing
 }
 
-func fallbackPricingActual(event model.BillingEvent, metadata map[string]any) model.PricingActualPrice {
+func fallbackPricingActual(event model.BillingEvent, metadata map[string]any, sampleLimit int64) model.PricingActualPrice {
 	acc := map[string]*pricingActualAccumulator{}
-	observePricingActual(acc, "last", 0, event.CreatedAt, event.CreatedAt, event, metadata)
-	actual := finalizePricingActual(acc["last"].PricingActualPrice)
-	actual.LastTransactionAt = event.CreatedAt
-	actual.IsFallback = true
-	actual.PriceMayHaveChanged = true
+	observePricingActual(acc, "last", sampleLimit, event, metadata)
+	actual := finalizePricingActualAccumulator(acc["last"])
+	markPricingActualFallback(&actual)
 	return actual
 }
 
-func observePricingActual(target map[string]*pricingActualAccumulator, key string, windowSeconds int64, startAt int64, endAt int64, event model.BillingEvent, metadata map[string]any) {
+func markPricingActualFallback(actual *model.PricingActualPrice) {
+	if actual == nil {
+		return
+	}
+	actual.IsFallback = true
+	actual.PriceMayHaveChanged = true
+	if actual.CachedPrice != nil {
+		markPricingActualFallback(actual.CachedPrice)
+	}
+	if actual.NoCachePrice != nil {
+		markPricingActualFallback(actual.NoCachePrice)
+	}
+}
+
+func observePricingActual(target map[string]*pricingActualAccumulator, key string, sampleLimit int64, event model.BillingEvent, metadata map[string]any) {
 	acc := target[key]
 	if acc == nil {
-		acc = &pricingActualAccumulator{PricingActualPrice: model.PricingActualPrice{
-			WindowSeconds: windowSeconds,
-			StartedAt:     startAt,
-			EndedAt:       endAt,
-			PriceUnit:     strings.TrimSpace(event.PriceUnit),
-		}}
+		acc = &pricingActualAccumulator{}
 		target[key] = acc
 	}
-	acc.RequestCount++
-	acc.AmountQuota += int64(event.AmountQuota)
-	acc.Cost += event.Cost
+	if acc.RequestCount >= sampleLimit {
+		return
+	}
+	observePricingActualValue(&acc.PricingActualPrice, sampleLimit, event, metadata)
+
+	if metadataInt64(metadata, "cache_tokens") > pricingActualCacheTokenThreshold {
+		if acc.cached == nil {
+			acc.cached = &pricingActualAccumulator{}
+		}
+		observePricingActualValue(&acc.cached.PricingActualPrice, sampleLimit, event, metadata)
+	} else {
+		if acc.noCache == nil {
+			acc.noCache = &pricingActualAccumulator{}
+		}
+		observePricingActualValue(&acc.noCache.PricingActualPrice, sampleLimit, event, metadata)
+	}
+}
+
+func observePricingActualValue(value *model.PricingActualPrice, sampleLimit int64, event model.BillingEvent, metadata map[string]any) {
+	if value.RequestCount == 0 {
+		value.SampleLimit = sampleLimit
+		value.CacheTokenThreshold = pricingActualCacheTokenThreshold
+		value.StartedAt = event.CreatedAt
+		value.EndedAt = event.CreatedAt
+		value.LastTransactionAt = event.CreatedAt
+		value.PriceUnit = strings.TrimSpace(event.PriceUnit)
+	}
+	if event.CreatedAt < value.StartedAt {
+		value.StartedAt = event.CreatedAt
+	}
+	if event.CreatedAt > value.EndedAt {
+		value.EndedAt = event.CreatedAt
+		value.LastTransactionAt = event.CreatedAt
+	}
+	value.RequestCount++
+	value.AmountQuota += int64(event.AmountQuota)
+	value.Cost += event.Cost
 	promptTokens := metadataInt64(metadata, "prompt_tokens")
 	completionTokens := metadataInt64(metadata, "completion_tokens")
 	totalTokens := metadataInt64(metadata, "total_tokens")
@@ -289,23 +409,39 @@ func observePricingActual(target map[string]*pricingActualAccumulator, key strin
 		outputTokens = completionTokens
 	}
 
-	acc.PromptTokens += promptTokens
-	acc.CompletionTokens += completionTokens
-	acc.TotalTokens += totalTokens
-	acc.InputTokens += inputTokens
-	acc.OutputTokens += outputTokens
-	acc.CacheTokens += cacheTokens
-	acc.CacheCreationTokens += cacheCreationTokens
+	value.PromptTokens += promptTokens
+	value.CompletionTokens += completionTokens
+	value.TotalTokens += totalTokens
+	value.InputTokens += inputTokens
+	value.OutputTokens += outputTokens
+	value.CacheTokens += cacheTokens
+	value.CacheCreationTokens += cacheCreationTokens
 	billableTokens := inputTokens + outputTokens + cacheTokens + cacheCreationTokens
 	if billableTokens == 0 {
 		billableTokens = totalTokens
 	}
-	acc.TotalBillableTokens += billableTokens
-	if acc.PriceUnit == "" {
-		acc.PriceUnit = strings.TrimSpace(event.PriceUnit)
-	} else if event.PriceUnit != "" && acc.PriceUnit != event.PriceUnit {
-		acc.PriceUnit = "mixed"
+	value.TotalBillableTokens += billableTokens
+	if value.PriceUnit == "" {
+		value.PriceUnit = strings.TrimSpace(event.PriceUnit)
+	} else if event.PriceUnit != "" && value.PriceUnit != event.PriceUnit {
+		value.PriceUnit = "mixed"
 	}
+}
+
+func finalizePricingActualAccumulator(acc *pricingActualAccumulator) model.PricingActualPrice {
+	if acc == nil {
+		return model.PricingActualPrice{}
+	}
+	value := finalizePricingActual(acc.PricingActualPrice)
+	if acc.cached != nil && acc.cached.RequestCount > 0 {
+		cached := finalizePricingActual(acc.cached.PricingActualPrice)
+		value.CachedPrice = &cached
+	}
+	if acc.noCache != nil && acc.noCache.RequestCount > 0 {
+		noCache := finalizePricingActual(acc.noCache.PricingActualPrice)
+		value.NoCachePrice = &noCache
+	}
+	return value
 }
 
 func finalizePricingActual(value model.PricingActualPrice) model.PricingActualPrice {
@@ -385,4 +521,91 @@ func metadataInt64(metadata map[string]any, key string) int64 {
 	default:
 		return 0
 	}
+}
+
+func InvalidatePricingActualCache() {
+	pricingActualCacheMu.Lock()
+	defer pricingActualCacheMu.Unlock()
+	pricingActualCache = map[string]pricingActualCacheEntry{}
+}
+
+func getPricingActualCache(key string) (map[string]model.PricingActualPrice, map[string]map[string]model.PricingActualPrice, bool) {
+	pricingActualCacheMu.Lock()
+	defer pricingActualCacheMu.Unlock()
+	entry, ok := pricingActualCache[key]
+	if !ok {
+		return nil, nil, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(pricingActualCache, key)
+		return nil, nil, false
+	}
+	return clonePricingActualByModel(entry.byModel), clonePricingActualByGroup(entry.byGroup), true
+}
+
+func setPricingActualCache(key string, byModel map[string]model.PricingActualPrice, byGroup map[string]map[string]model.PricingActualPrice) {
+	pricingActualCacheMu.Lock()
+	defer pricingActualCacheMu.Unlock()
+	pricingActualCache[key] = pricingActualCacheEntry{
+		expiresAt: time.Now().Add(pricingActualCacheTTL),
+		byModel:   clonePricingActualByModel(byModel),
+		byGroup:   clonePricingActualByGroup(byGroup),
+	}
+}
+
+func pricingActualCacheKey(sampleLimit int64, targets *pricingActualTargets) string {
+	if targets == nil || targets.empty() {
+		return "sample:" + strconv.FormatInt(sampleLimit, 10) + "|all"
+	}
+	models := make([]string, 0, len(targets.models))
+	for modelName := range targets.models {
+		models = append(models, modelName)
+	}
+	sort.Strings(models)
+
+	groupPairs := make([]string, 0)
+	for modelName, groups := range targets.groups {
+		for group := range groups {
+			groupPairs = append(groupPairs, modelName+"/"+group)
+		}
+	}
+	sort.Strings(groupPairs)
+	return "sample:" + strconv.FormatInt(sampleLimit, 10) + "|models:" + strings.Join(models, ",") + "|groups:" + strings.Join(groupPairs, ",")
+}
+
+func clonePricingActualByModel(source map[string]model.PricingActualPrice) map[string]model.PricingActualPrice {
+	if len(source) == 0 {
+		return map[string]model.PricingActualPrice{}
+	}
+	cloned := make(map[string]model.PricingActualPrice, len(source))
+	for key, value := range source {
+		cloned[key] = clonePricingActualPrice(value)
+	}
+	return cloned
+}
+
+func clonePricingActualByGroup(source map[string]map[string]model.PricingActualPrice) map[string]map[string]model.PricingActualPrice {
+	if len(source) == 0 {
+		return map[string]map[string]model.PricingActualPrice{}
+	}
+	cloned := make(map[string]map[string]model.PricingActualPrice, len(source))
+	for modelName, groups := range source {
+		cloned[modelName] = make(map[string]model.PricingActualPrice, len(groups))
+		for group, value := range groups {
+			cloned[modelName][group] = clonePricingActualPrice(value)
+		}
+	}
+	return cloned
+}
+
+func clonePricingActualPrice(value model.PricingActualPrice) model.PricingActualPrice {
+	if value.CachedPrice != nil {
+		cached := clonePricingActualPrice(*value.CachedPrice)
+		value.CachedPrice = &cached
+	}
+	if value.NoCachePrice != nil {
+		noCache := clonePricingActualPrice(*value.NoCachePrice)
+		value.NoCachePrice = &noCache
+	}
+	return value
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -187,7 +186,7 @@ func fetchMidjourneyTaskList(ctx context.Context, midjourneyChannel *model.Chann
 		return nil, fmt.Errorf("task list status code: %d", resp.StatusCode)
 	}
 
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read task list response body: %w", err)
 	}

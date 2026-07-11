@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -47,9 +46,13 @@ func requestOpenAI2Tencent(a *Adaptor, request dto.GeneralOpenAIRequest) *Tencen
 	return &req
 }
 
-func responseTencent2OpenAI(response *TencentChatResponse) *dto.OpenAITextResponse {
+func responseTencent2OpenAI(response *TencentChatResponse, model string) *dto.OpenAITextResponse {
+	if model == "" {
+		model = "tencent-hunyuan"
+	}
 	fullTextResponse := dto.OpenAITextResponse{
 		Id:      response.Id,
+		Model:   model,
 		Object:  "chat.completion",
 		Created: common.GetTimestamp(),
 		Usage: dto.Usage{
@@ -72,11 +75,14 @@ func responseTencent2OpenAI(response *TencentChatResponse) *dto.OpenAITextRespon
 	return &fullTextResponse
 }
 
-func streamResponseTencent2OpenAI(TencentResponse *TencentChatResponse) *dto.ChatCompletionsStreamResponse {
+func streamResponseTencent2OpenAI(TencentResponse *TencentChatResponse, model string) *dto.ChatCompletionsStreamResponse {
+	if model == "" {
+		model = "tencent-hunyuan"
+	}
 	response := dto.ChatCompletionsStreamResponse{
 		Object:  "chat.completion.chunk",
 		Created: common.GetTimestamp(),
-		Model:   "tencent-hunyuan",
+		Model:   model,
 	}
 	if len(TencentResponse.Choices) > 0 {
 		var choice dto.ChatCompletionsStreamResponseChoice
@@ -110,7 +116,11 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 			continue
 		}
 
-		response := streamResponseTencent2OpenAI(&tencentResponse)
+		model := ""
+		if info != nil {
+			model = info.UpstreamModelName
+		}
+		response := streamResponseTencent2OpenAI(&tencentResponse, model)
 		if len(response.Choices) != 0 {
 			responseText += response.Choices[0].Delta.GetContentString()
 		}
@@ -134,7 +144,7 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 
 func tencentHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	var tencentSb TencentChatResponseSB
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadAllLimited(resp.Body, service.MaxRelayResponseBodyBytes)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
@@ -149,7 +159,11 @@ func tencentHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Resp
 			Code:    tencentSb.Response.Error.Code,
 		}, resp.StatusCode)
 	}
-	fullTextResponse := responseTencent2OpenAI(&tencentSb.Response)
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+	}
+	fullTextResponse := responseTencent2OpenAI(&tencentSb.Response, model)
 	jsonResponse, err := common.Marshal(fullTextResponse)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)

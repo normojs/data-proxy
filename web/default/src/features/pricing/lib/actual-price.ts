@@ -90,8 +90,23 @@ export function formatActualPriceTimestamp(
 
 export function actualPriceWindowLabel(
   actual: PricingActualPrice | undefined,
-  fallback: string
+  fallback: string,
+  sampleLabel?: (count: number, limit: number) => string
 ): string {
+  const sampleLimit = actual?.sample_limit
+  if (sampleLimit && sampleLimit > 0) {
+    const count =
+      actual.request_count && actual.request_count > 0
+        ? actual.request_count
+        : sampleLimit
+    if (sampleLabel) {
+      return sampleLabel(count, sampleLimit)
+    }
+    if (count < sampleLimit) {
+      return `${formatActualPriceCount(count)}/${formatActualPriceCount(sampleLimit)} trades`
+    }
+    return `${formatActualPriceCount(sampleLimit)} trades`
+  }
   const seconds = actual?.window_seconds
   if (!seconds || seconds <= 0) {
     return fallback

@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import type { TFunction } from 'i18next'
 import { ArrowLeft, Code2, HeartPulse, Info, Timer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
@@ -623,13 +624,115 @@ function AutoGroupChain(props: { model: PricingModel; autoGroups: string[] }) {
 // Group pricing table
 // ----------------------------------------------------------------------------
 
+function getDisplayableActualPriceAmount(
+  actual: PricingActualPrice | undefined,
+  model: PricingModel,
+  tokenUnit: TokenUnit
+): number | undefined {
+  const amount = actualPriceAmount(actual, model, tokenUnit)
+  if (
+    !actual ||
+    !actual.request_count ||
+    amount == null ||
+    !Number.isFinite(amount)
+  ) {
+    return undefined
+  }
+  return amount
+}
+
+function formatActualPriceSampleScope(
+  t: TFunction,
+  count: number,
+  limit: number
+): string {
+  const formattedLimit = formatActualPriceCount(limit)
+  if (count < limit) {
+    return t('Recent {{count}}/{{limit}} trades', {
+      count: formatActualPriceCount(count),
+      limit: formattedLimit,
+    })
+  }
+  return t('Recent {{limit}} trades', { limit: formattedLimit })
+}
+
+function ActualPriceBreakdownRows(props: {
+  actual: PricingActualPrice
+  model: PricingModel
+  tokenUnit: TokenUnit
+}) {
+  const { t } = useTranslation()
+  const rows: {
+    key: string
+    label: string
+    actual?: PricingActualPrice
+  }[] = [
+    { key: 'overall', label: t('Overall'), actual: props.actual },
+    {
+      key: 'cache-hit',
+      label: t('Cache hit'),
+      actual: props.actual.cached_price,
+    },
+    {
+      key: 'no-cache',
+      label: t('No cache'),
+      actual: props.actual.no_cache_price,
+    },
+  ]
+
+  const visibleRows = rows
+    .map((row) => ({
+      ...row,
+      amount: getDisplayableActualPriceAmount(
+        row.actual,
+        props.model,
+        props.tokenUnit
+      ),
+    }))
+    .filter((row) => row.amount != null)
+
+  return (
+    <div className='grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-3 gap-y-1 pt-1'>
+      <span />
+      <span className='text-muted-foreground text-right'>{t('Price')}</span>
+      <span className='text-muted-foreground text-right'>{t('Requests')}</span>
+      <span className='text-muted-foreground text-right'>
+        {t('Billable tokens')}
+      </span>
+      {visibleRows.map((row) => (
+        <Fragment key={row.key}>
+          <span className='text-muted-foreground'>{row.label}</span>
+          <span className='text-right font-mono tabular-nums'>
+            {formatActualPriceValue(row.amount)}
+          </span>
+          <span className='text-right font-mono tabular-nums'>
+            {formatActualPriceCount(row.actual?.request_count)}
+          </span>
+          <span className='text-right font-mono tabular-nums'>
+            {formatActualPriceCount(row.actual?.total_billable_tokens)}
+          </span>
+        </Fragment>
+      ))}
+    </div>
+  )
+}
+
 function GroupActualPriceCell(props: {
   actual?: PricingActualPrice
   model: PricingModel
   tokenUnit: TokenUnit
 }) {
   const { t } = useTranslation()
-  const amount = actualPriceAmount(props.actual, props.model, props.tokenUnit)
+  const amount = getDisplayableActualPriceAmount(
+    props.actual,
+    props.model,
+    props.tokenUnit
+  )
+  const cachedAmount = getDisplayableActualPriceAmount(
+    props.actual?.cached_price,
+    props.model,
+    props.tokenUnit
+  )
   const unitLabel = actualPriceUnitLabel(
     props.model,
     props.tokenUnit,
@@ -637,26 +740,35 @@ function GroupActualPriceCell(props: {
   )
   const fallback = isActualPriceFallback(props.actual)
 
-  if (
-    !props.actual ||
-    !props.actual.request_count ||
-    amount == null ||
-    !Number.isFinite(amount)
-  ) {
+  if (!props.actual || amount == null) {
     return <span className='text-muted-foreground/30'>—</span>
   }
+  const scopeLabel = fallback
+    ? t('Last trade')
+    : actualPriceWindowLabel(props.actual, t('Recent 1h'), (count, limit) =>
+        formatActualPriceSampleScope(t, count, limit)
+      )
+  const cacheTokenThreshold = props.actual.cache_token_threshold
 
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger render={<span />}>
-          <span className='inline-flex flex-col items-end leading-tight'>
+          <span className='inline-flex min-w-[118px] flex-col items-end leading-tight'>
             <span className='text-foreground font-mono tabular-nums'>
               {formatActualPriceValue(amount)}
             </span>
             <span className='text-muted-foreground/50 text-[10px]'>
-              / {unitLabel}
+              / {unitLabel} · {scopeLabel}
             </span>
+            {cachedAmount != null && (
+              <span className='text-muted-foreground mt-0.5 text-[10px]'>
+                {t('Cache hit')}{' '}
+                <span className='font-mono tabular-nums'>
+                  {formatActualPriceValue(cachedAmount)}
+                </span>
+              </span>
+            )}
             {fallback && (
               <span className='text-[10px] text-amber-600 dark:text-amber-400'>
                 {t('May have changed')}
@@ -664,22 +776,31 @@ function GroupActualPriceCell(props: {
             )}
           </span>
         </TooltipTrigger>
-        <TooltipContent side='top' className='max-w-[280px] p-2.5'>
+        <TooltipContent side='top' className='max-w-[360px] p-2.5'>
           <div className='space-y-1 text-xs'>
             <div className='font-medium'>
               {fallback ? t('Last settled price') : t('Recent effective price')}{' '}
-              ·{' '}
-              {fallback
-                ? t('Last trade')
-                : actualPriceWindowLabel(props.actual, t('Recent 1h'))}
+              · {scopeLabel}
             </div>
             {fallback && (
               <div className='text-amber-700 dark:text-amber-300'>
                 {t(
-                  'No trade in the recent hour. This is the last settled price and may have changed.'
+                  'No recent settled sample was found. This is the last settled price and may have changed.'
                 )}
               </div>
             )}
+            {!fallback && cacheTokenThreshold ? (
+              <div className='text-muted-foreground'>
+                {t('Cache hit samples require cache_tokens > {{threshold}}.', {
+                  threshold: formatActualPriceCount(cacheTokenThreshold),
+                })}
+              </div>
+            ) : null}
+            <ActualPriceBreakdownRows
+              actual={props.actual}
+              model={props.model}
+              tokenUnit={props.tokenUnit}
+            />
             <div className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1'>
               {fallback && (
                 <>
@@ -693,16 +814,6 @@ function GroupActualPriceCell(props: {
                   </span>
                 </>
               )}
-              <span className='text-muted-foreground'>{t('Requests')}</span>
-              <span className='text-right font-mono'>
-                {formatActualPriceCount(props.actual.request_count)}
-              </span>
-              <span className='text-muted-foreground'>
-                {t('Billable tokens')}
-              </span>
-              <span className='text-right font-mono'>
-                {formatActualPriceCount(props.actual.total_billable_tokens)}
-              </span>
               <span className='text-muted-foreground'>{t('Actual cost')}</span>
               <span className='text-right font-mono'>
                 {formatActualPriceValue(props.actual.cost)}

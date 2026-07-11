@@ -106,6 +106,26 @@ func TestHandleHTTPTunnelRequestTruncatesResponse(t *testing.T) {
 	}
 }
 
+func TestHandleHTTPTunnelRequestStreamRequiresBridgeEmitter(t *testing.T) {
+	cfg := DefaultConfig()
+	client := BridgeClient{Config: cfg}
+	_, err := client.handleHTTPTunnelRequest(context.Background(), map[string]any{
+		"target":          "http://127.0.0.1:1",
+		"method":          "GET",
+		"stream_response": true,
+	})
+	if err == nil {
+		t.Fatal("expected stream response to require bridge streaming context")
+	}
+	var toolErr ToolError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("expected ToolError, got %T: %v", err, err)
+	}
+	if toolErr.Code != "HTTP_TUNNEL_STREAM_EMITTER_MISSING" {
+		t.Fatalf("unexpected error: %#v", toolErr)
+	}
+}
+
 func TestHandleHTTPTunnelStreamResponse(t *testing.T) {
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Stream", "yes")

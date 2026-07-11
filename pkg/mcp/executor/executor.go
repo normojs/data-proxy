@@ -12,10 +12,12 @@ const (
 	ErrorCodeNotImplemented = "NOT_IMPLEMENTED"
 	ErrorCodeFailed         = "EXECUTOR_FAILED"
 	ErrorCodeTimeout        = "EXECUTOR_TIMEOUT"
+	ErrorCodeUnsupported    = "UNSUPPORTED_TOOL"
 )
 
 var (
-	ErrExecutorNotImplemented = errors.New("mcp executor is not implemented")
+	ErrExecutorNotImplemented = errors.New("mcp executor unavailable")
+	ErrExecutorUnsupported    = errors.New("mcp executor does not support this tool")
 	ErrExecutorTimeout        = errors.New("mcp executor timed out")
 )
 
@@ -81,6 +83,9 @@ func ErrorCode(err error) string {
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrExecutorTimeout) {
 		return ErrorCodeTimeout
+	}
+	if errors.Is(err, ErrExecutorUnsupported) {
+		return ErrorCodeUnsupported
 	}
 	if errors.Is(err, ErrExecutorNotImplemented) {
 		return ErrorCodeNotImplemented

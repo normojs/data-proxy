@@ -63,6 +63,7 @@ import { Route as SSlugLoginRouteImport } from './routes/s/$slug/login'
 import { Route as SSlugDashboardRouteImport } from './routes/s/$slug/dashboard'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedUiLabMcpRouteImport } from './routes/_authenticated/ui-lab/mcp'
+import { Route as AuthenticatedPlaygroundProviderCheckRouteImport } from './routes/_authenticated/playground/provider-check'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedMcpSectionRouteImport } from './routes/_authenticated/mcp/$section'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
@@ -368,6 +369,12 @@ const AuthenticatedUiLabMcpRoute = AuthenticatedUiLabMcpRouteImport.update({
   path: '/mcp',
   getParentRoute: () => AuthenticatedUiLabRouteRoute,
 } as any)
+const AuthenticatedPlaygroundProviderCheckRoute =
+  AuthenticatedPlaygroundProviderCheckRouteImport.update({
+    id: '/playground/provider-check',
+    path: '/playground/provider-check',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedModelsSectionRoute =
   AuthenticatedModelsSectionRouteImport.update({
     id: '/models/$section',
@@ -528,6 +535,7 @@ export interface FileRoutesByFullPath {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/mcp/$section': typeof AuthenticatedMcpSectionRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/playground/provider-check': typeof AuthenticatedPlaygroundProviderCheckRoute
   '/ui-lab/mcp': typeof AuthenticatedUiLabMcpRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/s/$slug/dashboard': typeof SSlugDashboardRoute
@@ -601,6 +609,7 @@ export interface FileRoutesByTo {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/mcp/$section': typeof AuthenticatedMcpSectionRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/playground/provider-check': typeof AuthenticatedPlaygroundProviderCheckRoute
   '/ui-lab/mcp': typeof AuthenticatedUiLabMcpRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/s/$slug/dashboard': typeof SSlugDashboardRoute
@@ -679,6 +688,7 @@ export interface FileRoutesById {
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/mcp/$section': typeof AuthenticatedMcpSectionRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/playground/provider-check': typeof AuthenticatedPlaygroundProviderCheckRoute
   '/_authenticated/ui-lab/mcp': typeof AuthenticatedUiLabMcpRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/s/$slug/dashboard': typeof SSlugDashboardRoute
@@ -756,6 +766,7 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/mcp/$section'
     | '/models/$section'
+    | '/playground/provider-check'
     | '/ui-lab/mcp'
     | '/usage-logs/$section'
     | '/s/$slug/dashboard'
@@ -829,6 +840,7 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/mcp/$section'
     | '/models/$section'
+    | '/playground/provider-check'
     | '/ui-lab/mcp'
     | '/usage-logs/$section'
     | '/s/$slug/dashboard'
@@ -906,6 +918,7 @@ export interface FileRouteTypes {
     | '/_authenticated/errors/$error'
     | '/_authenticated/mcp/$section'
     | '/_authenticated/models/$section'
+    | '/_authenticated/playground/provider-check'
     | '/_authenticated/ui-lab/mcp'
     | '/_authenticated/usage-logs/$section'
     | '/s/$slug/dashboard'
@@ -1354,6 +1367,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUiLabMcpRouteImport
       parentRoute: typeof AuthenticatedUiLabRouteRoute
     }
+    '/_authenticated/playground/provider-check': {
+      id: '/_authenticated/playground/provider-check'
+      path: '/playground/provider-check'
+      fullPath: '/playground/provider-check'
+      preLoaderRoute: typeof AuthenticatedPlaygroundProviderCheckRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/models/$section': {
       id: '/_authenticated/models/$section'
       path: '/models/$section'
@@ -1613,6 +1633,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedMcpSectionRoute: typeof AuthenticatedMcpSectionRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
+  AuthenticatedPlaygroundProviderCheckRoute: typeof AuthenticatedPlaygroundProviderCheckRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
@@ -1642,6 +1663,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedMcpSectionRoute: AuthenticatedMcpSectionRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
+  AuthenticatedPlaygroundProviderCheckRoute:
+    AuthenticatedPlaygroundProviderCheckRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,

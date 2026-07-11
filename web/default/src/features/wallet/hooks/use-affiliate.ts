@@ -82,7 +82,15 @@ export function useAffiliate() {
   }, [])
 
   useEffect(() => {
-    fetchAffiliateCode()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void fetchAffiliateCode()
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [fetchAffiliateCode])
 
   return {

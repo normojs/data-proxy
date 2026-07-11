@@ -68,10 +68,7 @@ function schemaRequired(schema: unknown): string[] {
     : []
 }
 
-function schemaTypeLabel(
-  property: SchemaProperty,
-  t: (key: string) => string
-) {
+function schemaTypeLabel(property: SchemaProperty, t: (key: string) => string) {
   if (Array.isArray(property.type)) {
     return property.type.map((item) => t(item)).join(' | ')
   }
@@ -125,9 +122,13 @@ function mockStringValueForProperty(name: string): string {
   if (key.includes('pattern')) return 'func BuiltinTools'
   if (key.includes('glob')) return '**/*.go'
   if (key.includes('command')) return 'go test ./...'
+  if (key.includes('operation') || key === 'action') return 'encode'
+  if (key === 'mode') return 'query'
   if (key.includes('input')) return 'pwd\n'
   if (key.includes('session_id')) return 'shell-demo-001'
   if (key.includes('timezone')) return 'Asia/Shanghai'
+  if (key.includes('algorithm')) return 'sha256'
+  if (key === 'text' || key.includes('text')) return 'hello'
   if (key.includes('manager')) return 'bun'
   if (key.includes('package')) return 'zod'
   if (key.includes('json')) return '{"name":"Data Proxy","enabled":true}'
@@ -165,14 +166,12 @@ function mockArrayValueForProperty(
   if (key.includes('tool')) return ['remote_read', 'server_time']
   if (key.includes('group')) return ['default']
   if (key.includes('target')) return ['workspace:default']
-  if (property.items) return [mockValueForProperty(`${name}_item`, property.items)]
+  if (property.items)
+    return [mockValueForProperty(`${name}_item`, property.items)]
   return ['mock-value']
 }
 
-function mockValueForProperty(
-  name: string,
-  property: SchemaProperty
-): unknown {
+function mockValueForProperty(name: string, property: SchemaProperty): unknown {
   if (property.default != null) return property.default
   if (Array.isArray(property.enum) && property.enum.length > 0) {
     return property.enum[0]
@@ -227,7 +226,9 @@ function buildToolCallExample(tool: MCPTool | null): Record<string, unknown> {
   }
 }
 
-function buildToolCallMockExample(tool: MCPTool | null): Record<string, unknown> {
+function buildToolCallMockExample(
+  tool: MCPTool | null
+): Record<string, unknown> {
   return {
     jsonrpc: '2.0',
     id: 'request-mock-1',

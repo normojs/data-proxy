@@ -71,6 +71,7 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundRouter.Use(middleware.UserAuth(), middleware.Distribute())
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
+		playgroundRouter.POST("/responses", controller.PlaygroundResponses)
 	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
@@ -157,20 +158,10 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.POST("/moderations", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAI)
 		})
-
-		// not implemented
-		httpRouter.POST("/images/variations", controller.RelayNotImplemented)
-		httpRouter.GET("/files", controller.RelayNotImplemented)
-		httpRouter.POST("/files", controller.RelayNotImplemented)
-		httpRouter.DELETE("/files/:id", controller.RelayNotImplemented)
-		httpRouter.GET("/files/:id", controller.RelayNotImplemented)
-		httpRouter.GET("/files/:id/content", controller.RelayNotImplemented)
-		httpRouter.POST("/fine-tunes", controller.RelayNotImplemented)
-		httpRouter.GET("/fine-tunes", controller.RelayNotImplemented)
-		httpRouter.GET("/fine-tunes/:id", controller.RelayNotImplemented)
-		httpRouter.POST("/fine-tunes/:id/cancel", controller.RelayNotImplemented)
-		httpRouter.GET("/fine-tunes/:id/events", controller.RelayNotImplemented)
-		httpRouter.DELETE("/models/:model", controller.RelayNotImplemented)
+	}
+	{
+		managementRouter := relayV1Router.Group("")
+		registerOpenAIManagementProxyRoutes(managementRouter)
 	}
 
 	subsiteModelsRouter := router.Group("/s/:slug/v1/models")
@@ -268,19 +259,49 @@ func SetRelayRouter(router *gin.Engine) {
 		subsiteHTTPRouter.POST("/moderations", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAI)
 		})
+	}
+	{
+		subsiteManagementRouter := subsiteV1Router.Group("")
+		registerOpenAIManagementProxyRoutes(subsiteManagementRouter)
+	}
 
-		subsiteHTTPRouter.POST("/images/variations", controller.RelayNotImplemented)
-		subsiteHTTPRouter.GET("/files", controller.RelayNotImplemented)
-		subsiteHTTPRouter.POST("/files", controller.RelayNotImplemented)
-		subsiteHTTPRouter.DELETE("/files/:id", controller.RelayNotImplemented)
-		subsiteHTTPRouter.GET("/files/:id", controller.RelayNotImplemented)
-		subsiteHTTPRouter.GET("/files/:id/content", controller.RelayNotImplemented)
-		subsiteHTTPRouter.POST("/fine-tunes", controller.RelayNotImplemented)
-		subsiteHTTPRouter.GET("/fine-tunes", controller.RelayNotImplemented)
-		subsiteHTTPRouter.GET("/fine-tunes/:id", controller.RelayNotImplemented)
-		subsiteHTTPRouter.POST("/fine-tunes/:id/cancel", controller.RelayNotImplemented)
-		subsiteHTTPRouter.GET("/fine-tunes/:id/events", controller.RelayNotImplemented)
-		subsiteHTTPRouter.DELETE("/models/:model", controller.RelayNotImplemented)
+	subsiteGeminiModelsRouter := router.Group("/s/:slug/v1beta/models")
+	subsiteGeminiModelsRouter.Use(middleware.RouteTag("subsite_relay"))
+	subsiteGeminiModelsRouter.Use(middleware.SubsiteContext(true))
+	subsiteGeminiModelsRouter.Use(middleware.TokenAuth())
+	subsiteGeminiModelsRouter.Use(middleware.SubsiteTokenScopeAuth())
+	subsiteGeminiModelsRouter.Use(middleware.ConnectedAppScopeAuth())
+	{
+		subsiteGeminiModelsRouter.GET("", func(c *gin.Context) {
+			controller.ListModels(c, constant.ChannelTypeGemini)
+		})
+	}
+
+	subsiteGeminiCompatibleRouter := router.Group("/s/:slug/v1beta/openai/models")
+	subsiteGeminiCompatibleRouter.Use(middleware.RouteTag("subsite_relay"))
+	subsiteGeminiCompatibleRouter.Use(middleware.SubsiteContext(true))
+	subsiteGeminiCompatibleRouter.Use(middleware.TokenAuth())
+	subsiteGeminiCompatibleRouter.Use(middleware.SubsiteTokenScopeAuth())
+	subsiteGeminiCompatibleRouter.Use(middleware.ConnectedAppScopeAuth())
+	{
+		subsiteGeminiCompatibleRouter.GET("", func(c *gin.Context) {
+			controller.ListModels(c, constant.ChannelTypeOpenAI)
+		})
+	}
+
+	subsiteGeminiRouter := router.Group("/s/:slug/v1beta")
+	subsiteGeminiRouter.Use(middleware.RouteTag("subsite_relay"))
+	subsiteGeminiRouter.Use(middleware.SubsiteContext(true))
+	subsiteGeminiRouter.Use(middleware.SystemPerformanceCheck())
+	subsiteGeminiRouter.Use(middleware.TokenAuth())
+	subsiteGeminiRouter.Use(middleware.SubsiteTokenScopeAuth())
+	subsiteGeminiRouter.Use(middleware.ConnectedAppScopeAuth())
+	subsiteGeminiRouter.Use(middleware.ModelRequestRateLimit())
+	subsiteGeminiRouter.Use(middleware.Distribute())
+	{
+		subsiteGeminiRouter.POST("/models/*path", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatGemini)
+		})
 	}
 
 	relayMjRouter := router.Group("/mj")
@@ -318,6 +339,21 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatGemini)
 		})
 	}
+}
+
+func registerOpenAIManagementProxyRoutes(router *gin.RouterGroup) {
+	router.POST("/images/variations", controller.RelayOpenAIManagement)
+	router.GET("/files", controller.RelayOpenAIManagement)
+	router.POST("/files", controller.RelayOpenAIManagement)
+	router.DELETE("/files/:id", controller.RelayOpenAIManagement)
+	router.GET("/files/:id", controller.RelayOpenAIManagement)
+	router.GET("/files/:id/content", controller.RelayOpenAIManagement)
+	router.POST("/fine-tunes", controller.RelayOpenAIManagement)
+	router.GET("/fine-tunes", controller.RelayOpenAIManagement)
+	router.GET("/fine-tunes/:id", controller.RelayOpenAIManagement)
+	router.POST("/fine-tunes/:id/cancel", controller.RelayOpenAIManagement)
+	router.GET("/fine-tunes/:id/events", controller.RelayOpenAIManagement)
+	router.DELETE("/models/:model", controller.RelayOpenAIManagement)
 }
 
 func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
