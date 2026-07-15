@@ -31,6 +31,7 @@ import { TransferDialog } from './components/dialogs/transfer-dialog'
 import { WechatPayQRDialog } from './components/dialogs/wechat-pay-qr-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
+import { ModelTokenPackagesCard } from './components/model-token-packages-card'
 import { UnifiedLedgerCard } from './components/unified-ledger-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
 import {
@@ -319,6 +320,8 @@ export function Wallet(props: WalletProps) {
               }
               loading={affiliateLoading}
             />
+
+            <ModelTokenPackagesCard />
 
             <UnifiedLedgerCard />
           </div>

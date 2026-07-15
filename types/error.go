@@ -84,6 +84,7 @@ const (
 
 	// quota error
 	ErrorCodeInsufficientUserQuota                  ErrorCode = "insufficient_user_quota"
+	ErrorCodeInsufficientModelTokenPackage          ErrorCode = "insufficient_model_token_package"
 	ErrorCodePreConsumeTokenQuotaFailed             ErrorCode = "pre_consume_token_quota_failed"
 	ErrorCodeEnterpriseGovernanceQuotaExceeded      ErrorCode = "enterprise_governance_quota_exceeded"
 	ErrorCodeEnterpriseGovernanceOrgQuotaExceeded   ErrorCode = "enterprise_governance_org_quota_exceeded"

@@ -226,7 +226,21 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
+	if IsModelTokenPackageBilling(relayInfo) {
+		// Realtime usage uses input/output fields; map into dto.Usage for package settle.
+		packageUsage := &dto.Usage{
+			PromptTokens:     usage.InputTokens,
+			CompletionTokens: usage.OutputTokens,
+			TotalTokens:      usage.TotalTokens,
+			PromptTokensDetails: dto.InputTokenDetails{
+				CachedTokens: usage.InputTokenDetails.CachedTokens,
+			},
+		}
+		if err := SettleModelTokenPackageIfNeeded(ctx, relayInfo, packageUsage); err != nil {
+			logger.LogError(ctx, "error settling model token package: "+err.Error())
+		}
+		quota = 0
+	} else if err := SettleBilling(ctx, relayInfo, quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 	} else if err := RecordModelRequestBillingEvent(relayInfo, ModelRequestBillingEventInput{
 		UsageKind:        "realtime",
@@ -363,7 +377,12 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
+	if IsModelTokenPackageBilling(relayInfo) {
+		if err := SettleModelTokenPackageIfNeeded(ctx, relayInfo, usage); err != nil {
+			logger.LogError(ctx, "error settling model token package: "+err.Error())
+		}
+		quota = 0
+	} else if err := SettleBilling(ctx, relayInfo, quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 	} else if err := RecordModelRequestBillingEvent(relayInfo, ModelRequestBillingEventInput{
 		UsageKind:        "audio",

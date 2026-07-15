@@ -16,7 +16,13 @@ const (
 
 // PreConsumeBilling 根据用户计费偏好创建 BillingSession 并执行预扣费。
 // 会话存储在 relayInfo.Billing 上，供后续 Settle / Refund 使用。
+// 若用户存在覆盖当前模型的 Token 包，则优先使用包计费并跳过钱包预扣。
 func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if attached, apiErr := TryAttachModelTokenPackageBilling(c, relayInfo); apiErr != nil {
+		return apiErr
+	} else if attached {
+		return nil
+	}
 	session, apiErr := NewBillingSession(c, relayInfo, preConsumedQuota)
 	if apiErr != nil {
 		return apiErr
@@ -46,7 +52,12 @@ func FinalizePerCallBilling(c *gin.Context, quota int, relayInfo *relaycommon.Re
 
 // SettleBilling 执行计费结算。如果 RelayInfo 上有 BillingSession 则通过 session 结算，
 // 否则回退到旧的 PostConsumeQuota 路径（兼容按次计费等场景）。
+// 模型 Token 包路径不走金额结算；文本路径应先调用 SettleModelTokenPackageIfNeeded。
 func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuota int) error {
+	if IsModelTokenPackageBilling(relayInfo) {
+		// Package consumption is settled by token usage, not money-quota delta.
+		return SettleSubsiteQuotaUsage(ctx, relayInfo, 0)
+	}
 	if relayInfo.Billing != nil {
 		preConsumed := relayInfo.Billing.GetPreConsumedQuota()
 		delta := actualQuota - preConsumed

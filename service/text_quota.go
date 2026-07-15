@@ -362,39 +362,54 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Image Generation Call 花费 %s", decimal.NewFromFloat(summary.ImageGenerationCallPrice).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))
 	}
 
+	billingSettled := false
+	if IsModelTokenPackageBilling(relayInfo) {
+		if err := SettleModelTokenPackageIfNeeded(ctx, relayInfo, usage); err != nil {
+			logger.LogError(ctx, "error settling model token package: "+err.Error())
+		} else {
+			billingSettled = true
+		}
+		// Package path does not consume wallet money points.
+		summary.Quota = 0
+	}
+
 	if summary.TotalTokens == 0 {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
-	} else {
+	} else if !IsModelTokenPackageBilling(relayInfo) {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
+	} else {
+		// Still count request for package path without wallet quota delta.
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, 0)
 	}
 
-	billingSettled := false
-	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
-	} else {
-		billingSettled = true
-		if err := RecordModelRequestBillingEvent(relayInfo, ModelRequestBillingEventInput{
-			UsageKind:              "text",
-			ModelName:              summary.ModelName,
-			TokenName:              summary.TokenName,
-			PromptTokens:           summary.PromptTokens,
-			CompletionTokens:       summary.CompletionTokens,
-			TotalTokens:            summary.TotalTokens,
-			InputTokens:            usageInputTokens(summary, usage),
-			OutputTokens:           summary.CompletionTokens,
-			CacheTokens:            summary.CacheTokens,
-			CacheCreationTokens:    summary.CacheCreationTokens,
-			CacheCreationTokens5m:  summary.CacheCreationTokens5m,
-			CacheCreationTokens1h:  summary.CacheCreationTokens1h,
-			ImageTokens:            summary.ImageTokens,
-			AudioTokens:            summary.AudioTokens,
-			ToolCallSurchargeQuota: summary.ToolCallSurchargeQuota.Round(0).IntPart(),
-			Quota:                  summary.Quota,
-			TieredResult:           tieredResult,
-		}); err != nil {
-			logger.LogError(ctx, "error recording model billing event: "+err.Error())
+	if !IsModelTokenPackageBilling(relayInfo) {
+		if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
+			logger.LogError(ctx, "error settling billing: "+err.Error())
+		} else {
+			billingSettled = true
+			if err := RecordModelRequestBillingEvent(relayInfo, ModelRequestBillingEventInput{
+				UsageKind:              "text",
+				ModelName:              summary.ModelName,
+				TokenName:              summary.TokenName,
+				PromptTokens:           summary.PromptTokens,
+				CompletionTokens:       summary.CompletionTokens,
+				TotalTokens:            summary.TotalTokens,
+				InputTokens:            usageInputTokens(summary, usage),
+				OutputTokens:           summary.CompletionTokens,
+				CacheTokens:            summary.CacheTokens,
+				CacheCreationTokens:    summary.CacheCreationTokens,
+				CacheCreationTokens5m:  summary.CacheCreationTokens5m,
+				CacheCreationTokens1h:  summary.CacheCreationTokens1h,
+				ImageTokens:            summary.ImageTokens,
+				AudioTokens:            summary.AudioTokens,
+				ToolCallSurchargeQuota: summary.ToolCallSurchargeQuota.Round(0).IntPart(),
+				Quota:                  summary.Quota,
+				TieredResult:           tieredResult,
+			}); err != nil {
+				logger.LogError(ctx, "error recording model billing event: "+err.Error())
+			}
 		}
 	}
 	if err := SettleEnterpriseGovernanceUsage(ctx, UsageAmount{
@@ -435,6 +450,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		other["usage_semantic"] = "anthropic"
 	} else {
 		other = GenerateTextOtherInfo(ctx, relayInfo, summary.ModelRatio, summary.GroupRatio, summary.CompletionRatio, summary.CacheTokens, summary.CacheRatio, summary.ModelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
+	}
+	if packageInfo := ModelTokenPackageBillingOtherInfo(relayInfo); len(packageInfo) > 0 {
+		for key, value := range packageInfo {
+			other[key] = value
+		}
 	}
 	if adminRejectReason != "" {
 		other["reject_reason"] = adminRejectReason

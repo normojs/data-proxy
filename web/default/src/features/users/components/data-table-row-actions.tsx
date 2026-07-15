@@ -32,6 +32,7 @@ import {
   Link2,
   CreditCard,
   FileText,
+  Package,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -56,6 +57,7 @@ import {
 import { getUserActionMessage } from '../lib'
 import { type User, type ManageUserAction } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { ModelTokenPackageDialog } from './model-token-package-dialog'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -71,6 +73,8 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [modelTokenPackageDialogOpen, setModelTokenPackageDialogOpen] =
+    useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -234,6 +238,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setModelTokenPackageDialogOpen(true)
+            }}
+          >
+            {t('Model Token Packages')}
+            <DropdownMenuShortcut>
+              <Package size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
           <DropdownMenuItem onClick={handleViewUsageLogs}>
             {t('View Usage Logs')}
             <DropdownMenuShortcut>
@@ -313,6 +329,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         open={subscriptionsDialogOpen}
         onOpenChange={setSubscriptionsDialogOpen}
         user={{ id: user.id, username: user.username }}
+        onSuccess={triggerRefresh}
+      />
+
+      <ModelTokenPackageDialog
+        open={modelTokenPackageDialogOpen}
+        onOpenChange={setModelTokenPackageDialogOpen}
+        userId={user.id}
+        username={user.username}
         onSuccess={triggerRefresh}
       />
     </>

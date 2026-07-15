@@ -193,3 +193,62 @@ export async function adminUnbindCustomOAuth(
   )
   return res.data
 }
+
+export type ModelTokenPackage = {
+  id: number
+  user_id: number
+  name: string
+  models?: string[]
+  models_json?: string
+  total_tokens: number
+  remaining_tokens: number
+  used_tokens: number
+  input_ratio: number
+  output_ratio: number
+  cache_ratio: number
+  priority: number
+  status: string
+  expired_at: number
+  source: string
+  remark?: string
+}
+
+export type GrantModelTokenPackagePayload = {
+  name?: string
+  models: string[]
+  total_tokens: number
+  input_ratio?: number
+  output_ratio?: number
+  cache_ratio?: number
+  priority?: number
+  expired_at?: number
+  remark?: string
+}
+
+export async function listUserModelTokenPackages(
+  userId: number,
+  includeInactive = true
+): Promise<ApiResponse<ModelTokenPackage[]>> {
+  const res = await api.get(
+    `/api/user/${userId}/model-token-packages?include_inactive=${includeInactive}`
+  )
+  return res.data
+}
+
+export async function grantUserModelTokenPackage(
+  userId: number,
+  payload: GrantModelTokenPackagePayload
+): Promise<ApiResponse<ModelTokenPackage>> {
+  const res = await api.post(`/api/user/${userId}/model-token-packages`, payload)
+  return res.data
+}
+
+export async function disableUserModelTokenPackage(
+  userId: number,
+  packageId: number
+): Promise<ApiResponse<ModelTokenPackage>> {
+  const res = await api.post(
+    `/api/user/${userId}/model-token-packages/${packageId}/disable`
+  )
+  return res.data
+}

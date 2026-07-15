@@ -269,3 +269,64 @@ export async function getUserBillingEvents(
   )
   return res.data
 }
+
+export type ModelTokenPackage = {
+  id: number
+  user_id: number
+  name: string
+  models?: string[]
+  models_json?: string
+  total_tokens: number
+  remaining_tokens: number
+  used_tokens: number
+  input_ratio: number
+  output_ratio: number
+  cache_ratio: number
+  priority: number
+  status: string
+  expired_at: number
+  source: string
+  remark?: string
+  created_at?: number
+  updated_at?: number
+}
+
+export type ModelTokenPackageLedger = {
+  id: number
+  package_id: number
+  user_id: number
+  request_id: string
+  model: string
+  prompt_tokens: number
+  completion_tokens: number
+  cache_tokens: number
+  input_ratio: number
+  output_ratio: number
+  cache_ratio: number
+  delta_tokens: number
+  reason: string
+  created_at: number
+}
+
+export async function getSelfModelTokenPackages(
+  includeInactive = true
+): Promise<ApiResponse<ModelTokenPackage[]>> {
+  const res = await api.get(
+    `/api/user/model-token-packages?include_inactive=${includeInactive}`
+  )
+  return res.data
+}
+
+export async function getSelfModelTokenPackageLedger(
+  packageId: number,
+  params: { p?: number; page_size?: number } = {}
+): Promise<ApiResponse<PaginatedData<ModelTokenPackageLedger>>> {
+  const query = new URLSearchParams()
+  if (params.p) query.set('p', String(params.p))
+  if (params.page_size) query.set('page_size', String(params.page_size))
+  const qs = query.toString()
+  const res = await api.get(
+    `/api/user/model-token-packages/${packageId}/ledger${qs ? `?${qs}` : ''}`
+  )
+  return res.data
+}

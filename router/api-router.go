@@ -192,6 +192,10 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/checkin", controller.GetCheckinStatus)
 				selfRoute.POST("/checkin", middleware.TurnstileCheck(), controller.DoCheckin)
 
+				// Model token packages (LLM token usage packages)
+				selfRoute.GET("/model-token-packages", controller.GetSelfModelTokenPackages)
+				selfRoute.GET("/model-token-packages/:id/ledger", controller.GetSelfModelTokenPackageLedger)
+
 				// Custom OAuth bindings
 				selfRoute.GET("/oauth/bindings", controller.GetUserOAuthBindings)
 				selfRoute.DELETE("/oauth/bindings/:provider_id", controller.UnbindCustomOAuth)
@@ -211,6 +215,10 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/:id", controller.GetUser)
 				adminRoute.POST("/", controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
+				adminRoute.GET("/:id/model-token-packages", controller.AdminListUserModelTokenPackages)
+				adminRoute.POST("/:id/model-token-packages", controller.AdminGrantUserModelTokenPackage)
+				adminRoute.POST("/:id/model-token-packages/:pkg_id/adjust", controller.AdminAdjustUserModelTokenPackage)
+				adminRoute.POST("/:id/model-token-packages/:pkg_id/disable", controller.AdminDisableUserModelTokenPackage)
 				adminRoute.PUT("/", controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
 				adminRoute.DELETE("/:id/reset_passkey", controller.AdminResetPasskey)
