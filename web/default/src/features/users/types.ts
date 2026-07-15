@@ -58,6 +58,10 @@ export const userSchema = z.object({
   last_login_at: z.number().optional(),
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
+  model_token_package_active_count: z.number().optional().default(0),
+  model_token_package_remaining: z.number().optional().default(0),
+  model_token_package_used: z.number().optional().default(0),
+  model_token_package_total: z.number().optional().default(0),
 })
 export type User = z.infer<typeof userSchema>
 

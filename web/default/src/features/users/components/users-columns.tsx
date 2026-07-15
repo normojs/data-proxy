@@ -221,7 +221,65 @@ export function useUsersColumns(): ColumnDef<User>[] {
           </Tooltip>
         )
       },
-      meta: { label: t('Quota') },
+      enableSorting: false,
+      meta: { label: t('Quota'), mobileHidden: true },
+    },
+    {
+      id: 'model_token_packages',
+      accessorKey: 'model_token_package_remaining',
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title={t('Model Token Packages')}
+        />
+      ),
+      cell: ({ row }) => {
+        const user = row.original
+        const active = user.model_token_package_active_count ?? 0
+        const remaining = user.model_token_package_remaining ?? 0
+        const totalPackages = user.model_token_package_total ?? 0
+        if (totalPackages <= 0) {
+          return (
+            <span className='text-muted-foreground text-xs'>—</span>
+          )
+        }
+        return (
+          <Tooltip>
+            <TooltipTrigger
+              render={<div className='min-w-[120px] cursor-help space-y-0.5' />}
+            >
+              <div className='font-medium tabular-nums text-xs'>
+                {new Intl.NumberFormat().format(remaining)}
+              </div>
+              <div className='text-muted-foreground text-[11px]'>
+                {t('Active')}: {active} / {totalPackages}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <div className='space-y-1 text-xs'>
+                <div>
+                  {t('Active packages')}: {active}
+                </div>
+                <div>
+                  {t('Active remaining')}:{' '}
+                  {new Intl.NumberFormat().format(remaining)}
+                </div>
+                <div>
+                  {t('Used')}:{' '}
+                  {new Intl.NumberFormat().format(
+                    user.model_token_package_used ?? 0
+                  )}
+                </div>
+                <div>
+                  {t('Listed')}: {totalPackages}
+                </div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        )
+      },
+      enableSorting: false,
+      meta: { label: t('Model Token Packages'), mobileHidden: true },
     },
     {
       accessorKey: 'group',

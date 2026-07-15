@@ -256,6 +256,67 @@ func GetModelTokenPackageById(id int) (*ModelTokenPackage, error) {
 	return &pkg, nil
 }
 
+type UserModelTokenPackageSummary struct {
+	ActiveCount     int   `json:"active_count"`
+	RemainingTokens int64 `json:"remaining_tokens"`
+	UsedTokens      int64 `json:"used_tokens"`
+	TotalPackages   int   `json:"total_packages"`
+}
+
+// FillUserModelTokenPackageSummaries attaches package summaries onto users (non-DB fields).
+func FillUserModelTokenPackageSummaries(users []*User) error {
+	if len(users) == 0 {
+		return nil
+	}
+	ids := make([]int, 0, len(users))
+	index := map[int]*User{}
+	for _, user := range users {
+		if user == nil || user.Id <= 0 {
+			continue
+		}
+		ids = append(ids, user.Id)
+		index[user.Id] = user
+		user.ModelTokenPackageActiveCount = 0
+		user.ModelTokenPackageRemaining = 0
+		user.ModelTokenPackageUsed = 0
+		user.ModelTokenPackageTotal = 0
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var rows []struct {
+		UserId          int   `gorm:"column:user_id"`
+		ActiveCount     int64 `gorm:"column:active_count"`
+		RemainingTokens int64 `gorm:"column:remaining_tokens"`
+		UsedTokens      int64 `gorm:"column:used_tokens"`
+		TotalPackages   int64 `gorm:"column:total_packages"`
+	}
+	err := DB.Model(&ModelTokenPackage{}).
+		Select(`user_id,
+			COUNT(*) AS total_packages,
+			COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS active_count,
+			COALESCE(SUM(CASE WHEN status = ? THEN remaining_tokens ELSE 0 END), 0) AS remaining_tokens,
+			COALESCE(SUM(used_tokens), 0) AS used_tokens`,
+			ModelTokenPackageStatusActive, ModelTokenPackageStatusActive).
+		Where("user_id IN ?", ids).
+		Group("user_id").
+		Scan(&rows).Error
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		user := index[row.UserId]
+		if user == nil {
+			continue
+		}
+		user.ModelTokenPackageActiveCount = int(row.ActiveCount)
+		user.ModelTokenPackageRemaining = row.RemainingTokens
+		user.ModelTokenPackageUsed = row.UsedTokens
+		user.ModelTokenPackageTotal = int(row.TotalPackages)
+	}
+	return nil
+}
+
 func ListModelTokenPackagesByUser(userId int, includeInactive bool) ([]ModelTokenPackage, error) {
 	if userId <= 0 {
 		return []ModelTokenPackage{}, nil

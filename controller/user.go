@@ -243,6 +243,10 @@ func GetAllUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.FillUserModelTokenPackageSummaries(users); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
@@ -272,6 +276,10 @@ func SearchUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.FillUserModelTokenPackageSummaries(users); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
@@ -297,6 +305,10 @@ func GetUser(c *gin.Context) {
 	myRole := c.GetInt("role")
 	if !canManageTargetRole(myRole, user.Role) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
+		return
+	}
+	if err := model.FillUserModelTokenPackageSummaries([]*model.User{user}); err != nil {
+		common.ApiError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

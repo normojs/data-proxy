@@ -55,17 +55,22 @@ type User struct {
 	StripeCustomer   string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
 	CreatedAt        int64          `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64          `json:"last_login_at" gorm:"default:0;column:last_login_at"`
+	// Model token package summary (not persisted; filled for admin user list/detail).
+	ModelTokenPackageActiveCount int   `json:"model_token_package_active_count" gorm:"-"`
+	ModelTokenPackageRemaining   int64 `json:"model_token_package_remaining" gorm:"-"`
+	ModelTokenPackageUsed        int64 `json:"model_token_package_used" gorm:"-"`
+	ModelTokenPackageTotal       int   `json:"model_token_package_total" gorm:"-"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
-		Id:       user.Id,
-		Group:    user.Group,
-		Quota:    user.Quota,
-		Status:   user.Status,
-		Username: user.Username,
-		Setting:  user.Setting,
-		Email:    user.Email,
+		Id:          user.Id,
+		Group:       user.Group,
+		Quota:       user.Quota,
+		Status:      user.Status,
+		Username:    user.Username,
+		Setting:     user.Setting,
+		Email:       user.Email,
 		TokenGroups: user.TokenGroups,
 	}
 	return cache

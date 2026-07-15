@@ -25,6 +25,7 @@ import {
 } from '@/components/page-transition'
 import { SnaplessConnectedAppCard } from '@/features/snapless-device/connected-app-card'
 import { ConnectedAppDeveloperAppsCard } from '@/features/snapless-device/developer-apps-card'
+import { ModelTokenPackagesCard } from '@/features/wallet/components/model-token-packages-card'
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { PasskeyCard } from './components/passkey-card'
@@ -68,6 +69,7 @@ export function Profile() {
                   onProfileUpdate={refreshProfile}
                 />
                 <ProfileSecurityCard profile={profile} loading={loading} />
+                <ModelTokenPackagesCard />
                 <ConnectedAppDeveloperAppsCard />
               </div>
 
