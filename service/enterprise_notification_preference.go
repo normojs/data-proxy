@@ -17,6 +17,7 @@ var EnterpriseNotificationPreferenceEventTypes = []string{
 	"quota_request.withdraw",
 	"quota_request.expire",
 	"quota_request.expiring_soon",
+	"policy.alert",
 }
 
 var EnterpriseNotificationPreferenceChannels = []string{

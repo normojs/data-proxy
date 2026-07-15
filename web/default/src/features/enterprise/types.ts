@@ -322,6 +322,26 @@ export type EnterpriseQuotaPolicy = {
   used_value: number
 }
 
+export type EnterpriseQuotaPolicyImpact = {
+  policy_id: number
+  policy_name: string
+  target_type: PolicyTargetType | string
+  target_id: number
+  target_name: string
+  metric: PolicyMetric | string
+  period: PolicyPeriod | string
+  limit_value: number
+  used_value: number
+  action: PolicyAction | string
+  status: number
+  window_days: number
+  recent_hard_limit_hits: number
+  recent_dry_run_hits: number
+  recent_policy_actions: number
+  recent_total_hits: number
+  impact_risk: 'low' | 'medium' | 'high' | string
+}
+
 export type EnterpriseQuotaRequestStatus =
   | 'pending'
   | 'approved'
@@ -337,6 +357,7 @@ export type EnterpriseQuotaRequest = {
   policy_id: number
   policy_name: string
   project_id: number
+  project_name: string
   policy_limit_value: number
   policy_used_value: number
   stacked_limit_value: number
@@ -463,6 +484,11 @@ export type EnterpriseQueueAdmission = {
   retry_count: number
   next_retry_at: number
   last_error: string
+  priority: number
+  last_replay_status_code: number
+  last_replay_duration_ms: number
+  last_failure_stage: string
+  last_replay_request_id: string
   user_message_key: string
   created_at: number
   updated_at: number

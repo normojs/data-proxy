@@ -364,6 +364,7 @@ func createEnterpriseGovernanceQueueAdmission(c *gin.Context, enterpriseCtx *Ent
 		DryRun:             decision.DryRun,
 		PolicyActionsJson:  string(policyActionsJson),
 		RequestPayloadJson: requestPayloadJson,
+		Priority:           enterpriseGovernanceQueueAdmissionPriority(decision),
 		UserMessageKey:     enterpriseQueueUserMessageKey(result.Status),
 	}
 	if err := model.DB.Create(&row).Error; err != nil {
@@ -813,6 +814,18 @@ func firstEnterpriseQueuePolicyActionObservationId(observations []PolicyActionOb
 		}
 	}
 	return firstEnterprisePolicyActionObservationId(observations)
+}
+
+func enterpriseGovernanceQueueAdmissionPriority(decision PolicyDecision) int {
+	policyId := firstEnterpriseQueuePolicyActionObservationId(decision.ActionObservations)
+	if policyId <= 0 {
+		return 0
+	}
+	var policy model.EnterpriseQuotaPolicy
+	if err := model.DB.Select("id, priority").Where("id = ?", policyId).First(&policy).Error; err != nil {
+		return 0
+	}
+	return policy.Priority
 }
 
 func durationMillis(duration time.Duration) int64 {

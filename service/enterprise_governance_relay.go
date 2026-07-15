@@ -95,6 +95,11 @@ func PreCheckEnterpriseGovernance(c *gin.Context, relayInfo *relaycommon.RelayIn
 
 	if len(decision.ActionObservations) > 0 {
 		recordEnterpriseGovernancePolicyActionAudit(c, enterpriseCtx, req, decision)
+		if !decision.DryRun {
+			if _, err := EnqueueEnterprisePolicyAlertOutbox(enterpriseCtx, req, decision); err != nil {
+				logger.LogError(c, "error enqueueing enterprise policy alert outbox: "+err.Error())
+			}
+		}
 		setEnterpriseGovernancePolicyActionHeaders(c, decision)
 		logger.LogWarn(c, fmt.Sprintf("enterprise governance policy action observed: %s", enterprisePolicyActionLogSummary(decision.ActionObservations)))
 	}

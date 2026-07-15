@@ -53,17 +53,18 @@ var (
 var ErrEnterpriseGovernanceAnomalyThrottled = errors.New("enterprise governance anomaly throttle active")
 
 type EnterpriseGovernanceAnomalyThrottleResult struct {
-	Applied         bool                                     `json:"applied"`
-	Status          string                                   `json:"status"`
-	Reason          string                                   `json:"reason"`
-	Triggers        []EnterpriseGovernanceAnomalyTrigger     `json:"triggers"`
-	Current         EnterpriseGovernanceAnomalyUsageSnapshot `json:"current"`
-	Baseline        EnterpriseGovernanceAnomalyUsageSnapshot `json:"baseline"`
-	DetectedAt      int64                                    `json:"detected_at"`
-	ProtectedUntil  int64                                    `json:"protected_until"`
-	CooldownSeconds int64                                    `json:"cooldown_seconds"`
-	PolicyActions   []PolicyActionObservation                `json:"policy_actions"`
-	DryRun          bool                                     `json:"dry_run"`
+	Applied             bool                                     `json:"applied"`
+	Status              string                                   `json:"status"`
+	Reason              string                                   `json:"reason"`
+	Triggers            []EnterpriseGovernanceAnomalyTrigger     `json:"triggers"`
+	Current             EnterpriseGovernanceAnomalyUsageSnapshot `json:"current"`
+	Baseline            EnterpriseGovernanceAnomalyUsageSnapshot `json:"baseline"`
+	DetectedAt          int64                                    `json:"detected_at"`
+	ProtectedUntil      int64                                    `json:"protected_until"`
+	CooldownSeconds     int64                                    `json:"cooldown_seconds"`
+	PolicyActions       []PolicyActionObservation                `json:"policy_actions"`
+	OrchestrationAction string                                   `json:"orchestration_action,omitempty"`
+	DryRun              bool                                     `json:"dry_run"`
 }
 
 type EnterpriseGovernanceAnomalyUsageSnapshot struct {
@@ -305,9 +306,11 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 		if hasCurrentPolicyDecision {
 			result.PolicyActions = currentPolicyActions
 		}
-		orchestrated := !enterpriseCtx.DryRun && hasCurrentPolicyDecision && enterpriseAnomalyHasQueuePolicyAction(currentPolicyActions)
+		orchestrationAction := enterpriseAnomalyOrchestrationAction(result.PolicyActions)
+		orchestrated := !enterpriseCtx.DryRun && orchestrationAction != ""
 		if orchestrated {
 			result.Status = enterpriseAnomalyStatusOrchestrated
+			result.OrchestrationAction = orchestrationAction
 		}
 		setEnterpriseAnomalyThrottleHeaders(c, result)
 		recordEnterpriseGovernanceAnomalyThrottleAudit(c, enterpriseCtx, relayInfo, result)
@@ -315,7 +318,7 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 			return result, nil
 		}
 		if orchestrated {
-			logger.LogWarn(c, fmt.Sprintf("enterprise governance anomaly orchestrated by queue action: reason=%s protected_until=%d", result.Reason, result.ProtectedUntil))
+			logger.LogWarn(c, fmt.Sprintf("enterprise governance anomaly orchestrated by %s action: reason=%s protected_until=%d", orchestrationAction, result.Reason, result.ProtectedUntil))
 			return result, nil
 		}
 		return result, ErrEnterpriseGovernanceAnomalyThrottled
@@ -352,11 +355,12 @@ func ApplyEnterpriseGovernanceAnomalyThrottle(c *gin.Context, relayInfo *relayco
 	}
 	enterpriseAnomalyProtections.Store(protectionKey, protection)
 	persistEnterpriseAnomalyProtection(c, enterpriseCtx, protectionKey, protection)
-	if enterpriseAnomalyHasQueuePolicyAction(result.PolicyActions) {
+	if orchestrationAction := enterpriseAnomalyOrchestrationAction(result.PolicyActions); orchestrationAction != "" {
 		result.Status = enterpriseAnomalyStatusOrchestrated
+		result.OrchestrationAction = orchestrationAction
 		setEnterpriseAnomalyThrottleHeaders(c, result)
 		recordEnterpriseGovernanceAnomalyThrottleAudit(c, enterpriseCtx, relayInfo, result)
-		logger.LogWarn(c, fmt.Sprintf("enterprise governance anomaly orchestrated by queue action: reason=%s protected_until=%d", result.Reason, result.ProtectedUntil))
+		logger.LogWarn(c, fmt.Sprintf("enterprise governance anomaly orchestrated by %s action: reason=%s protected_until=%d", orchestrationAction, result.Reason, result.ProtectedUntil))
 		return result, nil
 	}
 	setEnterpriseAnomalyThrottleHeaders(c, result)
@@ -722,12 +726,33 @@ func enterpriseAnomalyPolicyActionsForContext(c *gin.Context) ([]PolicyActionObs
 }
 
 func enterpriseAnomalyHasQueuePolicyAction(actions []PolicyActionObservation) bool {
+	return enterpriseAnomalyOrchestrationAction(actions) == model.PolicyActionQueue
+}
+
+// enterpriseAnomalyOrchestrationAction picks the first non-reject policy action that
+// can continue the relay path instead of hard-throttling. Priority:
+// queue > fallback_model > shared_pool > alert.
+func enterpriseAnomalyOrchestrationAction(actions []PolicyActionObservation) string {
+	priority := []string{
+		model.PolicyActionQueue,
+		model.PolicyActionFallbackModel,
+		model.PolicyActionSharedPool,
+		model.PolicyActionAlert,
+	}
+	seen := map[string]struct{}{}
 	for _, action := range actions {
-		if action.Action == model.PolicyActionQueue {
-			return true
+		name := strings.TrimSpace(action.Action)
+		if name == "" || name == model.PolicyActionReject {
+			continue
+		}
+		seen[name] = struct{}{}
+	}
+	for _, name := range priority {
+		if _, ok := seen[name]; ok {
+			return name
 		}
 	}
-	return false
+	return ""
 }
 
 func enterpriseAnomalyProtectionScope(enterpriseCtx *EnterpriseContext) (string, int) {
@@ -829,7 +854,14 @@ func enterpriseGovernanceAnomalyThrottleAuditPayload(c *gin.Context, enterpriseC
 		"dry_run":          result.DryRun,
 	}
 	if result.Status == enterpriseAnomalyStatusOrchestrated {
-		payload["orchestration_action"] = model.PolicyActionQueue
+		action := strings.TrimSpace(result.OrchestrationAction)
+		if action == "" {
+			action = enterpriseAnomalyOrchestrationAction(result.PolicyActions)
+		}
+		if action == "" {
+			action = model.PolicyActionQueue
+		}
+		payload["orchestration_action"] = action
 	}
 	return payload
 }

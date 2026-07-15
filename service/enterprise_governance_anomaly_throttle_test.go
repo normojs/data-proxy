@@ -476,3 +476,25 @@ func resetEnterpriseAnomalyThrottleForTest(t *testing.T) {
 		enterpriseAnomalyProtections = sync.Map{}
 	})
 }
+
+func TestEnterpriseAnomalyOrchestrationActionPriority(t *testing.T) {
+	assert.Equal(t, "", enterpriseAnomalyOrchestrationAction(nil))
+	assert.Equal(t, model.PolicyActionQueue, enterpriseAnomalyOrchestrationAction([]PolicyActionObservation{
+		{Action: model.PolicyActionAlert},
+		{Action: model.PolicyActionQueue},
+		{Action: model.PolicyActionFallbackModel},
+	}))
+	assert.Equal(t, model.PolicyActionFallbackModel, enterpriseAnomalyOrchestrationAction([]PolicyActionObservation{
+		{Action: model.PolicyActionAlert},
+		{Action: model.PolicyActionFallbackModel},
+		{Action: model.PolicyActionSharedPool},
+	}))
+	assert.Equal(t, model.PolicyActionSharedPool, enterpriseAnomalyOrchestrationAction([]PolicyActionObservation{
+		{Action: model.PolicyActionSharedPool},
+		{Action: model.PolicyActionAlert},
+	}))
+	assert.Equal(t, model.PolicyActionAlert, enterpriseAnomalyOrchestrationAction([]PolicyActionObservation{
+		{Action: model.PolicyActionAlert},
+		{Action: model.PolicyActionReject},
+	}))
+}

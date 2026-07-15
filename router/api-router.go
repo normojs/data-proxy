@@ -523,6 +523,7 @@ func SetApiRouter(router *gin.Engine) {
 				readEnterpriseRoute.GET("/org-units", controller.ListEnterpriseOrgUnits)
 				readEnterpriseRoute.GET("/projects", controller.ListEnterpriseProjects)
 				readEnterpriseRoute.GET("/quota-policies", controller.ListEnterpriseQuotaPolicies)
+				readEnterpriseRoute.GET("/quota-policies/:id/impact", controller.GetEnterpriseQuotaPolicyImpact)
 			}
 
 			manageEnterpriseRoute := enterpriseRoute.Group("")
@@ -550,6 +551,7 @@ func SetApiRouter(router *gin.Engine) {
 				manageEnterpriseRoute.POST("/queue-admissions/:id/retry", controller.RetryEnterpriseGovernanceQueueAdmission)
 				manageEnterpriseRoute.GET("/shared-pool-configs", controller.ListEnterpriseGovernanceSharedPoolConfigs)
 				manageEnterpriseRoute.PUT("/shared-pool-configs", controller.UpsertEnterpriseGovernanceSharedPoolConfig)
+				manageEnterpriseRoute.PUT("/members/:user_id/role", controller.UpdateEnterpriseMemberRole)
 			}
 
 			departmentManageEnterpriseRoute := enterpriseRoute.Group("")

@@ -39,6 +39,10 @@ type enterpriseMemberOrgUnitRequest struct {
 	OrgUnitId int `json:"org_unit_id"`
 }
 
+type enterpriseMemberRoleRequest struct {
+	Role string `json:"role"`
+}
+
 type enterpriseSharedPoolConfigRequest struct {
 	PolicyId      int    `json:"policy_id"`
 	Metric        string `json:"metric"`
@@ -190,6 +194,7 @@ type enterpriseQuotaRequestItem struct {
 	StackedLimitValue int64  `json:"stacked_limit_value"`
 	RecentPolicyHits  int64  `json:"recent_policy_hits"`
 	RecentDryRunHits  int64  `json:"recent_dry_run_hits"`
+	ProjectName       string `json:"project_name"`
 	TargetName        string `json:"target_name"`
 	ApplicantName     string `json:"applicant_name"`
 	ApproverName      string `json:"approver_name"`
@@ -588,7 +593,7 @@ func ListEnterpriseMembers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	query := model.DB.Table("users").
 		Select(`users.id AS user_id, users.username, users.display_name, users.email, users.status,
-			COALESCE(m.org_unit_id, 0) AS org_unit_id, COALESCE(ou.name, '') AS org_unit_name`).
+			COALESCE(m.org_unit_id, 0) AS org_unit_id, COALESCE(ou.name, '') AS org_unit_name, COALESCE(m.role, '') AS role`).
 		Joins("LEFT JOIN enterprise_org_memberships m ON m.user_id = users.id AND m.enterprise_id = ?", enterprise.Id).
 		Joins("LEFT JOIN enterprise_org_units ou ON ou.id = m.org_unit_id AND ou.enterprise_id = ?", enterprise.Id)
 	query = applyDepartmentOrgUnitScope(query, access, "m.org_unit_id")
@@ -697,6 +702,38 @@ func UpdateEnterpriseMemberOrgUnit(c *gin.Context) {
 	}
 	recordEnterpriseAudit(c, enterprise.Id, "member.update_org_unit", "user", userId, before, membership)
 	common.ApiSuccess(c, gin.H{"user_id": userId})
+}
+
+func UpdateEnterpriseMemberRole(c *gin.Context) {
+	userId, err := parsePathInt(c, "user_id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req enterpriseMemberRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := ensureUserExists(userId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	before, after, err := service.UpdateEnterpriseMemberRole(enterprise.Id, userId, req.Role)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordEnterpriseAudit(c, enterprise.Id, "member.update_role", "user", userId, before, after)
+	common.ApiSuccess(c, gin.H{
+		"user_id": userId,
+		"role":    after.Role,
+	})
 }
 
 func PreviewEnterpriseOrgSync(c *gin.Context) {
@@ -1936,6 +1973,144 @@ func DeleteEnterpriseQuotaPolicy(c *gin.Context) {
 	}
 	recordEnterpriseAudit(c, enterprise.Id, "quota_policy.disable", "quota_policy", id, before, policy)
 	common.ApiSuccess(c, gin.H{"id": id})
+}
+
+type enterpriseQuotaPolicyImpactResponse struct {
+	PolicyId            int    `json:"policy_id"`
+	PolicyName          string `json:"policy_name"`
+	TargetType          string `json:"target_type"`
+	TargetId            int    `json:"target_id"`
+	TargetName          string `json:"target_name"`
+	Metric              string `json:"metric"`
+	Period              string `json:"period"`
+	LimitValue          int64  `json:"limit_value"`
+	UsedValue           int64  `json:"used_value"`
+	Action              string `json:"action"`
+	Status              int    `json:"status"`
+	WindowDays          int    `json:"window_days"`
+	RecentHardLimitHits int64  `json:"recent_hard_limit_hits"`
+	RecentDryRunHits    int64  `json:"recent_dry_run_hits"`
+	RecentPolicyActions int64  `json:"recent_policy_actions"`
+	RecentTotalHits     int64  `json:"recent_total_hits"`
+	ImpactRisk          string `json:"impact_risk"`
+}
+
+func GetEnterpriseQuotaPolicyImpact(c *gin.Context) {
+	id, err := parsePathInt(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	enterprise, err := currentEnterprise()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var policy model.EnterpriseQuotaPolicy
+	if err := model.DB.Where("id = ? AND enterprise_id = ?", id, enterprise.Id).First(&policy).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	access, err := enterpriseAccessForRequest(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireDepartmentQuotaPolicyInScope(enterprise.Id, access, policy); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	windowDays := 7
+	if raw := strings.TrimSpace(c.Query("window_days")); raw != "" {
+		if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 && parsed <= 90 {
+			windowDays = parsed
+		}
+	}
+	since := common.GetTimestamp() - int64(windowDays*24*60*60)
+	hardHits, dryRunHits, actionHits, err := countEnterpriseQuotaPolicyImpactHits(enterprise.Id, policy.Id, since)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	usedValue := int64(0)
+	summaries, err := enterpriseQuotaRequestPolicySummaries(enterprise.Id, []model.EnterpriseQuotaRequest{{
+		PolicyId: policy.Id,
+	}})
+	if err == nil {
+		usedValue = summaries[policy.Id].UsedValue
+	}
+	totalHits := hardHits + dryRunHits + actionHits
+	impactRisk := "low"
+	if totalHits >= 50 || (policy.LimitValue > 0 && usedValue*100/policy.LimitValue >= 90) {
+		impactRisk = "high"
+	} else if totalHits >= 10 || (policy.LimitValue > 0 && usedValue*100/policy.LimitValue >= 70) {
+		impactRisk = "medium"
+	}
+	common.ApiSuccess(c, enterpriseQuotaPolicyImpactResponse{
+		PolicyId:            policy.Id,
+		PolicyName:          policy.Name,
+		TargetType:          policy.TargetType,
+		TargetId:            policy.TargetId,
+		TargetName:          resolveEnterprisePolicyTargetName(enterprise.Id, policy.TargetType, policy.TargetId),
+		Metric:              policy.Metric,
+		Period:              policy.Period,
+		LimitValue:          policy.LimitValue,
+		UsedValue:           usedValue,
+		Action:              policy.Action,
+		Status:              policy.Status,
+		WindowDays:          windowDays,
+		RecentHardLimitHits: hardHits,
+		RecentDryRunHits:    dryRunHits,
+		RecentPolicyActions: actionHits,
+		RecentTotalHits:     totalHits,
+		ImpactRisk:          impactRisk,
+	})
+}
+
+func countEnterpriseQuotaPolicyImpactHits(enterpriseId int, policyId int, since int64) (hardHits int64, dryRunHits int64, actionHits int64, err error) {
+	var logs []model.EnterpriseAuditLog
+	if err := model.DB.Select("action, after_json").
+		Where("enterprise_id = ? AND action IN ? AND created_at >= ?", enterpriseId, []string{
+			"enterprise_governance.hard_limit_reject",
+			"enterprise_governance.dry_run_reject",
+			"enterprise_governance.policy_action",
+		}, since).
+		Find(&logs).Error; err != nil {
+		return 0, 0, 0, err
+	}
+	for _, row := range logs {
+		if !enterpriseAuditAfterMentionsPolicyId(row.AfterJson, policyId) {
+			continue
+		}
+		switch row.Action {
+		case "enterprise_governance.hard_limit_reject":
+			hardHits++
+		case "enterprise_governance.dry_run_reject":
+			dryRunHits++
+		case "enterprise_governance.policy_action":
+			actionHits++
+		}
+	}
+	return hardHits, dryRunHits, actionHits, nil
+}
+
+func enterpriseAuditAfterMentionsPolicyId(afterJson string, policyId int) bool {
+	if policyId <= 0 || strings.TrimSpace(afterJson) == "" {
+		return false
+	}
+	needle := fmt.Sprintf(`"policy_id":%d`, policyId)
+	if strings.Contains(afterJson, needle) {
+		return true
+	}
+	needle = fmt.Sprintf(`"policy_id": %d`, policyId)
+	if strings.Contains(afterJson, needle) {
+		return true
+	}
+	// matched_policy_ids arrays
+	return strings.Contains(afterJson, fmt.Sprintf("[%d]", policyId)) ||
+		strings.Contains(afterJson, fmt.Sprintf("[%d,", policyId)) ||
+		strings.Contains(afterJson, fmt.Sprintf(",%d,", policyId)) ||
+		strings.Contains(afterJson, fmt.Sprintf(",%d]", policyId))
 }
 
 func ReconcileEnterpriseQuotaCounters(c *gin.Context) {
@@ -5407,9 +5582,17 @@ func buildEnterpriseQuotaRequestItems(enterpriseId int, requests []model.Enterpr
 	if err != nil {
 		return nil, err
 	}
+	projectNames, err := enterpriseProjectNames(enterpriseId)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]enterpriseQuotaRequestItem, 0, len(requests))
 	for _, req := range requests {
 		policySummary := policySummaries[req.PolicyId]
+		projectId := req.ProjectId
+		if projectId <= 0 && req.TargetType == model.PolicyTargetProject {
+			projectId = req.TargetId
+		}
 		items = append(items, enterpriseQuotaRequestItem{
 			EnterpriseQuotaRequest: req,
 			PolicyName:             policySummary.Name,
@@ -5418,6 +5601,7 @@ func buildEnterpriseQuotaRequestItems(enterpriseId int, requests []model.Enterpr
 			StackedLimitValue:      policySummary.LimitValue + req.LimitDelta,
 			RecentPolicyHits:       policySummary.RecentPolicyHits,
 			RecentDryRunHits:       policySummary.RecentDryRunHits,
+			ProjectName:            projectNames[projectId],
 			TargetName:             resolveEnterprisePolicyTargetName(enterpriseId, req.TargetType, req.TargetId),
 			ApplicantName:          userNames[req.ApplicantUserId],
 			ApproverName:           userNames[req.ApproverUserId],

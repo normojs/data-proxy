@@ -225,6 +225,28 @@ export function QuotaRequestDetailSheet(props: {
                   value={`#${request.policy_id || '-'}`}
                   mono
                 />
+                <DetailField
+                  label='Project'
+                  value={
+                    request.project_name ||
+                    (request.project_id > 0
+                      ? `#${request.project_id}`
+                      : request.target_type === 'project'
+                        ? formatTarget(request)
+                        : '-')
+                  }
+                />
+                <DetailField
+                  label='Project ID'
+                  value={
+                    request.project_id > 0
+                      ? `#${request.project_id}`
+                      : request.target_type === 'project' && request.target_id > 0
+                        ? `#${request.target_id}`
+                        : '-'
+                  }
+                  mono
+                />
                 <DetailField label='Target' value={formatTarget(request)} />
                 <DetailField
                   label='Target ID'

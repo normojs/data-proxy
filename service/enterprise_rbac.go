@@ -398,3 +398,82 @@ func normalizeEnterpriseRole(role string) string {
 	role = strings.ReplaceAll(role, " ", "_")
 	return role
 }
+
+var enterpriseAssignableRoles = []string{
+	"",
+	EnterpriseRoleOwner,
+	EnterpriseRoleEnterpriseAdmin,
+	EnterpriseRoleAdmin,
+	EnterpriseRoleDepartmentAdmin,
+	EnterpriseRoleFinanceViewer,
+	EnterpriseRoleAuditor,
+	EnterpriseRoleProjectAdmin,
+}
+
+func IsEnterpriseAssignableRole(role string) bool {
+	role = normalizeEnterpriseRole(role)
+	for _, allowed := range enterpriseAssignableRoles {
+		if allowed == role {
+			return true
+		}
+	}
+	return false
+}
+
+func EnterpriseRoleIsManageAdmin(role string) bool {
+	return EnterpriseRoleHasCapability(role, EnterpriseCapabilityManage)
+}
+
+// UpdateEnterpriseMemberRole updates the enterprise org membership role.
+// It refuses to remove the last membership that still has enterprise.manage.
+func UpdateEnterpriseMemberRole(enterpriseId int, userId int, role string) (model.EnterpriseOrgMembership, model.EnterpriseOrgMembership, error) {
+	role = normalizeEnterpriseRole(role)
+	if !IsEnterpriseAssignableRole(role) {
+		return model.EnterpriseOrgMembership{}, model.EnterpriseOrgMembership{}, errors.New("unsupported enterprise role")
+	}
+	if enterpriseId <= 0 || userId <= 0 {
+		return model.EnterpriseOrgMembership{}, model.EnterpriseOrgMembership{}, errors.New("invalid enterprise member")
+	}
+
+	var before model.EnterpriseOrgMembership
+	var after model.EnterpriseOrgMembership
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		err := tx.Where("enterprise_id = ? AND user_id = ? AND is_primary = ?", enterpriseId, userId, true).First(&before).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("enterprise membership not found")
+			}
+			return err
+		}
+		after = before
+		if normalizeEnterpriseRole(before.Role) == role {
+			return nil
+		}
+		if EnterpriseRoleIsManageAdmin(before.Role) && !EnterpriseRoleIsManageAdmin(role) {
+			var manageMemberships []model.EnterpriseOrgMembership
+			if err := tx.Where("enterprise_id = ? AND is_primary = ?", enterpriseId, true).Find(&manageMemberships).Error; err != nil {
+				return err
+			}
+			remaining := 0
+			for _, membership := range manageMemberships {
+				if membership.UserId == userId {
+					continue
+				}
+				if EnterpriseRoleIsManageAdmin(membership.Role) {
+					remaining++
+				}
+			}
+			if remaining == 0 {
+				return errors.New("cannot remove the last enterprise administrator")
+			}
+		}
+		after.Role = role
+		return tx.Model(&model.EnterpriseOrgMembership{}).
+			Where("id = ?", before.Id).
+			Update("role", role).Error
+	})
+	if err != nil {
+		return model.EnterpriseOrgMembership{}, model.EnterpriseOrgMembership{}, err
+	}
+	return before, after, nil
+}

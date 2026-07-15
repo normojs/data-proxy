@@ -444,6 +444,8 @@ func enterpriseNotificationOutboxEmailMessage(row model.EnterpriseNotificationOu
 		subject = "Quota request expired"
 	case "quota_request.expiring_soon":
 		subject = "Quota request expiring soon"
+	case "policy.alert":
+		subject = "Enterprise policy alert"
 	}
 	content := fmt.Sprintf(
 		`<p>%s</p><p>Event: %s</p><p>Target: %s #%d</p>`,

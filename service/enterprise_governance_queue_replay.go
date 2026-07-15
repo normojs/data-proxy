@@ -52,9 +52,11 @@ type EnterpriseGovernanceQueueReplayRequest struct {
 }
 
 type EnterpriseGovernanceQueueReplayResult struct {
-	StatusCode int
-	Error      error
-	DurationMs int64
+	StatusCode      int
+	Error           error
+	DurationMs      int64
+	FailureStage    string
+	ReplayRequestId string
 }
 
 type EnterpriseGovernanceQueueReplayStats struct {
@@ -138,7 +140,7 @@ func processEnterpriseGovernanceQueueReplayBatchWithStats(ctx context.Context, n
 	var rows []model.EnterpriseGovernanceQueueAdmission
 	if err := model.DB.
 		Where("status = ? AND (next_retry_at = 0 OR next_retry_at <= ?)", enterpriseQueueStatusRetryPending, now).
-		Order("next_retry_at asc, created_at asc, id asc").
+		Order("priority desc, next_retry_at asc, created_at asc, id asc").
 		Limit(batchSize).
 		Find(&rows).Error; err != nil {
 		return stats, err
@@ -160,12 +162,15 @@ func processEnterpriseGovernanceQueueReplayBatchWithStats(ctx context.Context, n
 
 		replayRequest, err := BuildEnterpriseGovernanceQueueReplayRequest(claimed)
 		if err != nil {
-			after, finishErr := finishEnterpriseGovernanceQueueReplayFailure(before, claimed, now, err, EnterpriseGovernanceQueueReplayResult{})
+			result := EnterpriseGovernanceQueueReplayResult{
+				FailureStage: enterpriseGovernanceQueueReplayFailureStage(err),
+			}
+			after, finishErr := finishEnterpriseGovernanceQueueReplayFailure(before, claimed, now, err, result)
 			if finishErr != nil {
 				stats.Errors++
 				return stats, finishErr
 			}
-			if auditErr := recordEnterpriseGovernanceQueueReplayAudit(before, after, nil, EnterpriseGovernanceQueueReplayResult{}, err); auditErr != nil {
+			if auditErr := recordEnterpriseGovernanceQueueReplayAudit(before, after, nil, result, err); auditErr != nil {
 				stats.Errors++
 				return stats, auditErr
 			}
@@ -179,6 +184,12 @@ func processEnterpriseGovernanceQueueReplayBatchWithStats(ctx context.Context, n
 		cancel()
 		if result.DurationMs <= 0 {
 			result.DurationMs = durationMillis(time.Since(executedAt))
+		}
+		if result.ReplayRequestId == "" {
+			result.ReplayRequestId = fmt.Sprintf("queue-replay-%d-%d", claimed.Id, now)
+		}
+		if result.FailureStage == "" && (result.Error != nil || result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusBadRequest) {
+			result.FailureStage = "upstream"
 		}
 
 		if result.Error != nil || result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusBadRequest {
@@ -373,14 +384,18 @@ func finishEnterpriseGovernanceQueueReplaySuccess(before model.EnterpriseGoverna
 		result.DurationMs = 0
 	}
 	updates := map[string]any{
-		"status":           enterpriseQueueStatusReleased,
-		"admitted_at":      now,
-		"released_at":      now,
-		"run_ms":           result.DurationMs,
-		"next_retry_at":    int64(0),
-		"last_error":       "",
-		"user_message_key": enterpriseQueueUserMessageKey(enterpriseQueueStatusReleased),
-		"updated_at":       now,
+		"status":                  enterpriseQueueStatusReleased,
+		"admitted_at":             now,
+		"released_at":             now,
+		"run_ms":                  result.DurationMs,
+		"next_retry_at":           int64(0),
+		"last_error":              "",
+		"last_replay_status_code": result.StatusCode,
+		"last_replay_duration_ms": result.DurationMs,
+		"last_failure_stage":      "",
+		"last_replay_request_id":  result.ReplayRequestId,
+		"user_message_key":        enterpriseQueueUserMessageKey(enterpriseQueueStatusReleased),
+		"updated_at":              now,
 	}
 	return finishEnterpriseGovernanceQueueReplay(before, claimed, updates)
 }
@@ -393,13 +408,21 @@ func finishEnterpriseGovernanceQueueReplayFailure(before model.EnterpriseGoverna
 	if result.DurationMs < 0 {
 		result.DurationMs = 0
 	}
+	failureStage := strings.TrimSpace(result.FailureStage)
+	if failureStage == "" {
+		failureStage = enterpriseGovernanceQueueReplayFailureStage(replayErr)
+	}
 	updates := map[string]any{
-		"status":           enterpriseQueueStatusTimeout,
-		"run_ms":           result.DurationMs,
-		"next_retry_at":    int64(0),
-		"last_error":       lastError,
-		"user_message_key": enterpriseQueueUserMessageKey(enterpriseQueueStatusTimeout),
-		"updated_at":       now,
+		"status":                  enterpriseQueueStatusTimeout,
+		"run_ms":                  result.DurationMs,
+		"next_retry_at":           int64(0),
+		"last_error":              lastError,
+		"last_replay_status_code": result.StatusCode,
+		"last_replay_duration_ms": result.DurationMs,
+		"last_failure_stage":      failureStage,
+		"last_replay_request_id":  result.ReplayRequestId,
+		"user_message_key":        enterpriseQueueUserMessageKey(enterpriseQueueStatusTimeout),
+		"updated_at":              now,
 	}
 	return finishEnterpriseGovernanceQueueReplay(before, claimed, updates)
 }
@@ -422,10 +445,17 @@ func finishEnterpriseGovernanceQueueReplay(before model.EnterpriseGovernanceQueu
 }
 
 func recordEnterpriseGovernanceQueueReplayAudit(before, after model.EnterpriseGovernanceQueueAdmission, replayRequest *EnterpriseGovernanceQueueReplayRequest, result EnterpriseGovernanceQueueReplayResult, replayErr error) error {
+	failureStage := strings.TrimSpace(result.FailureStage)
+	if failureStage == "" && replayErr != nil {
+		failureStage = enterpriseGovernanceQueueReplayFailureStage(replayErr)
+	}
 	replay := map[string]any{
-		"status_code": result.StatusCode,
-		"duration_ms": result.DurationMs,
-		"success":     replayErr == nil,
+		"status_code":       result.StatusCode,
+		"duration_ms":       result.DurationMs,
+		"success":           replayErr == nil,
+		"failure_stage":     failureStage,
+		"replay_request_id": result.ReplayRequestId,
+		"upstream_status":   result.StatusCode,
 	}
 	if replayErr != nil {
 		replay["error"] = replayErr.Error()
@@ -454,6 +484,24 @@ func recordEnterpriseGovernanceQueueReplayAudit(before, after model.EnterpriseGo
 		},
 		RequestId: after.RequestId,
 	})
+}
+
+func enterpriseGovernanceQueueReplayFailureStage(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch {
+	case errors.Is(err, ErrEnterpriseGovernanceQueueReplayPayloadMissing):
+		return "payload_missing"
+	case errors.Is(err, ErrEnterpriseGovernanceQueueReplayPayloadTruncated):
+		return "payload_truncated"
+	case errors.Is(err, ErrEnterpriseGovernanceQueueReplayPayloadUnsupported):
+		return "payload_unsupported"
+	case errors.Is(err, ErrEnterpriseGovernanceQueueReplayTokenInvalid):
+		return "token_invalid"
+	default:
+		return "upstream"
+	}
 }
 
 func enterpriseGovernanceQueueReplayResultError(result EnterpriseGovernanceQueueReplayResult) error {

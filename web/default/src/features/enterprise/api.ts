@@ -57,6 +57,7 @@ import type {
   EnterpriseQueueAdmissionParams,
   EnterpriseQuotaPoliciesParams,
   EnterpriseQuotaPolicy,
+  EnterpriseQuotaPolicyImpact,
   EnterpriseQuotaPolicyPayload,
   EnterpriseQuotaRequest,
   EnterpriseQuotaRequestBatchDecisionPayload,
@@ -174,6 +175,14 @@ export async function updateEnterpriseMemberOrgUnit(
   const res = await api.put<ApiResponse<{ user_id: number }>>(
     `${ENTERPRISE_API}/members/${userId}/org-unit`,
     { org_unit_id: orgUnitId }
+  )
+  return res.data
+}
+
+export async function updateEnterpriseMemberRole(userId: number, role: string) {
+  const res = await api.put<ApiResponse<{ user_id: number; role: string }>>(
+    `${ENTERPRISE_API}/members/${userId}/role`,
+    { role }
   )
   return res.data
 }
@@ -425,6 +434,16 @@ export async function updateEnterpriseQuotaPolicy(
 export async function disableEnterpriseQuotaPolicy(id: number) {
   const res = await api.delete<ApiResponse<{ id: number }>>(
     `${ENTERPRISE_API}/quota-policies/${id}`
+  )
+  return res.data
+}
+
+export async function getEnterpriseQuotaPolicyImpact(
+  id: number,
+  params: { window_days?: number } = {}
+) {
+  const res = await api.get<ApiResponse<EnterpriseQuotaPolicyImpact>>(
+    withQuery(`${ENTERPRISE_API}/quota-policies/${id}/impact`, params)
   )
   return res.data
 }

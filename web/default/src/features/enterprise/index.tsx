@@ -152,6 +152,7 @@ import {
   getEnterpriseProjectMembers,
   getEnterpriseProjects,
   getEnterpriseQuotaPolicies,
+  getEnterpriseQuotaPolicyImpact,
   getEnterpriseQuotaRequests,
   getEnterpriseQueueAdmissions,
   getEnterpriseSharedPoolConfigs,
@@ -170,6 +171,7 @@ import {
   updateEnterpriseNotificationPreference,
   updateEnterpriseWebhook,
   updateEnterpriseMemberOrgUnit,
+  updateEnterpriseMemberRole,
   updateEnterpriseOrgUnit,
   updateEnterprisePolicyGroup,
   upsertEnterpriseProjectMember,
@@ -184,6 +186,7 @@ import {
   downloadEnterpriseAuditLogsExport,
   downloadEnterpriseUsageBreakdownExport,
 } from './api'
+import { EnterpriseMemberSelect } from './components/enterprise-member-select'
 import { QuotaRequestDetailSheet } from './components/quota-request-detail-sheet'
 import type {
   ApiResponse,
@@ -213,6 +216,7 @@ import type {
   EnterpriseProject,
   EnterpriseProjectPayload,
   EnterpriseQuotaPolicy,
+  EnterpriseQuotaPolicyImpact,
   EnterpriseQuotaPolicyPayload,
   EnterpriseQuotaRequest,
   EnterpriseQuotaRequestBatchDecisionResult,
@@ -356,6 +360,7 @@ const WEBHOOK_EVENT_TYPES = [
   'quota_request.withdraw',
   'quota_request.expire',
   'quota_request.expiring_soon',
+  'policy.alert',
 ]
 
 const DEFAULT_ANOMALY_THROTTLE_CONFIG: EnterpriseAnomalyThrottleConfig = {
@@ -2042,6 +2047,7 @@ function OrganizationTab(props: {
                 <TableRow>
                   <TableHead>{t('User')}</TableHead>
                   <TableHead>{t('Org Unit')}</TableHead>
+                  <TableHead>{t('Role')}</TableHead>
                   <TableHead>{t('Policy Groups')}</TableHead>
                   <TableHead className='text-right'>{t('Assign')}</TableHead>
                 </TableRow>
@@ -2049,10 +2055,11 @@ function OrganizationTab(props: {
               <TableBody>
                 {props.members.map((member) => (
                   <MemberRow
-                    key={`${member.user_id}:${member.org_unit_id || 0}`}
+                    key={`${member.user_id}:${member.org_unit_id || 0}:${member.role || ''}`}
                     member={member}
                     orgOptions={props.orgOptions}
                     allowUnassigned={props.canManageEnterprise}
+                    canManageRole={props.canManageEnterprise}
                   />
                 ))}
               </TableBody>
@@ -2070,23 +2077,47 @@ function OrganizationTab(props: {
   )
 }
 
+const ENTERPRISE_ROLE_OPTIONS = [
+  { value: '', label: 'No enterprise role' },
+  { value: 'owner', label: 'Owner' },
+  { value: 'enterprise_admin', label: 'Enterprise Admin' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'department_admin', label: 'Department Admin' },
+  { value: 'finance_viewer', label: 'Finance Viewer' },
+  { value: 'auditor', label: 'Auditor' },
+  { value: 'project_admin', label: 'Project Admin' },
+]
+
 function MemberRow(props: {
   member: EnterpriseMember
   orgOptions: SelectOption[]
   allowUnassigned: boolean
+  canManageRole: boolean
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [selectedOrgUnit, setSelectedOrgUnit] = useState(
     String(props.member.org_unit_id || '')
   )
+  const [selectedRole, setSelectedRole] = useState(props.member.role || '')
 
   const mutation = useMutation({
-    mutationFn: () =>
-      updateEnterpriseMemberOrgUnit(
-        props.member.user_id,
-        selectedOrgUnit ? Number(selectedOrgUnit) : 0
-      ),
+    mutationFn: async () => {
+      const orgChanged =
+        selectedOrgUnit !== String(props.member.org_unit_id || '')
+      const roleChanged = selectedRole !== (props.member.role || '')
+      if (orgChanged) {
+        const response = await updateEnterpriseMemberOrgUnit(
+          props.member.user_id,
+          selectedOrgUnit ? Number(selectedOrgUnit) : 0
+        )
+        if (!response.success) return response
+      }
+      if (roleChanged && props.canManageRole) {
+        return updateEnterpriseMemberRole(props.member.user_id, selectedRole)
+      }
+      return { success: true }
+    },
     onSuccess: (response) => {
       if (!response.success) return
       toast.success(t('Saved'))
@@ -2094,7 +2125,9 @@ function MemberRow(props: {
     },
   })
 
-  const changed = selectedOrgUnit !== String(props.member.org_unit_id || '')
+  const changed =
+    selectedOrgUnit !== String(props.member.org_unit_id || '') ||
+    selectedRole !== (props.member.role || '')
 
   return (
     <TableRow>
@@ -2136,6 +2169,44 @@ function MemberRow(props: {
             </SelectGroup>
           </SelectContent>
         </Select>
+      </TableCell>
+      <TableCell>
+        {props.canManageRole ? (
+          <Select
+            value={selectedRole || UNASSIGNED_VALUE}
+            onValueChange={(value) =>
+              setSelectedRole(
+                normalizeOptionalSelectValue(value, UNASSIGNED_VALUE)
+              )
+            }
+          >
+            <SelectTrigger className='w-48'>
+              <SelectValue placeholder={t('No enterprise role')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {ENTERPRISE_ROLE_OPTIONS.map((option) => (
+                  <SelectItem
+                    key={option.value || 'none'}
+                    value={option.value || UNASSIGNED_VALUE}
+                  >
+                    {t(option.label)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className='text-sm'>
+            {props.member.role
+              ? t(
+                  ENTERPRISE_ROLE_OPTIONS.find(
+                    (option) => option.value === props.member.role
+                  )?.label || props.member.role
+                )
+              : t('No enterprise role')}
+          </span>
+        )}
       </TableCell>
       <TableCell>{formatNumber(props.member.policy_group_count)}</TableCell>
       <TableCell>
@@ -3680,6 +3751,80 @@ function FirstQuotaPolicyGuide(props: {
   )
 }
 
+function PolicyImpactSummary(props: {
+  policy: EnterpriseQuotaPolicy
+  dryRunObservations: EnterpriseAuditLog[]
+}) {
+  const { t } = useTranslation()
+  const impactQuery = useQuery({
+    queryKey: ['enterprise', 'quota-policy-impact', props.policy.id],
+    queryFn: () =>
+      getEnterpriseQuotaPolicyImpact(props.policy.id, { window_days: 7 }),
+    enabled: props.policy.id > 0,
+  })
+  const impact = impactQuery.data?.data as EnterpriseQuotaPolicyImpact | undefined
+  const dryRunHits = impact
+    ? impact.recent_dry_run_hits
+    : getPolicyDryRunHits(props.policy, props.dryRunObservations)
+  const riskLabel = impact?.impact_risk
+    ? impact.impact_risk === 'high'
+      ? 'High'
+      : impact.impact_risk === 'medium'
+        ? 'Medium'
+        : 'Low'
+    : getPolicyRiskLabel(props.policy)
+
+  return (
+    <div className='space-y-3 rounded-lg border p-3 text-sm'>
+      <div className='min-w-0'>
+        <div className='truncate font-medium'>{props.policy.name}</div>
+        <div className='text-muted-foreground mt-1 text-xs'>
+          {t(formatPolicyTarget(props.policy))} ·{' '}
+          {t(formatMetric(props.policy.metric))} ·{' '}
+          {t(formatPeriod(props.policy.period))}
+        </div>
+      </div>
+      <div className='grid gap-3 sm:grid-cols-2'>
+        <AuditDetailField
+          label='Current Usage'
+          value={`${formatNumber(impact?.used_value ?? props.policy.used_value)} / ${formatNumber(impact?.limit_value ?? props.policy.limit_value)}`}
+        />
+        <AuditDetailField label='Impact Risk' value={t(riskLabel)} />
+        <AuditDetailField
+          label='Recent hard-limit hits'
+          value={
+            impactQuery.isLoading
+              ? t('Loading...')
+              : formatNumber(impact?.recent_hard_limit_hits ?? 0)
+          }
+        />
+        <AuditDetailField
+          label='Recent dry-run hits'
+          value={
+            impactQuery.isLoading ? t('Loading...') : formatNumber(dryRunHits)
+          }
+        />
+        <AuditDetailField
+          label='Recent policy actions'
+          value={
+            impactQuery.isLoading
+              ? t('Loading...')
+              : formatNumber(impact?.recent_policy_actions ?? 0)
+          }
+        />
+        <AuditDetailField
+          label='Target'
+          value={
+            impact?.target_name ||
+            `${props.policy.target_type} #${props.policy.target_id || '-'}`
+          }
+          mono
+        />
+      </div>
+    </div>
+  )
+}
+
 function QuotaPolicyDisableDialog(props: {
   policy: EnterpriseQuotaPolicy | null
   dryRunObservations: EnterpriseAuditLog[]
@@ -3688,9 +3833,6 @@ function QuotaPolicyDisableDialog(props: {
 }) {
   const { t } = useTranslation()
   const policy = props.policy
-  const dryRunHits = policy
-    ? getPolicyDryRunHits(policy, props.dryRunObservations)
-    : 0
 
   return (
     <AlertDialog open={Boolean(policy)} onOpenChange={props.onOpenChange}>
@@ -3703,37 +3845,12 @@ function QuotaPolicyDisableDialog(props: {
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {policy && (
-          <div className='space-y-3 rounded-lg border p-3 text-sm'>
-            <div className='min-w-0'>
-              <div className='truncate font-medium'>{policy.name}</div>
-              <div className='text-muted-foreground mt-1 text-xs'>
-                {t(formatPolicyTarget(policy))} ·{' '}
-                {t(formatMetric(policy.metric))} ·{' '}
-                {t(formatPeriod(policy.period))}
-              </div>
-            </div>
-            <div className='grid gap-3 sm:grid-cols-2'>
-              <AuditDetailField
-                label='Current Usage'
-                value={`${formatNumber(policy.used_value)} / ${formatNumber(policy.limit_value)}`}
-              />
-              <AuditDetailField
-                label='Impact Risk'
-                value={t(getPolicyRiskLabel(policy))}
-              />
-              <AuditDetailField
-                label='Recent dry-run hits'
-                value={formatNumber(dryRunHits)}
-              />
-              <AuditDetailField
-                label='Target'
-                value={`${policy.target_type} #${policy.target_id || '-'}`}
-                mono
-              />
-            </div>
-          </div>
-        )}
+        {policy ? (
+          <PolicyImpactSummary
+            policy={policy}
+            dryRunObservations={props.dryRunObservations}
+          />
+        ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
           <AlertDialogAction
@@ -3753,6 +3870,7 @@ function QuotaPolicyDisableDialog(props: {
 function QuotaRequestsTab(props: {
   requests: EnterpriseQuotaRequest[]
   policies: EnterpriseQuotaPolicy[]
+  projects: EnterpriseProject[]
   currentUserId: number
   isAdmin: boolean
   query: QueryResult<PageInfo<EnterpriseQuotaRequest>>
@@ -3907,16 +4025,27 @@ function QuotaRequestsTab(props: {
             placeholder={t('Request ID')}
             className='w-36'
           />
-          <Input
-            type='number'
-            value={props.projectId}
-            onChange={(event) => {
-              props.setProjectId(event.target.value)
+          <Select
+            value={props.projectId || ALL_VALUE}
+            onValueChange={(value) => {
+              props.setProjectId(normalizeOptionalSelectValue(value))
               props.setPage(1)
             }}
-            placeholder={t('Project ID')}
-            className='w-36'
-          />
+          >
+            <SelectTrigger className='w-56'>
+              <SelectValue placeholder={t('Project')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                <SelectItem value={ALL_VALUE}>{t('All Projects')}</SelectItem>
+                {props.projects.map((project) => (
+                  <SelectItem key={project.id} value={String(project.id)}>
+                    {project.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
           <Select
             value={props.targetType || ALL_VALUE}
             onValueChange={(value) => {
@@ -3985,6 +4114,7 @@ function QuotaRequestsTab(props: {
                 )}
                 <TableHead>{t('Request')}</TableHead>
                 <TableHead>{t('Policy')}</TableHead>
+                <TableHead>{t('Project')}</TableHead>
                 <TableHead>{t('Target')}</TableHead>
                 <TableHead>{t('Extra Limit')}</TableHead>
                 <TableHead>{t('Status')}</TableHead>
@@ -4025,6 +4155,14 @@ function QuotaRequestsTab(props: {
                         {t(formatPeriod(request.period))}
                       </div>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    {request.project_name ||
+                      (request.project_id > 0
+                        ? `#${request.project_id}`
+                        : request.target_type === 'project'
+                          ? request.target_name || `#${request.target_id}`
+                          : '-')}
                   </TableCell>
                   <TableCell>
                     {request.target_name ||
@@ -5191,6 +5329,7 @@ function QueueAdmissionsPanel(props: {
               <TableRow>
                 <TableHead>{t('Time')}</TableHead>
                 <TableHead>{t('Status')}</TableHead>
+                <TableHead>{t('Priority')}</TableHead>
                 <TableHead>{t('Request ID')}</TableHead>
                 <TableHead>{t('Model')}</TableHead>
                 <TableHead>{t('Policy')}</TableHead>
@@ -5198,7 +5337,7 @@ function QueueAdmissionsPanel(props: {
                 <TableHead className='text-right'>{t('Wait')}</TableHead>
                 <TableHead className='text-right'>{t('Run')}</TableHead>
                 <TableHead>{t('Retry')}</TableHead>
-                <TableHead>{t('Next Retry')}</TableHead>
+                <TableHead>{t('Replay')}</TableHead>
                 <TableHead>{t('Last Error')}</TableHead>
                 {props.canManage && (
                   <TableHead className='text-right'>{t('Actions')}</TableHead>
@@ -5211,6 +5350,11 @@ function QueueAdmissionsPanel(props: {
                   <TableCell>{formatDateTime(admission.created_at)}</TableCell>
                   <TableCell>
                     <QueueAdmissionStatusBadge status={admission.status} />
+                  </TableCell>
+                  <TableCell>
+                    <span className='font-mono text-xs'>
+                      {formatNumber(admission.priority || 0)}
+                    </span>
                   </TableCell>
                   <TableCell>
                     <span className='text-muted-foreground font-mono text-xs'>
@@ -5253,7 +5397,19 @@ function QueueAdmissionsPanel(props: {
                   </TableCell>
                   <TableCell>{formatNumber(admission.retry_count)}</TableCell>
                   <TableCell>
-                    {formatDateTime(admission.next_retry_at)}
+                    <div className='text-muted-foreground max-w-48 space-y-0.5 text-xs'>
+                      <div className='font-mono'>
+                        {admission.last_replay_status_code
+                          ? `HTTP ${admission.last_replay_status_code}`
+                          : '-'}
+                      </div>
+                      <div className='truncate'>
+                        {admission.last_failure_stage ||
+                          (admission.last_replay_duration_ms
+                            ? formatDurationMs(admission.last_replay_duration_ms)
+                            : '-')}
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <span className='block max-w-72 truncate text-xs'>
@@ -8610,17 +8766,16 @@ function ProjectDialog(props: {
             </Field>
           </div>
           <div className='grid gap-3 sm:grid-cols-2'>
-            <Field label='Owner User ID'>
-              <Input
-                type='number'
+            <Field label='Owner'>
+              <EnterpriseMemberSelect
                 value={form.owner_user_id}
-                onChange={(event) =>
+                onValueChange={(value) =>
                   setForm((current) => ({
                     ...current,
-                    owner_user_id: event.target.value,
+                    owner_user_id: value,
                   }))
                 }
-                placeholder='0'
+                placeholder={t('Select project owner')}
               />
             </Field>
             <Field label='Status'>
@@ -9244,14 +9399,47 @@ function QuotaPolicyDialog(props: {
             </div>
           ) : (
             <Field label='CEL Expression'>
-              <Textarea
-                value={form.condition_expr}
-                onChange={(event) =>
-                  setField('condition_expr', event.target.value)
-                }
-                placeholder='request.model in ["gpt-4o"]'
-                className='min-h-24 font-mono text-xs'
-              />
+              <div className='space-y-2'>
+                <div className='flex flex-wrap gap-1.5'>
+                  {[
+                    'request.model',
+                    'request.ability',
+                    'request.channel_id',
+                    'request.is_playground',
+                    'user.id',
+                    'user.runtime_group',
+                    'org.project_id',
+                    'org.org_unit_id',
+                    'token.id',
+                  ].map((token) => (
+                    <Button
+                      key={token}
+                      type='button'
+                      variant='outline'
+                      size='xs'
+                      className='font-mono text-[11px]'
+                      onClick={() =>
+                        setField(
+                          'condition_expr',
+                          form.condition_expr
+                            ? `${form.condition_expr}${form.condition_expr.endsWith(' ') ? '' : ' '}${token}`
+                            : token
+                        )
+                      }
+                    >
+                      {token}
+                    </Button>
+                  ))}
+                </div>
+                <Textarea
+                  value={form.condition_expr}
+                  onChange={(event) =>
+                    setField('condition_expr', event.target.value)
+                  }
+                  placeholder='request.model in ["gpt-4o"]'
+                  className='min-h-24 font-mono text-xs'
+                />
+              </div>
             </Field>
           )}
           <DialogFooter>
@@ -9669,9 +9857,6 @@ function QuotaPolicyStatusChangeDialog(props: {
   const { t } = useTranslation()
   const policy = props.policy
   const enabling = props.nextStatus === ENABLED_STATUS
-  const dryRunHits = policy
-    ? getPolicyDryRunHits(policy, props.dryRunObservations)
-    : 0
 
   return (
     <AlertDialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -9688,36 +9873,20 @@ function QuotaPolicyStatusChangeDialog(props: {
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {policy && (
-          <div className='space-y-3 rounded-lg border p-3 text-sm'>
-            <div className='min-w-0'>
-              <div className='truncate font-medium'>{policy.name}</div>
-              <div className='text-muted-foreground mt-1 text-xs'>
-                {t(formatPolicyTarget(policy))} ·{' '}
-                {t(formatMetric(policy.metric))} ·{' '}
-                {t(formatPeriod(policy.period))}
-              </div>
-            </div>
-            <div className='grid gap-3 sm:grid-cols-2'>
-              <AuditDetailField
-                label='Current Usage'
-                value={`${formatNumber(policy.used_value)} / ${formatNumber(policy.limit_value)}`}
-              />
-              <AuditDetailField
-                label='Impact Risk'
-                value={t(getPolicyRiskLabel(policy))}
-              />
-              <AuditDetailField
-                label='Recent dry-run hits'
-                value={formatNumber(dryRunHits)}
-              />
+        {policy ? (
+          <div className='space-y-3'>
+            <PolicyImpactSummary
+              policy={policy}
+              dryRunObservations={props.dryRunObservations}
+            />
+            <div className='rounded-lg border p-3 text-sm'>
               <AuditDetailField
                 label='Next Status'
                 value={t(enabling ? 'Enabled' : 'Disabled')}
               />
             </div>
           </div>
-        )}
+        ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={props.isPending}>
             {t('Cancel')}
@@ -10888,6 +11057,7 @@ export function EnterpriseGovernance() {
                 <QuotaRequestsTab
                   requests={quotaRequests}
                   policies={quotaPolicies}
+                  projects={allProjects}
                   currentUserId={currentUserId}
                   isAdmin={canApproveQuota}
                   query={{

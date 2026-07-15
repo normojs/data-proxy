@@ -1932,7 +1932,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Projets liés",
     "footer.defaultCopyright": "Tous droits réservés.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Conception et développement frontend par les contributeurs New API.",
+    "footer.newapi.projectAttributionSuffix": "Conception et développement frontend par les contributeurs New API.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Pour les canaux ajoutés après le 10 mai 2025, pas besoin de supprimer \".\" des noms de modèles lors du déploiement",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Pour les déploiements privés, format : https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Imposer une réponse JSON syntaxiquement valide",
@@ -6590,6 +6590,20 @@
     "No quota requests": "Aucune demande de quota",
     "Project changes and member events will appear here.": "Les changements du projet et les événements des membres apparaîtront ici.",
     "Project-specific quota policies will appear here.": "Les politiques de quota propres au projet apparaîtront ici.",
-    "Project-specific quota requests will appear here.": "Les demandes de quota propres au projet apparaîtront ici."
+    "Project-specific quota requests will appear here.": "Les demandes de quota propres au projet apparaîtront ici.",
+    "notification.enterprise_policy_alert.title": "Enterprise policy alert",
+    "notification.enterprise_policy_alert.content": "Policy #{{policyId}} triggered an alert for request {{requestId}} ({{trigger}}).",
+    "Select enterprise member": "Select enterprise member",
+    "Search members...": "Search members...",
+    "No enterprise members found": "No enterprise members found",
+    "Select project owner": "Select project owner",
+    "No enterprise role": "No enterprise role",
+    "Enterprise Admin": "Enterprise Admin",
+    "Department Admin": "Department Admin",
+    "Finance Viewer": "Finance Viewer",
+    "Project Admin": "Project Admin",
+    "Recent hard-limit hits": "Recent hard-limit hits",
+    "Recent policy actions": "Recent policy actions",
+    "Replay": "Replay"
   }
 }

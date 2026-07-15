@@ -554,6 +554,87 @@ func TestPreCheckEnterpriseGovernanceAlertActionAllowsAuditsAndTracksUsage(t *te
 		Where("request_id = ? AND action = ?", "req-enterprise-alert-action", enterpriseGovernanceAuditActionHardReject).
 		Count(&hardRejectCount).Error)
 	assert.EqualValues(t, 0, hardRejectCount)
+
+	var outboxCount int64
+	require.NoError(t, model.DB.Model(&model.EnterpriseNotificationOutbox{}).
+		Where("event_type = ? AND enterprise_id = ?", EnterprisePolicyAlertEventType, enterprise.Id).
+		Count(&outboxCount).Error)
+	assert.GreaterOrEqual(t, outboxCount, int64(1))
+}
+
+func TestEnqueueEnterprisePolicyAlertOutboxSkipsDryRunAndIsIdempotent(t *testing.T) {
+	setupEnterprisePolicyServiceTestDB(t)
+
+	enterprise, err := model.GetDefaultEnterprise()
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1099,
+		Username: "alert-admin",
+		Role:     common.RoleAdminUser,
+		Status:   common.UserStatusEnabled,
+		Email:    "alert-admin@example.com",
+		Group:    "default",
+		AffCode:  "eg-alert-admin",
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseNotificationPreference{
+		EnterpriseId:       enterprise.Id,
+		Channel:            model.EnterpriseNotificationPreferenceChannelEmail,
+		EventType:          EnterprisePolicyAlertEventType,
+		Enabled:            true,
+		RecipientScopeJson: `{"applicant":true,"enterprise_admins":true}`,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.EnterpriseNotificationPreference{
+		EnterpriseId: enterprise.Id,
+		Channel:      model.EnterpriseNotificationPreferenceChannelWebhook,
+		EventType:    EnterprisePolicyAlertEventType,
+		Enabled:      true,
+	}).Error)
+
+	enterpriseCtx := &EnterpriseContext{
+		EnterpriseId: enterprise.Id,
+		UserId:       1099,
+		TokenId:      77,
+		ProjectId:    3,
+	}
+	req := PolicyEvaluationRequest{
+		RequestId: "req-policy-alert-outbox",
+		ModelName: "gpt-4o",
+		Ability:   "chat",
+		ChannelId: 12,
+	}
+	decision := PolicyDecision{
+		Allowed: true,
+		DryRun:  true,
+		ActionObservations: []PolicyActionObservation{{
+			PolicyId: 42,
+			Action:   model.PolicyActionAlert,
+			Trigger:  "quota_exceeded",
+		}},
+	}
+	created, err := EnqueueEnterprisePolicyAlertOutbox(enterpriseCtx, req, decision)
+	require.NoError(t, err)
+	assert.Equal(t, 0, created)
+
+	decision.DryRun = false
+	created, err = EnqueueEnterprisePolicyAlertOutbox(enterpriseCtx, req, decision)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, created, 1)
+
+	createdAgain, err := EnqueueEnterprisePolicyAlertOutbox(enterpriseCtx, req, decision)
+	require.NoError(t, err)
+	assert.Equal(t, 0, createdAgain)
+
+	var rows []model.EnterpriseNotificationOutbox
+	require.NoError(t, model.DB.Where("event_type = ? AND enterprise_id = ?", EnterprisePolicyAlertEventType, enterprise.Id).
+		Order("channel asc, id asc").Find(&rows).Error)
+	require.NotEmpty(t, rows)
+	for _, row := range rows {
+		assert.Equal(t, EnterprisePolicyAlertEventType, row.EventType)
+		assert.Equal(t, "quota_policy", row.TargetType)
+		assert.Equal(t, 42, row.TargetId)
+		assert.Contains(t, row.PayloadJson, "notification.enterprise_policy_alert.title")
+		assert.Contains(t, row.PayloadJson, "quota_exceeded")
+	}
 }
 
 func TestPreCheckEnterpriseGovernanceFallbackModelActionAllowsWithHint(t *testing.T) {

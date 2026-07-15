@@ -1932,7 +1932,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Thiết kế và phát triển giao diện người dùng bởi những người đóng góp New API.",
+    "footer.newapi.projectAttributionSuffix": "Thiết kế và phát triển giao diện người dùng bởi những người đóng góp New API.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Đối với các triển khai riêng tư, định dạng: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Buộc phản hồi JSON hợp lệ về cú pháp",
@@ -6590,6 +6590,20 @@
     "No quota requests": "Chưa có yêu cầu hạn mức",
     "Project changes and member events will appear here.": "Các thay đổi dự án và sự kiện thành viên sẽ hiển thị tại đây.",
     "Project-specific quota policies will appear here.": "Chính sách hạn mức riêng của dự án sẽ hiển thị tại đây.",
-    "Project-specific quota requests will appear here.": "Yêu cầu hạn mức riêng của dự án sẽ hiển thị tại đây."
+    "Project-specific quota requests will appear here.": "Yêu cầu hạn mức riêng của dự án sẽ hiển thị tại đây.",
+    "notification.enterprise_policy_alert.title": "Enterprise policy alert",
+    "notification.enterprise_policy_alert.content": "Policy #{{policyId}} triggered an alert for request {{requestId}} ({{trigger}}).",
+    "Select enterprise member": "Select enterprise member",
+    "Search members...": "Search members...",
+    "No enterprise members found": "No enterprise members found",
+    "Select project owner": "Select project owner",
+    "No enterprise role": "No enterprise role",
+    "Enterprise Admin": "Enterprise Admin",
+    "Department Admin": "Department Admin",
+    "Finance Viewer": "Finance Viewer",
+    "Project Admin": "Project Admin",
+    "Recent hard-limit hits": "Recent hard-limit hits",
+    "Recent policy actions": "Recent policy actions",
+    "Replay": "Replay"
   }
 }
