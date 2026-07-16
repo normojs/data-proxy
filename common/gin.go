@@ -248,7 +248,11 @@ func init() {
 	// Default implementation that returns the key as-is
 	// This will be replaced by i18n.T during i18n initialization
 	TranslateMessage = func(c *gin.Context, key string, args ...map[string]any) string {
-		c.Header("X-Translate-id", "d5e7afdfc7f03414b941f9c1e7096be9966510e7")
+		// Tests often pass a bare gin.Context without a ResponseWriter.
+		// Header writes panic when Writer is nil, so only set the marker when safe.
+		if c != nil && c.Writer != nil {
+			c.Header("X-Translate-id", "d5e7afdfc7f03414b941f9c1e7096be9966510e7")
+		}
 		return key
 	}
 }

@@ -257,7 +257,6 @@ export interface LogOtherData {
   package_remaining?: number
   input_ratio?: number
   output_ratio?: number
-  cache_ratio?: number
   group?: string
   stream_status?: {
     status?: string

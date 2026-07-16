@@ -38,7 +38,7 @@ type FundingErrorGuide = {
 }
 
 function fundingErrorGuide(
-  errorCode: string | undefined,
+  errorCode: string | null | undefined,
   t: (key: string) => string
 ): FundingErrorGuide | null {
   switch (errorCode) {

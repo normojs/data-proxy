@@ -105,7 +105,8 @@ check_release_path() {
   local file="$1"
   case "$file" in
   .env | .env.*)
-    [[ "$file" == ".env.example" ]] || add_failure "secret env file must not be tracked or staged: $file"
+    [[ "$file" == ".env.example" || "$file" == ".env.example.minimal" ]] ||
+      add_failure "secret env file must not be tracked or staged: $file"
     ;;
   secrets/* | ssl/* | logs/* | data/* | storage/* | image-archive/* | output/*)
     add_failure "local runtime/storage path must not be tracked or staged: $file"

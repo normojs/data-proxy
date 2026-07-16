@@ -64,6 +64,8 @@ func TestMain(m *testing.M) {
 		&model.MCPToolCallIdempotencyKey{},
 		&model.MCPUserDailyQuota{},
 		&model.BridgeAuditLog{},
+		&model.ModelTokenPackage{},
+		&model.ModelTokenPackageLedger{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -440,7 +442,8 @@ func TestPerCallBillingSubscriptionOnlyMapsSentinelErrorsToInsufficientQuota(t *
 	apiErr := PreConsumePerCallBilling(&gin.Context{}, 10, relayInfo)
 	require.NotNil(t, apiErr)
 	require.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
-	require.Contains(t, apiErr.Error(), "订阅额度不足或未配置订阅")
+	// Without full i18n init, UserFacingSubscriptionQuotaError returns the English fallback.
+		require.Contains(t, apiErr.Error(), "Subscription quota is insufficient")
 }
 
 func TestRecordTaskInitialBillingEvent_Idempotent(t *testing.T) {
