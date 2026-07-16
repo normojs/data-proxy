@@ -10,12 +10,20 @@
 
 ### P0 — 立刻影响口碑
 
-- [ ] 错误文案人话化（403 / 包不足 / 企业拒绝）
+（P0 已完成，见下方「已完成」；继续 P1）
+
+### P1 — 追上主流商业站
+
+- [ ] Token 包自助购买 / 卡密
+- [ ] 模型广场：测通、复制、价格、可用性
+- [ ] 部署一键化（一条 compose + 文档）
+- [ ] 渠道健康与自动下线更傻瓜
 
 已完成：
 - 额度总览 → `docs/quota-overview.md` / `GET /api/user/quota-overview`
 - 请求扣费解释 → usage log `funding_source` + 详情「扣费解释」
 - 3 分钟接入 → `docs/user-quickstart.md` + `/docs/user-quickstart.md`
+- 错误文案人话化 → `service/billing_user_error.go` + i18n billing.*
 
 ### P1 — 追上主流商业站
 

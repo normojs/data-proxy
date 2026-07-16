@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { AlertCircle, AlertTriangle, Settings } from 'lucide-react'
+import { AlertCircle, AlertTriangle, KeyRound, Settings, Wallet } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { Link } from '@tanstack/react-router'
 import { useAuthStore } from '@/stores/auth-store'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -27,6 +28,44 @@ import type { Message } from '../types'
 interface MessageErrorProps {
   message: Message
   className?: string
+}
+
+type FundingErrorGuide = {
+  title: string
+  href: string
+  cta: string
+  icon: typeof Wallet
+}
+
+function fundingErrorGuide(
+  errorCode: string | undefined,
+  t: (key: string) => string
+): FundingErrorGuide | null {
+  switch (errorCode) {
+    case 'insufficient_user_quota':
+      return {
+        title: t('Wallet or subscription quota insufficient'),
+        href: '/wallet',
+        cta: t('Open wallet'),
+        icon: Wallet,
+      }
+    case 'insufficient_model_token_package':
+      return {
+        title: t('Model token package insufficient'),
+        href: '/wallet#model-token-packages',
+        cta: t('View packages'),
+        icon: Wallet,
+      }
+    case 'pre_consume_token_quota_failed':
+      return {
+        title: t('API key quota limit reached'),
+        href: '/keys',
+        cta: t('Manage keys'),
+        icon: KeyRound,
+      }
+    default:
+      return null
+  }
 }
 
 /**
@@ -69,11 +108,45 @@ export function MessageError({ message, className = '' }: MessageErrorProps) {
     )
   }
 
+  const guide = fundingErrorGuide(message.errorCode, t)
+  if (guide) {
+    const Icon = guide.icon
+    return (
+      <Alert variant='destructive' className={className}>
+        <AlertCircle />
+        <AlertTitle>{guide.title}</AlertTitle>
+        <AlertDescription className='space-y-2'>
+          <p>{errorContent}</p>
+          {message.errorCode ? (
+            <p className='text-muted-foreground font-mono text-xs'>
+              {message.errorCode}
+            </p>
+          ) : null}
+          <Button
+            variant='outline'
+            size='sm'
+            render={<Link to={guide.href} />}
+          >
+            <Icon className='mr-1 h-3.5 w-3.5' />
+            {guide.cta}
+          </Button>
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
   return (
     <Alert variant='destructive' className={className}>
       <AlertCircle />
       <AlertTitle>{t('Error')}</AlertTitle>
-      <AlertDescription>{errorContent}</AlertDescription>
+      <AlertDescription className='space-y-1'>
+        <p>{errorContent}</p>
+        {message.errorCode ? (
+          <p className='text-muted-foreground font-mono text-xs'>
+            {message.errorCode}
+          </p>
+        ) : null}
+      </AlertDescription>
     </Alert>
   )
 }

@@ -66,13 +66,14 @@
 
 ### P0-4 错误文案人话化（403 / 包不足 / 企业拒绝）
 
-- [ ] 梳理高频错误码与现网 message 映射表
+- [x] 梳理高频错误码与现网 message 映射表
   - 验收：至少覆盖 `insufficient_user_quota`、`insufficient_model_token_package`、`pre_consume_token_quota_failed`、企业 governance 拒绝/排队/异常限流
-- [ ] 后端用户可见 message 改为稳定、可行动的中文/英文（保留 error code）
+- [x] 后端用户可见 message 改为稳定、可行动的中文/英文（保留 error code）
   - 验收：message 说明「发生了什么 + 下一步」（如去钱包充值 / 联系管理员发包 / 换模型）
-- [ ] 前端统一展示 error code + 人话 message（playground、用量日志、toast）
+- [x] 前端统一展示 error code + 人话 message（playground、用量日志、toast）
   - 验收：不直接甩原始内部堆栈；关键路径有 i18n
-- [ ] 补充/回归测试：关键错误码文案与 HTTP 状态不变坏
+  - playground `message-error` 对三类计费错误展示 code + CTA
+- [x] 补充/回归测试：关键错误码文案与 HTTP 状态不变坏
   - 验收：相关 go test 通过
 
 ### P0 退出标准

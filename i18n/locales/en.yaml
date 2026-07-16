@@ -110,6 +110,11 @@ quota.insufficient: "Insufficient quota"
 quota.warning_invalid: "Invalid warning type"
 quota.threshold_gt_zero: "Warning threshold must be greater than 0"
 
+billing.insufficient_user_quota: "Wallet balance is insufficient for this request. Please top up your wallet at /wallet, or switch billing preference / enable a subscription."
+billing.insufficient_subscription_quota: "Subscription quota is insufficient or no active subscription is available. Please renew/purchase a plan, or switch to wallet billing."
+billing.insufficient_model_token_package: "Your model token package for this model is insufficient. Please purchase/redeem a package, switch model, or use wallet billing when no package applies."
+billing.pre_consume_token_quota_failed: "This API key has reached its quota limit. Please raise the key limit in /keys, create a new key, or use an unlimited key."
+
 # Enterprise governance messages
 enterprise_governance.quota_exceeded: "This request exceeds the enterprise usage policy. Please contact your administrator."
 enterprise_governance.org_quota_exceeded: "This request exceeds your department usage policy. Please contact your administrator."

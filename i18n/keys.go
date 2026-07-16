@@ -125,6 +125,14 @@ const (
 	MsgQuotaThresholdGtZero = "quota.threshold_gt_zero"
 )
 
+// Billing / funding user-facing relay errors
+const (
+	MsgBillingInsufficientUserQuota         = "billing.insufficient_user_quota"
+	MsgBillingInsufficientSubscriptionQuota = "billing.insufficient_subscription_quota"
+	MsgBillingInsufficientModelTokenPackage = "billing.insufficient_model_token_package"
+	MsgBillingPreConsumeTokenQuotaFailed    = "billing.pre_consume_token_quota_failed"
+)
+
 // Enterprise governance messages
 const (
 	MsgEnterpriseGovernanceQuotaExceeded      = "enterprise_governance.quota_exceeded"

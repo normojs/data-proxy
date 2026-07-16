@@ -6660,6 +6660,9 @@
     "Token Package": "Token Package",
     "Deducted by model token package": "Deducted by model token package",
     "3-minute setup": "3-minute setup",
-    "How to call": "How to call"
+    "How to call": "How to call",
+    "Wallet or subscription quota insufficient": "Wallet or subscription quota insufficient",
+    "Model token package insufficient": "Model token package insufficient",
+    "API key quota limit reached": "API key quota limit reached"
   }
 }

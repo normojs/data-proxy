@@ -111,6 +111,11 @@ quota.insufficient: "额度不足"
 quota.warning_invalid: "无效的预警类型"
 quota.threshold_gt_zero: "预警阈值必须大于0"
 
+billing.insufficient_user_quota: "钱包余额不足，无法完成本次请求。请前往 /wallet 充值，或调整计费偏好/开通订阅。"
+billing.insufficient_subscription_quota: "订阅额度不足或未配置有效订阅。请续费/购买订阅，或切换为钱包计费。"
+billing.insufficient_model_token_package: "该模型的 Token 包额度不足。请购买/兑换 Token 包、更换模型，或在无包覆盖时使用钱包计费。"
+billing.pre_consume_token_quota_failed: "该 API Key 额度已达上限。请在 /keys 提高 Key 额度、新建 Key，或使用无限额度 Key。"
+
 # Enterprise governance messages
 enterprise_governance.quota_exceeded: "本次请求超过企业用量策略，请联系管理员。"
 enterprise_governance.org_quota_exceeded: "本次请求超过部门用量策略，请联系管理员。"

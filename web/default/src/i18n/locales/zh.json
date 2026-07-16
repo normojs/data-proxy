@@ -6660,6 +6660,9 @@
     "Token Package": "Token 包",
     "Deducted by model token package": "由模型 Token 包扣减",
     "3-minute setup": "3 分钟接入",
-    "How to call": "如何调用"
+    "How to call": "如何调用",
+    "Wallet or subscription quota insufficient": "钱包或订阅额度不足",
+    "Model token package insufficient": "模型 Token 包不足",
+    "API key quota limit reached": "API Key 额度已达上限"
   }
 }

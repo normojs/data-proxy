@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -58,7 +57,7 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	tokenAdjustedBeforeFunding := false
 	if delta > 0 && s.relayInfo.TokenQuotaHardLimitEnabled && !s.relayInfo.IsPlayground {
 		if err := model.DecreaseTokenQuotaWithLimit(s.relayInfo.TokenId, s.relayInfo.TokenKey, delta); err != nil {
-			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			return UserFacingBillingError(nil, types.ErrorCodePreConsumeTokenQuotaFailed)
 		}
 		tokenAdjustedBeforeFunding = true
 	}
@@ -217,7 +216,8 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	// ---- 1) 预扣令牌额度 ----
 	if effectiveQuota > 0 {
 		if err := PreConsumeTokenQuota(s.relayInfo, effectiveQuota); err != nil {
-			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			logger.LogInfo(c, fmt.Sprintf("pre-consume token quota failed: %s", err.Error()))
+			return UserFacingBillingError(c, types.ErrorCodePreConsumeTokenQuotaFailed)
 		}
 		s.tokenConsumed = effectiveQuota
 	}
@@ -233,8 +233,8 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 			s.tokenConsumed = 0
 		}
 		if errors.Is(err, model.ErrNoActiveSubscription) || errors.Is(err, model.ErrSubscriptionQuotaInsufficient) {
-			errMsg := err.Error()
-			return types.NewErrorWithStatusCode(fmt.Errorf("订阅额度不足或未配置订阅: %s", errMsg), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			logger.LogInfo(c, fmt.Sprintf("subscription pre-consume failed: %s", err.Error()))
+			return UserFacingSubscriptionQuotaError(c)
 		}
 		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 	}
@@ -257,13 +257,7 @@ func (s *BillingSession) reserveFunding(delta int) error {
 		return nil
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, int64(delta)); err != nil {
-			return types.NewErrorWithStatusCode(
-				fmt.Errorf("订阅额度不足或未配置订阅: %s", err.Error()),
-				types.ErrorCodeInsufficientUserQuota,
-				http.StatusForbidden,
-				types.ErrOptionWithSkipRetry(),
-				types.ErrOptionWithNoRecordErrorLog(),
-			)
+			return UserFacingSubscriptionQuotaError(nil)
 		}
 		return nil
 	default:
@@ -291,7 +285,7 @@ func (s *BillingSession) reserveToken(delta int) error {
 		return nil
 	}
 	if err := PreConsumeTokenQuota(s.relayInfo, delta); err != nil {
-		return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		return UserFacingBillingError(nil, types.ErrorCodePreConsumeTokenQuotaFailed)
 	}
 	return nil
 }
@@ -374,16 +368,12 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}
 		if userQuota <= 0 {
-			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("用户额度不足, 剩余额度: %s", logger.FormatQuota(userQuota)),
-				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
-				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			logger.LogInfo(c, fmt.Sprintf("用户 %d 额度不足, 剩余额度: %s", relayInfo.UserId, logger.FormatQuota(userQuota)))
+			return nil, UserFacingBillingError(c, types.ErrorCodeInsufficientUserQuota)
 		}
 		if userQuota-preConsumedQuota < 0 {
-			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("预扣费额度失败, 用户剩余额度: %s, 需要预扣费额度: %s", logger.FormatQuota(userQuota), logger.FormatQuota(preConsumedQuota)),
-				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
-				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			logger.LogInfo(c, fmt.Sprintf("用户 %d 预扣费额度失败, 剩余: %s, 需要: %s", relayInfo.UserId, logger.FormatQuota(userQuota), logger.FormatQuota(preConsumedQuota)))
+			return nil, UserFacingBillingError(c, types.ErrorCodeInsufficientUserQuota)
 		}
 		relayInfo.UserQuota = userQuota
 

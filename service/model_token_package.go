@@ -3,7 +3,6 @@ package service
 import (
 	"fmt"
 	"math"
-	"net/http"
 	"strings"
 	"sync"
 
@@ -184,13 +183,10 @@ func TryAttachModelTokenPackageBilling(c *gin.Context, relayInfo *relaycommon.Re
 		return false, nil
 	}
 	if pkg.RemainingTokens <= 0 {
-		return false, types.NewErrorWithStatusCode(
-			fmt.Errorf("model token package exhausted for model %s, remaining: 0", modelName),
-			types.ErrorCodeInsufficientModelTokenPackage,
-			http.StatusForbidden,
-			types.ErrOptionWithSkipRetry(),
-			types.ErrOptionWithNoRecordErrorLog(),
-		)
+		if c != nil {
+			logger.LogInfo(c, fmt.Sprintf("model token package exhausted for model %s, package_id=%d remaining=0", modelName, pkg.Id))
+		}
+		return false, UserFacingBillingError(c, types.ErrorCodeInsufficientModelTokenPackage)
 	}
 	session := &ModelTokenPackageBillingSession{
 		relayInfo: relayInfo,
@@ -218,13 +214,10 @@ func SettleModelTokenPackageIfNeeded(ctx *gin.Context, relayInfo *relaycommon.Re
 	}
 	if err := session.SettleWithUsage(usage); err != nil {
 		if err == model.ErrModelTokenPackageInsufficient {
-			return types.NewErrorWithStatusCode(
-				fmt.Errorf("model token package insufficient for model %s", relayInfo.OriginModelName),
-				types.ErrorCodeInsufficientModelTokenPackage,
-				http.StatusForbidden,
-				types.ErrOptionWithSkipRetry(),
-				types.ErrOptionWithNoRecordErrorLog(),
-			)
+			if ctx != nil {
+				logger.LogInfo(ctx, fmt.Sprintf("model token package insufficient for model %s", relayInfo.OriginModelName))
+			}
+			return UserFacingBillingError(ctx, types.ErrorCodeInsufficientModelTokenPackage)
 		}
 		return err
 	}

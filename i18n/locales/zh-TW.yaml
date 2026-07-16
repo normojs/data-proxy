@@ -111,6 +111,11 @@ quota.insufficient: "額度不足"
 quota.warning_invalid: "無效的預警類型"
 quota.threshold_gt_zero: "預警閾值必須大於0"
 
+billing.insufficient_user_quota: "錢包餘額不足，無法完成本次請求。請前往 /wallet 充值，或調整計費偏好/開通訂閱。"
+billing.insufficient_subscription_quota: "訂閱額度不足或未配置有效訂閱。請續費/購買訂閱，或切換為錢包計費。"
+billing.insufficient_model_token_package: "該模型的 Token 包額度不足。請購買/兌換 Token 包、更換模型，或在無包覆蓋時使用錢包計費。"
+billing.pre_consume_token_quota_failed: "該 API Key 額度已達上限。請在 /keys 提高 Key 額度、新建 Key，或使用無限額度 Key。"
+
 # Enterprise governance messages
 enterprise_governance.quota_exceeded: "本次請求超過企業用量策略，請聯繫管理員。"
 enterprise_governance.org_quota_exceeded: "本次請求超過部門用量策略，請聯繫管理員。"
