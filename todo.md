@@ -31,7 +31,7 @@
 
 ### P2 — 拉开差距
 
-- [ ] 客户端隧道真正可用（dpa / Browser）
+- [ ] 客户端隧道真正可用（主路径 dpa；决策见 docs/p2-tunnel-client-decision.md；端到端生产证据待补）
 
 ---
 

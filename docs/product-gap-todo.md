@@ -165,18 +165,22 @@
 
 ### P2-1 客户端隧道真正可用（dpa / Browser）
 
-- [ ] 冻结客户端范围：优先 `dpa` 或 QidianBrowser 其一作为主路径（文档写死）
+- [x] 冻结客户端范围：优先 `dpa` 或 QidianBrowser 其一作为主路径（文档写死）
   - 验收：产品决策记录在本文或独立 ADR
+  - 文档：`docs/p2-tunnel-client-decision.md`（主路径 dpa，辅路径 QidianBrowser）
 - [ ] 端到端：安装 → 注册 → 暴露本地 MCP/HTTP → 云端调用成功
   - 验收：有 smoke 清单与 request_id / audit 证据
-- [ ] 控制台给出可复制安装/注册/route 命令
+- [x] 控制台给出可复制安装/注册/route 命令
   - 验收：用户无需读源码即可完成
-- [ ] 权限与安全：路径沙箱、危险操作确认、审计
+  - 说明：Tunnel Connections Agent Setup / README / install script 已有
+- [x] 权限与安全：路径沙箱、危险操作确认、审计
   - 验收：默认最小权限；写入类能力有确认
-- [ ] 失败诊断：`dpa status/doctor` 或等价 + 控制台在线状态
+  - 说明：dpa 默认关闭 write/exec/arbitrary；审计日志本地+服务端
+- [x] 失败诊断：`dpa status/doctor` 或等价 + 控制台在线状态
   - 验收：离线/鉴权失败/路由错误可定位
 - [ ] 与计费/审计打通（调用可追溯、可拒绝）
   - 验收：denied/failed/charged 可查
+  - 说明：服务端 audit 已有；生产 e2e 证据待补
 
 ### P2 退出标准
 
