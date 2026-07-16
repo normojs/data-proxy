@@ -18,6 +18,7 @@ web/dist
 .env
 .env.*
 !.env.example
+!.env.example.minimal
 *.pem
 *.key
 *.crt
