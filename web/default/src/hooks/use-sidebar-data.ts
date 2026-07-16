@@ -28,6 +28,7 @@ import {
   ListTodo,
   MessageSquare,
   Network,
+  Package,
   Puzzle,
   Radio,
   Settings,
@@ -214,6 +215,11 @@ export function useSidebarData(): SidebarData {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
             icon: Ticket,
+          },
+          {
+            title: t('Package SKUs'),
+            url: '/package-skus',
+            icon: Package,
           },
           {
             title: t('Subscription Management'),

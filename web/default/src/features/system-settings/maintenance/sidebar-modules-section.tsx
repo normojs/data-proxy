@@ -138,6 +138,12 @@ export function SidebarModulesSection({
         title: t('Redeem codes'),
         description: t('Create and review invite or credit codes.'),
       },
+      package_skus: {
+        title: t('Package SKUs'),
+        description: t(
+          'Configure sellable model token packages for wallet purchase.'
+        ),
+      },
       user: {
         title: t('Users'),
         description: t('Administer user accounts and roles.'),
