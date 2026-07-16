@@ -231,3 +231,11 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 - 临时 API Key：用户已删除。
 - 仍可选：usage log Funding Explanation UI 肉眼再确认一次（API 层字段已 PASS）。
 
+## 2026-07-17 续：部署 `sha-dcc267e8`
+
+- 提交：`dcc267e8` 已 push 到 `normojs/data-proxy` main
+- Package CI：run `29534853362` success
+- Electerm 上传并执行 `data-proxy-remote-deploy-dcc267e8.sh`
+- 生产版本：`x-new-api-version: sha-dcc267e8`
+- 本地 health ok；文档三份 200
+- 包含：渠道 Key 更新后清熔断；隧道 UI HTTPS/本机协议；P2 e2e 文档
