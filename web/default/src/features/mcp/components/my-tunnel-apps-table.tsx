@@ -74,6 +74,7 @@ type TunnelAppCreateForm = {
   targetHost: string
   targetPort: string
   targetPath: string
+  localScheme: 'http' | 'https'
   httpAuthMode: 'private' | 'token' | 'public'
   httpAuthToken: string
   routeHost: string
@@ -131,12 +132,13 @@ function buildInitialForm(): TunnelAppCreateForm {
   return {
     name: '',
     description: '',
-    appType: 'mcp_code',
+    appType: 'http_tunnel',
     bridgeClientId: '',
-    permissionMode: 'read_only',
+    permissionMode: 'traffic',
     targetHost: '127.0.0.1',
     targetPort: '8080',
-    targetPath: '/mcp',
+    targetPath: '/',
+    localScheme: 'http',
     httpAuthMode: 'private',
     httpAuthToken: '',
     routeHost: '',
@@ -157,12 +159,25 @@ function buildInitialBridgeAgentSetupForm(): BridgeAgentSetupForm {
   }
 }
 
+function getLocalScheme(app: TunnelApp): 'http' | 'https' {
+  const route = app.route || {}
+  const raw =
+    (typeof route.local_scheme === 'string' && route.local_scheme) ||
+    (typeof route.target_scheme === 'string' && route.target_scheme) ||
+    (typeof route.scheme === 'string' && route.scheme) ||
+    ''
+  return raw.toLowerCase() === 'https' ? 'https' : 'http'
+}
+
 function getAppTarget(app: TunnelApp): string {
   if (app.app_type === 'mcp_code') return app.target_path || '/mcp'
   if (app.app_type === 'tcp_tunnel') {
     return `${app.target_host || '127.0.0.1'}:${app.target_port}`
   }
-  return `${app.target_host || '127.0.0.1'}:${app.target_port}${app.target_path || '/'}`
+  const path = app.target_path || '/'
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  const scheme = getLocalScheme(app)
+  return `${scheme}://${app.target_host || '127.0.0.1'}:${app.target_port}${path.startsWith('/') ? path : `/${path}`}`
 }
 
 function formatJSON(value: unknown): string {
@@ -204,6 +219,7 @@ function buildTunnelAppCreatePayload(form: TunnelAppCreateForm) {
     const route: Record<string, unknown> = {
       auth_mode: form.httpAuthMode,
       path_prefix: form.routePathPrefix.trim() || '/',
+      local_scheme: form.localScheme === 'https' ? 'https' : 'http',
     }
     if (form.routeHost.trim()) route.host = form.routeHost.trim()
     if (form.maxRequestBytes.trim()) {
@@ -720,7 +736,7 @@ function CreateTunnelAppDialog(props: {
           <DialogTitle>{t('New Tunnel App Request')}</DialogTitle>
           <DialogDescription>
             {t(
-              'Request an MCP code tunnel, HTTP tunnel, or TCP tunnel for a local Bridge client. An administrator must approve it before connection keys can be created.'
+              'Public access links always use the site HTTPS URL. Choose the local service protocol separately (HTTP by default, HTTPS optional). An administrator must approve the app before connection keys can be created.'
             )}
           </DialogDescription>
         </DialogHeader>
@@ -741,7 +757,7 @@ function CreateTunnelAppDialog(props: {
             />
           </div>
           <div className='space-y-1.5'>
-            <Label htmlFor='mcp-my-tunnel-app-type'>{t('Type')}</Label>
+            <Label htmlFor='mcp-my-tunnel-app-type'>{t('Tunnel Type')}</Label>
             <NativeSelect
               id='mcp-my-tunnel-app-type'
               value={form.appType}
@@ -776,25 +792,40 @@ function CreateTunnelAppDialog(props: {
                             current.targetPath === ''
                           ? '/mcp'
                           : current.targetPath || '/mcp',
+                  localScheme:
+                    appType === 'http_tunnel' ? current.localScheme : 'http',
                 }))
               }}
               className='w-full'
             >
-              <NativeSelectOption value='mcp_code'>
-                {t('MCP Code Tunnel')}
-              </NativeSelectOption>
               <NativeSelectOption value='http_tunnel'>
                 {t('HTTP Tunnel')}
+              </NativeSelectOption>
+              <NativeSelectOption value='mcp_code'>
+                {t('MCP Code Tunnel')}
               </NativeSelectOption>
               <NativeSelectOption value='tcp_tunnel'>
                 {t('TCP Tunnel')}
               </NativeSelectOption>
             </NativeSelect>
+            <p className='text-muted-foreground text-xs'>
+              {form.appType === 'http_tunnel'
+                ? t(
+                    'Expose a local web service. Public URL is HTTPS; local service can be HTTP or HTTPS.'
+                  )
+                : form.appType === 'mcp_code'
+                  ? t(
+                      'Expose local MCP/code tools to cloud agents with permission controls.'
+                    )
+                  : t(
+                      'Expose a local TCP service through a WebSocket tunnel (advanced).'
+                    )}
+            </p>
           </div>
           {form.appType === 'mcp_code' ? (
             <div className='space-y-1.5'>
               <Label htmlFor='mcp-my-tunnel-app-permission'>
-                {t('Permission')}
+                {t('Local Permission')}
               </Label>
               <NativeSelect
                 id='mcp-my-tunnel-app-permission'
@@ -813,10 +844,17 @@ function CreateTunnelAppDialog(props: {
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'What the cloud agent may do on this machine. Prefer Read Only unless write/exec is required.'
+                )}
+              </p>
             </div>
           ) : form.appType === 'http_tunnel' ? (
             <div className='space-y-1.5'>
-              <Label htmlFor='mcp-my-tunnel-http-auth'>{t('Auth Mode')}</Label>
+              <Label htmlFor='mcp-my-tunnel-http-auth'>
+                {t('Who Can Access')}
+              </Label>
               <NativeSelect
                 id='mcp-my-tunnel-http-auth'
                 value={form.httpAuthMode}
@@ -830,15 +868,20 @@ function CreateTunnelAppDialog(props: {
                 className='w-full'
               >
                 <NativeSelectOption value='private'>
-                  {t('Private')}
+                  {t('Private link (connection key required)')}
                 </NativeSelectOption>
                 <NativeSelectOption value='token'>
-                  {t('Bearer Token')}
+                  {t('Extra bearer token')}
                 </NativeSelectOption>
                 <NativeSelectOption value='public'>
-                  {t('Public')}
+                  {t('Public (not recommended)')}
                 </NativeSelectOption>
               </NativeSelect>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Private is safest: only people with the connection key URL can reach the tunnel.'
+                )}
+              </p>
             </div>
           ) : (
             <div className='space-y-1.5'>
@@ -854,7 +897,7 @@ function CreateTunnelAppDialog(props: {
           )}
           <div className='space-y-1.5 sm:col-span-2'>
             <Label htmlFor='mcp-my-tunnel-app-bridge-client'>
-              {t('Bridge Client')}
+              {t('Local Device (Bridge Client)')}
             </Label>
             <BridgeClientSelect
               clients={props.bridgeClients}
@@ -882,15 +925,48 @@ function CreateTunnelAppDialog(props: {
               </div>
             ) : (
               <p className='text-muted-foreground text-xs'>
-                {t('Connect a local Bridge client before requesting a tunnel.')}
+                {t(
+                  'Install and enroll dpa first, then pick the online device here.'
+                )}
               </p>
             )}
           </div>
           {isTrafficApp ? (
             <>
+              {form.appType === 'http_tunnel' ? (
+                <div className='space-y-1.5'>
+                  <Label htmlFor='mcp-my-tunnel-local-scheme'>
+                    {t('Local Service Protocol')}
+                  </Label>
+                  <NativeSelect
+                    id='mcp-my-tunnel-local-scheme'
+                    value={form.localScheme}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        localScheme: event.target
+                          .value as TunnelAppCreateForm['localScheme'],
+                      }))
+                    }
+                    className='w-full'
+                  >
+                    <NativeSelectOption value='http'>
+                      {t('HTTP (default)')}
+                    </NativeSelectOption>
+                    <NativeSelectOption value='https'>
+                      {t('HTTPS (local TLS service)')}
+                    </NativeSelectOption>
+                  </NativeSelect>
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      'Protocol used by dpa when calling your machine. Public site access remains HTTPS automatically.'
+                    )}
+                  </p>
+                </div>
+              ) : null}
               <div className='space-y-1.5'>
                 <Label htmlFor='mcp-my-tunnel-target-host'>
-                  {t('Target Host')}
+                  {t('Local Host')}
                 </Label>
                 <Input
                   id='mcp-my-tunnel-target-host'
@@ -906,7 +982,7 @@ function CreateTunnelAppDialog(props: {
               </div>
               <div className='space-y-1.5'>
                 <Label htmlFor='mcp-my-tunnel-target-port'>
-                  {t('Target Port')}
+                  {t('Local Port')}
                 </Label>
                 <Input
                   id='mcp-my-tunnel-target-port'
@@ -928,7 +1004,9 @@ function CreateTunnelAppDialog(props: {
           {form.appType !== 'tcp_tunnel' ? (
             <div className='space-y-1.5'>
               <Label htmlFor='mcp-my-tunnel-app-target-path'>
-                {t('Target Path')}
+                {form.appType === 'http_tunnel'
+                  ? t('Local Path Prefix')
+                  : t('Target Path')}
               </Label>
               <Input
                 id='mcp-my-tunnel-app-target-path'
@@ -945,9 +1023,27 @@ function CreateTunnelAppDialog(props: {
           ) : null}
           {form.appType === 'http_tunnel' ? (
             <>
+              <div className='space-y-1.5 sm:col-span-2 rounded-md border border-dashed px-3 py-2'>
+                <div className='text-xs font-medium'>{t('Link preview')}</div>
+                <p className='text-muted-foreground text-xs'>
+                  {t('Public access link')}:{' '}
+                  <span className='text-foreground font-mono'>
+                    https://&lt;this-site&gt;/t/&lt;connection_key&gt;/tunnel/http/&lt;slug&gt;/
+                  </span>
+                </p>
+                <p className='text-muted-foreground text-xs'>
+                  {t('Local service')}:{' '}
+                  <span className='text-foreground font-mono'>
+                    {form.localScheme}://
+                    {form.targetHost.trim() || '127.0.0.1'}:
+                    {form.targetPort || '8080'}
+                    {form.targetPath.trim() || '/'}
+                  </span>
+                </p>
+              </div>
               <div className='space-y-1.5'>
                 <Label htmlFor='mcp-my-tunnel-http-route-path'>
-                  {t('Path Prefix')}
+                  {t('Allowed Public Path Prefix')}
                 </Label>
                 <Input
                   id='mcp-my-tunnel-http-route-path'
@@ -963,7 +1059,7 @@ function CreateTunnelAppDialog(props: {
               </div>
               <div className='space-y-1.5'>
                 <Label htmlFor='mcp-my-tunnel-http-route-host'>
-                  {t('Route Host')}
+                  {t('Required Host Header (optional)')}
                 </Label>
                 <Input
                   id='mcp-my-tunnel-http-route-host'

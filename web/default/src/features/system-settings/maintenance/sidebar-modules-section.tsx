@@ -73,6 +73,12 @@ export function SidebarModulesSection({
       title: t('Personal area'),
       description: t('Wallet management and personal preferences.'),
     },
+    tunnel: {
+      title: t('Tunnels'),
+      description: t(
+        'Local dpa devices, tunnel apps, public links, and sessions.'
+      ),
+    },
     admin: {
       title: t('Admin area'),
       description: t('Global configuration and administrative tools.'),
@@ -123,6 +129,24 @@ export function SidebarModulesSection({
       personal: {
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
+      },
+    },
+    tunnel: {
+      devices: {
+        title: t('My Devices'),
+        description: t('Local dpa / Bridge clients and setup tokens.'),
+      },
+      apps: {
+        title: t('My Tunnel Apps'),
+        description: t('Request HTTP/MCP/TCP tunnels and track approval.'),
+      },
+      connections: {
+        title: t('Connections & Links'),
+        description: t('Create connection keys and copy public HTTPS links.'),
+      },
+      sessions: {
+        title: t('Sessions'),
+        description: t('Inspect active tunnel sessions and recent traffic.'),
       },
     },
     admin: {

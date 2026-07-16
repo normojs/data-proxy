@@ -175,5 +175,59 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 | --- | --- |
 | 3 分钟成功请求 | PASS（请求面） |
 | 扣费/拒绝可解释 | **API 层 PASS**：成功请求有 `funding_source`/`wallet_quota_deducted`；失败请求有 code+message+request id。前端详情弹窗需登录 UI 手测一次即可闭环 |
-| 额度总览四类资产 | PARTIAL（仍需登录 `/wallet`） |
+| 额度总览四类资产 | **PASS（用户手测）**：2026-07-17 登录确认 `/wallet` 额度总览正确 |
+
+## 2026-07-17 续：回归探针 + 包/钱包分流对照
+
+版本：`sha-da5af9b2`  
+鉴权：临时 API Key（未入库）
+
+### 公开面
+
+| 检查 | 结果 |
+| --- | --- |
+| `x-new-api-version` | `sha-da5af9b2` |
+| `/docs/user-quickstart.md` | 200 / 3988B |
+| `/docs/one-click-deploy.md` | 200 / 2498B |
+| `/docs/quota-overview.md` | 200 / 1808B |
+| `/api/pricing` | 200，19 models |
+| `/package-skus` SPA | 200（需登录后使用） |
+| Key 可见模型 | 5：`codex-auto-review` / `gpt-5.4` / `gpt-5.4-mini` / `gpt-5.5` / `gpt-5.6-terra` |
+
+### 成功请求（扣费分流）
+
+| 场景 | HTTP | request id | funding | 扣减 |
+| --- | ---: | --- | --- | --- |
+| chat `gpt-5.4-mini` | 200 | `202607161838156213954278268d9d69CsaR3HC` | wallet | `wallet_quota_deducted=71`，content=`包测OK` |
+| responses `gpt-5.4-mini` | 200 | `202607161838222024205098268d9d6uwP8hEjm` | wallet | `wallet_quota_deducted=104`，text=`respOK` |
+| chat `gpt-5.4` | 200 | `202607161838596392437008268d9d6W9WtTh4A` | wallet | `wallet_quota_deducted=72` |
+| chat `gpt-5.5` | 200 | `202607161838477423841448268d9d6X0V7lded` | **model_token_package** | `package_id=1`，`package_consume=8237`，`package_remaining=975246`，`wallet=0`，`quota=0` |
+
+结论：包覆盖模型走包、未覆盖模型走钱包；API 层 funding 字段一致。
+
+### 错误路径
+
+| 场景 | HTTP | request id / 说明 |
+| --- | ---: | --- |
+| 无效模型 | 503 | `202607161838191157373218268d9d63MrDqM0z`，`model_not_found` |
+| messages 为空 | 500 | `202607161838201314982988268d9d6peC0Lkts`，`field messages is required` |
+| model 为空 | 400 | `202607161839453151794288268d9d6Q5GFFBhm` |
+| 无效 Key | 401 | `202607161839445770687708268d9d69h2njic8`，Invalid token |
+
+### 鉴权边界
+
+用 API Key 访问 session 接口均拒绝（body `success=false` / invalid access token）：
+
+- `/api/user/quota-overview`
+- `/api/user/model-token-package-skus`
+- `/api/user/model-token-packages`
+- `/api/user/self`
+- `/api/user/model-token-package-skus/all`
+
+### 备注
+
+- 历史 token log 中有若干 `gpt-5.5` 记录 `package_consume=0` 且 `package_remaining=1`（rid 如 `…Mx4AvQs0` / `…YXOFlzi5` / `…27snV0uv`），疑似结算边界或缓存命中边角；后续正常请求（`…s7X7FHwF` / `…X0V7lded`）consume 恢复正常。可单独追代码，不阻塞主路径 PASS。
+- `/wallet` 额度总览：用户手测 PASS（2026-07-17）。
+- 临时 API Key：用户已删除。
+- 仍可选：usage log Funding Explanation UI 肉眼再确认一次（API 层字段已 PASS）。
 

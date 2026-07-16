@@ -1020,6 +1020,7 @@ type tunnelHTTPRouteConfig struct {
 	AuthToken        string
 	Host             string
 	PathPrefix       string
+	LocalScheme      string
 	MaxRequestBytes  int64
 	MaxResponseBytes int64
 }
@@ -1030,8 +1031,9 @@ func tunnelHTTPRouteConfigFromApp(app model.TunnelApp) (tunnelHTTPRouteConfig, e
 
 func tunnelHTTPRouteConfigFromJSON(raw string) (tunnelHTTPRouteConfig, error) {
 	config := tunnelHTTPRouteConfig{
-		AuthMode:   model.TunnelRouteAuthPrivate,
-		PathPrefix: "/",
+		AuthMode:    model.TunnelRouteAuthPrivate,
+		PathPrefix:  "/",
+		LocalScheme: "http",
 	}
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1065,6 +1067,13 @@ func tunnelHTTPRouteConfigFromJSON(raw string) (tunnelHTTPRouteConfig, error) {
 	}
 	config.Host = tunnelHTTPNormalizeHost(stringFromAny(route["host"]))
 	config.PathPrefix = tunnelHTTPNormalizePathPrefix(stringFromAny(route["path_prefix"]))
+	config.LocalScheme = tunnelHTTPNormalizeLocalScheme(
+		firstNonEmptyTunnelHTTPString(
+			stringFromAny(route["local_scheme"]),
+			stringFromAny(route["target_scheme"]),
+			stringFromAny(route["scheme"]),
+		),
+	)
 	config.MaxRequestBytes = int64FromAny(route["max_request_bytes"])
 	config.MaxResponseBytes = int64FromAny(route["max_response_bytes"])
 	if config.MaxRequestBytes < 0 {
@@ -1074,6 +1083,24 @@ func tunnelHTTPRouteConfigFromJSON(raw string) (tunnelHTTPRouteConfig, error) {
 		return config, fmt.Errorf("%w: max_response_bytes cannot be negative", ErrTunnelHTTPRouteConfigInvalid)
 	}
 	return config, nil
+}
+
+func tunnelHTTPNormalizeLocalScheme(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "https":
+		return "https"
+	default:
+		return "http"
+	}
+}
+
+func firstNonEmptyTunnelHTTPString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func validateTunnelHTTPRouteConfigJSON(appType string, raw string) error {
@@ -1252,8 +1279,12 @@ func tunnelHTTPTargetURL(app model.TunnelApp, proxyPath string, rawQuery string)
 	if !strings.HasPrefix(base, "/") {
 		base = "/" + base
 	}
+	scheme := "http"
+	if routeConfig, err := tunnelHTTPRouteConfigFromApp(app); err == nil {
+		scheme = tunnelHTTPNormalizeLocalScheme(routeConfig.LocalScheme)
+	}
 	parsed := &url.URL{
-		Scheme: "http",
+		Scheme: scheme,
 		Host:   fmt.Sprintf("%s:%d", host, app.TargetPort),
 		Path:   base,
 	}

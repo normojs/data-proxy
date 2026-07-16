@@ -162,17 +162,44 @@ function formatExpiry(value: number, t: (key: string) => string): string {
   return isExpired(value) ? t('Expired') : ''
 }
 
+function resolvePublicOrigin(app?: TunnelApp | null): string {
+  if (typeof window === 'undefined') return ''
+  let origin = window.location.origin
+  try {
+    const raw = window.localStorage.getItem('status')
+    if (raw) {
+      const status = JSON.parse(raw) as {
+        server_address?: string
+        data?: { server_address?: string }
+      }
+      const serverAddress =
+        (typeof status.server_address === 'string' && status.server_address) ||
+        (typeof status.data?.server_address === 'string' &&
+          status.data.server_address) ||
+        ''
+      if (serverAddress.trim()) {
+        origin = serverAddress.trim().replace(/\/+$/, '')
+      }
+    }
+  } catch {
+    /* keep window origin */
+  }
+  if (app?.app_type === 'tcp_tunnel') {
+    return origin.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:')
+  }
+  // Public tunnel endpoints should follow the site HTTPS URL when available.
+  if (origin.startsWith('http://') && !/localhost|127\.0\.0\.1/i.test(origin)) {
+    return origin.replace(/^http:/, 'https:')
+  }
+  return origin
+}
+
 function formatFullEndpoint(
   endpointPath: string,
   app?: TunnelApp | null
 ): string {
   if (typeof window === 'undefined') return endpointPath
-  const origin =
-    app?.app_type === 'tcp_tunnel'
-      ? window.location.origin
-          .replace(/^https:/, 'wss:')
-          .replace(/^http:/, 'ws:')
-      : window.location.origin
+  const origin = resolvePublicOrigin(app)
   return `${origin}${endpointPath}`
 }
 
@@ -904,14 +931,22 @@ function CreateTunnelConnectionDialog(props: {
           <DialogDescription>
             {t(
               created
-                ? 'Copy the connection key or endpoint now. The full key is only shown once.'
-                : 'Create a dedicated tunnel connection for the selected app.'
+                ? 'Copy the connection key or public HTTPS endpoint now. The full key is only shown once. Local service protocol (HTTP/HTTPS) is configured on the tunnel app.'
+                : 'Create a dedicated tunnel connection for the selected app. Public access links always use the site HTTPS URL.'
             )}
           </DialogDescription>
         </DialogHeader>
 
         {created ? (
           <div className='space-y-3'>
+            <div className='rounded-md border border-dashed px-3 py-2 text-xs'>
+              <div className='font-medium'>{t('Public access link')}</div>
+              <p className='text-muted-foreground mt-1'>
+                {t(
+                  'Uses the site HTTPS address automatically. Share this URL, not the local http://127.0.0.1 address.'
+                )}
+              </p>
+            </div>
             <SecretField
               label={t('Connection Key')}
               value={created.connection_key}
@@ -919,10 +954,10 @@ function CreateTunnelConnectionDialog(props: {
             <SecretField
               label={t(
                 props.app?.app_type === 'http_tunnel'
-                  ? 'HTTP Endpoint'
+                  ? 'Public HTTPS Endpoint'
                   : props.app?.app_type === 'tcp_tunnel'
-                    ? 'TCP Endpoint'
-                    : 'MCP Endpoint'
+                    ? 'Public TCP Endpoint'
+                    : 'Public MCP Endpoint'
               )}
               value={endpoint}
             />

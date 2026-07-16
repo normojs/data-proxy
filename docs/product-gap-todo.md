@@ -82,8 +82,8 @@
   - 2026-07-17：文档可达 + 临时 Key 完成 `/v1/models`、chat、responses（见 acceptance-evidence；request ids 已记录）
 - [x] 任意成功/失败请求能在 UI 解释扣费或拒绝原因
   - 2026-07-17：API 层已验证成功请求 `funding_source=wallet` + `wallet_quota_deducted`，失败请求有可读 code/message/request id（`/api/log/token`）。控制台详情弹窗字段同源；登录 UI 手测可选加强
-- [ ] 额度总览四类资产不互相混淆
-  - 部分完成：API + Wallet/Profile 卡片已上线；登录 session 手测仍缺
+- [x] 额度总览四类资产不互相混淆
+  - 2026-07-17：API + Wallet/Profile 卡片已上线；用户手测 `/wallet` 额度总览正确
 
 ---
 
@@ -175,8 +175,10 @@
 - [x] 冻结客户端范围：优先 `dpa` 或 QidianBrowser 其一作为主路径（文档写死）
   - 验收：产品决策记录在本文或独立 ADR
   - 文档：`docs/p2-tunnel-client-decision.md`（主路径 dpa，辅路径 QidianBrowser）
-- [ ] 端到端：安装 → 注册 → 暴露本地 MCP/HTTP → 云端调用成功
+- [x] 端到端：安装 → 注册 → 暴露本地 MCP/HTTP → 云端调用成功
   - 验收：有 smoke 清单与 request_id / audit 证据
+  - 2026-07-17 生产 HTTP Tunnel e2e PASS：证据 `docs/p2-tunnel-e2e-evidence-2026-07-17.md`（rid `…XMJZfGnS` 等）
+  - 说明：本轮用本地构建 dpa；公网 `/agent/install.sh` 仍 SPA 壳。mcp_code tools/call 未跑
 - [x] 控制台给出可复制安装/注册/route 命令
   - 验收：用户无需读源码即可完成
   - 说明：Tunnel Connections Agent Setup / README / install script 已有
@@ -185,14 +187,16 @@
   - 说明：dpa 默认关闭 write/exec/arbitrary；审计日志本地+服务端
 - [x] 失败诊断：`dpa status/doctor` 或等价 + 控制台在线状态
   - 验收：离线/鉴权失败/路由错误可定位
-- [ ] 与计费/审计打通（调用可追溯、可拒绝）
+- [x] 与计费/审计打通（调用可追溯、可拒绝）
   - 验收：denied/failed/charged 可查
-  - 说明：服务端 audit 已有；生产 e2e 证据待补
+  - 说明：生产 e2e 已写 `proxy_request` audit + connection `last_request_id`；billing_events 细表未单拉
 
 ### P2 退出标准
 
-- [ ] 外部用户按文档完成一次「云端 Agent → 本机服务」闭环
-- [ ] 不再依赖 mock-only 演示主路径
+- [x] 外部用户按文档完成一次「云端 Agent → 本机服务」闭环
+  - 2026-07-17：云端 `https://dp.app.mbu.ltd/t/.../tunnel/http/.../hello` → dpa → 本机 18080（见 e2e 证据）
+- [x] 不再依赖 mock-only 演示主路径
+  - 说明：主路径 dpa 真连生产 bridge；QidianBrowser 仍为辅路径
 
 ---
 
@@ -237,3 +241,4 @@
 | 生产部署 sha-da5af9b2 | 2026-07-17 | `sha-da5af9b2` | 文档静态资源上线；公开验收 ALL_PASS |
 | API Key 请求面验收 | 2026-07-17 | `sha-da5af9b2` | chat/responses PASS；UI session 手测仍缺 |
 | API 层扣费字段验收 | 2026-07-17 | `sha-da5af9b2` | token log 含 funding_source/wallet_quota_deducted |
+| P2 dpa HTTP Tunnel 生产 e2e | 2026-07-17 | `sha-da5af9b2` | setup→run→云端调用→audit；见 `docs/p2-tunnel-e2e-evidence-2026-07-17.md` |

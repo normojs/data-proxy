@@ -120,6 +120,33 @@ export function SidebarModulesCard() {
         },
       ],
     },
+    {
+      key: 'tunnel',
+      title: t('Tunnels'),
+      description: t('Local devices, tunnel apps, and public links'),
+      modules: [
+        {
+          key: 'devices',
+          title: t('My Devices'),
+          description: t('Local dpa / Bridge clients'),
+        },
+        {
+          key: 'apps',
+          title: t('My Tunnel Apps'),
+          description: t('Request and track tunnel apps'),
+        },
+        {
+          key: 'connections',
+          title: t('Connections & Links'),
+          description: t('Public HTTPS endpoints and keys'),
+        },
+        {
+          key: 'sessions',
+          title: t('Sessions'),
+          description: t('Active tunnel sessions'),
+        },
+      ],
+    },
   ]
 
   const loadConfig = useCallback(async () => {

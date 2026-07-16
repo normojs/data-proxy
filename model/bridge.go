@@ -377,7 +377,7 @@ func ConsumeBridgeAgentSetupToken(tokenHash string, now int64) (*BridgeAgentSetu
 	var token BridgeAgentSetupToken
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&BridgeAgentSetupToken{}).
-			Where("token_hash = ? AND used_at = 0 AND expires_at > ?", tokenHash, now).
+			Where("token_hash = ? AND (used_at = 0 OR used_at IS NULL) AND expires_at > ?", tokenHash, now).
 			Updates(map[string]any{
 				"used_at":    now,
 				"updated_at": now,

@@ -109,6 +109,17 @@ func TestTunnelHTTPTargetURLJoinsPathAndQuery(t *testing.T) {
 	require.Equal(t, "http://127.0.0.1:8080/api/v1/users?page=1", target)
 }
 
+func TestTunnelHTTPTargetURLUsesLocalHTTPSScheme(t *testing.T) {
+	target, err := tunnelHTTPTargetURL(model.TunnelApp{
+		TargetHost: "127.0.0.1",
+		TargetPort: 8443,
+		TargetPath: "/",
+		RouteJson:  `{"local_scheme":"https","auth_mode":"private"}`,
+	}, "/health", "")
+	require.NoError(t, err)
+	require.Equal(t, "https://127.0.0.1:8443/health", target)
+}
+
 func TestForwardTunnelHTTPRequestForwardsThroughBridge(t *testing.T) {
 	db := setupTunnelTestDB(t)
 	app := seedTunnelHTTPApp(t, model.TunnelApp{

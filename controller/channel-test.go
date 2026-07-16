@@ -908,19 +908,13 @@ func TestChannel(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	channel, err := model.CacheGetChannel(channelId)
+	// Always load from DB so a just-updated key is tested immediately, not a
+	// stale in-memory cache entry from before the last edit.
+	channel, err := model.GetChannelById(channelId, true)
 	if err != nil {
-		channel, err = model.GetChannelById(channelId, true)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
+		common.ApiError(c, err)
+		return
 	}
-	//defer func() {
-	//	if channel.ChannelInfo.IsMultiKey {
-	//		go func() { _ = channel.SaveChannelInfo() }()
-	//	}
-	//}()
 	testModel := c.Query("model")
 	endpointType := c.Query("endpoint_type")
 	isStream, _ := strconv.ParseBool(c.Query("stream"))
@@ -955,6 +949,13 @@ func TestChannel(c *gin.Context) {
 			"error_code": result.newAPIError.GetErrorCode(),
 		})
 		return
+	}
+	// Successful manual test must clear temporary circuit cooldown immediately;
+	// otherwise playground can keep failing until the cooldown window expires
+	// even though the admin-facing channel test already passed with the new key.
+	service.RecordChannelSuccess(channel.Id)
+	if channel.Status == common.ChannelStatusAutoDisabled {
+		service.EnableChannel(channel.Id, "", channel.Name)
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

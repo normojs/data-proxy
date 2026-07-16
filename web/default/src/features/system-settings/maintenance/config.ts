@@ -76,6 +76,13 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     topup: true,
     personal: true,
   },
+  tunnel: {
+    enabled: true,
+    devices: true,
+    apps: true,
+    connections: true,
+    sessions: true,
+  },
   admin: {
     enabled: true,
     channel: true,

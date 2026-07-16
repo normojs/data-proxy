@@ -1051,13 +1051,22 @@ func UpdateChannel(c *gin.Context) {
 			// 覆盖模式：直接使用新密钥（默认行为，不需要特殊处理）
 		}
 	}
+	// Capture before Update(): AfterFind reloads the channel and may clear request fields.
+	keyUpdated := strings.TrimSpace(channel.Key) != ""
 	err = channel.Update()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	// Key/credential changes must take effect immediately for playground and relay.
+	// Clear temporary circuit state so the channel is not skipped until cooldown expires,
+	// and re-enable auto-disabled channels when the admin has just replaced the key.
 	model.InitChannelCache()
 	service.ResetProxyClientCache()
+	service.ClearChannelTemporaryHealth(channel.Id)
+	if keyUpdated && originChannel.Status == common.ChannelStatusAutoDisabled {
+		service.EnableChannel(channel.Id, "", originChannel.Name)
+	}
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)
 	c.JSON(http.StatusOK, gin.H{

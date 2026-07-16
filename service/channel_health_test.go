@@ -152,3 +152,21 @@ func withAutomaticDisableForTest(t *testing.T) {
 		common.ChannelHealthMaxCooldownMinutes = originalMaxCooldown
 	})
 }
+
+func TestRecordChannelSuccessClearsTemporaryUnavailability(t *testing.T) {
+	withAutomaticDisableForTest(t)
+	resetChannelHealthForTest()
+	t.Cleanup(resetChannelHealthForTest)
+
+	channelError := *types.NewChannelError(1003, 0, "success-clear-channel", false, "", true)
+	err := types.NewOpenAIError(errors.New("rate limited"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests)
+	HandleChannelFailure(channelError, err)
+	HandleChannelFailure(channelError, err)
+	HandleChannelFailure(channelError, err)
+	require.True(t, IsChannelTemporarilyUnavailable(channelError.ChannelId))
+
+	// Mirrors successful admin channel test / key update recovery.
+	RecordChannelSuccess(channelError.ChannelId)
+	require.False(t, IsChannelTemporarilyUnavailable(channelError.ChannelId))
+	require.Equal(t, "healthy", ChannelRuntimeHealthSnapshot(channelError.ChannelId).Status)
+}

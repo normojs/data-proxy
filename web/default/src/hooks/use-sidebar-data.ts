@@ -118,6 +118,32 @@ export function useSidebarData(): SidebarData {
         ],
       },
       {
+        id: 'tunnel',
+        title: t('Tunnels'),
+        items: [
+          {
+            title: t('My Devices'),
+            url: '/mcp/bridge-clients',
+            icon: Radio,
+          },
+          {
+            title: t('My Tunnel Apps'),
+            url: '/mcp/my-tunnel-apps',
+            icon: Network,
+          },
+          {
+            title: t('Connections & Links'),
+            url: '/mcp/tunnel-connections',
+            icon: Key,
+          },
+          {
+            title: t('Sessions'),
+            url: '/mcp/tunnel-sessions',
+            icon: Activity,
+          },
+        ],
+      },
+      {
         id: 'personal',
         title: t('Personal'),
         items: [
@@ -178,6 +204,10 @@ export function useSidebarData(): SidebarData {
               '/mcp/tool-calls',
               '/mcp/billing-events',
               '/mcp/audit-logs',
+              '/mcp/tunnel-apps',
+              '/mcp/my-tunnel-apps',
+              '/mcp/tunnel-connections',
+              '/mcp/tunnel-sessions',
             ],
             configUrls: [
               '/mcp',
@@ -187,6 +217,10 @@ export function useSidebarData(): SidebarData {
               '/mcp/tool-calls',
               '/mcp/billing-events',
               '/mcp/audit-logs',
+              '/mcp/tunnel-apps',
+              '/mcp/my-tunnel-apps',
+              '/mcp/tunnel-connections',
+              '/mcp/tunnel-sessions',
             ],
             items: [
               {
@@ -196,6 +230,10 @@ export function useSidebarData(): SidebarData {
               {
                 title: t('Bridge Clients'),
                 url: '/mcp/bridge-clients',
+              },
+              {
+                title: t('Tunnel Apps (Approve)'),
+                url: '/mcp/tunnel-apps',
               },
               {
                 title: t('Tool Calls'),
