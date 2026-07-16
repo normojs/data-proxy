@@ -1,7 +1,7 @@
 # Data Proxy 产品差距与功能规划（对标开源中转站）
 
 日期：2026-07-16  
-状态：规划中  
+状态：P0/P1 功能已上线；退出标准部分验收（见 docs/acceptance-evidence-2026-07-17.md）  
 代码目录：`upstream/new-api`  
 关联：`docs/model-token-package-plan.md`、`docs/data-proxy-near-term-development-plan.md`、`docs/data-proxy-post-v1.3-todo.md`
 
@@ -79,8 +79,11 @@
 ### P0 退出标准
 
 - [ ] 新用户按文档 3 分钟完成一次成功请求
+  - 部分完成：文档公网可达且内容完整；缺生产 API Key 的成功请求证据（见 acceptance-evidence-2026-07-17）
 - [ ] 任意成功/失败请求能在 UI 解释扣费或拒绝原因
+  - 部分完成：Funding Explanation / 人话错误代码已上线；缺登录态 UI 手测
 - [ ] 额度总览四类资产不互相混淆
+  - 部分完成：API + Wallet/Profile 卡片已上线；缺登录态 UI 手测
 
 ---
 
@@ -153,9 +156,13 @@
 ### P1 退出标准
 
 - [ ] 用户可不经管理员完成「买/兑 Token 包 → 调用」
+  - 部分完成：兑码/SKU 购买 API+UI 已上线；缺真实账号闭环证据
 - [ ] 模型广场可复制配置并完成一次测通
+  - 部分完成：pricing 公开数据可用；测通需登录 Playground
 - [ ] 新人按文档一条 compose 路径完成部署
+  - 部分完成：仓库文档存在；公网未挂载 one-click-deploy 静态文件；未做干净机器复验
 - [ ] 坏渠道在配置开启后可自动避开并有审计
+  - 未跑：需生产/预发双渠道演练
 
 ---
 
@@ -199,7 +206,7 @@
 
 ## 建议实施顺序（执行指针）
 
-当前推荐从 P0 起串行推进：
+当前推荐从 P0 起串行推进（**功能实现已大部分完成，以下 checkbox 为历史顺序，以验收证据为准**）：
 
 1. [ ] **P0-1** 额度总览 API + 钱包/资料入口  
 2. [ ] **P0-2** 请求扣费解释（log + UI）  
