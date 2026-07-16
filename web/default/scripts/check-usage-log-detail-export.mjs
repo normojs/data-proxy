@@ -89,7 +89,11 @@ assertMatch(
 )
 
 assertIncludes(commonColumns, "accessorKey: 'request_id'", 'request id column')
-assertIncludes(commonColumns, "t('Filter by Request ID')", 'request id filter')
+assertIncludes(
+  read('src/features/usage-logs/components/columns/request-id-cell.tsx'),
+  "t('Filter by Request ID')",
+  'request id filter'
+)
 assertIncludes(commonColumns, "accessorKey: 'quota'", 'usage amount column')
 assertIncludes(commonColumns, "accessorKey: 'prompt_tokens'", 'token quantity column')
 assertIncludes(commonColumns, "title='Tokens'", 'token quantity column header')

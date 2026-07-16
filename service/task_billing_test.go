@@ -443,7 +443,7 @@ func TestPerCallBillingSubscriptionOnlyMapsSentinelErrorsToInsufficientQuota(t *
 	require.NotNil(t, apiErr)
 	require.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
 	// Without full i18n init, UserFacingSubscriptionQuotaError returns the English fallback.
-		require.Contains(t, apiErr.Error(), "Subscription quota is insufficient")
+	require.Contains(t, apiErr.Error(), "Subscription quota is insufficient")
 }
 
 func TestRecordTaskInitialBillingEvent_Idempotent(t *testing.T) {
