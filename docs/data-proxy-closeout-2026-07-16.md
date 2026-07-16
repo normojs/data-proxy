@@ -100,3 +100,19 @@ scripts/data-proxy-production-smoke.sh
 - SSH from this machine still blocked (`Permission denied (publickey)` to production hosts)
 - Historical deploy path uses Electerm SFTP to `/root/workspace/dataproxy/data-proxy/` then run remote script
 - Production still reports `x-new-api-version: fbb2df5c` until upload+script run
+
+## 2026-07-17 production deploy completed via Electerm MCP
+
+- Project MCP config: `/Users/fushilu/workspace/revocloud/data-proxy/.mcp.json` → `http://127.0.0.1:30837/mcp`
+- Electerm bookmark: `snsc-prod-应用2` (`47.122.29.88`, tab `QSJTWHa_2026-07-17-00-40-02`)
+- Uploaded:
+  - `data-proxy-03f66c5c-linux-amd64.tar.gz` (62187952 bytes)
+  - `data-proxy-03f66c5c-linux-amd64.sha256`
+  - `data-proxy-remote-deploy-03f66c5c.sh`
+- Deploy result:
+  - previous image archived: `data-proxy:fbb2df5c` → `/root/workspace/dataproxy/image-archive/20260716T164225Z_data-proxy_fbb2df5c.tar`
+  - loaded `data-proxy:03f66c5c`
+  - container recreated; health ok
+  - public header now `x-new-api-version: sha-03f66c5c`
+- Smoke: `DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.sh` → `api_status=passed` (chat/admin skipped without keys)
+
