@@ -99,3 +99,41 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 - 公开/鉴权探针 ALL_PASS
 - production smoke：`api_status=passed`；chat/admin 仍缺 Key 跳过
 
+## 2026-07-17 续：临时 API Key 联调验收（密钥未入库）
+
+版本：`sha-da5af9b2`  
+模型：`gpt-5.4-mini`  
+说明：使用用户提供的临时 Key 做请求面验收；**密钥不写入仓库**。
+
+### production smoke
+
+| 项 | 结果 |
+| --- | --- |
+| api_status | passed |
+| chat_completions | passed |
+| chat_request_id | `202607161756103469800368268d9d6bGXfIAcT` |
+| responses | passed |
+| responses_request_id | `20260716175615583078728268d9d6wljEfdHV` |
+| admin diagnostic/trace | skipped（无管理员认证） |
+
+### 附加探针
+
+| 检查 | HTTP | 结果 | 备注 |
+| --- | ---: | --- | --- |
+| GET /v1/models | 200 | PASS | 5 models |
+| POST /v1/chat/completions 成功 | 200 | PASS | request_id `202607161757115647416548268d9d6ynCgaECE`，返回非空 content |
+| POST 无效模型 | 503 | PASS | `model_not_found` / no available channel，含 request id |
+| 用 API Key 访问 /api/user/* session 接口 | 200 body success=false | PASS | 返回 invalid access token（Key 不能冒充 session） |
+
+### 对 P0 退出标准的更新
+
+| 退出标准 | 状态 |
+| --- | --- |
+| 新用户按文档 3 分钟完成一次成功请求 | **PASS（请求面）**：文档可达 + 用 Key 完成 models/chat/responses |
+| 任意成功/失败请求能在 UI 解释扣费或拒绝原因 | **PARTIAL**：成功/失败请求均有 request id 与可读 error code；usage log UI 仍需登录 session 手测 |
+| 额度总览四类资产不互相混淆 | **PARTIAL**：API/前端已上线；session 手测仍缺 |
+
+### 安全提醒
+
+请尽快在控制台轮换/作废本次临时 Key。
+

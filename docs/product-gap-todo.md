@@ -78,12 +78,12 @@
 
 ### P0 退出标准
 
-- [ ] 新用户按文档 3 分钟完成一次成功请求
-  - 部分完成：文档公网可达且内容完整；缺生产 API Key 的成功请求证据（见 acceptance-evidence-2026-07-17）
+- [x] 新用户按文档 3 分钟完成一次成功请求
+  - 2026-07-17：文档可达 + 临时 Key 完成 `/v1/models`、chat、responses（见 acceptance-evidence；request ids 已记录）
 - [ ] 任意成功/失败请求能在 UI 解释扣费或拒绝原因
-  - 部分完成：Funding Explanation / 人话错误代码已上线；缺登录态 UI 手测
+  - 部分完成：成功/失败请求均有 request id 与 `model_not_found` 等可读错误；usage log Funding Explanation 仍需登录 session 手测
 - [ ] 额度总览四类资产不互相混淆
-  - 部分完成：API + Wallet/Profile 卡片已上线；缺登录态 UI 手测
+  - 部分完成：API + Wallet/Profile 卡片已上线；登录 session 手测仍缺
 
 ---
 
@@ -235,3 +235,4 @@
 
 - 2026-07-16：初版，收录对标讨论中的 P0/P1/P2 与功能拆分。
 | 生产部署 sha-da5af9b2 | 2026-07-17 | `sha-da5af9b2` | 文档静态资源上线；公开验收 ALL_PASS |
+| API Key 请求面验收 | 2026-07-17 | `sha-da5af9b2` | chat/responses PASS；UI session 手测仍缺 |
