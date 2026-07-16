@@ -90,3 +90,13 @@ scripts/data-proxy-production-smoke.sh
 - `a53d7d8d` docs: one-click deploy and safe channel failover preset
 - `29cfed13` fix: stabilize billing tests and release hygiene
 - `b507e6ad` fix: pass gofmt and usage-log export smoke checks
+
+## 2026-07-17 production deploy attempt
+
+- Target commit: `03f66c5c`
+- Package artifact downloaded: `data-proxy-03f66c5c-linux-amd64.tar.gz` (+ sha256)
+- Remote deploy script prepared: `data-proxy-remote-deploy-03f66c5c.sh`
+- Local staging: `/Users/fushilu/workspace/revocloud/data-proxy/`
+- SSH from this machine still blocked (`Permission denied (publickey)` to production hosts)
+- Historical deploy path uses Electerm SFTP to `/root/workspace/dataproxy/data-proxy/` then run remote script
+- Production still reports `x-new-api-version: fbb2df5c` until upload+script run
