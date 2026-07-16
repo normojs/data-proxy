@@ -6663,6 +6663,21 @@
     "How to call": "How to call",
     "Wallet or subscription quota insufficient": "Wallet or subscription quota insufficient",
     "Model token package insufficient": "Model token package insufficient",
-    "API key quota limit reached": "API key quota limit reached"
+    "API key quota limit reached": "API key quota limit reached",
+    "Reward type": "Reward type",
+    "Select reward type": "Select reward type",
+    "Wallet quota": "Wallet quota",
+    "Wallet codes add money points; package codes grant LLM token packages.": "Wallet codes add money points; package codes grant LLM token packages.",
+    "Package models": "Package models",
+    "One model per line or comma-separated, e.g. gpt-4o-mini": "One model per line or comma-separated, e.g. gpt-4o-mini",
+    "Package tokens": "Package tokens",
+    "LLM tokens granted when the code is redeemed": "LLM tokens granted when the code is redeemed",
+    "Input ratio": "Input ratio",
+    "Output ratio": "Output ratio",
+    "Package validity (days)": "Package validity (days)",
+    "0 means the package never expires after redeem": "0 means the package never expires after redeem",
+    "Package tokens must be greater than 0": "Package tokens must be greater than 0",
+    "At least one model is required": "At least one model is required",
+    "Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)": "Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)"
   }
 }

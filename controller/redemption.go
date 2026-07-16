@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
@@ -87,16 +88,57 @@ func AddRedemption(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 		return
 	}
+	rewardType := redemption.NormalizedRewardType()
+	packageModelsJSON := ""
+	if rewardType == model.RedemptionRewardTypeModelTokenPackage {
+		if redemption.PackageTokens <= 0 {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "package_tokens must be greater than 0"})
+			return
+		}
+		models := redemption.PackageModels
+		if len(models) == 0 && strings.TrimSpace(redemption.PackageModelsJson) != "" {
+			models = model.ParseModelTokenPackageModels(redemption.PackageModelsJson)
+		}
+		if len(models) == 0 {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "package models are required for token package codes"})
+			return
+		}
+		encoded, encErr := model.EncodeModelTokenPackageModels(models)
+		if encErr != nil {
+			common.ApiError(c, encErr)
+			return
+		}
+		packageModelsJSON = encoded
+		if redemption.PackageInputRatio == 0 && redemption.PackageOutputRatio == 0 && redemption.PackageCacheRatio == 0 {
+			redemption.PackageInputRatio, redemption.PackageOutputRatio, redemption.PackageCacheRatio = 1, 1, 1
+		}
+	} else {
+		rewardType = model.RedemptionRewardTypeQuota
+	}
 	var keys []string
 	for i := 0; i < redemption.Count; i++ {
 		key := common.GetUUID()
 		cleanRedemption := model.Redemption{
-			UserId:      c.GetInt("id"),
-			Name:        redemption.Name,
-			Key:         key,
-			CreatedTime: common.GetTimestamp(),
-			Quota:       redemption.Quota,
-			ExpiredTime: redemption.ExpiredTime,
+			UserId:                 c.GetInt("id"),
+			Name:                   redemption.Name,
+			Key:                    key,
+			CreatedTime:            common.GetTimestamp(),
+			Quota:                  redemption.Quota,
+			ExpiredTime:            redemption.ExpiredTime,
+			RewardType:             rewardType,
+			PackageModelsJson:      packageModelsJSON,
+			PackageTokens:          redemption.PackageTokens,
+			PackageInputRatio:      redemption.PackageInputRatio,
+			PackageOutputRatio:     redemption.PackageOutputRatio,
+			PackageCacheRatio:      redemption.PackageCacheRatio,
+			PackageExpiredAt:       redemption.PackageExpiredAt,
+			PackageDurationSeconds: redemption.PackageDurationSeconds,
+		}
+		if rewardType == model.RedemptionRewardTypeQuota {
+			cleanRedemption.PackageTokens = 0
+			cleanRedemption.PackageModelsJson = ""
+		} else {
+			cleanRedemption.Quota = 0
 		}
 		err = cleanRedemption.Insert()
 		if err != nil {

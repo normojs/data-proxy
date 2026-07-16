@@ -6663,6 +6663,21 @@
     "How to call": "如何调用",
     "Wallet or subscription quota insufficient": "钱包或订阅额度不足",
     "Model token package insufficient": "模型 Token 包不足",
-    "API key quota limit reached": "API Key 额度已达上限"
+    "API key quota limit reached": "API Key 额度已达上限",
+    "Reward type": "奖励类型",
+    "Select reward type": "选择奖励类型",
+    "Wallet quota": "钱包额度",
+    "Wallet codes add money points; package codes grant LLM token packages.": "钱包码增加额度点；Token 包码兑换后发放模型 Token 包。",
+    "Package models": "包覆盖模型",
+    "One model per line or comma-separated, e.g. gpt-4o-mini": "每行一个模型，或逗号分隔，例如 gpt-4o-mini",
+    "Package tokens": "包 Token 量",
+    "LLM tokens granted when the code is redeemed": "兑换后获得的 LLM tokens",
+    "Input ratio": "输入倍率",
+    "Output ratio": "输出倍率",
+    "Package validity (days)": "包有效期（天）",
+    "0 means the package never expires after redeem": "0 表示兑换后包不过期",
+    "Package tokens must be greater than 0": "包 Token 量必须大于 0",
+    "At least one model is required": "至少填写一个模型",
+    "Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)": "兑换成功！已发放模型 Token 包：{{name}}（{{tokens}} tokens）"
   }
 }

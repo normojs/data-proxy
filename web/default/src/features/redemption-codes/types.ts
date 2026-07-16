@@ -33,6 +33,16 @@ export const redemptionSchema = z.object({
   redeemed_time: z.number(),
   expired_time: z.number(), // 0 for never expires
   used_user_id: z.number(),
+  reward_type: z.string().optional(),
+  package_models_json: z.string().optional(),
+  package_tokens: z.number().optional(),
+  package_input_ratio: z.number().optional(),
+  package_output_ratio: z.number().optional(),
+  package_cache_ratio: z.number().optional(),
+  package_expired_at: z.number().optional(),
+  package_duration_seconds: z.number().optional(),
+  result_package_id: z.number().optional(),
+  package_models: z.array(z.string()).optional(),
 })
 
 export type Redemption = z.infer<typeof redemptionSchema>
@@ -76,6 +86,13 @@ export interface RedemptionFormData {
   expired_time: number
   count?: number // Only for create
   status?: number // Only for status update
+  reward_type?: string
+  package_models?: string[]
+  package_tokens?: number
+  package_input_ratio?: number
+  package_output_ratio?: number
+  package_cache_ratio?: number
+  package_duration_seconds?: number
 }
 
 // ============================================================================

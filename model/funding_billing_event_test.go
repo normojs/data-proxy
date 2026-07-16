@@ -83,9 +83,11 @@ func TestRedeemRecordsWalletTopUpBillingEvent(t *testing.T) {
 	}
 	require.NoError(t, redemption.Insert())
 
-	quota, err := Redeem(redemption.Key, 502)
+	result, err := Redeem(redemption.Key, 502)
 	require.NoError(t, err)
-	assert.Equal(t, 321, quota)
+	require.NotNil(t, result)
+	assert.Equal(t, RedemptionRewardTypeQuota, result.RewardType)
+	assert.Equal(t, 321, result.Quota)
 
 	sourceId := fmt.Sprintf("redemption:%d", redemption.Id)
 	event := getBillingEventForPhase(t, BillingEventSourceWalletTopUp, sourceId, "redemption")

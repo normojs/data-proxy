@@ -40,13 +40,38 @@ export function useRedemption() {
       setRedeeming(true)
       const response = await redeemTopupCode({ key: code })
 
-      if (response.success && response.data) {
-        const quotaAdded = response.data
-        toast.success(
-          i18next.t('Redemption successful! Added: {{quota}}', {
-            quota: formatQuota(quotaAdded),
-          })
-        )
+      if (response.success && response.data != null) {
+        const data = response.data as
+          | number
+          | {
+              reward_type?: string
+              quota?: number
+              package_id?: number
+              total_tokens?: number
+              name?: string
+            }
+        if (
+          typeof data === 'object' &&
+          data.reward_type === 'model_token_package'
+        ) {
+          toast.success(
+            i18next.t(
+              'Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)',
+              {
+                name: data.name || `#${data.package_id || ''}`,
+                tokens: Number(data.total_tokens || 0).toLocaleString(),
+              }
+            )
+          )
+        } else {
+          const quotaAdded =
+            typeof data === 'number' ? data : Number(data.quota || 0)
+          toast.success(
+            i18next.t('Redemption successful! Added: {{quota}}', {
+              quota: formatQuota(quotaAdded),
+            })
+          )
+        }
         await getSelf()
         return true
       }

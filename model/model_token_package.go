@@ -174,6 +174,25 @@ func ResolveModelTokenPackageRatio(value float64) float64 {
 }
 
 func CreateModelTokenPackage(input ModelTokenPackageCreateInput) (*ModelTokenPackage, error) {
+	var pkg *ModelTokenPackage
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		created, createErr := createModelTokenPackageInTx(tx, input)
+		if createErr != nil {
+			return createErr
+		}
+		pkg = created
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pkg, nil
+}
+
+func createModelTokenPackageInTx(tx *gorm.DB, input ModelTokenPackageCreateInput) (*ModelTokenPackage, error) {
+	if tx == nil {
+		return nil, errors.New("nil transaction")
+	}
 	if input.UserId <= 0 {
 		return nil, errors.New("invalid user id")
 	}
@@ -184,8 +203,6 @@ func CreateModelTokenPackage(input ModelTokenPackageCreateInput) (*ModelTokenPac
 	if err != nil {
 		return nil, err
 	}
-	// If all ratios are left as Go zero (typical create defaults), use 1/1/1.
-	// Otherwise keep explicit zeros (e.g. cache_ratio=0 means free cache).
 	inputRatio, outputRatio, cacheRatio := input.InputRatio, input.OutputRatio, input.CacheRatio
 	if inputRatio == 0 && outputRatio == 0 && cacheRatio == 0 {
 		inputRatio, outputRatio, cacheRatio = 1, 1, 1
@@ -194,7 +211,6 @@ func CreateModelTokenPackage(input ModelTokenPackageCreateInput) (*ModelTokenPac
 		outputRatio = NormalizeModelTokenPackageRatio(outputRatio)
 		cacheRatio = NormalizeModelTokenPackageRatio(cacheRatio)
 	}
-
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		name = "Model Token Package"
@@ -221,22 +237,19 @@ func CreateModelTokenPackage(input ModelTokenPackageCreateInput) (*ModelTokenPac
 		Remark:          strings.TrimSpace(input.Remark),
 		Models:          ParseModelTokenPackageModels(modelsJson),
 	}
-	err = DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(pkg).Error; err != nil {
-			return err
-		}
-		ledger := ModelTokenPackageLedger{
-			PackageId:   pkg.Id,
-			UserId:      pkg.UserId,
-			DeltaTokens: pkg.TotalTokens,
-			Reason:      ModelTokenPackageLedgerReasonGrant,
-			InputRatio:  pkg.InputRatio,
-			OutputRatio: pkg.OutputRatio,
-			CacheRatio:  pkg.CacheRatio,
-		}
-		return tx.Create(&ledger).Error
-	})
-	if err != nil {
+	if err := tx.Create(pkg).Error; err != nil {
+		return nil, err
+	}
+	ledger := ModelTokenPackageLedger{
+		PackageId:   pkg.Id,
+		UserId:      pkg.UserId,
+		DeltaTokens: pkg.TotalTokens,
+		Reason:      ModelTokenPackageLedgerReasonGrant,
+		InputRatio:  pkg.InputRatio,
+		OutputRatio: pkg.OutputRatio,
+		CacheRatio:  pkg.CacheRatio,
+	}
+	if err := tx.Create(&ledger).Error; err != nil {
 		return nil, err
 	}
 	return pkg, nil
