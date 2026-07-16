@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { getRouteApi, Link } from '@tanstack/react-router'
 import { Server, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -35,9 +35,11 @@ import { createUserMessage, createLoadingAssistantMessage } from './lib'
 import type { Message as MessageType, PlaygroundEndpoint } from './types'
 
 const CLEAR_CHAT_CONFIRMATION = 'CLEAR'
+const playgroundRoute = getRouteApi('/_authenticated/playground/')
 
 export function Playground() {
   const { t } = useTranslation()
+  const search = playgroundRoute.useSearch()
   const {
     config,
     parameterEnabled,
@@ -98,18 +100,29 @@ export function Playground() {
     },
   })
 
+  // Prefill model from ?model= (pricing marketplace "Test in Playground")
+  const searchModel = search.model?.trim() || ''
+
   // Update models when data changes
   useEffect(() => {
     if (!modelsData) return
 
     setModels(modelsData)
 
+    if (searchModel) {
+      const matched = modelsData.find((m) => m.value === searchModel)
+      if (matched && config.model !== matched.value) {
+        updateConfig('model', matched.value)
+        return
+      }
+    }
+
     // Set default model if current model is not available
     const isCurrentModelValid = modelsData.some((m) => m.value === config.model)
     if (modelsData.length > 0 && !isCurrentModelValid) {
       updateConfig('model', modelsData[0].value)
     }
-  }, [modelsData, config.model, setModels, updateConfig])
+  }, [modelsData, config.model, setModels, updateConfig, searchModel])
 
   // Update groups when data changes
   useEffect(() => {

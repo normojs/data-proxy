@@ -17,11 +17,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { z } from 'zod'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
 import { Main } from '@/components/layout'
 import { Playground } from '@/features/playground'
 
+const playgroundSearchSchema = z.object({
+  model: z.string().optional(),
+})
+
 export const Route = createFileRoute('/_authenticated/playground/')({
+  validateSearch: playgroundSearchSchema,
   beforeLoad: () => {
     if (!isSidebarModuleEnabled('chat', 'playground')) {
       throw redirect({ to: '/dashboard' })

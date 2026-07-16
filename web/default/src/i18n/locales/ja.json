@@ -6678,6 +6678,12 @@
     "0 means the package never expires after redeem": "0 means the package never expires after redeem",
     "Package tokens must be greater than 0": "Package tokens must be greater than 0",
     "At least one model is required": "At least one model is required",
-    "Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)": "Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)"
+    "Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)": "Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)",
+    "Covered by token package": "Covered by token package",
+    "Will use wallet / subscription": "Will use wallet / subscription",
+    "Test in Playground": "Test in Playground",
+    "Sign in to test": "Sign in to test",
+    "Apply safe failover preset": "Apply safe failover preset",
+    "Safe failover preset applied. Review and save to enable bad-channel auto skip.": "Safe failover preset applied. Review and save to enable bad-channel auto skip."
   }
 }

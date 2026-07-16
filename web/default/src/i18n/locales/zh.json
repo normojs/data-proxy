@@ -6678,6 +6678,12 @@
     "0 means the package never expires after redeem": "0 表示兑换后包不过期",
     "Package tokens must be greater than 0": "包 Token 量必须大于 0",
     "At least one model is required": "至少填写一个模型",
-    "Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)": "兑换成功！已发放模型 Token 包：{{name}}（{{tokens}} tokens）"
+    "Redemption successful! Model token package granted: {{name}} ({{tokens}} tokens)": "兑换成功！已发放模型 Token 包：{{name}}（{{tokens}} tokens）",
+    "Covered by token package": "Token 包可覆盖",
+    "Will use wallet / subscription": "将扣钱包/订阅",
+    "Test in Playground": "在 Playground 测通",
+    "Sign in to test": "登录后测通",
+    "Apply safe failover preset": "应用安全故障切换预设",
+    "Safe failover preset applied. Review and save to enable bad-channel auto skip.": "已应用安全故障切换预设，请检查后保存以启用坏渠道自动跳过。"
   }
 }

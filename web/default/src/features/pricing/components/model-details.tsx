@@ -18,13 +18,26 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Fragment, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import type { TFunction } from 'i18next'
-import { ArrowLeft, Code2, HeartPulse, Info, Timer } from 'lucide-react'
+import {
+  ArrowLeft,
+  Code2,
+  FlaskConical,
+  HeartPulse,
+  Info,
+  Package,
+  Timer,
+  Wallet,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
+import { useStatus } from '@/hooks/use-status'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { getSelfModelTokenPackages } from '@/features/wallet/api'
 import {
   Sheet,
   SheetContent,
@@ -289,6 +302,8 @@ function OverviewSummaryGrid(props: { model: PricingModel }) {
 function ModelHeader(props: { model: PricingModel }) {
   const { t } = useTranslation()
   const model = props.model
+  const { status } = useStatus()
+  const isLoggedIn = useAuthStore((s) => !!s.auth.user)
   const modelIconKey = model.icon || model.vendor_icon
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 20) : null
   const displayName = getModelDisplayName(model)
@@ -300,9 +315,44 @@ function ModelHeader(props: { model: PricingModel }) {
     Boolean(model.billing_expr) &&
     getDynamicPricingTiers(model).length === 0
 
+  const baseUrl = useMemo(() => {
+    const record = status as Record<string, unknown> | null
+    const data = record?.data as Record<string, unknown> | undefined
+    const candidate =
+      record?.server_address ??
+      record?.serverAddress ??
+      data?.server_address ??
+      data?.serverAddress
+    if (typeof candidate === 'string' && candidate) {
+      return candidate.replace(/\/$/, '') + '/v1'
+    }
+    if (typeof window !== 'undefined') return window.location.origin + '/v1'
+    return 'https://your-host/v1'
+  }, [status])
+
+  const packagesQuery = useQuery({
+    queryKey: ['user', 'model-token-packages', 'marketplace', model.model_name],
+    enabled: isLoggedIn && !!model.model_name,
+    queryFn: async () => {
+      const res = await getSelfModelTokenPackages(false)
+      if (!res.success) return []
+      return res.data || []
+    },
+    staleTime: 30_000,
+  })
+  const coveringPackages = (packagesQuery.data || []).filter((pkg) => {
+    if (pkg.status !== 'active') return false
+    if ((pkg.remaining_tokens || 0) <= 0) return false
+    const models = pkg.models || []
+    if (models.length === 0) return true
+    return models.includes(model.model_name)
+  })
+  const hasPackageCover = coveringPackages.length > 0
+
   return (
     <header className='pb-4'>
-      <div className='flex items-center gap-2.5'>
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+      <div className='flex min-w-0 items-center gap-2.5'>
         {modelIcon}
         <div className='min-w-0'>
           <h1
@@ -328,6 +378,58 @@ function ModelHeader(props: { model: PricingModel }) {
           successTooltip={t('Copied!')}
           aria-label={t('Copy model name')}
         />
+        <CopyButton
+          value={baseUrl}
+          className='size-6'
+          iconClassName='size-3'
+          tooltip={t('Copy Base URL')}
+          successTooltip={t('Copied!')}
+          aria-label={t('Copy Base URL')}
+        />
+      </div>
+      <div className='flex flex-wrap items-center gap-2'>
+        {isLoggedIn ? (
+          <Badge
+            variant='outline'
+            className={
+              hasPackageCover
+                ? 'border-emerald-500/40 text-emerald-700'
+                : 'text-muted-foreground'
+            }
+          >
+            {hasPackageCover ? (
+              <>
+                <Package className='mr-1 size-3' />
+                {t('Covered by token package')}
+              </>
+            ) : (
+              <>
+                <Wallet className='mr-1 size-3' />
+                {t('Will use wallet / subscription')}
+              </>
+            )}
+          </Badge>
+        ) : null}
+        {isLoggedIn ? (
+          <Button
+            size='sm'
+            variant='outline'
+            render={
+              <Link
+                to='/playground'
+                search={{ model: model.model_name }}
+              />
+            }
+          >
+            <FlaskConical data-icon='inline-start' />
+            {t('Test in Playground')}
+          </Button>
+        ) : (
+          <Button size='sm' variant='outline' render={<Link to='/sign-in' />}>
+            {t('Sign in to test')}
+          </Button>
+        )}
+      </div>
       </div>
       <div className='mt-1 flex flex-wrap items-center gap-1.5 text-xs'>
         {model.vendor_name && (
