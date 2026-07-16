@@ -22,10 +22,11 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, Route } from 'lucide-react'
+import { AlertTriangle, Route, Sparkles } from 'lucide-react'
 import { parseHttpStatusCodeRules } from '@/lib/http-status-code-rules'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
@@ -347,6 +348,24 @@ export function MonitoringSettingsSection({
     baselineRef.current = normalized
   }
 
+  const applySafeFailoverPreset = () => {
+    form.setValue('RetryTimes', 1)
+    form.setValue('AutomaticDisableChannelEnabled', true)
+    form.setValue('AutomaticEnableChannelEnabled', true)
+    form.setValue('AutomaticDisableStatusCodes', '401')
+    form.setValue('ChannelHealthTransientStatusCodes', '408,429,500-599')
+    form.setValue('ChannelHealthFailureThreshold', 3)
+    form.setValue('ChannelHealthFailureWindowMinutes', 5)
+    form.setValue('ChannelHealthCooldownMinutes', 2)
+    form.setValue('ChannelHealthMaxCooldownMinutes', 10)
+    form.setValue('AutomaticRetryStatusCodes', '408,429,500-599')
+    toast.success(
+      t(
+        'Safe failover preset applied. Review and save to enable bad-channel auto skip.'
+      )
+    )
+  }
+
   return (
     <SettingsSection title={t('Monitoring & Alerts')}>
       <Form {...form}>
@@ -376,6 +395,17 @@ export function MonitoringSettingsSection({
                 <Badge variant='outline'>
                   {t('Request trace records the routing decision')}
                 </Badge>
+              </div>
+              <div className='pt-1'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={applySafeFailoverPreset}
+                >
+                  <Sparkles data-icon='inline-start' />
+                  {t('Apply safe failover preset')}
+                </Button>
               </div>
             </AlertDescription>
           </Alert>

@@ -14,23 +14,19 @@
 
 ### P1 — 追上主流商业站
 
-- [ ] Token 包自助购买 / 卡密
-- [ ] 模型广场：测通、复制、价格、可用性
-- [ ] 部署一键化（一条 compose + 文档）
-- [ ] 渠道健康与自动下线更傻瓜
+- [x] Token 包自助兑换 / 卡密（兑换码 → 包；支付购买 SKU 后置）
+- [x] 模型广场：测通、复制、价格、可用性（pricing 详情 + Playground）
+- [x] 部署一键化（`docs/one-click-deploy.md` + `scripts/quickstart.sh`）
+- [x] 渠道健康傻瓜化（安全故障切换预设 + 文档 10 分钟路径）
 
-已完成：
-- 额度总览 → `docs/quota-overview.md` / `GET /api/user/quota-overview`
-- 请求扣费解释 → usage log `funding_source` + 详情「扣费解释」
-- 3 分钟接入 → `docs/user-quickstart.md` + `/docs/user-quickstart.md`
-- 错误文案人话化 → `service/billing_user_error.go` + i18n billing.*
+剩余后置：
+- [ ] Token 包在线支付 SKU
+- [ ] 包即将用尽提醒
+- [ ] 用户侧「上游繁忙已重试」友好提示
 
-### P1 — 追上主流商业站
-
-- [ ] Token 包自助购买 / 卡密
-- [ ] 模型广场：测通、复制、价格、可用性
-- [ ] 部署一键化（一条 compose + 文档）
-- [ ] 渠道健康与自动下线更傻瓜
+已完成（含 P0）：
+- 额度总览 / 扣费解释 / 3 分钟接入 / 错误人话化
+- 兑换码发包 / 模型广场测通复制 / 一键部署 / 渠道预设
 
 ### P2 — 拉开差距
 

@@ -1,5 +1,32 @@
 # Channel Failover and Circuit Breaker
 
+## 10-minute 傻瓜配置（推荐先做）
+
+1. 打开 `System Settings` → `Monitoring & Alerts`
+2. 点击 **Apply safe failover preset**（安全故障切换预设）
+3. 保存（Save monitoring rules）
+4. 为同一模型配置至少 2 个渠道（不同上游/Key），并开启渠道 `auto_ban`
+5. 用同一模型连续请求；坏渠道会先被临时熔断/跳过，硬故障可自动禁用
+6. 渠道列表可看 Temporary circuit / Degraded / Auto-disabled，并可手动恢复
+
+预设内容（与下文 Recommended starting point 一致）：
+
+```text
+RetryTimes=1
+Disable on failure = on
+Re-enable on success = on
+Hard status codes=401
+Transient status codes=408,429,500-599
+Failure threshold=3
+Failure window=5
+Cooldown=2
+Max cooldown=10
+```
+
+主开关默认可关；应用预设会打开「Disable on failure」，请确认后再保存。
+
+---
+
 Data Proxy supports single-node channel failover for channels that serve the same model. The feature is controlled by global retry settings, channel auto-disable settings, and runtime temporary circuit breaking.
 
 ## How failover works
