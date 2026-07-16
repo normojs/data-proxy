@@ -6648,6 +6648,16 @@
     "Manage keys": "管理 Key",
     "Top packages": "优先展示的包",
     "Subscriptions": "订阅",
-    "Wallet, model token packages, subscriptions, and API key hard limits in one place. Units are not mixed.": "钱包、模型 Token 包、订阅与 API Key 硬限集中展示，单位互不混用。"
+    "Wallet, model token packages, subscriptions, and API key hard limits in one place. Units are not mixed.": "钱包、模型 Token 包、订阅与 API Key 硬限集中展示，单位互不混用。",
+    "Funding Explanation": "扣费解释",
+    "Funding source": "扣费来源",
+    "Model Token Package": "模型 Token 包",
+    "Package ID": "包 ID",
+    "Package tokens consumed": "包扣减 tokens",
+    "Package remaining": "包剩余",
+    "Package ratios": "包倍率",
+    "Wallet deducted": "钱包扣减",
+    "Token Package": "Token 包",
+    "Deducted by model token package": "由模型 Token 包扣减"
   }
 }

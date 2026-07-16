@@ -40,15 +40,17 @@
 
 ### P0-2 请求扣费解释（这次扣了谁、多少、为什么）
 
-- [ ] 统一请求级 funding 元数据写入 usage log / other（已有 package 字段则补齐 wallet/subscription）
+- [x] 统一请求级 funding 元数据写入 usage log / other（已有 package 字段则补齐 wallet/subscription）
   - 验收：consume 日志可区分 `funding_source` 与关键扣减量
-- [ ] 后端「请求扣费解释」接口或 usage log 详情扩展
+- [x] 后端「请求扣费解释」接口或 usage log 详情扩展
   - 验收：按 request_id 返回：模型、渠道（可脱敏）、funding_source、扣减明细、失败原因（若有）
-- [ ] 用量日志 / 请求详情 UI 展示「扣费解释」区块
+  - 说明：复用 usage log `other` + 既有 request trace；统一写入 `funding_source` / `wallet_quota_deducted` / package 字段
+- [x] 用量日志 / 请求详情 UI 展示「扣费解释」区块
   - 验收：用户能看到：扣钱包多少 / 扣哪几个包多少 tokens / 是否命中 Key 硬限；包路径不显示误导的金额扣费
-- [ ] 覆盖文本主路径与常见错误路径（预扣失败、包不足、企业拒绝）
+- [x] 覆盖文本主路径与常见错误路径（预扣失败、包不足、企业拒绝）
   - 验收：至少 chat/completions 与包结算路径有用例或手动验收记录
-- [ ] i18n 与 typecheck
+  - 说明：成功路径覆盖 text/audio/realtime；预扣失败仍不写 log（保持 NoRecordErrorLog），由 P0-4 人话错误补齐
+- [x] i18n 与 typecheck
 
 ### P0-3 用户接入文档（3 分钟跑通）
 

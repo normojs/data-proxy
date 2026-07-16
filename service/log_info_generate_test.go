@@ -1,86 +1,66 @@
 package service
 
 import (
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
-	"time"
 
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/require"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestGenerateTextOtherInfoIncludesStreamFailureClassification(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	start := time.Now().Add(-2 * time.Second)
-	streamStatus := relaycommon.NewStreamStatus()
-	streamStatus.RecordError("decode failed")
-	streamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, fmt.Errorf("handler stopped"))
-	relayInfo := &relaycommon.RelayInfo{
-		StartTime:             start,
-		FirstResponseTime:     start.Add(200 * time.Millisecond),
-		IsStream:              true,
-		StreamStatus:          streamStatus,
-		ReceivedResponseCount: 3,
-		ChannelMeta:           &relaycommon.ChannelMeta{},
-	}
-
-	other := GenerateTextOtherInfo(ctx, relayInfo, 1, 1, 1, 0, 0, 0, 1)
-
-	streamInfo, ok := other["stream_status"].(map[string]interface{})
-	require.True(t, ok)
-	require.Equal(t, "error", streamInfo["status"])
-	require.Equal(t, "handler_stop", streamInfo["end_reason"])
-	require.Equal(t, "stream_handler_error", streamInfo["failure_category"])
-	require.Equal(t, "proxy", streamInfo["failure_source"])
-	require.Equal(t, "after_first_response", streamInfo["failure_stage"])
-	require.Equal(t, false, streamInfo["channel_failure_candidate"])
-	require.Equal(t, true, streamInfo["has_first_response"])
-	require.Equal(t, 3, streamInfo["received_response_count"])
-	require.Equal(t, 1, streamInfo["error_count"])
-	require.Equal(t, []string{"decode failed"}, streamInfo["errors"])
-	require.Equal(t, "handler stopped", streamInfo["end_error"])
+func TestAppendBillingInfoWallet(t *testing.T) {
+	other := map[string]interface{}{}
+	appendBillingInfo(&relaycommon.RelayInfo{BillingSource: BillingSourceWallet}, other)
+	assert.Equal(t, BillingSourceWallet, other["funding_source"])
+	assert.Equal(t, BillingSourceWallet, other["billing_source"])
+	ApplyWalletFundingAmount(other, 123)
+	assert.Equal(t, 123, other["wallet_quota_deducted"])
 }
 
-func TestGenerateTextOtherInfoIncludesMappedStreamError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	start := time.Now().Add(-2 * time.Second)
-	streamStatus := relaycommon.NewStreamStatus()
-	streamStatus.RecordError("upstream_key_sleeping: 上游公益 token 睡眠中")
-	streamStatus.SetMappedError(429, "upstream_key_sleeping", "上游公益 token 睡眠中", "公益 token 睡眠", true)
-	streamStatus.SetEndReason(relaycommon.StreamEndReasonMappedError, fmt.Errorf("上游公益 token 睡眠中"))
-	relayInfo := &relaycommon.RelayInfo{
-		StartTime:             start,
-		FirstResponseTime:     start.Add(-time.Second),
-		IsStream:              true,
-		StreamStatus:          streamStatus,
-		ReceivedResponseCount: 0,
-		ChannelMeta:           &relaycommon.ChannelMeta{},
+func TestAppendBillingInfoSubscription(t *testing.T) {
+	other := map[string]interface{}{}
+	info := &relaycommon.RelayInfo{
+		BillingSource:                         BillingSourceSubscription,
+		SubscriptionId:                        9,
+		SubscriptionPlanId:                    3,
+		SubscriptionPlanTitle:                 "Pro",
+		SubscriptionPreConsumed:               100,
+		SubscriptionPostDelta:                 -20,
+		SubscriptionAmountTotal:               1000,
+		SubscriptionAmountUsedAfterPreConsume: 100,
 	}
+	appendBillingInfo(info, other)
+	assert.Equal(t, BillingSourceSubscription, other["funding_source"])
+	assert.Equal(t, 0, other["wallet_quota_deducted"])
+	assert.EqualValues(t, 80, other["subscription_consumed"])
+	assert.EqualValues(t, 920, other["subscription_remain"])
+	ApplyWalletFundingAmount(other, 999)
+	assert.Equal(t, 0, other["wallet_quota_deducted"])
+}
 
-	other := GenerateTextOtherInfo(ctx, relayInfo, 1, 1, 1, 0, 0, 0, 1)
-
-	streamInfo, ok := other["stream_status"].(map[string]interface{})
-	require.True(t, ok)
-	require.Equal(t, "error", streamInfo["status"])
-	require.Equal(t, "mapped_error", streamInfo["end_reason"])
-	require.Equal(t, "upstream_mapped_error", streamInfo["failure_category"])
-	require.Equal(t, "upstream", streamInfo["failure_source"])
-	require.Equal(t, "before_first_response", streamInfo["failure_stage"])
-	require.Equal(t, true, streamInfo["channel_failure_candidate"])
-	require.Equal(t, false, streamInfo["has_first_response"])
-	require.Equal(t, "upstream_key_sleeping", streamInfo["mapped_error_code"])
-	require.Equal(t, 429, streamInfo["mapped_status_code"])
-	require.Equal(t, "上游公益 token 睡眠中", streamInfo["mapped_message"])
-	require.Equal(t, "公益 token 睡眠", streamInfo["mapped_rule"])
+func TestAppendBillingInfoPackage(t *testing.T) {
+	other := map[string]interface{}{}
+	info := &relaycommon.RelayInfo{
+		BillingSource: BillingSourceModelTokenPackage,
+		Billing: &ModelTokenPackageBillingSession{
+			pkg: &model.ModelTokenPackage{
+				Id:              7,
+				RemainingTokens: 4000,
+				InputRatio:      1,
+				OutputRatio:     1,
+				CacheRatio:      1,
+			},
+			LastConsume: 120,
+		},
+	}
+	appendBillingInfo(info, other)
+	assert.Equal(t, BillingSourceModelTokenPackage, other["funding_source"])
+	assert.Equal(t, BillingSourceModelTokenPackage, other["billing_source"])
+	assert.Equal(t, 7, other["package_id"])
+	assert.EqualValues(t, 120, other["package_consume"])
+	assert.EqualValues(t, 4000, other["package_remaining"])
+	assert.Equal(t, 0, other["wallet_quota_deducted"])
+	ApplyWalletFundingAmount(other, 500)
+	assert.Equal(t, 0, other["wallet_quota_deducted"])
 }

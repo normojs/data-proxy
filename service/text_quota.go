@@ -451,11 +451,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	} else {
 		other = GenerateTextOtherInfo(ctx, relayInfo, summary.ModelRatio, summary.GroupRatio, summary.CompletionRatio, summary.CacheTokens, summary.CacheRatio, summary.ModelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
 	}
-	if packageInfo := ModelTokenPackageBillingOtherInfo(relayInfo); len(packageInfo) > 0 {
-		for key, value := range packageInfo {
-			other[key] = value
-		}
-	}
+	ApplyWalletFundingAmount(other, summary.Quota)
 	if adminRejectReason != "" {
 		other["reject_reason"] = adminRejectReason
 	}

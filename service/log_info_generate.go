@@ -140,14 +140,27 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other map[string]interf
 	if relayInfo == nil || other == nil {
 		return
 	}
-	// billing_source: "wallet" or "subscription"
-	if relayInfo.BillingSource != "" {
-		other["billing_source"] = relayInfo.BillingSource
+	// Prefer package funding metadata when the request settled against a token package.
+	if packageInfo := ModelTokenPackageBillingOtherInfo(relayInfo); len(packageInfo) > 0 {
+		for key, value := range packageInfo {
+			other[key] = value
+		}
+		// Keep billing_source aligned for legacy UI that only checks that field.
+		other["billing_source"] = BillingSourceModelTokenPackage
+		other["funding_source"] = BillingSourceModelTokenPackage
+		other["wallet_quota_deducted"] = 0
+	} else {
+		source := relayInfo.BillingSource
+		if source == "" {
+			source = BillingSourceWallet
+		}
+		other["billing_source"] = source
+		other["funding_source"] = source
 	}
 	if relayInfo.UserSetting.BillingPreference != "" {
 		other["billing_preference"] = relayInfo.UserSetting.BillingPreference
 	}
-	if relayInfo.BillingSource == "subscription" {
+	if relayInfo.BillingSource == BillingSourceSubscription || other["funding_source"] == BillingSourceSubscription {
 		if relayInfo.SubscriptionId != 0 {
 			other["subscription_id"] = relayInfo.SubscriptionId
 		}
@@ -187,6 +200,33 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other map[string]interf
 		}
 		// Wallet quota is not deducted when billed from subscription.
 		other["wallet_quota_deducted"] = 0
+	}
+}
+
+// ApplyWalletFundingAmount records the final wallet debit on consume logs.
+// Call after settle with the actual quota charged to the wallet (0 for package/subscription).
+func ApplyWalletFundingAmount(other map[string]interface{}, finalQuota int) {
+	if other == nil {
+		return
+	}
+	source, _ := other["funding_source"].(string)
+	if source == "" {
+		if v, ok := other["billing_source"].(string); ok {
+			source = v
+		}
+	}
+	switch source {
+	case BillingSourceModelTokenPackage, BillingSourceSubscription:
+		other["wallet_quota_deducted"] = 0
+	default:
+		if finalQuota < 0 {
+			finalQuota = 0
+		}
+		other["wallet_quota_deducted"] = finalQuota
+		if source == "" {
+			other["funding_source"] = BillingSourceWallet
+			other["billing_source"] = BillingSourceWallet
+		}
 	}
 }
 

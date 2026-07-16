@@ -1728,7 +1728,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isConsume = props.log.type === 2
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
-  const isSubscription = other?.billing_source === 'subscription'
+  const fundingSource =
+    other?.funding_source || other?.billing_source || undefined
+  const isSubscription = fundingSource === 'subscription'
+  const isPackageFunding = fundingSource === 'model_token_package'
+  const isWalletFunding =
+    fundingSource === 'wallet' ||
+    (!fundingSource && isConsume && !isSubscription && !isPackageFunding)
   const isTieredBilling =
     isConsume &&
     !isViolation &&
@@ -2531,53 +2537,132 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   </DetailSection>
                 )}
 
-              {/* Subscription billing details */}
-              {isUserView && isSubscription && other && (
-                <DetailSection label={t('Subscription Billing')}>
-                  {other.subscription_plan_id && (
+              {/* Funding explanation: wallet / package / subscription */}
+              {isUserView &&
+                isConsume &&
+                !isViolation &&
+                other &&
+                (isSubscription || isPackageFunding || isWalletFunding) && (
+                  <DetailSection label={t('Funding Explanation')}>
                     <DetailRow
-                      label={t('Plan')}
-                      value={`#${other.subscription_plan_id} ${other.subscription_plan_title || ''}`.trim()}
+                      label={t('Funding source')}
+                      value={
+                        isPackageFunding
+                          ? t('Model Token Package')
+                          : isSubscription
+                            ? t('Subscription')
+                            : t('Wallet')
+                      }
                     />
-                  )}
-                  {other.subscription_id && (
-                    <DetailRow
-                      label={t('Instance')}
-                      value={`#${other.subscription_id}`}
-                      mono
-                    />
-                  )}
-                  {other.subscription_pre_consumed != null && (
-                    <DetailRow
-                      label={t('Pre-consumed')}
-                      value={formatLogQuota(other.subscription_pre_consumed)}
-                      mono
-                    />
-                  )}
-                  {other.subscription_post_delta != null &&
-                    other.subscription_post_delta !== 0 && (
+                    {isPackageFunding && (
+                      <>
+                        {other.package_id != null && (
+                          <DetailRow
+                            label={t('Package ID')}
+                            value={`#${other.package_id}`}
+                            mono
+                          />
+                        )}
+                        {other.package_consume != null && (
+                          <DetailRow
+                            label={t('Package tokens consumed')}
+                            value={formatTokens(Number(other.package_consume))}
+                            mono
+                          />
+                        )}
+                        {other.package_remaining != null && (
+                          <DetailRow
+                            label={t('Package remaining')}
+                            value={formatTokens(
+                              Number(other.package_remaining)
+                            )}
+                            mono
+                          />
+                        )}
+                        {(other.input_ratio != null ||
+                          other.output_ratio != null ||
+                          other.cache_ratio != null) && (
+                          <DetailRow
+                            label={t('Package ratios')}
+                            value={`in ${other.input_ratio ?? 1} / out ${other.output_ratio ?? 1} / cache ${other.cache_ratio ?? 1}`}
+                            mono
+                          />
+                        )}
+                        <DetailRow
+                          label={t('Wallet deducted')}
+                          value={formatLogQuota(0)}
+                          mono
+                        />
+                      </>
+                    )}
+                    {isSubscription && (
+                      <>
+                        {other.subscription_plan_id && (
+                          <DetailRow
+                            label={t('Plan')}
+                            value={`#${other.subscription_plan_id} ${other.subscription_plan_title || ''}`.trim()}
+                          />
+                        )}
+                        {other.subscription_id && (
+                          <DetailRow
+                            label={t('Instance')}
+                            value={`#${other.subscription_id}`}
+                            mono
+                          />
+                        )}
+                        {other.subscription_pre_consumed != null && (
+                          <DetailRow
+                            label={t('Pre-consumed')}
+                            value={formatLogQuota(
+                              other.subscription_pre_consumed
+                            )}
+                            mono
+                          />
+                        )}
+                        {other.subscription_post_delta != null &&
+                          other.subscription_post_delta !== 0 && (
+                            <DetailRow
+                              label={t('Post Delta')}
+                              value={formatLogQuota(
+                                other.subscription_post_delta
+                              )}
+                              mono
+                            />
+                          )}
+                        {other.subscription_consumed != null && (
+                          <DetailRow
+                            label={t('Final Consumed')}
+                            value={formatLogQuota(other.subscription_consumed)}
+                            mono
+                          />
+                        )}
+                        {other.subscription_remain != null && (
+                          <DetailRow
+                            label={t('Remaining')}
+                            value={`${formatLogQuota(other.subscription_remain)}${other.subscription_total != null ? ` / ${formatLogQuota(other.subscription_total)}` : ''}`}
+                            mono
+                          />
+                        )}
+                        <DetailRow
+                          label={t('Wallet deducted')}
+                          value={formatLogQuota(0)}
+                          mono
+                        />
+                      </>
+                    )}
+                    {isWalletFunding && (
                       <DetailRow
-                        label={t('Post Delta')}
-                        value={formatLogQuota(other.subscription_post_delta)}
+                        label={t('Wallet deducted')}
+                        value={formatLogQuota(
+                          other.wallet_quota_deducted != null
+                            ? Number(other.wallet_quota_deducted)
+                            : props.log.quota
+                        )}
                         mono
                       />
                     )}
-                  {other.subscription_consumed != null && (
-                    <DetailRow
-                      label={t('Final Consumed')}
-                      value={formatLogQuota(other.subscription_consumed)}
-                      mono
-                    />
-                  )}
-                  {other.subscription_remain != null && (
-                    <DetailRow
-                      label={t('Remaining')}
-                      value={`${formatLogQuota(other.subscription_remain)}${other.subscription_total != null ? ` / ${formatLogQuota(other.subscription_total)}` : ''}`}
-                      mono
-                    />
-                  )}
-                </DetailSection>
-              )}
+                  </DetailSection>
+                )}
 
               {/* Param override */}
               {isAdminView &&

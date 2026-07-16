@@ -812,13 +812,56 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         const quota = row.getValue('quota') as number
         const other = parseLogOther(log.other)
-        const isSubscription = other?.billing_source === 'subscription'
+        const fundingSource =
+          other?.funding_source || other?.billing_source || undefined
+        const isSubscription = fundingSource === 'subscription'
+        const isPackageFunding = fundingSource === 'model_token_package'
         const totalTokens =
           (log.prompt_tokens || 0) + (log.completion_tokens || 0)
         const tokenLabel =
           totalTokens > 0
             ? `${formatTokenVolume(totalTokens)} ${t('tokens')}`
             : null
+
+        if (isPackageFunding) {
+          const packageConsume =
+            other?.package_consume != null
+              ? Number(other.package_consume).toLocaleString()
+              : null
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <StatusBadge
+                      label={t('Token Package')}
+                      variant='info'
+                      size='sm'
+                      copyable={false}
+                      className='cursor-help'
+                    />
+                  }
+                />
+                <TooltipContent>
+                  <div className='space-y-0.5 text-xs'>
+                    <p>
+                      {t('Deducted by model token package')}
+                      {packageConsume != null
+                        ? `: ${packageConsume} ${t('tokens')}`
+                        : ''}
+                    </p>
+                    {other?.package_id != null && (
+                      <p>
+                        {t('Package ID')}: #{other.package_id}
+                      </p>
+                    )}
+                    {tokenLabel && <p>{tokenLabel}</p>}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )
+        }
 
         if (isSubscription) {
           return (

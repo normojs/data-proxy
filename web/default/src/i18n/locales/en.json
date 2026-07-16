@@ -6648,6 +6648,16 @@
     "Manage keys": "Manage keys",
     "Top packages": "Top packages",
     "Subscriptions": "Subscriptions",
-    "Wallet, model token packages, subscriptions, and API key hard limits in one place. Units are not mixed.": "Wallet, model token packages, subscriptions, and API key hard limits in one place. Units are not mixed."
+    "Wallet, model token packages, subscriptions, and API key hard limits in one place. Units are not mixed.": "Wallet, model token packages, subscriptions, and API key hard limits in one place. Units are not mixed.",
+    "Funding Explanation": "Funding Explanation",
+    "Funding source": "Funding source",
+    "Model Token Package": "Model Token Package",
+    "Package ID": "Package ID",
+    "Package tokens consumed": "Package tokens consumed",
+    "Package remaining": "Package remaining",
+    "Package ratios": "Package ratios",
+    "Wallet deducted": "Wallet deducted",
+    "Token Package": "Token Package",
+    "Deducted by model token package": "Deducted by model token package"
   }
 }

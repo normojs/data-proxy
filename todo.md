@@ -10,11 +10,12 @@
 
 ### P0 — 立刻影响口碑
 
-- [ ] 请求扣费解释：这次扣了谁、多少、为什么
 - [ ] 用户接入文档：3 分钟跑通
 - [ ] 错误文案人话化（403 / 包不足 / 企业拒绝）
 
-已完成：额度总览 → `docs/quota-overview.md` / `GET /api/user/quota-overview`
+已完成：
+- 额度总览 → `docs/quota-overview.md` / `GET /api/user/quota-overview`
+- 请求扣费解释 → usage log `funding_source` + 详情「扣费解释」
 
 ### P1 — 追上主流商业站
 

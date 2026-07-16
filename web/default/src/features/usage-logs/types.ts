@@ -250,6 +250,14 @@ export interface LogOtherData {
   is_system_prompt_overwritten?: boolean
   po?: string[]
   billing_source?: string
+  funding_source?: string
+  wallet_quota_deducted?: number
+  package_id?: number
+  package_consume?: number
+  package_remaining?: number
+  input_ratio?: number
+  output_ratio?: number
+  cache_ratio?: number
   group?: string
   stream_status?: {
     status?: string

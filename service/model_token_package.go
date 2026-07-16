@@ -255,12 +255,14 @@ func ModelTokenPackageBillingOtherInfo(relayInfo *relaycommon.RelayInfo) map[str
 		return nil
 	}
 	return map[string]any{
-		"funding_source":    BillingSourceModelTokenPackage,
-		"package_id":        session.pkg.Id,
-		"package_consume":   session.LastConsume,
-		"package_remaining": session.pkg.RemainingTokens,
-		"input_ratio":       session.pkg.InputRatio,
-		"output_ratio":      session.pkg.OutputRatio,
-		"cache_ratio":       session.pkg.CacheRatio,
+		"funding_source":        BillingSourceModelTokenPackage,
+		"billing_source":        BillingSourceModelTokenPackage,
+		"package_id":            session.pkg.Id,
+		"package_consume":       session.LastConsume,
+		"package_remaining":     session.pkg.RemainingTokens,
+		"input_ratio":           session.pkg.InputRatio,
+		"output_ratio":          session.pkg.OutputRatio,
+		"cache_ratio":           session.pkg.CacheRatio,
+		"wallet_quota_deducted": 0,
 	}
 }
