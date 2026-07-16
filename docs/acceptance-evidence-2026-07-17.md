@@ -86,3 +86,16 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 - `/docs/user-quickstart.md`（刷新）
 
 当前生产仅确认 `user-quickstart.md` 已可访问；one-click/quota-overview 仍返回 SPA shell，直至重新部署。
+
+## 2026-07-17 续：部署 `sha-da5af9b2` 并复验
+
+- 通过本地 VPN `127.0.0.1:7897` 下载 Package 产物 `data-proxy-da5af9b2-linux-amd64`
+- Electerm MCP 上传并执行 `data-proxy-remote-deploy-da5af9b2.sh`
+- 生产版本：`x-new-api-version: sha-da5af9b2`
+- 文档公网：
+  - `/docs/user-quickstart.md` 3988B PASS
+  - `/docs/one-click-deploy.md` 2498B PASS（此前 SPA 壳问题已随本版修复）
+  - `/docs/quota-overview.md` 1808B PASS
+- 公开/鉴权探针 ALL_PASS
+- production smoke：`api_status=passed`；chat/admin 仍缺 Key 跳过
+
