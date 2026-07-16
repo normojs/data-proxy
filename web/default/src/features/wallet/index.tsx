@@ -32,6 +32,7 @@ import { WechatPayQRDialog } from './components/dialogs/wechat-pay-qr-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { ModelTokenPackagesCard } from './components/model-token-packages-card'
+import { QuotaOverviewCard } from './components/quota-overview-card'
 import { UnifiedLedgerCard } from './components/unified-ledger-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
 import {
@@ -260,6 +261,7 @@ export function Wallet(props: WalletProps) {
         <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <div className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
+            <QuotaOverviewCard />
             <WalletStatsCard user={user} loading={userLoading} />
 
             <div
@@ -303,12 +305,14 @@ export function Wallet(props: WalletProps) {
                 />
               </div>
 
-              <SubscriptionPlansCard
-                topupInfo={topupInfo}
-                onAvailabilityChange={handleSubscriptionAvailabilityChange}
-                userQuota={user?.quota}
-                onPurchaseSuccess={fetchUser}
-              />
+              <div id='subscriptions' className='scroll-mt-4'>
+                <SubscriptionPlansCard
+                  topupInfo={topupInfo}
+                  onAvailabilityChange={handleSubscriptionAvailabilityChange}
+                  userQuota={user?.quota}
+                  onPurchaseSuccess={fetchUser}
+                />
+              </div>
             </div>
 
             <AffiliateRewardsCard
@@ -321,7 +325,9 @@ export function Wallet(props: WalletProps) {
               loading={affiliateLoading}
             />
 
-            <ModelTokenPackagesCard />
+            <div id='model-token-packages' className='scroll-mt-4'>
+              <ModelTokenPackagesCard />
+            </div>
 
             <UnifiedLedgerCard />
           </div>

@@ -6634,6 +6634,20 @@
     "No model token packages yet. Grant one from the Grant tab.": "暂无模型 Token 包。请到「发放」页签发放。",
     "Package disabled": "包已作废",
     "Failed to disable package": "作废包失败",
-    "Disable this package? It will stop being used for new requests.": "确定作废该包？之后新请求将不再使用它。"
+    "Disable this package? It will stop being used for new requests.": "确定作废该包？之后新请求将不再使用它。",
+    "Quota Overview": "额度总览",
+    "LLM tokens": "LLM tokens",
+    "Quota points": "额度点",
+    "Unit": "单位",
+    "Failed to load quota overview": "加载额度总览失败",
+    "Open wallet": "打开钱包",
+    "View packages": "查看 Token 包",
+    "View subscriptions": "查看订阅",
+    "API Key hard limits": "API Key 硬限",
+    "Limited keys": "有限额 Key",
+    "Manage keys": "管理 Key",
+    "Top packages": "优先展示的包",
+    "Subscriptions": "订阅",
+    "Wallet, model token packages, subscriptions, and API key hard limits in one place. Units are not mixed.": "钱包、模型 Token 包、订阅与 API Key 硬限集中展示，单位互不混用。"
   }
 }

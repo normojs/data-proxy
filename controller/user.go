@@ -407,6 +407,16 @@ func GetAffCode(c *gin.Context) {
 	return
 }
 
+func GetSelfQuotaOverview(c *gin.Context) {
+	id := c.GetInt("id")
+	overview, err := service.BuildUserQuotaOverview(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, overview)
+}
+
 func GetSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	userRole := c.GetInt("role")

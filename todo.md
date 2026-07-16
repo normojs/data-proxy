@@ -1,3 +1,34 @@
+# Data Proxy TODO
+
+## 产品差距规划（P0 / P1 / P2）
+
+完整功能列表与验收标准见：
+
+- **[docs/product-gap-todo.md](docs/product-gap-todo.md)**
+
+摘要（未完成项）：
+
+### P0 — 立刻影响口碑
+
+- [ ] 请求扣费解释：这次扣了谁、多少、为什么
+- [ ] 用户接入文档：3 分钟跑通
+- [ ] 错误文案人话化（403 / 包不足 / 企业拒绝）
+
+已完成：额度总览 → `docs/quota-overview.md` / `GET /api/user/quota-overview`
+
+### P1 — 追上主流商业站
+
+- [ ] Token 包自助购买 / 卡密
+- [ ] 模型广场：测通、复制、价格、可用性
+- [ ] 部署一键化（一条 compose + 文档）
+- [ ] 渠道健康与自动下线更傻瓜
+
+### P2 — 拉开差距
+
+- [ ] 客户端隧道真正可用（dpa / Browser）
+
+---
+
 # data-proxy MCP / Bridge TODO
 
 ## P1 - Public navigation polish

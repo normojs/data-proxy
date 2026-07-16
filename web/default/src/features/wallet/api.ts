@@ -308,6 +308,92 @@ export type ModelTokenPackageLedger = {
   created_at: number
 }
 
+export type QuotaOverviewPackageItem = {
+  id: number
+  name: string
+  models?: string[]
+  remaining_tokens: number
+  total_tokens: number
+  status: string
+  expired_at: number
+}
+
+export type QuotaOverviewSubscriptionItem = {
+  id: number
+  plan_id: number
+  amount_total: number
+  amount_used: number
+  amount_remaining: number
+  status: string
+  end_time: number
+  source: string
+}
+
+export type QuotaOverviewAPIKeyItem = {
+  id: number
+  name: string
+  remain_quota: number
+  used_quota: number
+  unlimited_quota: boolean
+  quota_hard_limit_enabled: boolean
+  status: number
+  expired_time: number
+}
+
+export type QuotaOverview = {
+  wallet: {
+    quota: number
+    used_quota: number
+    request_count: number
+    unit: string
+    status: string
+  }
+  model_token_packages: {
+    active_count: number
+    remaining_tokens: number
+    used_tokens: number
+    total_packages: number
+    unit: string
+    status: string
+    top_packages: QuotaOverviewPackageItem[]
+  }
+  subscriptions: {
+    active_count: number
+    remaining_quota: number
+    total_quota: number
+    used_quota: number
+    unit: string
+    status: string
+    items: QuotaOverviewSubscriptionItem[]
+  }
+  api_key_hard_limits: {
+    limited_count: number
+    remaining_quota: number
+    unit: string
+    status: string
+    items: QuotaOverviewAPIKeyItem[]
+  }
+  units: {
+    wallet: string
+    model_token_package: string
+    subscription: string
+    api_key_hard_limit: string
+  }
+  links: {
+    wallet: string
+    model_token_packages: string
+    subscriptions: string
+    api_keys: string
+  }
+}
+
+export async function getSelfQuotaOverview(): Promise<
+  ApiResponse<QuotaOverview>
+> {
+  const res = await api.get('/api/user/quota-overview')
+  return res.data
+}
+
 export async function getSelfModelTokenPackages(
   includeInactive = true
 ): Promise<ApiResponse<ModelTokenPackage[]>> {

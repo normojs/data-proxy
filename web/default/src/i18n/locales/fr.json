@@ -6634,6 +6634,20 @@
     "No model token packages yet. Grant one from the Grant tab.": "No model token packages yet. Grant one from the Grant tab.",
     "Package disabled": "Package disabled",
     "Failed to disable package": "Failed to disable package",
-    "Disable this package? It will stop being used for new requests.": "Disable this package? It will stop being used for new requests."
+    "Disable this package? It will stop being used for new requests.": "Disable this package? It will stop being used for new requests.",
+    "Quota Overview": "Quota Overview",
+    "LLM tokens": "LLM tokens",
+    "Quota points": "Quota points",
+    "Unit": "Unit",
+    "Failed to load quota overview": "Failed to load quota overview",
+    "Open wallet": "Open wallet",
+    "View packages": "View packages",
+    "View subscriptions": "View subscriptions",
+    "API Key hard limits": "API Key hard limits",
+    "Limited keys": "Limited keys",
+    "Manage keys": "Manage keys",
+    "Top packages": "Top packages",
+    "Subscriptions": "Subscriptions",
+    "Wallet, model token packages, subscriptions, and API key hard limits in one place. Units are not mixed.": "Wallet, model token packages, subscriptions, and API key hard limits in one place. Units are not mixed."
   }
 }

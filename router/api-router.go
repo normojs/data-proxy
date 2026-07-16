@@ -192,6 +192,9 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/checkin", controller.GetCheckinStatus)
 				selfRoute.POST("/checkin", middleware.TurnstileCheck(), controller.DoCheckin)
 
+				// Unified quota overview (wallet + packages + subscriptions + key hard limits)
+				selfRoute.GET("/quota-overview", controller.GetSelfQuotaOverview)
+
 				// Model token packages (LLM token usage packages)
 				selfRoute.GET("/model-token-packages", controller.GetSelfModelTokenPackages)
 				selfRoute.GET("/model-token-packages/:id/ledger", controller.GetSelfModelTokenPackageLedger)

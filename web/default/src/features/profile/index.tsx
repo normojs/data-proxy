@@ -26,6 +26,7 @@ import {
 import { SnaplessConnectedAppCard } from '@/features/snapless-device/connected-app-card'
 import { ConnectedAppDeveloperAppsCard } from '@/features/snapless-device/developer-apps-card'
 import { ModelTokenPackagesCard } from '@/features/wallet/components/model-token-packages-card'
+import { QuotaOverviewCard } from '@/features/wallet/components/quota-overview-card'
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { PasskeyCard } from './components/passkey-card'
@@ -59,6 +60,8 @@ export function Profile() {
           <CardStaggerItem>
             <div className='grid gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.46fr)] xl:items-start'>
               <div className='space-y-4 sm:space-y-6'>
+                <QuotaOverviewCard compact />
+                <ModelTokenPackagesCard />
                 <ProfileSettingsCard
                   profile={profile}
                   loading={loading}
@@ -69,7 +72,6 @@ export function Profile() {
                   onProfileUpdate={refreshProfile}
                 />
                 <ProfileSecurityCard profile={profile} loading={loading} />
-                <ModelTokenPackagesCard />
                 <ConnectedAppDeveloperAppsCard />
               </div>
 
