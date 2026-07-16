@@ -41,7 +41,10 @@ import {
 import {
   getSelfModelTokenPackageLedger,
   getSelfModelTokenPackages,
+  getSelfModelTokenPackageSkus,
+  purchaseModelTokenPackageSku,
   type ModelTokenPackage,
+  type ModelTokenPackageSku,
 } from '../api'
 
 function packageModels(pkg: ModelTokenPackage): string[] {
@@ -104,6 +107,7 @@ export function ModelTokenPackagesCard() {
   const [includeInactive, setIncludeInactive] = useState(false)
   const [selectedPackage, setSelectedPackage] =
     useState<ModelTokenPackage | null>(null)
+  const [purchasingSkuId, setPurchasingSkuId] = useState<number | null>(null)
 
   const packagesQuery = useQuery({
     queryKey: ['wallet', 'model-token-packages', includeInactive],
@@ -116,10 +120,22 @@ export function ModelTokenPackagesCard() {
     },
   })
 
+  const skusQuery = useQuery({
+    queryKey: ['wallet', 'model-token-package-skus'],
+    queryFn: async () => {
+      const response = await getSelfModelTokenPackageSkus()
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to load package SKUs')
+      }
+      return response.data ?? []
+    },
+  })
+
   const packages = useMemo(
     () => packagesQuery.data ?? [],
     [packagesQuery.data]
   )
+  const skus = useMemo(() => skusQuery.data ?? [], [skusQuery.data])
   const activeCount = useMemo(
     () => packages.filter((item) => item.status === 'active').length,
     [packages]
@@ -131,6 +147,25 @@ export function ModelTokenPackagesCard() {
         .reduce((sum, item) => sum + (item.remaining_tokens || 0), 0),
     [packages]
   )
+
+  async function handlePurchase(sku: ModelTokenPackageSku) {
+    if (purchasingSkuId != null) return
+    setPurchasingSkuId(sku.id)
+    try {
+      const response = await purchaseModelTokenPackageSku(sku.id)
+      if (!response.success) {
+        throw new Error(response.message || 'Purchase failed')
+      }
+      await Promise.all([packagesQuery.refetch(), skusQuery.refetch()])
+    } catch (error) {
+      // Keep UI simple: surface the server message via alert for now.
+      window.alert(
+        error instanceof Error ? error.message : t('Purchase failed')
+      )
+    } finally {
+      setPurchasingSkuId(null)
+    }
+  }
 
   return (
     <>
@@ -164,8 +199,11 @@ export function ModelTokenPackagesCard() {
               type='button'
               variant='outline'
               size='sm'
-              onClick={() => packagesQuery.refetch()}
-              disabled={packagesQuery.isFetching}
+              onClick={() => {
+                packagesQuery.refetch()
+                skusQuery.refetch()
+              }}
+              disabled={packagesQuery.isFetching || skusQuery.isFetching}
             >
               {t('Refresh')}
             </Button>
@@ -178,18 +216,54 @@ export function ModelTokenPackagesCard() {
             <span className='text-foreground font-medium'>{activeCount}</span>
           </div>
           <div>
-            {t('Active remaining')}:{' '}
+            {t('Remaining tokens')}:{' '}
             <span className='text-foreground font-medium'>
               {formatTokens(remainingTotal)}
             </span>
           </div>
-          <div>
-            {t('Listed')}:{' '}
-            <span className='text-foreground font-medium'>
-              {packages.length}
-            </span>
+          <div className='col-span-2 sm:col-span-1'>
+            {t('Buy with wallet')}:{' '}
+            <span className='text-foreground font-medium'>{skus.length}</span>
           </div>
         </div>
+
+        {skus.length > 0 && (
+          <div className='border-b px-4 py-3'>
+            <div className='mb-2 text-xs font-medium'>{t('Available packages')}</div>
+            <div className='grid gap-2 md:grid-cols-2'>
+              {skus.map((sku) => {
+                const models = packageModels(sku as unknown as ModelTokenPackage)
+                return (
+                  <div
+                    key={sku.id}
+                    className='flex items-start justify-between gap-3 rounded-md border px-3 py-2'
+                  >
+                    <div className='min-w-0'>
+                      <div className='truncate text-sm font-medium'>{sku.name}</div>
+                      <div className='text-muted-foreground mt-0.5 text-xs'>
+                        {formatTokens(sku.total_tokens)} tokens · {t('Price')}:{' '}
+                        {formatTokens(sku.price_quota)} {t('quota points')}
+                      </div>
+                      {models.length > 0 && (
+                        <div className='text-muted-foreground mt-1 truncate text-[11px]'>
+                          {models.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      type='button'
+                      size='sm'
+                      disabled={purchasingSkuId != null}
+                      onClick={() => handlePurchase(sku)}
+                    >
+                      {purchasingSkuId === sku.id ? t('Buying…') : t('Buy')}
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {packagesQuery.isLoading ? (
           <div className='space-y-2 p-4'>

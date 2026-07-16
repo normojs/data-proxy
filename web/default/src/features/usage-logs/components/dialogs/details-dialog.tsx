@@ -1735,6 +1735,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isWalletFunding =
     fundingSource === 'wallet' ||
     (!fundingSource && isConsume && !isSubscription && !isPackageFunding)
+  const userRetrySummary = other?.user_retry_summary
   const isTieredBilling =
     isConsume &&
     !isViolation &&
@@ -2544,6 +2545,15 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 other &&
                 (isSubscription || isPackageFunding || isWalletFunding) && (
                   <DetailSection label={t('Funding Explanation')}>
+                    {userRetrySummary?.retried && (
+                      <DetailRow
+                        label={t('Upstream retry')}
+                        value={t(
+                          userRetrySummary.message ||
+                            'Upstream was busy; the request was retried on another route.'
+                        )}
+                      />
+                    )}
                     <DetailRow
                       label={t('Funding source')}
                       value={

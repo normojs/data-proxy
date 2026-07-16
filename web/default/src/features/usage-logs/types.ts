@@ -258,6 +258,11 @@ export interface LogOtherData {
   input_ratio?: number
   output_ratio?: number
   group?: string
+  user_retry_summary?: {
+    retried?: boolean
+    message_key?: string
+    message?: string
+  }
   stream_status?: {
     status?: string
     end_reason?: string

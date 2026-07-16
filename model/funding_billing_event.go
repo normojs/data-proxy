@@ -204,6 +204,36 @@ func ListFundingBillingEventsBySource(tx *gorm.DB, source string, sourceId strin
 	return events, err
 }
 
+// RecordModelTokenPackagePurchaseBillingEvent records a wallet debit for an SKU purchase.
+// Free SKUs (price_quota=0) skip the ledger debit but still leave package grant ledger rows.
+func RecordModelTokenPackagePurchaseBillingEvent(tx *gorm.DB, userId int, sku *ModelTokenPackageSku, pkg *ModelTokenPackage) error {
+	if sku == nil || pkg == nil || userId <= 0 {
+		return nil
+	}
+	if sku.PriceQuota <= 0 {
+		return nil
+	}
+	sourceId := fmt.Sprintf("package-sku:%d:package:%d", sku.Id, pkg.Id)
+	return RecordFundingBillingEvent(tx, FundingBillingEventInput{
+		Source:        BillingEventSourceWalletAdjust,
+		SourceId:      sourceId,
+		Phase:         "package_sku_purchase",
+		UserId:        userId,
+		RequestId:     sourceId,
+		BillingSource: "wallet",
+		PriceUnit:     "model_token_package_sku",
+		EventType:     BillingEventTypeDebit,
+		AmountQuota:   sku.PriceQuota,
+		Metadata: map[string]any{
+			"sku_id":         sku.Id,
+			"sku_name":       sku.Name,
+			"package_id":     pkg.Id,
+			"package_tokens": pkg.TotalTokens,
+			"price_quota":    sku.PriceQuota,
+		},
+	})
+}
+
 func RecordWalletTopUpBillingEvent(tx *gorm.DB, topUp *TopUp, quota int, phase string, metadata map[string]any) error {
 	if topUp == nil || quota <= 0 {
 		return nil

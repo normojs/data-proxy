@@ -90,21 +90,23 @@
 
 ### P1-1 Token 包自助购买 / 卡密
 
-- [ ] Token 包 SKU 模型与管理端配置（模型列表、token 量、三倍率、价格、有效期）
+- [x] Token 包 SKU 模型与管理端配置（模型列表、token 量、三倍率、价格、有效期）
   - 验收：管理员可 CRUD SKU；默认倍率 1/1/1
-  - 说明：MVP 先走兑换码快照字段；完整 SKU 表后置
-- [ ] 用户购买下单：复用现有支付（微信/Stripe/Epay 等之一先打通）
+  - 说明：`model_token_package_skus` + `POST/PUT /api/user/model-token-package-skus*`、`GET /api/user/model-token-package-skus/all`
+- [x] 用户购买下单：复用现有支付（微信/Stripe/Epay 等之一先打通）
   - 验收：支付成功后自动创建 `model_token_packages`；失败不发包
+  - 说明：MVP 用**钱包余额扣费购买 SKU**（`POST /api/user/model-token-package-skus/:id/purchase`）；在线渠道充值仍走既有 topup
 - [x] 兑换码/卡密兑换 Token 包（可扩展现有 redemption）
   - 验收：兑码成功得包；重复兑换/作废码有明确错误
 - [x] 购买/兑换流水与审计
   - 验收：可追溯 order/code → package_id
-  - 说明：`result_package_id` + funding billing metadata `redemption_id`
+  - 说明：`result_package_id` + funding billing metadata `redemption_id` / `package_sku_purchase`
 - [x] 用户侧购买入口（钱包或模型广场）
   - 验收：非管理员可自助完成买包或兑包
-  - 说明：钱包兑换码入口；支付购买后置
-- [ ] 即将用尽提醒（站内通知，可选 email）
+  - 说明：钱包兑换码入口 + SKU 购买列表
+- [x] 即将用尽提醒（站内通知，可选 email）
   - 验收：剩余低于阈值触发一次，不刷屏
+  - 说明：`NotifyTypeModelTokenPackageLow`，跨阈值触发 + notify limit
 
 ### P1-2 模型广场：测通、复制、价格、可用性
 
@@ -144,8 +146,9 @@
   - 说明：引擎已有；新增「安全故障切换预设」一键填参
 - [x] 与现有 failover / stream_error_mapping 文档打通
   - 验收：管理员按文档 10 分钟完成「坏渠道自动切走」配置
-- [ ] 用户侧可选提示「上游繁忙已重试」类友好信息（不泄露内部渠道名，若产品需要）
+- [x] 用户侧可选提示「上游繁忙已重试」类友好信息（不泄露内部渠道名，若产品需要）
   - 验收：文案可配置或有默认；不破坏现有客户端兼容
+  - 说明：`other.user_retry_summary` 在 usage log 对用户可见；不含渠道名/id
 
 ### P1 退出标准
 

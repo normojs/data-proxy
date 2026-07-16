@@ -75,6 +75,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	AppendChannelFailoverAdminInfo(ctx, adminInfo)
 
 	other["admin_info"] = adminInfo
+	appendUserFacingRetrySummary(ctx, other)
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendRequestConversionMeta(relayInfo, other)
@@ -83,6 +84,41 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendParamOverrideInfo(relayInfo, other)
 	AppendStreamStatus(relayInfo, other)
 	return other
+}
+
+// appendUserFacingRetrySummary writes a sanitized retry note when channel failover
+// actually retried at least once. It never includes channel names/ids.
+func appendUserFacingRetrySummary(ctx *gin.Context, other map[string]interface{}) {
+	if ctx == nil || other == nil {
+		return
+	}
+	events, ok := common.GetContextKeyType[[]map[string]interface{}](ctx, constant.ContextKeyChannelFailoverTrace)
+	if !ok || len(events) == 0 {
+		return
+	}
+	retryPlanned := false
+	selectedAfterFail := 0
+	for _, event := range events {
+		if planned, ok := event["retry_planned"].(bool); ok && planned {
+			retryPlanned = true
+		}
+		if eventType, _ := event["event"].(string); eventType == "selected" {
+			if idx, ok := event["retry_index"].(int); ok && idx > 0 {
+				selectedAfterFail++
+			} else if idxF, ok := event["retry_index"].(float64); ok && idxF > 0 {
+				selectedAfterFail++
+			}
+		}
+	}
+	if !retryPlanned && selectedAfterFail == 0 {
+		return
+	}
+	other["user_retry_summary"] = map[string]interface{}{
+		"retried": true,
+		// Stable English key for clients; UI translates via i18n.
+		"message_key": "upstream_busy_retried",
+		"message":     "Upstream was busy; the request was retried on another route.",
+	}
 }
 
 func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {

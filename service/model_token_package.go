@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )
 
@@ -225,7 +226,57 @@ func SettleModelTokenPackageIfNeeded(ctx *gin.Context, relayInfo *relaycommon.Re
 		logger.LogInfo(ctx, fmt.Sprintf("model token package settled: package_id=%d consume=%d remaining=%d",
 			session.pkg.Id, session.LastConsume, session.pkg.RemainingTokens))
 	}
+	checkAndSendModelTokenPackageNotify(relayInfo, session)
 	return nil
+}
+
+// checkAndSendModelTokenPackageNotify warns once when package remaining falls below threshold.
+// Threshold: max(1000, total_tokens/10). Uses notify type model_token_package_low so it does
+// not compete with wallet quota_exceed rate limits.
+func checkAndSendModelTokenPackageNotify(relayInfo *relaycommon.RelayInfo, session *ModelTokenPackageBillingSession) {
+	if relayInfo == nil || session == nil || session.pkg == nil || session.LastConsume <= 0 {
+		return
+	}
+	pkg := session.pkg
+	threshold := pkg.TotalTokens / 10
+	if threshold < 1000 {
+		threshold = 1000
+	}
+	if pkg.RemainingTokens >= threshold {
+		return
+	}
+	// Only fire when this settle crossed into the low band, so we don't notify every request
+	// while remaining stays under threshold (notify-limit still acts as a second guard).
+	if pkg.RemainingTokens+session.LastConsume < threshold {
+		return
+	}
+
+	gopool.Go(func() {
+		prompt := "您的模型 Token 包即将用尽"
+		walletLink := PaymentReturnURL("/console/wallet#model-token-packages")
+		userSetting := relayInfo.UserSetting
+		notifyType := userSetting.NotifyType
+		if notifyType == "" {
+			notifyType = dto.NotifyTypeEmail
+		}
+
+		var content string
+		var values []interface{}
+		if notifyType == dto.NotifyTypeBark {
+			content = "{{value}}，包「{{value}}」剩余 {{value}} tokens，请及时兑换/购买"
+			values = []interface{}{prompt, pkg.Name, pkg.RemainingTokens}
+		} else if notifyType == dto.NotifyTypeGotify {
+			content = "{{value}}，包「{{value}}」当前剩余 {{value}} tokens，请及时兑换/购买。"
+			values = []interface{}{prompt, pkg.Name, pkg.RemainingTokens}
+		} else {
+			content = "{{value}}，包「{{value}}」当前剩余 {{value}} tokens。请前往钱包兑换或购买 Token 包。<br/>入口：<a href='{{value}}'>{{value}}</a>"
+			values = []interface{}{prompt, pkg.Name, pkg.RemainingTokens, walletLink, walletLink}
+		}
+
+		if err := NotifyUser(relayInfo.UserId, relayInfo.UserEmail, userSetting, dto.NewNotify(dto.NotifyTypeModelTokenPackageLow, prompt, content, values)); err != nil {
+			common.SysError(fmt.Sprintf("failed to send model token package low notify to user %d: %s", relayInfo.UserId, err.Error()))
+		}
+	})
 }
 
 func IsModelTokenPackageBilling(relayInfo *relaycommon.RelayInfo) bool {

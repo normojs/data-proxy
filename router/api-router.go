@@ -198,6 +198,8 @@ func SetApiRouter(router *gin.Engine) {
 				// Model token packages (LLM token usage packages)
 				selfRoute.GET("/model-token-packages", controller.GetSelfModelTokenPackages)
 				selfRoute.GET("/model-token-packages/:id/ledger", controller.GetSelfModelTokenPackageLedger)
+				selfRoute.GET("/model-token-package-skus", controller.ListPublicModelTokenPackageSkus)
+				selfRoute.POST("/model-token-package-skus/:id/purchase", middleware.CriticalRateLimit(), controller.PurchaseModelTokenPackageSku)
 
 				// Custom OAuth bindings
 				selfRoute.GET("/oauth/bindings", controller.GetUserOAuthBindings)
@@ -209,6 +211,9 @@ func SetApiRouter(router *gin.Engine) {
 			adminRoute.Use(middleware.AdminAuth())
 			{
 				adminRoute.GET("/", controller.GetAllUsers)
+				adminRoute.POST("/model-token-package-skus", controller.AdminCreateModelTokenPackageSku)
+				adminRoute.PUT("/model-token-package-skus/:id", controller.AdminUpdateModelTokenPackageSku)
+				adminRoute.GET("/model-token-package-skus/all", controller.AdminListModelTokenPackageSkus)
 				adminRoute.GET("/topup", controller.GetAllTopUps)
 				adminRoute.POST("/topup/complete", controller.AdminCompleteTopUp)
 				adminRoute.GET("/search", controller.SearchUsers)

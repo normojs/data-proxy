@@ -308,6 +308,28 @@ export type ModelTokenPackageLedger = {
   created_at: number
 }
 
+export type ModelTokenPackageSku = {
+  id: number
+  name: string
+  description?: string
+  models?: string[]
+  models_json?: string
+  total_tokens: number
+  input_ratio: number
+  output_ratio: number
+  cache_ratio: number
+  priority: number
+  duration_seconds: number
+  price_quota: number
+  status: string
+  sort_order: number
+}
+
+export type PurchaseModelTokenPackageSkuResponse = {
+  package: ModelTokenPackage
+  sku: ModelTokenPackageSku
+}
+
 export type QuotaOverviewPackageItem = {
   id: number
   name: string
@@ -400,6 +422,20 @@ export async function getSelfModelTokenPackages(
   const res = await api.get(
     `/api/user/model-token-packages?include_inactive=${includeInactive}`
   )
+  return res.data
+}
+
+export async function getSelfModelTokenPackageSkus(): Promise<
+  ApiResponse<ModelTokenPackageSku[]>
+> {
+  const res = await api.get('/api/user/model-token-package-skus')
+  return res.data
+}
+
+export async function purchaseModelTokenPackageSku(
+  skuId: number
+): Promise<ApiResponse<PurchaseModelTokenPackageSkuResponse>> {
+  const res = await api.post(`/api/user/model-token-package-skus/${skuId}/purchase`)
   return res.data
 }
 
