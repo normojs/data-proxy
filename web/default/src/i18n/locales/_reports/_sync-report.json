@@ -2,7 +2,7 @@
   "base": "en.json",
   "sourceLocale": "en",
   "baseStrategy": "source_locale_with_source_scan_and_locale_key_union",
-  "runtimeKeyCount": 5762,
+  "runtimeKeyCount": 5917,
   "sourceMissingRuntimeKeyCount": 0,
   "locales": {
     "en": {
@@ -17,7 +17,7 @@
       "file": "fr.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0,
+      "untranslatedCount": 24,
       "duplicateKeyCount": 0,
       "duplicateConflictCount": 0
     },
@@ -25,7 +25,7 @@
       "file": "ja.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0,
+      "untranslatedCount": 124,
       "duplicateKeyCount": 0,
       "duplicateConflictCount": 0
     },
@@ -33,7 +33,7 @@
       "file": "ru.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0,
+      "untranslatedCount": 124,
       "duplicateKeyCount": 0,
       "duplicateConflictCount": 0
     },
@@ -41,7 +41,7 @@
       "file": "vi.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0,
+      "untranslatedCount": 24,
       "duplicateKeyCount": 0,
       "duplicateConflictCount": 0
     },
@@ -49,7 +49,7 @@
       "file": "zh.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 0,
+      "untranslatedCount": 31,
       "duplicateKeyCount": 0,
       "duplicateConflictCount": 0
     }

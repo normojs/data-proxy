@@ -20,6 +20,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Package } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -154,12 +155,12 @@ export function ModelTokenPackagesCard() {
     try {
       const response = await purchaseModelTokenPackageSku(sku.id)
       if (!response.success) {
-        throw new Error(response.message || 'Purchase failed')
+        throw new Error(response.message || t('Purchase failed'))
       }
+      toast.success(t('Purchase succeeded'))
       await Promise.all([packagesQuery.refetch(), skusQuery.refetch()])
     } catch (error) {
-      // Keep UI simple: surface the server message via alert for now.
-      window.alert(
+      toast.error(
         error instanceof Error ? error.message : t('Purchase failed')
       )
     } finally {

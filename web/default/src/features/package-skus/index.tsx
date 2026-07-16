@@ -123,7 +123,10 @@ function formFromSku(sku: ModelTokenPackageSku): FormState {
   }
 }
 
-function payloadFromForm(form: FormState): ModelTokenPackageSkuPayload {
+function payloadFromForm(
+  form: FormState,
+  t: (key: string) => string
+): ModelTokenPackageSkuPayload {
   const models = form.modelsText
     .split(/[\n,]/)
     .map((item) => item.trim())
@@ -132,19 +135,19 @@ function payloadFromForm(form: FormState): ModelTokenPackageSkuPayload {
   const priceQuota = Math.floor(Number(form.priceQuota))
   const durationDays = Math.floor(Number(form.durationDays))
   if (!form.name.trim()) {
-    throw new Error('Name is required')
+    throw new Error(t('Name is required'))
   }
   if (models.length === 0) {
-    throw new Error('Please enter at least one model')
+    throw new Error(t('Please enter at least one model'))
   }
   if (!Number.isFinite(totalTokens) || totalTokens <= 0) {
-    throw new Error('Please enter a valid token amount')
+    throw new Error(t('Please enter a valid token amount'))
   }
   if (!Number.isFinite(priceQuota) || priceQuota < 0) {
-    throw new Error('Please enter a valid price in quota points')
+    throw new Error(t('Please enter a valid price in quota points'))
   }
   if (!Number.isFinite(durationDays) || durationDays < 0) {
-    throw new Error('Please enter a valid duration in days')
+    throw new Error(t('Please enter a valid duration in days'))
   }
   return {
     name: form.name.trim(),
@@ -189,7 +192,7 @@ export function PackageSkusPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const payload = payloadFromForm(form)
+      const payload = payloadFromForm(form, t)
       if (editing) {
         const result = await updateAdminModelTokenPackageSku(editing.id, payload)
         if (!result.success) {
@@ -219,7 +222,7 @@ export function PackageSkusPage() {
     onError: (error) => {
       toast.error(
         error instanceof Error
-          ? t(error.message)
+          ? error.message
           : t('Failed to save package SKU')
       )
     },
@@ -228,7 +231,7 @@ export function PackageSkusPage() {
   const toggleMutation = useMutation({
     mutationFn: async (sku: ModelTokenPackageSku) => {
       const nextStatus = sku.status === 'enabled' ? 'disabled' : 'enabled'
-      const payload = payloadFromForm(formFromSku(sku))
+      const payload = payloadFromForm(formFromSku(sku), t)
       payload.status = nextStatus
       const result = await updateAdminModelTokenPackageSku(sku.id, payload)
       if (!result.success) {
