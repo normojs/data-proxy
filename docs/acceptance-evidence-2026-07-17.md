@@ -137,3 +137,43 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 
 请尽快在控制台轮换/作废本次临时 Key。
 
+## 2026-07-17 续：错误路径 + 扣费解释字段验收
+
+版本：`sha-da5af9b2`  
+鉴权：临时 API Key（未入库）
+
+### 错误路径
+
+| 场景 | HTTP | 结果 | request id / 说明 |
+| --- | ---: | --- | --- |
+| messages 为空 | 500 | PASS | `202607161803212422585488268d9d6Qa24Vc1R`，`field messages is required` |
+| model 为空 | 400 | PASS | `202607161803213949652098268d9d67j17HDcL`，model name cannot be empty |
+| 无效 API Key | 401 | PASS | `202607161803215013376338268d9d6NyjYYaVi`，Invalid token |
+| 无效模型 | 503 | PASS | 已有 `model_not_found` 证据 |
+| 成功 chat | 200 | PASS | `202607161803221093046748268d9d6cFAhoH2p`，content=`验收通过` |
+
+### 扣费解释（API 层，`GET /api/log/token`）
+
+用 Key 可拉取该 token 的用量日志；成功请求已写入 funding 元数据：
+
+| request_id | path | funding_source | wallet_quota_deducted | package |
+| --- | --- | --- | ---: | --- |
+| `202607161803221093046748268d9d6cFAhoH2p` | `/v1/chat/completions` | wallet | 71 | 无 |
+| `2026071618032658360238268d9d6VvUjpAF9` | `/v1/responses` | wallet | 104 | 无 |
+| `202607161756103469800368268d9d6bGXfIAcT` | `/v1/chat/completions` | wallet | 71 | 无 |
+| `20260716175615583078728268d9d6wljEfdHV` | `/v1/responses` | wallet | 104 | 无 |
+
+附加观察：
+
+- `admin_info` 未出现在 token log 的 other 中（用户侧不泄露渠道细节）
+- `user_retry_summary` 本次均为空（未触发 failover，符合预期）
+- session 接口 `/api/user/quota-overview` 仍拒绝纯 API Key（需登录 session）
+
+### 对退出标准
+
+| 项 | 状态 |
+| --- | --- |
+| 3 分钟成功请求 | PASS（请求面） |
+| 扣费/拒绝可解释 | **API 层 PASS**：成功请求有 `funding_source`/`wallet_quota_deducted`；失败请求有 code+message+request id。前端详情弹窗需登录 UI 手测一次即可闭环 |
+| 额度总览四类资产 | PARTIAL（仍需登录 `/wallet`） |
+
