@@ -54,13 +54,15 @@
 
 ### P0-3 用户接入文档（3 分钟跑通）
 
-- [ ] 撰写《3 分钟接入》文档（独立 md，面向终端用户）
+- [x] 撰写《3 分钟接入》文档（独立 md，面向终端用户）
   - 验收：包含注册/登录 → 充值或获包 → 创建 Key → base_url + 示例 curl/Python → 常见客户端（Cursor/ChatGPT 兼容）配置
-- [ ] 写清当前协议边界（原生 Responses vs Chat-only、不支持的 hosted tools）
+  - 文档：`docs/user-quickstart.md`（站内静态 `/docs/user-quickstart.md`）
+- [x] 写清当前协议边界（原生 Responses vs Chat-only、不支持的 hosted tools）
   - 验收：不夸大兼容范围
-- [ ] 文档入口挂到站内（帮助/文档链接或钱包空态 CTA）
+- [x] 文档入口挂到站内（帮助/文档链接或钱包空态 CTA）
   - 验收：登录用户 2 次点击内可达
-- [ ] 附错误排查速查（401/403/余额不足/包不足）
+  - Dashboard 设置向导 / Keys Base URL / 钱包额度总览
+- [x] 附错误排查速查（401/403/余额不足/包不足）
 
 ### P0-4 错误文案人话化（403 / 包不足 / 企业拒绝）
 

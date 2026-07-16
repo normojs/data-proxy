@@ -163,15 +163,31 @@ export function QuotaOverviewCard(props: { compact?: boolean }) {
             )}
           </p>
         </div>
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          onClick={() => query.refetch()}
-          disabled={query.isFetching}
-        >
-          {t('Refresh')}
-        </Button>
+        <div className='flex flex-wrap items-center gap-2'>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            render={
+              <a
+                href='/docs/user-quickstart.md'
+                target='_blank'
+                rel='noopener noreferrer'
+              />
+            }
+          >
+            {t('3-minute setup')}
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={() => query.refetch()}
+            disabled={query.isFetching}
+          >
+            {t('Refresh')}
+          </Button>
+        </div>
       </div>
       <div className='grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-4'>
         <OverviewTile

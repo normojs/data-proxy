@@ -6658,6 +6658,8 @@
     "Package ratios": "包倍率",
     "Wallet deducted": "钱包扣减",
     "Token Package": "Token 包",
-    "Deducted by model token package": "由模型 Token 包扣减"
+    "Deducted by model token package": "由模型 Token 包扣减",
+    "3-minute setup": "3 分钟接入",
+    "How to call": "如何调用"
   }
 }

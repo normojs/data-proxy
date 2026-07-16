@@ -640,6 +640,20 @@ export function OverviewDashboard() {
                         <ChevronUp data-icon='inline-start' />
                         {t('Hide setup guide')}
                       </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        render={
+                          <a
+                            href='/docs/user-quickstart.md'
+                            target='_blank'
+                            rel='noopener noreferrer'
+                          />
+                        }
+                      >
+                        <BookOpen data-icon='inline-start' />
+                        {t('3-minute setup')}
+                      </Button>
                       <Button size='sm' render={<Link to='/keys' />}>
                         <KeyRound data-icon='inline-start' />
                         {t('Create API Key')}

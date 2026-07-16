@@ -31,13 +31,14 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import { useDebounce } from '@/hooks'
-import { Database, Globe2 } from 'lucide-react'
+import { BookOpen, Database, Globe2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useStatus } from '@/hooks/use-status'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { Button } from '@/components/ui/button'
 import {
   Empty,
   EmptyDescription,
@@ -373,6 +374,22 @@ export function ApiKeysTable() {
               {t('Copy')}
             </CopyButton>
           )}
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-7 gap-1 px-2 text-xs'
+            render={
+              <a
+                href='/docs/user-quickstart.md'
+                target='_blank'
+                rel='noopener noreferrer'
+              />
+            }
+          >
+            <BookOpen className='size-3.5' aria-hidden='true' />
+            {t('How to call')}
+          </Button>
         </div>
       </div>
       <DataTablePage
