@@ -19,6 +19,9 @@ import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as DownloadsIndexRouteImport } from './routes/downloads/index'
+import { Route as OauthAuthorizeRouteImport } from './routes/oauth/authorize'
+import { Route as ConnectDeviceRouteImport } from './routes/connect/device'
+import { Route as DevelopersIndexRouteImport } from './routes/developers/index'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as SnaplessDeviceRouteImport } from './routes/snapless/device'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
@@ -1207,6 +1210,9 @@ export interface RootRouteChildren {
   ConsoleTopupRoute: typeof ConsoleTopupRoute
   OauthProviderRoute: typeof OauthProviderRoute
   SnaplessDeviceRoute: typeof SnaplessDeviceRoute
+  ConnectDeviceRoute: typeof ConnectDeviceRoute
+  OauthAuthorizeRoute: typeof OauthAuthorizeRoute
+  DevelopersIndexRoute: typeof DevelopersIndexRoute
   AboutIndexRoute: typeof AboutIndexRoute
   DownloadsIndexRoute: typeof DownloadsIndexRoute
   PricingIndexRoute: typeof PricingIndexRoute
@@ -1953,6 +1959,9 @@ const rootRouteChildren: RootRouteChildren = {
   ConsoleTopupRoute: ConsoleTopupRoute,
   OauthProviderRoute: OauthProviderRoute,
   SnaplessDeviceRoute: SnaplessDeviceRoute,
+  ConnectDeviceRoute: ConnectDeviceRoute,
+  OauthAuthorizeRoute: OauthAuthorizeRoute,
+  DevelopersIndexRoute: DevelopersIndexRoute,
   AboutIndexRoute: AboutIndexRoute,
   DownloadsIndexRoute: DownloadsIndexRoute,
   PricingIndexRoute: PricingIndexRoute,
@@ -1965,6 +1974,24 @@ const rootRouteChildren: RootRouteChildren = {
   PricingModelIdIndexRoute: PricingModelIdIndexRoute,
   SSlugIndexRoute: SSlugIndexRoute,
 }
+
+const ConnectDeviceRoute = ConnectDeviceRouteImport.update({
+  id: '/connect/device',
+  path: '/connect/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+const OauthAuthorizeRoute = OauthAuthorizeRouteImport.update({
+  id: '/oauth/authorize',
+  path: '/oauth/authorize',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+const DevelopersIndexRoute = DevelopersIndexRouteImport.update({
+  id: '/developers/',
+  path: '/developers/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()

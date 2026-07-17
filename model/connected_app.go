@@ -16,7 +16,9 @@ const (
 	ConnectedAppStatusEnabled  = 1
 	ConnectedAppStatusDisabled = 2
 
-	ConnectedAppAuthorizationFlowDeviceCode = "device_code"
+	ConnectedAppAuthorizationFlowDeviceCode         = "device_code"
+	ConnectedAppAuthorizationFlowAuthorizationCode  = "authorization_code"
+	ConnectedAppAuthorizationFlowBoth               = "both"
 
 	ConnectedAppGrantStatusAuthorized = "authorized"
 	ConnectedAppGrantStatusRevoked    = "revoked"
@@ -33,6 +35,9 @@ const (
 	ConnectedAppAccessTokenStatusActive  = "active"
 	ConnectedAppAccessTokenStatusRevoked = "revoked"
 	ConnectedAppAccessTokenStatusExpired = "expired"
+
+	ConnectedAppAuthCodeStatusPending  = "pending"
+	ConnectedAppAuthCodeStatusConsumed = "consumed"
 )
 
 type ConnectedApp struct {
@@ -43,6 +48,9 @@ type ConnectedApp struct {
 	AllowedScopes     string `json:"allowed_scopes" gorm:"type:varchar(512);not null;default:''"`
 	DefaultScopes     string `json:"default_scopes" gorm:"type:varchar(512);not null;default:''"`
 	AuthorizationFlow string `json:"authorization_flow" gorm:"type:varchar(32);not null;default:'device_code'"`
+	ClientId          string `json:"client_id" gorm:"type:varchar(64);not null;default:'';index"`
+	ClientSecretHash  string `json:"-" gorm:"type:varchar(64);not null;default:''"`
+	RedirectURIs      string `json:"redirect_uris" gorm:"type:text"`
 	Trusted           bool   `json:"trusted" gorm:"not null;default:false"`
 	Status            int    `json:"status" gorm:"not null;default:1;index"`
 	CreatedAt         int64  `json:"created_at" gorm:"autoCreateTime"`
@@ -690,4 +698,145 @@ func DisableTokenWithTx(tx *gorm.DB, tokenId int, userId int) error {
 		return nil
 	}
 	return cacheDeleteToken(token.Key)
+}
+
+type ConnectedAppAuthCode struct {
+	Id                  int64  `json:"id" gorm:"primaryKey"`
+	CodeHash            string `json:"-" gorm:"type:varchar(64);not null;uniqueIndex"`
+	AppId               int    `json:"app_id" gorm:"not null;index"`
+	UserId              int    `json:"user_id" gorm:"not null;index"`
+	GrantId             int64  `json:"grant_id" gorm:"not null;default:0;index"`
+	RedirectURI         string `json:"redirect_uri" gorm:"type:varchar(512);not null;default:''"`
+	Scopes              string `json:"scopes" gorm:"type:varchar(512);not null;default:''"`
+	State               string `json:"state" gorm:"type:varchar(256);not null;default:''"`
+	Nonce               string `json:"nonce" gorm:"type:varchar(256);not null;default:''"`
+	CodeChallenge       string `json:"code_challenge" gorm:"type:varchar(128);not null;default:''"`
+	CodeChallengeMethod string `json:"code_challenge_method" gorm:"type:varchar(16);not null;default:'S256'"`
+	Status              string `json:"status" gorm:"type:varchar(32);not null;default:'pending';index"`
+	ExpiresAt           int64  `json:"expires_at" gorm:"bigint;not null;index"`
+	UsedAt              int64  `json:"used_at" gorm:"bigint;default:0"`
+	CreatedAt           int64  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt           int64  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (ConnectedAppAuthCode) TableName() string {
+	return "connected_app_auth_codes"
+}
+
+func (code *ConnectedAppAuthCode) ScopeList() []string {
+	if code == nil {
+		return []string{}
+	}
+	return splitConnectedAppScopes(code.Scopes)
+}
+
+func (app *ConnectedApp) RedirectURIList() []string {
+	if app == nil {
+		return []string{}
+	}
+	raw := strings.TrimSpace(app.RedirectURIs)
+	if raw == "" {
+		return []string{}
+	}
+	if strings.HasPrefix(raw, "[") {
+		var items []string
+		if err := common.UnmarshalJsonStr(raw, &items); err == nil {
+			out := make([]string, 0, len(items))
+			for _, item := range items {
+				item = strings.TrimSpace(item)
+				if item != "" {
+					out = append(out, item)
+				}
+			}
+			return out
+		}
+	}
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\n' || r == '\t' || r == ';'
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
+func (app *ConnectedApp) SupportsAuthorizationCode() bool {
+	if app == nil {
+		return false
+	}
+	flow := strings.TrimSpace(app.AuthorizationFlow)
+	return flow == ConnectedAppAuthorizationFlowAuthorizationCode || flow == ConnectedAppAuthorizationFlowBoth
+}
+
+func (app *ConnectedApp) SupportsDeviceCode() bool {
+	if app == nil {
+		return false
+	}
+	flow := strings.TrimSpace(app.AuthorizationFlow)
+	return flow == "" || flow == ConnectedAppAuthorizationFlowDeviceCode || flow == ConnectedAppAuthorizationFlowBoth
+}
+
+func (app *ConnectedApp) PublicClientID() string {
+	if app == nil {
+		return ""
+	}
+	if id := strings.TrimSpace(app.ClientId); id != "" {
+		return id
+	}
+	return strings.TrimSpace(app.Slug)
+}
+
+func GetConnectedAppByClientID(clientID string) (*ConnectedApp, error) {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var app ConnectedApp
+	err := DB.Where("client_id = ? OR slug = ?", clientID, clientID).First(&app).Error
+	if err != nil {
+		return nil, err
+	}
+	return &app, nil
+}
+
+func CreateConnectedAppAuthCode(tx *gorm.DB, code *ConnectedAppAuthCode) error {
+	if tx == nil {
+		tx = DB
+	}
+	if code.Status == "" {
+		code.Status = ConnectedAppAuthCodeStatusPending
+	}
+	return tx.Create(code).Error
+}
+
+func ConsumeConnectedAppAuthCode(tx *gorm.DB, codeHash string, now int64) (*ConnectedAppAuthCode, error) {
+	if tx == nil {
+		tx = DB
+	}
+	var code ConnectedAppAuthCode
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("code_hash = ? AND status = ? AND expires_at > ?", codeHash, ConnectedAppAuthCodeStatusPending, now).
+		First(&code).Error; err != nil {
+		return nil, err
+	}
+	res := tx.Model(&ConnectedAppAuthCode{}).
+		Where("id = ? AND status = ?", code.Id, ConnectedAppAuthCodeStatusPending).
+		Updates(map[string]any{
+			"status":     ConnectedAppAuthCodeStatusConsumed,
+			"used_at":    now,
+			"updated_at": now,
+		})
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	code.Status = ConnectedAppAuthCodeStatusConsumed
+	code.UsedAt = now
+	return &code, nil
 }

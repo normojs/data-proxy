@@ -16,24 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { z } from 'zod'
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
+import { DevelopersPage } from '@/features/developers'
 
-const searchSchema = z.object({
-  user_code: z.string().optional(),
-  app_slug: z.string().optional(),
-})
-
-export const Route = createFileRoute('/snapless/device')({
-  validateSearch: searchSchema,
-  beforeLoad: ({ search }) => {
-    throw redirect({
-      to: '/connect/device',
-      search: {
-        user_code: search.user_code,
-        app_slug: search.app_slug,
-      },
-      replace: true,
-    })
-  },
+export const Route = createFileRoute('/developers/')({
+  component: DevelopersPage,
 })

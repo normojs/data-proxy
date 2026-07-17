@@ -284,10 +284,14 @@ func normalizeConnectedAppAuthorizationFlow(flow string) (string, error) {
 	if normalized == "" {
 		return model.ConnectedAppAuthorizationFlowDeviceCode, nil
 	}
-	if normalized != model.ConnectedAppAuthorizationFlowDeviceCode {
+	switch normalized {
+	case model.ConnectedAppAuthorizationFlowDeviceCode,
+		model.ConnectedAppAuthorizationFlowAuthorizationCode,
+		model.ConnectedAppAuthorizationFlowBoth:
+		return normalized, nil
+	default:
 		return "", fmt.Errorf("connected app authorization_flow is not supported")
 	}
-	return normalized, nil
 }
 
 func buildConnectedAppResponse(app model.ConnectedApp) (connectedAppResponse, error) {

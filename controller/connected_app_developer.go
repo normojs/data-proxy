@@ -1642,7 +1642,7 @@ func connectedAppVerificationURI(c *gin.Context, app *model.ConnectedApp, userCo
 	if app != nil && app.Slug != model.ConnectedAppSlugSnapless {
 		values.Set("app_slug", app.Slug)
 	}
-	return base + "/snapless/device?" + values.Encode()
+	return base + "/connect/device?" + values.Encode()
 }
 
 func connectedAppDeviceFlowEndpoints(c *gin.Context, app *model.ConnectedApp) map[string]string {

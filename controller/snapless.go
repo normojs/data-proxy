@@ -1759,7 +1759,7 @@ func snaplessVerificationURI(c *gin.Context, userCode string) string {
 	base := snaplessServerBaseURL(c)
 	values := url.Values{}
 	values.Set("user_code", normalizeSnaplessUserCode(userCode))
-	return base + "/snapless/device?" + values.Encode()
+	return base + "/connect/device?" + values.Encode()
 }
 
 func snaplessServerBaseURL(c *gin.Context) string {

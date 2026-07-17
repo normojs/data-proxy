@@ -437,6 +437,17 @@ func buildConnectedAppFromReviewPayload(request model.ConnectedAppRequest, req c
 			return model.ConnectedApp{}, err
 		}
 	}
+	callbackURL := strings.TrimSpace(request.CallbackURL)
+	if req.CallbackURL != nil {
+		callbackURL = strings.TrimSpace(*req.CallbackURL)
+	}
+	// Website OAuth clients need at least one redirect URI. Device-only apps may leave it empty.
+	if normalizedFlow == model.ConnectedAppAuthorizationFlowAuthorizationCode ||
+		normalizedFlow == model.ConnectedAppAuthorizationFlowBoth {
+		if callbackURL == "" {
+			return model.ConnectedApp{}, fmt.Errorf("callback_url is required for authorization_code apps")
+		}
+	}
 	return model.ConnectedApp{
 		Slug:              request.Slug,
 		Name:              normalizedName,
@@ -444,6 +455,8 @@ func buildConnectedAppFromReviewPayload(request model.ConnectedAppRequest, req c
 		AllowedScopes:     strings.Join(normalizedAllowedScopes, " "),
 		DefaultScopes:     strings.Join(normalizedDefaultScopes, " "),
 		AuthorizationFlow: normalizedFlow,
+		ClientId:          request.Slug,
+		RedirectURIs:      callbackURL,
 		Trusted:           true,
 		Status:            model.ConnectedAppStatusEnabled,
 	}, nil

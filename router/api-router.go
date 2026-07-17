@@ -110,6 +110,13 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/oauth/wechat/bind", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.WeChatBind)
 		apiRouter.GET("/oauth/telegram/login", middleware.CriticalRateLimit(), controller.TelegramLogin)
 		apiRouter.GET("/oauth/telegram/bind", middleware.CriticalRateLimit(), controller.TelegramBind)
+		// Connected App IdP (Data Proxy as authorization server) — before :provider wildcard
+		apiRouter.GET("/oauth/authorize/validate", middleware.CriticalRateLimit(), controller.ValidateConnectedAppOAuthAuthorize)
+		apiRouter.POST("/oauth/consent", middleware.UserAuth(), middleware.CriticalRateLimit(), controller.ConsentConnectedAppOAuth)
+		apiRouter.POST("/oauth/token", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ExchangeConnectedAppOAuthToken)
+		apiRouter.GET("/oauth/userinfo", middleware.CriticalRateLimit(), controller.GetConnectedAppOAuthUserInfo)
+		apiRouter.GET("/oauth/jwks.json", controller.GetConnectedAppJWKS)
+		apiRouter.GET("/.well-known/openid-configuration", controller.GetConnectedAppOpenIDConfiguration)
 		// Standard OAuth providers (GitHub, Discord, OIDC, LinuxDO) - unified route
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimit(), controller.HandleOAuth)
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
