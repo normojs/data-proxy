@@ -37,6 +37,8 @@ type OAuthProvidersProps = {
   className?: string
   redirectTo?: string
   showTelegram?: boolean
+  /** Hide the "Or continue with" divider when this block is the primary action. */
+  hideDivider?: boolean
   onWeChatLogin?: () => void
   isWeChatLoading?: boolean
 }
@@ -55,6 +57,7 @@ export function OAuthProviders({
   className,
   redirectTo,
   showTelegram = true,
+  hideDivider = false,
   onWeChatLogin,
   isWeChatLoading = false,
 }: OAuthProvidersProps) {
@@ -149,16 +152,18 @@ export function OAuthProviders({
 
   return (
     <div className={cn('space-y-3', className)}>
-      <div className='relative'>
-        <div className='absolute inset-0 flex items-center'>
-          <span className='w-full border-t' />
+      {!hideDivider ? (
+        <div className='relative'>
+          <div className='absolute inset-0 flex items-center'>
+            <span className='w-full border-t' />
+          </div>
+          <div className='relative flex justify-center text-xs uppercase'>
+            <span className='bg-background text-muted-foreground px-2'>
+              {t('Or continue with')}
+            </span>
+          </div>
         </div>
-        <div className='relative flex justify-center text-xs uppercase'>
-          <span className='bg-background text-muted-foreground px-2'>
-            {t('Or continue with')}
-          </span>
-        </div>
-      </div>
+      ) : null}
 
       <div className='flex flex-col gap-2'>
         {providerButtons.map(

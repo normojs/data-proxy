@@ -35,6 +35,17 @@ export function SignIn() {
           <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>
             {t('Sign in')}
           </h2>
+          <p className='text-muted-foreground text-left text-sm sm:text-base'>
+            {t('Prefer a third-party account?')}{' '}
+            <Link
+              to='/oauth-login'
+              search={redirect ? { redirect } : undefined}
+              className='hover:text-primary font-medium underline underline-offset-4'
+            >
+              {t('Sign in with a third-party account')}
+            </Link>
+            .
+          </p>
           {!status?.self_use_mode_enabled &&
             status?.register_enabled !== false && (
               <p className='text-muted-foreground text-left text-sm sm:text-base'>

@@ -32,6 +32,7 @@ import { Route as errors403RouteImport } from './routes/(errors)/403'
 import { Route as errors401RouteImport } from './routes/(errors)/401'
 import { Route as authSignUpRouteImport } from './routes/(auth)/sign-up'
 import { Route as authSignInRouteImport } from './routes/(auth)/sign-in'
+import { Route as authOauthLoginRouteImport } from './routes/(auth)/oauth-login'
 import { Route as authResetRouteImport } from './routes/(auth)/reset'
 import { Route as authRegisterRouteImport } from './routes/(auth)/register'
 import { Route as authOtpRouteImport } from './routes/(auth)/otp'
@@ -198,6 +199,11 @@ const authSignUpRoute = authSignUpRouteImport.update({
 const authSignInRoute = authSignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
+  getParentRoute: () => authRouteRoute,
+} as any)
+const authOauthLoginRoute = authOauthLoginRouteImport.update({
+  id: '/oauth-login',
+  path: '/oauth-login',
   getParentRoute: () => authRouteRoute,
 } as any)
 const authResetRoute = authResetRouteImport.update({
@@ -726,6 +732,7 @@ export interface FileRoutesByFullPath {
   '/register': typeof authRegisterRoute
   '/reset': typeof authResetRoute
   '/sign-in': typeof authSignInRoute
+  '/oauth-login': typeof authOauthLoginRoute
   '/sign-up': typeof authSignUpRoute
   '/401': typeof errors401Route
   '/403': typeof errors403Route
@@ -801,6 +808,7 @@ export interface FileRoutesByTo {
   '/register': typeof authRegisterRoute
   '/reset': typeof authResetRoute
   '/sign-in': typeof authSignInRoute
+  '/oauth-login': typeof authOauthLoginRoute
   '/sign-up': typeof authSignUpRoute
   '/401': typeof errors401Route
   '/403': typeof errors403Route
@@ -881,6 +889,7 @@ export interface FileRoutesById {
   '/(auth)/register': typeof authRegisterRoute
   '/(auth)/reset': typeof authResetRoute
   '/(auth)/sign-in': typeof authSignInRoute
+  '/(auth)/oauth-login': typeof authOauthLoginRoute
   '/(auth)/sign-up': typeof authSignUpRoute
   '/(errors)/401': typeof errors401Route
   '/(errors)/403': typeof errors403Route
@@ -960,6 +969,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset'
     | '/sign-in'
+    | '/oauth-login'
     | '/sign-up'
     | '/401'
     | '/403'
@@ -1035,6 +1045,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset'
     | '/sign-in'
+    | '/oauth-login'
     | '/sign-up'
     | '/401'
     | '/403'
@@ -1114,6 +1125,7 @@ export interface FileRouteTypes {
     | '/(auth)/register'
     | '/(auth)/reset'
     | '/(auth)/sign-in'
+    | '/(auth)/oauth-login'
     | '/(auth)/sign-up'
     | '/(errors)/401'
     | '/(errors)/403'
@@ -1369,6 +1381,13 @@ declare module '@tanstack/react-router' {
       path: '/sign-in'
       fullPath: '/sign-in'
       preLoaderRoute: typeof authSignInRouteImport
+      parentRoute: typeof authRouteRoute
+    }
+    '/(auth)/oauth-login': {
+      id: '/(auth)/oauth-login'
+      path: '/oauth-login'
+      fullPath: '/oauth-login'
+      preLoaderRoute: typeof authOauthLoginRouteImport
       parentRoute: typeof authRouteRoute
     }
     '/(auth)/reset': {
@@ -1755,6 +1774,7 @@ declare module '@tanstack/react-router' {
 interface authRouteRouteChildren {
   authForgotPasswordRoute: typeof authForgotPasswordRoute
   authOauthRoute: typeof authOauthRoute
+  authOauthLoginRoute: typeof authOauthLoginRoute
   authOtpRoute: typeof authOtpRoute
   authRegisterRoute: typeof authRegisterRoute
   authResetRoute: typeof authResetRoute
@@ -1766,6 +1786,7 @@ interface authRouteRouteChildren {
 const authRouteRouteChildren: authRouteRouteChildren = {
   authForgotPasswordRoute: authForgotPasswordRoute,
   authOauthRoute: authOauthRoute,
+  authOauthLoginRoute: authOauthLoginRoute,
   authOtpRoute: authOtpRoute,
   authRegisterRoute: authRegisterRoute,
   authResetRoute: authResetRoute,
