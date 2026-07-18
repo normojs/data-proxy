@@ -254,3 +254,16 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
   - `GET /agent/install-data-proxy-agent.sh` 同上
 - 旧镜像归档：`image-archive/20260718T195728Z_data-proxy_dcc267e8.tar`
 
+## 2026-07-19：部署 `sha-5f695ffe`（OIDC 根路径 discovery/JWKS）
+
+- 提交：`5f695ffe` fix(idp): expose OIDC discovery and JWKS at site root
+- Package CI：run `29659231600` success
+- Electerm 主机：`47.122.29.88`，执行 `./data-proxy-remote-deploy-5f695ffe.sh`
+- 生产版本：`x-new-api-version: sha-5f695ffe`；`/api/status` success
+- 公网验收：
+  - `GET /.well-known/openid-configuration` → JSON（issuer/jwks/authorize/token）**非 SPA**
+  - `GET /oauth/jwks.json` → `keys=1` kid=`dp-oidc-1`
+  - `GET /agent/install.sh` 仍为 shell
+- production smoke（无 API Key）：`api_status=passed`
+- 旧镜像归档：`image-archive/20260718T202638Z_data-proxy_07847f30.tar`
+
