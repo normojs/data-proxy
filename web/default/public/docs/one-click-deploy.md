@@ -37,13 +37,14 @@ cp .env.example.minimal .env.production
 # 编辑 .env.production：SESSION_SECRET、SQL_DSN、FRONTEND_BASE_URL 等
 
 mkdir -p secrets/wechatpay data logs
-# 拉取/导入镜像后：
+# 拉取/导入镜像后（在仓库根目录执行；prod-compose.sh 会定位到代码根）：
+export DATA_PROXY_IMAGE=ghcr.io/normojs/data-proxy:<tag>   # 或本地已 load 的 tag
 ./scripts/prod-compose.sh up -d
 # 或：
 # docker compose -f docker-compose.prod.yml -f docker-compose.wechat-pay.yml --env-file .env.production up -d
 ```
 
-健康检查（默认绑定 `127.0.0.1:13002`）：
+健康检查（默认绑定 `127.0.0.1:13002`；端口被占用时改 `DATA_PROXY_HOST_PORT`）：
 
 ```bash
 curl -s http://127.0.0.1:13002/api/status
