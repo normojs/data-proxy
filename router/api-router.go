@@ -13,6 +13,11 @@ import (
 )
 
 func SetApiRouter(router *gin.Engine) {
+	// OIDC discovery paths that RP clients probe at the site root (not under /api).
+	// Must be registered before the SPA NoRoute fallback in SetWebRouter.
+	router.GET("/.well-known/openid-configuration", middleware.RouteTag("api"), controller.GetConnectedAppOpenIDConfiguration)
+	router.GET("/oauth/jwks.json", middleware.RouteTag("api"), controller.GetConnectedAppJWKS)
+
 	apiRouter := router.Group("/api")
 	apiRouter.Use(middleware.RouteTag("api"))
 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
