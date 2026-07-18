@@ -316,7 +316,7 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 | 审计 | error log ch=21 + consume log ch=18 + `channel_failover` |
 | 清理 | 坏渠道删除，`RetryTimes` 恢复 0 |
 
-运维备注：生产默认 `RetryTimes=0`，长期开启需按 `docs/channel-failover-and-circuit-breaker.md` 固化。
+运维备注：演练后曾恢复 `RetryTimes=0`；**2026-07-19 已按安全预设长期固化** `RetryTimes=1` 及健康/熔断参数，见 `docs/p1-retrytimes-persist-evidence-2026-07-19.md`。
 
 ## 2026-07-19：P1-3 一条 compose 部署路径
 
@@ -333,4 +333,16 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 | 清理 | compose down，临时密钥删除 |
 
 P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
+
+## 2026-07-19：生产固化安全故障切换预设
+
+版本：`sha-5f695ffe`  
+证据：`docs/p1-retrytimes-persist-evidence-2026-07-19.md`
+
+| 项 | 结果 |
+| --- | --- |
+| 变更前 | `options.RetryTimes=0`，其余健康键无行 |
+| 变更后 | `RetryTimes=1` + 安全预设 10 键已写入 |
+| 进程 | `syncing options from database` 持续出现（约 60s） |
+| 范围 | 仅 options；未改渠道/用户 |
 

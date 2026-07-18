@@ -77,7 +77,7 @@ DATA_PROXY_LOCAL_FAILOVER_OUTPUT=/tmp/p1-e2e/local-failover-smoke.md \
 
 ## 说明
 
-- 生产默认 `RetryTimes=0` 时**不会**跨渠道重试；演练证明「配置开启后」可自动避开坏渠道。运维上需按 `docs/channel-failover-and-circuit-breaker.md` 将 `RetryTimes>=1` 与安全预设固化，否则默认关闭。
+- 演练当时结束后将 `RetryTimes` 恢复为 `0`（默认不跨渠道重试）。**2026-07-19 已按** `docs/channel-failover-and-circuit-breaker.md` **将安全预设长期写入生产**（`RetryTimes=1` 等），见 `docs/p1-retrytimes-persist-evidence-2026-07-19.md`。
 - 裸 SQL 插入渠道不会刷新内存 cache，生产演练必须走 `POST /api/channel/`（或等价会 `InitChannelCache` 的路径）。
 - 本地 smoke 已覆盖完整 trace / diagnostic candidate；生产侧以 usage log 的 `channel_failover` + 双 channel_id 为审计证据。
 

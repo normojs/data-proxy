@@ -163,7 +163,7 @@
   - 2026-07-19 PASS：公网 one-click 文档 + compose config + 隔离 compose up/status/setup/login/token；证据 `docs/p1-compose-deploy-e2e-evidence-2026-07-19.md`
 - [x] 坏渠道在配置开启后可自动避开并有审计
   - 2026-07-19 PASS：本地 smoke + 生产临时坏渠道 failover（rid `…zVjlw3Sh`，21→18）；证据 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md`
-  - 注意：生产默认 `RetryTimes=0`，需按 channel-failover 文档固化 `RetryTimes>=1`
+  - 2026-07-19 运维固化：生产 `options` 已写入安全故障切换预设（`RetryTimes=1` + Disable on failure 等）；证据 `docs/p1-retrytimes-persist-evidence-2026-07-19.md`
 
 ---
 
@@ -250,3 +250,4 @@
 | P1-2 模型广场测通 | 2026-07-19 | `sha-5f695ffe` | pricing 复制 + chat/provider-check；见 `docs/p1-model-market-probe-e2e-evidence-2026-07-19.md` |
 | P1-4 坏渠道 failover 演练 | 2026-07-19 | `sha-5f695ffe` | 本地 smoke + 生产 21→18；见 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md` |
 | P1-3 compose 部署路径复验 | 2026-07-19 | local e2e | 文档+compose config+隔离 up/setup/token；见 `docs/p1-compose-deploy-e2e-evidence-2026-07-19.md` |
+| 生产安全故障切换预设固化 | 2026-07-19 | `sha-5f695ffe` | options `RetryTimes=1` + 健康/熔断键；见 `docs/p1-retrytimes-persist-evidence-2026-07-19.md` |

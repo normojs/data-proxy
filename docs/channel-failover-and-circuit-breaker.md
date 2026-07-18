@@ -25,6 +25,8 @@ Max cooldown=10
 
 主开关默认可关；应用预设会打开「Disable on failure」，请确认后再保存。
 
+生产 `https://dp.app.mbu.ltd`（`sha-5f695ffe`）已于 2026-07-19 按上表写入 `options` 并经 `SyncOptions` 加载；证据见 `docs/p1-retrytimes-persist-evidence-2026-07-19.md`。新环境仍建议在 Monitoring 页点一次预设并保存。
+
 ---
 
 Data Proxy supports single-node channel failover for channels that serve the same model. The feature is controlled by global retry settings, channel auto-disable settings, and runtime temporary circuit breaking.
