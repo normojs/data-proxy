@@ -64,18 +64,38 @@ export function DevelopersPage() {
             </p>
           </div>
           <div className='flex flex-wrap gap-2'>
-            <Button asChild>
-              <Link to='/profile'>{t('Open developer tools')}</Link>
+            <Button render={<Link to='/profile' />}>
+              {t('Open developer tools')}
             </Button>
-            <Button asChild variant='outline'>
-              <Link to='/sign-in' search={{ redirect: '/developers' }}>
-                {t('Sign in to apply')}
-              </Link>
+            <Button
+              variant='outline'
+              render={<Link to='/sign-in' search={{ redirect: '/developers' }} />}
+            >
+              {t('Sign in to apply')}
             </Button>
-            <Button asChild variant='ghost'>
-              <a href='/docs/user-quickstart.md' target='_blank' rel='noreferrer'>
-                {t('API quickstart')}
-              </a>
+            <Button
+              variant='ghost'
+              render={
+                <a
+                  href='/docs/user-quickstart.md'
+                  target='_blank'
+                  rel='noreferrer'
+                />
+              }
+            >
+              {t('API quickstart')}
+            </Button>
+            <Button
+              variant='ghost'
+              render={
+                <a
+                  href='/docs/niaoweisi-desktop-api-reference.md'
+                  target='_blank'
+                  rel='noreferrer'
+                />
+              }
+            >
+              {t('Desktop agent API (quota / pricing)')}
             </Button>
           </div>
         </section>

@@ -231,6 +231,7 @@ func LinuxdoOAuth(c *gin.Context) {
 				if affCode != nil {
 					inviterId, _ = model.GetUserIdByAffCode(affCode.(string))
 				}
+				applySignupConnectedAppFromSession(session, &user)
 
 				if err := user.Insert(inviterId); err != nil {
 					c.JSON(http.StatusOK, gin.H{

@@ -212,6 +212,10 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/oauth/bindings", controller.GetUserOAuthBindings)
 				selfRoute.DELETE("/oauth/bindings/:provider_id", controller.UnbindCustomOAuth)
 				selfRoute.DELETE("/bindings/:binding_type", controller.ClearSelfUserBinding)
+
+				// Connected app authorizations (cross-app grants)
+				selfRoute.GET("/connected-app-grants", controller.ListSelfConnectedAppGrants)
+				selfRoute.DELETE("/connected-app-grants/:app_id", controller.RevokeSelfConnectedAppGrant)
 			}
 
 			adminRoute := userRoute.Group("/")

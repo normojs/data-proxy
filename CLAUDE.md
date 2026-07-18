@@ -138,3 +138,25 @@ When working on tiered/dynamic billing (expression-based pricing), you MUST read
 ### Rule 8: data-proxy MCP / Bridge / OpenAPI Work — Read `docs/ai-code-rules.md`
 
 When working on the current data-proxy MCP, Bridge, OpenAPI import/execution, MCP billing, or operations dashboard tasks, you MUST read `docs/ai-code-rules.md` first. It defines the current project boundary, explicitly excludes QidianBrowser product-client work, maps the relevant modules, and lists the required smoke tests and safety checks for Bridge daemon, MCP Proxy, OpenAPI binary downloads, billing events, and the MCP operations dashboard.
+
+### Rule 9: Connected App / OAuth IdP Work — Read `docs/ai-code-rules-idp.md`
+
+When working on Connected Apps, Device Code, OAuth2/OIDC authorize/consent/token, client secrets, user grants, signup attribution, or desktop Agent integration (niaoweisi/snapless/codex-dp), you MUST read `docs/ai-code-rules-idp.md` first. Prefer project skills `data-proxy-idp`, `data-proxy-review-todo`, and `data-proxy-verify`. Open review debt lives in `todo.md` under **Connected App / OAuth IdP**.
+
+## Task routing (what to read / run)
+
+| Task type | Must read | Prefer skill | Minimum verify |
+| --- | --- | --- | --- |
+| MCP / Bridge / OpenAPI | `docs/ai-code-rules.md` | (mcp skill when added) | `make mcp-regression` or relevant `make mcp-*` |
+| Connected App / OAuth IdP / Device | `docs/ai-code-rules-idp.md`, `docs/data-proxy-as-idp.md` | `data-proxy-idp` | `go test` controller/service/model/middleware/router; FE typecheck if UI |
+| IdP review debt / security fixes | `docs/ai-code-rules-idp.md`, `todo.md` open items | `data-proxy-review-todo` | same as IdP + mark todo only after evidence |
+| Billing expression pricing | `pkg/billingexpr/expr.md` | — | package tests for billingexpr/service |
+| Frontend `web/default` | i18n rules in this file | — | `cd web/default && bun run typecheck` |
+| Release / deploy | `docs/deployment-readiness.md` | — | `make deployment-preflight` (or document blocked gates) |
+| Claiming done / commit-ready | — | `data-proxy-verify` (+ Superpowers verification-before-completion) | fresh commands this turn |
+
+## Claude project tooling
+
+- Project plugins: see `.claude/settings.json` and `.claude/PLUGIN_USAGE.md` (superpowers, security-guidance).
+- Project skills: `.claude/skills/*/SKILL.md` (`data-proxy-verify`, `data-proxy-idp`, `data-proxy-review-todo`).
+- Restart the Claude session after plugin/skill changes so they load.

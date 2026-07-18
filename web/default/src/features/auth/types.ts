@@ -38,6 +38,8 @@ export interface RegisterPayload {
   email?: string
   verification_code?: string
   aff_code?: string
+  /** Connected App slug or id for registration attribution */
+  signup_app?: string
   invite_code?: string
   turnstile?: string
 }

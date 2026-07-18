@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import {
@@ -40,6 +40,7 @@ import {
   DataTablePage,
 } from '@/components/data-table'
 import { getUsers, searchUsers } from '../api'
+import { listConnectedApps } from '@/features/system-settings/operations/connected-apps-api'
 import {
   USER_STATUS,
   getUserStatusOptions,
@@ -59,7 +60,6 @@ function isDisabledUserRow(user: User) {
 
 export function UsersTable() {
   const { t } = useTranslation()
-  const columns = useUsersColumns()
   const { refreshTrigger } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [rowSelection, setRowSelection] = useState({})
@@ -83,6 +83,16 @@ export function UsersTable() {
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'string' },
+      {
+        columnId: 'connected_app_id',
+        searchKey: 'connected_app_id',
+        type: 'array',
+      },
+      {
+        columnId: 'signup_app_id',
+        searchKey: 'signup_app_id',
+        type: 'array',
+      },
     ],
   })
   const statusFilter =
@@ -96,8 +106,37 @@ export function UsersTable() {
   const groupFilter =
     (columnFilters.find((filter) => filter.id === 'group')?.value as string) ??
     ''
+  const connectedAppFilterRaw = columnFilters.find(
+    (filter) => filter.id === 'connected_app_id'
+  )?.value
+  const signupAppFilterRaw = columnFilters.find(
+    (filter) => filter.id === 'signup_app_id'
+  )?.value
+  const connectedAppFilter = Array.isArray(connectedAppFilterRaw)
+    ? String(connectedAppFilterRaw[0] ?? '')
+    : String(connectedAppFilterRaw ?? '')
+  const signupAppFilter = Array.isArray(signupAppFilterRaw)
+    ? String(signupAppFilterRaw[0] ?? '')
+    : String(signupAppFilterRaw ?? '')
   const statusValue = statusFilter[0] ?? ''
   const roleValue = roleFilter[0] ?? ''
+
+  const appsQuery = useQuery({
+    queryKey: ['connected-apps', 'user-filter'],
+    queryFn: listConnectedApps,
+    staleTime: 60_000,
+  })
+
+  const columns = useUsersColumns(
+    useMemo(() => {
+      const map: Record<number, { id: number; name: string; slug?: string }> =
+        {}
+      for (const app of appsQuery.data ?? []) {
+        map[app.id] = { id: app.id, name: app.name, slug: app.slug }
+      }
+      return map
+    }, [appsQuery.data])
+  )
 
   // Fetch data with React Query
   const { data, isLoading, isFetching } = useQuery({
@@ -109,12 +148,18 @@ export function UsersTable() {
       statusValue,
       roleValue,
       groupFilter,
+      connectedAppFilter,
+      signupAppFilter,
       refreshTrigger,
     ],
     queryFn: async () => {
       const hasFilter = globalFilter?.trim()
       const hasColumnFilter =
-        statusValue !== '' || roleValue !== '' || Boolean(groupFilter)
+        statusValue !== '' ||
+        roleValue !== '' ||
+        Boolean(groupFilter) ||
+        Boolean(connectedAppFilter) ||
+        Boolean(signupAppFilter)
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -128,6 +173,8 @@ export function UsersTable() {
               status: statusValue,
               role: roleValue,
               group: groupFilter,
+              connected_app_id: connectedAppFilter,
+              signup_app_id: signupAppFilter,
             })
           : await getUsers(params)
 
@@ -194,6 +241,15 @@ export function UsersTable() {
     ensurePageInRange(pageCount)
   }, [pageCount, ensurePageInRange])
 
+  const appFilterOptions = useMemo(
+    () =>
+      (appsQuery.data ?? []).map((app) => ({
+        label: `${app.name} (${app.slug})`,
+        value: String(app.id),
+      })),
+    [appsQuery.data]
+  )
+
   return (
     <DataTablePage
       table={table}
@@ -218,6 +274,18 @@ export function UsersTable() {
             columnId: 'role',
             title: t('Role'),
             options: getUserRoleOptions(t),
+            singleSelect: true,
+          },
+          {
+            columnId: 'connected_app_id',
+            title: t('Authorized app'),
+            options: appFilterOptions,
+            singleSelect: true,
+          },
+          {
+            columnId: 'signup_app_id',
+            title: t('Signup app'),
+            options: appFilterOptions,
             singleSelect: true,
           },
         ],

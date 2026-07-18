@@ -103,9 +103,18 @@ export function buildHStationOAuthUrl(
 export async function getOAuthState(): Promise<string | null> {
   try {
     let path = '/api/oauth/state'
+    const params = new URLSearchParams()
     const affCode = localStorage.getItem('aff')
     if (affCode && affCode.length > 0) {
-      path += `?aff=${affCode}`
+      params.set('aff', affCode)
+    }
+    const signupApp = localStorage.getItem('signup_app')
+    if (signupApp && signupApp.length > 0) {
+      params.set('signup_app', signupApp)
+    }
+    const qs = params.toString()
+    if (qs) {
+      path += `?${qs}`
     }
     const res = await api.get(path)
     if (res.data.success) {

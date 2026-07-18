@@ -37,13 +37,21 @@ import { parseUserTokenGroups } from '../lib'
 import { type User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 
+export type ConnectedAppLabel = {
+  id: number
+  name: string
+  slug?: string
+}
+
 function getQuotaProgressColor(percentage: number): string {
   if (percentage <= 10) return '[&_[data-slot=progress-indicator]]:bg-rose-500'
   if (percentage <= 30) return '[&_[data-slot=progress-indicator]]:bg-amber-500'
   return '[&_[data-slot=progress-indicator]]:bg-emerald-500'
 }
 
-export function useUsersColumns(): ColumnDef<User>[] {
+export function useUsersColumns(
+  appsById: Record<number, ConnectedAppLabel> = {}
+): ColumnDef<User>[] {
   const { t } = useTranslation()
   return [
     {
@@ -464,6 +472,42 @@ export function useUsersColumns(): ColumnDef<User>[] {
       },
       meta: { label: t('Last Login'), mobileHidden: true },
     },
+      {
+        id: 'connected_app_id',
+        accessorFn: () => '',
+        header: () => null,
+        cell: () => null,
+        enableHiding: false,
+        enableSorting: false,
+        meta: { label: t('Authorized app'), className: 'hidden' },
+      },
+      {
+        id: 'signup_app_id',
+        accessorKey: 'signup_connected_app_id',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title={t('Signup app')} />
+        ),
+        cell: ({ row }) => {
+          const id = row.original.signup_connected_app_id
+          if (!id) {
+            return <span className='text-muted-foreground'>-</span>
+          }
+          const app = appsById[id]
+          if (!app) {
+            return <span className='font-mono text-xs'>#{id}</span>
+          }
+          return (
+            <div className='flex min-w-0 flex-col'>
+              <span className='truncate text-sm'>{app.name || app.slug}</span>
+              <span className='text-muted-foreground font-mono text-[10px]'>
+                #{id}
+                {app.slug ? ` · ${app.slug}` : ''}
+              </span>
+            </div>
+          )
+        },
+        meta: { label: t('Signup app') },
+      },
     {
       id: 'actions',
       cell: ({ row }) => <DataTableRowActions row={row} />,

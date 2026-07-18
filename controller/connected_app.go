@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -25,6 +26,9 @@ type connectedAppRequest struct {
 	AllowedScopes     []string `json:"allowed_scopes"`
 	DefaultScopes     []string `json:"default_scopes"`
 	AuthorizationFlow string   `json:"authorization_flow"`
+	RedirectURIs      []string `json:"redirect_uris"`
+	ClientType        string   `json:"client_type"` // public | confidential
+	RotateSecret      bool     `json:"rotate_secret"`
 	Trusted           *bool    `json:"trusted"`
 	Status            *int     `json:"status"`
 }
@@ -39,6 +43,11 @@ type connectedAppResponse struct {
 	Trusted           bool     `json:"trusted"`
 	Status            int      `json:"status"`
 	AuthorizationFlow string   `json:"authorization_flow"`
+	ClientId          string   `json:"client_id"`
+	RedirectURIs      []string `json:"redirect_uris"`
+	HasClientSecret   bool     `json:"has_client_secret"`
+	ClientSecret      string   `json:"client_secret,omitempty"`
+	ClientSecretOnce  bool     `json:"client_secret_once,omitempty"`
 	GrantCount        int64    `json:"grant_count"`
 	DeviceCount       int64    `json:"device_count"`
 	ActiveDeviceCount int64    `json:"active_device_count"`
@@ -72,7 +81,7 @@ func CreateConnectedApp(c *gin.Context) {
 		return
 	}
 
-	app, err := buildConnectedAppForCreate(req)
+	app, plainSecret, err := buildConnectedAppForCreate(req)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -86,6 +95,10 @@ func CreateConnectedApp(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if plainSecret != "" {
+		resp.ClientSecret = plainSecret
+		resp.ClientSecretOnce = true
 	}
 	common.ApiSuccess(c, resp)
 }
@@ -113,7 +126,8 @@ func UpdateConnectedApp(c *gin.Context) {
 		return
 	}
 
-	if err := applyConnectedAppUpdate(app, req); err != nil {
+	plainSecret, err := applyConnectedAppUpdate(app, req)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -127,40 +141,60 @@ func UpdateConnectedApp(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if plainSecret != "" {
+		resp.ClientSecret = plainSecret
+		resp.ClientSecretOnce = true
+	}
 	common.ApiSuccess(c, resp)
 }
 
-func buildConnectedAppForCreate(req connectedAppRequest) (model.ConnectedApp, error) {
+func buildConnectedAppForCreate(req connectedAppRequest) (model.ConnectedApp, string, error) {
 	slug, err := normalizeConnectedAppSlug(req.Slug)
 	if err != nil {
-		return model.ConnectedApp{}, err
+		return model.ConnectedApp{}, "", err
 	}
 	if existing, err := model.GetConnectedAppBySlug(slug); err == nil && existing.Id > 0 {
-		return model.ConnectedApp{}, fmt.Errorf("connected app slug already exists")
+		return model.ConnectedApp{}, "", fmt.Errorf("connected app slug already exists")
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return model.ConnectedApp{}, err
+		return model.ConnectedApp{}, "", err
 	}
 
 	name, description, allowedScopes, defaultScopes, err := normalizeConnectedAppFields(req)
 	if err != nil {
-		return model.ConnectedApp{}, err
+		return model.ConnectedApp{}, "", err
 	}
 	authorizationFlow, err := normalizeConnectedAppAuthorizationFlow(req.AuthorizationFlow)
 	if err != nil {
-		return model.ConnectedApp{}, err
+		return model.ConnectedApp{}, "", err
+	}
+	redirectURIs, err := normalizeConnectedAppRedirectURIs(req.RedirectURIs, authorizationFlow)
+	if err != nil {
+		return model.ConnectedApp{}, "", err
 	}
 
 	status := model.ConnectedAppStatusEnabled
 	if req.Status != nil {
 		status, err = normalizeConnectedAppStatus(*req.Status)
 		if err != nil {
-			return model.ConnectedApp{}, err
+			return model.ConnectedApp{}, "", err
 		}
 	}
 
 	trusted := false
 	if req.Trusted != nil {
 		trusted = *req.Trusted
+	}
+
+	plainSecret := ""
+	secretHash := ""
+	clientType := strings.ToLower(strings.TrimSpace(req.ClientType))
+	if clientType == "confidential" {
+		raw, genErr := common.GenerateRandomCharsKey(40)
+		if genErr != nil {
+			return model.ConnectedApp{}, "", genErr
+		}
+		plainSecret = "capp_" + raw
+		secretHash = service.HashConnectedAppOAuthValue(plainSecret)
 	}
 
 	return model.ConnectedApp{
@@ -170,27 +204,68 @@ func buildConnectedAppForCreate(req connectedAppRequest) (model.ConnectedApp, er
 		AllowedScopes:     strings.Join(allowedScopes, " "),
 		DefaultScopes:     strings.Join(defaultScopes, " "),
 		AuthorizationFlow: authorizationFlow,
+		ClientId:          slug,
+		ClientSecretHash:  secretHash,
+		RedirectURIs:      redirectURIs,
 		Trusted:           trusted,
 		Status:            status,
-	}, nil
+	}, plainSecret, nil
 }
 
-func applyConnectedAppUpdate(app *model.ConnectedApp, req connectedAppRequest) error {
+func applyConnectedAppUpdate(app *model.ConnectedApp, req connectedAppRequest) (string, error) {
 	name, description, allowedScopes, defaultScopes, err := normalizeConnectedAppFields(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	app.Name = name
 	app.Description = description
 	app.AllowedScopes = strings.Join(allowedScopes, " ")
 	app.DefaultScopes = strings.Join(defaultScopes, " ")
+	flow := app.AuthorizationFlow
 	if strings.TrimSpace(req.AuthorizationFlow) != "" {
 		authorizationFlow, err := normalizeConnectedAppAuthorizationFlow(req.AuthorizationFlow)
 		if err != nil {
-			return err
+			return "", err
 		}
 		app.AuthorizationFlow = authorizationFlow
+		flow = authorizationFlow
+	}
+	if req.RedirectURIs != nil {
+		redirectURIs, err := normalizeConnectedAppRedirectURIs(req.RedirectURIs, flow)
+		if err != nil {
+			return "", err
+		}
+		app.RedirectURIs = redirectURIs
+	}
+	if strings.TrimSpace(app.ClientId) == "" {
+		app.ClientId = app.Slug
+	}
+	plainSecret := ""
+	clientType := strings.ToLower(strings.TrimSpace(req.ClientType))
+	switch clientType {
+	case "public":
+		// Allow confidential → public by clearing the stored secret hash.
+		app.ClientSecretHash = ""
+	case "confidential":
+		if req.RotateSecret || app.ClientSecretHash == "" {
+			raw, genErr := common.GenerateRandomCharsKey(40)
+			if genErr != nil {
+				return "", genErr
+			}
+			plainSecret = "capp_" + raw
+			app.ClientSecretHash = service.HashConnectedAppOAuthValue(plainSecret)
+		}
+	default:
+		// client_type omitted: only rotate when explicitly requested.
+		if req.RotateSecret {
+			raw, genErr := common.GenerateRandomCharsKey(40)
+			if genErr != nil {
+				return "", genErr
+			}
+			plainSecret = "capp_" + raw
+			app.ClientSecretHash = service.HashConnectedAppOAuthValue(plainSecret)
+		}
 	}
 	if req.Trusted != nil {
 		app.Trusted = *req.Trusted
@@ -198,11 +273,11 @@ func applyConnectedAppUpdate(app *model.ConnectedApp, req connectedAppRequest) e
 	if req.Status != nil {
 		status, err := normalizeConnectedAppStatus(*req.Status)
 		if err != nil {
-			return err
+			return "", err
 		}
 		app.Status = status
 	}
-	return nil
+	return plainSecret, nil
 }
 
 func normalizeConnectedAppSlug(raw string) (string, error) {
@@ -294,6 +369,35 @@ func normalizeConnectedAppAuthorizationFlow(flow string) (string, error) {
 	}
 }
 
+func normalizeConnectedAppRedirectURIs(uris []string, authorizationFlow string) (string, error) {
+	seen := make(map[string]struct{}, len(uris))
+	normalized := make([]string, 0, len(uris))
+	for _, raw := range uris {
+		uri := strings.TrimSpace(raw)
+		if uri == "" {
+			continue
+		}
+		if len(uri) > 512 {
+			return "", fmt.Errorf("redirect_uri is too long")
+		}
+		if _, err := normalizeConnectedAppOptionalURL(uri, "redirect_uri"); err != nil {
+			return "", err
+		}
+		if _, ok := seen[uri]; ok {
+			continue
+		}
+		seen[uri] = struct{}{}
+		normalized = append(normalized, uri)
+	}
+	if authorizationFlow == model.ConnectedAppAuthorizationFlowAuthorizationCode ||
+		authorizationFlow == model.ConnectedAppAuthorizationFlowBoth {
+		if len(normalized) == 0 {
+			return "", fmt.Errorf("redirect_uris is required for authorization_code apps")
+		}
+	}
+	return strings.Join(normalized, "\n"), nil
+}
+
 func buildConnectedAppResponse(app model.ConnectedApp) (connectedAppResponse, error) {
 	var grantCount int64
 	if err := model.DB.Model(&model.ConnectedAppGrant{}).Where("app_id = ?", app.Id).Count(&grantCount).Error; err != nil {
@@ -320,6 +424,9 @@ func buildConnectedAppResponse(app model.ConnectedApp) (connectedAppResponse, er
 		Trusted:           app.Trusted,
 		Status:            app.Status,
 		AuthorizationFlow: connectedAppResponseAuthorizationFlow(app),
+		ClientId:          app.PublicClientID(),
+		RedirectURIs:      app.RedirectURIList(),
+		HasClientSecret:   strings.TrimSpace(app.ClientSecretHash) != "",
 		GrantCount:        grantCount,
 		DeviceCount:       deviceCount,
 		ActiveDeviceCount: activeDeviceCount,

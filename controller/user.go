@@ -186,6 +186,7 @@ func Register(c *gin.Context) {
 		InviterId:   inviterId,
 		Role:        common.RoleCommonUser, // 明确设置角色为普通用户
 	}
+	applySignupConnectedAppFromRequest(c, &cleanUser, user.SignupApp)
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
 	}
@@ -270,8 +271,20 @@ func SearchUsers(c *gin.Context) {
 			status = &parsed
 		}
 	}
+	connectedAppID := 0
+	if raw := strings.TrimSpace(c.Query("connected_app_id")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			connectedAppID = parsed
+		}
+	}
+	signupAppID := 0
+	if raw := strings.TrimSpace(c.Query("signup_app_id")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			signupAppID = parsed
+		}
+	}
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	users, total, err := model.SearchUsers(keyword, group, role, status, connectedAppID, signupAppID, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return

@@ -36,6 +36,7 @@ type connectedAppReviewPayload struct {
 	AuthorizationFlow *string  `json:"authorization_flow"`
 	HomepageURL       *string  `json:"homepage_url"`
 	CallbackURL       *string  `json:"callback_url"`
+	ClientType        string   `json:"client_type"` // public | confidential
 }
 
 type connectedAppAccessRequestResponse struct {
@@ -169,6 +170,7 @@ func ReviewConnectedAppRequest(c *gin.Context) {
 	var reviewed model.ConnectedAppRequest
 	var app model.ConnectedApp
 	var audit model.ConnectedAppAuditLog
+	var plainSecret string
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
 		var current model.ConnectedAppRequest
 		if err := tx.Where("id = ?", id).First(&current).Error; err != nil {
@@ -184,7 +186,7 @@ func ReviewConnectedAppRequest(c *gin.Context) {
 		decision := strings.ToLower(strings.TrimSpace(req.Decision))
 		switch decision {
 		case model.ConnectedAppRequestStatusApproved:
-			approvedApp, err := buildConnectedAppFromReviewPayload(current, req)
+			approvedApp, secret, err := buildConnectedAppFromReviewPayload(current, req)
 			if err != nil {
 				return err
 			}
@@ -198,6 +200,7 @@ func ReviewConnectedAppRequest(c *gin.Context) {
 				return err
 			}
 			app = approvedApp
+			plainSecret = secret
 			current.AppId = approvedApp.Id
 			current.Status = model.ConnectedAppRequestStatusApproved
 			current.ReviewerUserId = c.GetInt("id")
@@ -264,6 +267,10 @@ func ReviewConnectedAppRequest(c *gin.Context) {
 		if err != nil {
 			common.ApiError(c, err)
 			return
+		}
+		if plainSecret != "" {
+			appResponse.ClientSecret = plainSecret
+			appResponse.ClientSecretOnce = true
 		}
 		response["app"] = appResponse
 	}
@@ -393,7 +400,7 @@ func buildConnectedAppAccessRequestForSubmit(req connectedAppAccessRequestPayloa
 	}, nil
 }
 
-func buildConnectedAppFromReviewPayload(request model.ConnectedAppRequest, req connectedAppReviewPayload) (model.ConnectedApp, error) {
+func buildConnectedAppFromReviewPayload(request model.ConnectedAppRequest, req connectedAppReviewPayload) (model.ConnectedApp, string, error) {
 	name := request.Name
 	if req.Name != nil {
 		name = *req.Name
@@ -417,7 +424,7 @@ func buildConnectedAppFromReviewPayload(request model.ConnectedAppRequest, req c
 		DefaultScopes: defaultScopes,
 	})
 	if err != nil {
-		return model.ConnectedApp{}, err
+		return model.ConnectedApp{}, "", err
 	}
 	authorizationFlow := request.AuthorizationFlow
 	if req.AuthorizationFlow != nil {
@@ -425,16 +432,16 @@ func buildConnectedAppFromReviewPayload(request model.ConnectedAppRequest, req c
 	}
 	normalizedFlow, err := normalizeConnectedAppAuthorizationFlow(authorizationFlow)
 	if err != nil {
-		return model.ConnectedApp{}, err
+		return model.ConnectedApp{}, "", err
 	}
 	if req.HomepageURL != nil {
 		if _, err := normalizeConnectedAppOptionalURL(*req.HomepageURL, "homepage_url"); err != nil {
-			return model.ConnectedApp{}, err
+			return model.ConnectedApp{}, "", err
 		}
 	}
 	if req.CallbackURL != nil {
 		if _, err := normalizeConnectedAppOptionalURL(*req.CallbackURL, "callback_url"); err != nil {
-			return model.ConnectedApp{}, err
+			return model.ConnectedApp{}, "", err
 		}
 	}
 	callbackURL := strings.TrimSpace(request.CallbackURL)
@@ -445,8 +452,18 @@ func buildConnectedAppFromReviewPayload(request model.ConnectedAppRequest, req c
 	if normalizedFlow == model.ConnectedAppAuthorizationFlowAuthorizationCode ||
 		normalizedFlow == model.ConnectedAppAuthorizationFlowBoth {
 		if callbackURL == "" {
-			return model.ConnectedApp{}, fmt.Errorf("callback_url is required for authorization_code apps")
+			return model.ConnectedApp{}, "", fmt.Errorf("callback_url is required for authorization_code apps")
 		}
+	}
+	plainSecret := ""
+	secretHash := ""
+	if strings.ToLower(strings.TrimSpace(req.ClientType)) == "confidential" {
+		raw, genErr := common.GenerateRandomCharsKey(40)
+		if genErr != nil {
+			return model.ConnectedApp{}, "", genErr
+		}
+		plainSecret = "capp_" + raw
+		secretHash = service.HashConnectedAppOAuthValue(plainSecret)
 	}
 	return model.ConnectedApp{
 		Slug:              request.Slug,
@@ -456,10 +473,11 @@ func buildConnectedAppFromReviewPayload(request model.ConnectedAppRequest, req c
 		DefaultScopes:     strings.Join(normalizedDefaultScopes, " "),
 		AuthorizationFlow: normalizedFlow,
 		ClientId:          request.Slug,
+		ClientSecretHash:  secretHash,
 		RedirectURIs:      callbackURL,
 		Trusted:           true,
 		Status:            model.ConnectedAppStatusEnabled,
-	}, nil
+	}, plainSecret, nil
 }
 
 func ensureConnectedAppRequestSlugAvailable(slug string) error {

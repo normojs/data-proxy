@@ -73,12 +73,8 @@ func ValidateConnectedAppOAuthAuthorize(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid client_id")
 		return
 	}
-	if app.Status != model.ConnectedAppStatusEnabled {
-		common.ApiErrorMsg(c, "client is disabled")
-		return
-	}
-	if !app.SupportsAuthorizationCode() {
-		common.ApiErrorMsg(c, "client does not support authorization_code")
+	if err := ensureConnectedAppOAuthAuthorizationClient(app); err != nil {
+		common.ApiErrorMsg(c, err.Error())
 		return
 	}
 	if responseType != "code" {
@@ -136,6 +132,11 @@ func ConsentConnectedAppOAuth(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid client_id")
 		return
 	}
+	// Match ValidateConnectedAppOAuthAuthorize: disabled / non-code clients must not issue codes.
+	if err := ensureConnectedAppOAuthAuthorizationClient(app); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	if !service.RedirectURIAllowed(app, req.RedirectURI) {
 		common.ApiErrorMsg(c, "redirect_uri is not registered")
 		return
@@ -168,23 +169,30 @@ func ConsentConnectedAppOAuth(c *gin.Context) {
 		granted = app.DefaultScopeList()
 	}
 	now := common.GetTimestamp()
-	grant, err := model.UpsertConnectedAppGrant(model.DB, *app, userId, granted, now)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	code, err := service.CreateConnectedAppAuthCodeRecord(
-		model.DB,
-		app,
-		userId,
-		grant.Id,
-		req.RedirectURI,
-		strings.Join(granted, " "),
-		req.State,
-		req.Nonce,
-		req.CodeChallenge,
-		"S256",
-	)
+	var code string
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		grant, err := model.UpsertConnectedAppGrant(tx, *app, userId, granted, now)
+		if err != nil {
+			return err
+		}
+		issued, err := service.CreateConnectedAppAuthCodeRecord(
+			tx,
+			app,
+			userId,
+			grant.Id,
+			req.RedirectURI,
+			strings.Join(granted, " "),
+			req.State,
+			req.Nonce,
+			req.CodeChallenge,
+			"S256",
+		)
+		if err != nil {
+			return err
+		}
+		code = issued
+		return nil
+	})
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -221,6 +229,11 @@ func ExchangeConnectedAppOAuthToken(c *gin.Context) {
 	app, err := model.GetConnectedAppByClientID(clientID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client"})
+		return
+	}
+	// Reject before consuming the authorization code so disabled apps cannot mint sk- keys.
+	if err := ensureConnectedAppOAuthAuthorizationClient(app); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client", "error_description": err.Error()})
 		return
 	}
 	if app.ClientSecretHash != "" {
@@ -327,4 +340,19 @@ func firstNonEmptyForm(c *gin.Context, key string) string {
 		return v
 	}
 	return ""
+}
+
+// ensureConnectedAppOAuthAuthorizationClient gates authorization_code consent and token exchange.
+// Must stay aligned with ValidateConnectedAppOAuthAuthorize.
+func ensureConnectedAppOAuthAuthorizationClient(app *model.ConnectedApp) error {
+	if app == nil {
+		return errors.New("invalid client_id")
+	}
+	if app.Status != model.ConnectedAppStatusEnabled {
+		return errors.New("client is disabled")
+	}
+	if !app.SupportsAuthorizationCode() {
+		return errors.New("client does not support authorization_code")
+	}
+	return nil
 }

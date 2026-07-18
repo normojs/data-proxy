@@ -1,5 +1,20 @@
 # Data Proxy TODO
 
+## Connected App / OAuth IdP — code review 未完成项
+
+来源：工作区 Connected App / 用户归因改动 max 审查（相对 HEAD）。
+
+- [x] OAuth consent：校验 app `status == enabled` 且 `SupportsAuthorizationCode()`（对齐 validate；禁用客户端不得发码）— `controller/connected_app_oauth.go` ConsentConnectedAppOAuth
+- [x] OAuth token exchange：校验 app 已启用且支持 authorization_code，再消费 code / 签发 `sk-` — `controller/connected_app_oauth.go` ExchangeConnectedAppOAuthToken
+- [x] 网站 OAuth 换 token：避免每次 exchange 都新建 unlimited `sk-`；同用户/同 app 应复用或轮换并吊销旧 web key — `service/connected_app_oauth.go` IssueConnectedAppAPIKey
+- [x] Consent 路径事务化：grant + signup 归因 + auth code 同一事务，失败不落半状态 — `controller/connected_app_oauth.go`
+- [x] SearchUsers 的 `connected_app_id` 子查询改用外层 `tx`（勿嵌套全局 `DB`），避免并发快照不一致 — `model/user.go`
+- [x] EnsureBuiltinConnectedApps：启动 upsert 勿覆盖运营可改字段（allowed/default scopes、trusted、client_id 等）；或仅 insert-if-missing — `model/connected_app.go`
+- [x] signup 归因：仅在真实注册路径写 `signup_connected_app_id`；授权/Device/OAuth 同意路径不要调用 MaybeSet 冒充注册来源 — `model/connected_app.go` / 各授权调用点
+- [x] 审批 confidential 应用：一次性 `client_secret` 用 copy-once UI，禁止 toast 明文展示 20s — `web/default/src/features/system-settings/operations/connected-apps-section.tsx`
+- [x] 管理端支持 confidential → public：清空 `ClientSecretHash`（或显式 clear secret），避免 public 客户端仍被要求 secret — `controller/connected_app.go` applyConnectedAppUpdate
+- [x] （可选/性能）用户列表 `connected_app_id` 过滤：优化为 EXISTS semi-join（走 app_id/user_id 索引，避免 IN 物化大列表）— `model/user.go` + `model/user_search_connected_app_test.go`
+
 ## 产品差距规划（P0 / P1 / P2）
 
 完整功能列表与验收标准见：

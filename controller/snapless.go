@@ -1082,7 +1082,6 @@ func ensureSnaplessTokenForDeviceTx(c *gin.Context, tx *gorm.DB, app *model.Conn
 	if err != nil {
 		return snaplessTokenResponse{}, 0, err
 	}
-
 	var existingBinding *model.ConnectedAppTokenBinding
 	if binding, err := findSnaplessBindingTx(tx, app.Id, userId, device.Fingerprint); err == nil {
 		existingBinding = binding

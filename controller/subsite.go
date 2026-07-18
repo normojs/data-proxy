@@ -26,6 +26,8 @@ type SubsiteRegisterRequest struct {
 	VerificationCode string `json:"verification_code"`
 	AffCode          string `json:"aff_code"`
 	InviteCode       string `json:"invite_code"`
+	// SignupApp is an optional Connected App slug/id for registration attribution.
+	SignupApp string `json:"signup_app"`
 }
 
 func ListManagedSubsites(c *gin.Context) {
@@ -506,6 +508,7 @@ func RegisterSubsiteUser(c *gin.Context) {
 		Role:        common.RoleCommonUser,
 		Email:       user.Email,
 	}
+	applySignupConnectedAppFromRequest(c, &cleanUser, req.SignupApp)
 	if err := createSubsiteUserAndMember(subsite, &cleanUser, inviterId); err != nil {
 		common.ApiError(c, err)
 		return

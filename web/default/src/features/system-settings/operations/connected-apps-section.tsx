@@ -123,6 +123,10 @@ const connectedAppFormSchema = z
       ),
     name: z.string().trim().min(1, 'Name is required').max(128),
     description: z.string().trim().max(512),
+    authorizationFlow: z.enum(['device_code', 'authorization_code', 'both']),
+    clientType: z.enum(['public', 'confidential']),
+    redirectUrisText: z.string(),
+    rotateSecret: z.boolean(),
     allowedScopesText: z.string(),
     defaultScopesText: z.string(),
     trusted: z.boolean(),
@@ -162,6 +166,20 @@ const connectedAppFormSchema = z
         break
       }
     }
+
+    if (
+      values.authorizationFlow === 'authorization_code' ||
+      values.authorizationFlow === 'both'
+    ) {
+      const redirectUris = parseRedirectUrisText(values.redirectUrisText)
+      if (redirectUris.length === 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['redirectUrisText'],
+          message: 'Add at least one redirect URI for website OAuth',
+        })
+      }
+    }
   })
 
 const connectedAppReviewSchema = z
@@ -170,6 +188,8 @@ const connectedAppReviewSchema = z
     reviewNote: z.string().trim().max(1024),
     name: z.string().trim().max(128),
     description: z.string().trim().max(512),
+    authorizationFlow: z.enum(['device_code', 'authorization_code', 'both']),
+    clientType: z.enum(['public', 'confidential']),
     allowedScopesText: z.string(),
     defaultScopesText: z.string(),
   })
@@ -242,11 +262,38 @@ function scopesToText(scopes: string[]) {
   return scopes.join('\n')
 }
 
+function parseRedirectUrisText(value: string) {
+  const seen = new Set<string>()
+  const uris: string[] = []
+  for (const raw of value.split(/[\n,;]+/)) {
+    const uri = raw.trim()
+    if (!uri || seen.has(uri)) continue
+    seen.add(uri)
+    uris.push(uri)
+  }
+  return uris
+}
+
+function redirectUrisToText(uris?: string[]) {
+  return (uris ?? []).join('\n')
+}
+
+function normalizeAuthorizationFlow(
+  flow?: string
+): 'device_code' | 'authorization_code' | 'both' {
+  if (flow === 'authorization_code' || flow === 'both') return flow
+  return 'device_code'
+}
+
 function buildFormDefaults(app: ConnectedApp | null): ConnectedAppFormValues {
   return {
     slug: app?.slug ?? '',
     name: app?.name ?? '',
     description: app?.description ?? '',
+    authorizationFlow: normalizeAuthorizationFlow(app?.authorization_flow),
+    clientType: app?.has_client_secret ? 'confidential' : 'public',
+    redirectUrisText: redirectUrisToText(app?.redirect_uris),
+    rotateSecret: false,
     allowedScopesText: scopesToText(app?.allowed_scopes ?? []),
     defaultScopesText: scopesToText(app?.default_scopes ?? []),
     trusted: app?.trusted ?? false,
@@ -263,7 +310,10 @@ function buildPayload(values: ConnectedAppFormValues): ConnectedAppPayload {
     description: values.description.trim(),
     allowed_scopes: parseScopesText(values.allowedScopesText),
     default_scopes: parseScopesText(values.defaultScopesText),
-    authorization_flow: 'device_code',
+    authorization_flow: values.authorizationFlow,
+    redirect_uris: parseRedirectUrisText(values.redirectUrisText),
+    client_type: values.clientType,
+    rotate_secret: values.rotateSecret,
     trusted: values.trusted,
     status: values.enabled
       ? CONNECTED_APP_STATUS_ENABLED
@@ -280,6 +330,8 @@ function buildReviewDefaults(
     reviewNote: '',
     name: request?.name ?? '',
     description: request?.description ?? '',
+    authorizationFlow: normalizeAuthorizationFlow(request?.authorization_flow),
+    clientType: 'public',
     allowedScopesText: scopesToText(request?.requested_scopes ?? []),
     defaultScopesText: scopesToText(request?.default_scopes ?? []),
   }
@@ -301,7 +353,8 @@ function buildReviewPayload(
     description: values.description.trim(),
     allowed_scopes: parseScopesText(values.allowedScopesText),
     default_scopes: parseScopesText(values.defaultScopesText),
-    authorization_flow: 'device_code',
+    authorization_flow: values.authorizationFlow,
+    client_type: values.clientType,
   }
 }
 
@@ -337,8 +390,16 @@ function auditActionLabel(action: string) {
 }
 
 function authorizationFlowLabel(flow: string) {
-  if (flow === 'device_code') return 'Device code'
-  return flow
+  switch (flow) {
+    case 'authorization_code':
+      return 'Website OAuth'
+    case 'both':
+      return 'Device + Website OAuth'
+    case 'device_code':
+      return 'Device code'
+    default:
+      return flow || 'Device code'
+  }
 }
 
 function formatOptionalTimestamp(value: number) {
@@ -832,9 +893,16 @@ function ConnectedAppRow({
             <Badge variant='outline' className='font-mono'>
               {app.slug}
             </Badge>
+            {app.client_id && app.client_id !== app.slug ? (
+              <Badge variant='secondary' className='font-mono'>
+                {app.client_id}
+              </Badge>
+            ) : null}
           </div>
           <span className='text-muted-foreground truncate text-xs'>
-            {app.description || authorizationFlowLabel(app.authorization_flow)}
+            {authorizationFlowLabel(app.authorization_flow)}
+            {app.has_client_secret ? ` · ${t('Confidential')}` : ` · ${t('Public')}`}
+            {app.description ? ` · ${app.description}` : ''}
           </span>
         </div>
       </TableCell>
@@ -1090,14 +1158,26 @@ function ConnectedAppSheet({
     }
   }, [form, formDefaults, open])
 
+  const [issuedSecret, setIssuedSecret] = useState<string | null>(null)
   const mutation = useMutation({
     mutationFn: (values: ConnectedAppFormValues) => {
       const payload = buildPayload(values)
       if (app) return updateConnectedApp(app.id, payload)
       return createConnectedApp(payload)
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: connectedAppsQueryKey })
+      if (result.client_secret_once && result.client_secret) {
+        setIssuedSecret(result.client_secret)
+        toast.success(
+          t(
+            isEdit
+              ? 'Connected app updated. Copy the client secret now.'
+              : 'Connected app created. Copy the client secret now.'
+          )
+        )
+        return
+      }
       toast.success(
         t(isEdit ? 'Connected app updated' : 'Connected app created')
       )
@@ -1109,14 +1189,22 @@ function ConnectedAppSheet({
   })
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setIssuedSecret(null)
+        onOpenChange(next)
+      }}
+    >
       <SheetContent className='w-full sm:max-w-xl'>
         <SheetHeader>
           <SheetTitle>
             {t(isEdit ? 'Edit connected app' : 'New connected app')}
           </SheetTitle>
           <SheetDescription>
-            {t('Device code authorization with scoped native tokens')}
+            {t(
+              'Create IdP clients for device code and/or website OAuth (authorization code + PKCE)'
+            )}
           </SheetDescription>
         </SheetHeader>
 
@@ -1179,7 +1267,149 @@ function ConnectedAppSheet({
                 )}
               />
 
-              <div className='grid gap-4 sm:grid-cols-2'>
+                            <div className='grid gap-4 sm:grid-cols-2'>
+                <FormField
+                  control={form.control}
+                  name='authorizationFlow'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Authorization flow')}</FormLabel>
+                      <FormControl>
+                        <select
+                          className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                          value={field.value}
+                          onChange={field.onChange}
+                          disabled={mutation.isPending}
+                        >
+                          <option value='device_code'>{t('Device code')}</option>
+                          <option value='authorization_code'>
+                            {t('Website OAuth (authorization code)')}
+                          </option>
+                          <option value='both'>{t('Both')}</option>
+                        </select>
+                      </FormControl>
+                      <FormDescription>
+                        {t('Device clients use device code; websites use /oauth/authorize')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='clientType'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Client type')}</FormLabel>
+                      <FormControl>
+                        <select
+                          className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                          value={field.value}
+                          onChange={field.onChange}
+                          disabled={mutation.isPending}
+                        >
+                          <option value='public'>{t('Public (PKCE only)')}</option>
+                          <option value='confidential'>
+                            {t('Confidential (client secret)')}
+                          </option>
+                        </select>
+                      </FormControl>
+                      <FormDescription>
+                        {t('Never put client_secret in frontend or mobile apps')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name='redirectUrisText'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Redirect URIs')}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        disabled={mutation.isPending}
+                        className='min-h-20 resize-y font-mono text-xs'
+                        placeholder={'https://app.example.com/oauth/callback'}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Required for website OAuth. One absolute http(s) URL per line.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {isEdit ? (
+                <FormField
+                  control={form.control}
+                  name='rotateSecret'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5'>
+                      <div className='min-w-0 space-y-0.5'>
+                        <FormLabel>{t('Rotate client secret')}</FormLabel>
+                        <FormDescription>
+                          {app?.has_client_secret
+                            ? t('Issues a new secret and invalidates the previous one')
+                            : t('Generate a client secret for this confidential client')}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          disabled={
+                            mutation.isPending ||
+                            form.watch('clientType') !== 'confidential'
+                          }
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+
+              {app?.client_id ? (
+                <div className='rounded-lg border px-3 py-2.5 text-sm'>
+                  <div className='text-muted-foreground text-xs'>{t('Client ID')}</div>
+                  <code className='font-mono text-xs'>{app.client_id}</code>
+                </div>
+              ) : null}
+
+              {issuedSecret ? (
+                <Alert>
+                  <AlertTitle>{t('Client secret (shown once)')}</AlertTitle>
+                  <AlertDescription className='space-y-2'>
+                    <p>
+                      {t(
+                        'Copy and store this secret now. It will not be shown again.'
+                      )}
+                    </p>
+                    <code className='bg-muted block break-all rounded-md px-2 py-1.5 font-mono text-xs'>
+                      {issuedSecret}
+                    </code>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='outline'
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(issuedSecret)
+                        toast.success(t('Copied'))
+                      }}
+                    >
+                      {t('Copy secret')}
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+
+<div className='grid gap-4 sm:grid-cols-2'>
                 <FormField
                   control={form.control}
                   name='trusted'
@@ -1328,7 +1558,7 @@ function ConnectedAppReviewSheet({
       if (!request) throw new Error('Request is required')
       return reviewConnectedAppRequest(request.id, buildReviewPayload(values))
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: connectedAppsQueryKey }),
         queryClient.invalidateQueries({
@@ -1341,13 +1571,34 @@ function ConnectedAppReviewSheet({
           queryKey: ['notifications', 'connected-app-requests'],
         }),
       ])
-      toast.success(
-        t(
-          isApproval
-            ? 'Connected app request approved'
-            : 'Connected app request rejected'
+      if (result.app?.client_secret_once && result.app.client_secret) {
+        // Do not put the secret in toast description (screen/log leakage).
+        // Clipboard is the only automatic surface; operator can re-rotate if needed.
+        try {
+          await navigator.clipboard.writeText(result.app.client_secret)
+          toast.success(
+            t(
+              'Request approved. Client secret copied to clipboard — it will not be shown again.'
+            ),
+            { duration: 8000 }
+          )
+        } catch {
+          toast.success(
+            t(
+              'Request approved. Open the app editor and rotate the secret if you did not capture it.'
+            ),
+            { duration: 10000 }
+          )
+        }
+      } else {
+        toast.success(
+          t(
+            isApproval
+              ? 'Connected app request approved'
+              : 'Connected app request rejected'
+          )
         )
-      )
+      }
       onOpenChange(false)
     },
     onError: (error) => {
@@ -1459,7 +1710,62 @@ function ConnectedAppReviewSheet({
                     )}
                   />
 
+                                {isApproval ? (
+                <div className='grid gap-4 sm:grid-cols-2'>
                   <FormField
+                    control={form.control}
+                    name='authorizationFlow'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Authorization flow')}</FormLabel>
+                        <FormControl>
+                          <select
+                            className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                            value={field.value}
+                            onChange={field.onChange}
+                            disabled={mutation.isPending}
+                          >
+                            <option value='device_code'>{t('Device code')}</option>
+                            <option value='authorization_code'>
+                              {t('Website OAuth')}
+                            </option>
+                            <option value='both'>{t('Both')}</option>
+                          </select>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name='clientType'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Client type')}</FormLabel>
+                        <FormControl>
+                          <select
+                            className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                            value={field.value}
+                            onChange={field.onChange}
+                            disabled={mutation.isPending}
+                          >
+                            <option value='public'>{t('Public')}</option>
+                            <option value='confidential'>
+                              {t('Confidential')}
+                            </option>
+                          </select>
+                        </FormControl>
+                        <FormDescription>
+                          {t('Confidential issues a one-time client_secret')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              ) : null}
+
+<FormField
                     control={form.control}
                     name='allowedScopesText'
                     render={({ field }) => (

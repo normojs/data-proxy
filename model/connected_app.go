@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -10,8 +11,9 @@ import (
 )
 
 const (
-	ConnectedAppSlugSnapless = "snapless"
-	ConnectedAppSlugCodexDP  = "codex-dp"
+	ConnectedAppSlugSnapless  = "snapless"
+	ConnectedAppSlugCodexDP   = "codex-dp"
+	ConnectedAppSlugNiaoweisi = "niaoweisi"
 
 	ConnectedAppStatusEnabled  = 1
 	ConnectedAppStatusDisabled = 2
@@ -216,6 +218,7 @@ func EnsureBuiltinConnectedApps() error {
 			AllowedScopes:     "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
 			DefaultScopes:     "openai.models openai.chat openai.audio.transcriptions quota.read token.manage",
 			AuthorizationFlow: ConnectedAppAuthorizationFlowDeviceCode,
+			ClientId:          ConnectedAppSlugSnapless,
 			Trusted:           true,
 			Status:            ConnectedAppStatusEnabled,
 		},
@@ -226,6 +229,20 @@ func EnsureBuiltinConnectedApps() error {
 			AllowedScopes:     "profile.read group.read token.create token.rotate.own token.revoke.own token.group.update quota.read openai.models openai.responses openai.chat",
 			DefaultScopes:     "profile.read group.read token.create token.rotate.own token.revoke.own token.group.update quota.read openai.models openai.responses openai.chat",
 			AuthorizationFlow: ConnectedAppAuthorizationFlowDeviceCode,
+			ClientId:          ConnectedAppSlugCodexDP,
+			Trusted:           true,
+			Status:            ConnectedAppStatusEnabled,
+		},
+		{
+			// 鸟维斯桌面 Agent：Device Code 登录本站用户，poll 一次拿到 sk-，自由调用本站 OpenAI 兼容 API。
+			// 含 token.manage → 走平台 API Key 绑定流（非 management token 流）。
+			Slug:              ConnectedAppSlugNiaoweisi,
+			Name:              "鸟维斯桌面版",
+			Description:       "鸟维斯桌面 Agent。用户在 Data Proxy 授权后，桌面端获取本站 API Key 调用模型与配额接口。",
+			AllowedScopes:     "openai.models openai.chat openai.responses quota.read token.manage",
+			DefaultScopes:     "openai.models openai.chat openai.responses quota.read token.manage",
+			AuthorizationFlow: ConnectedAppAuthorizationFlowDeviceCode,
+			ClientId:          ConnectedAppSlugNiaoweisi,
 			Trusted:           true,
 			Status:            ConnectedAppStatusEnabled,
 		},
@@ -233,7 +250,7 @@ func EnsureBuiltinConnectedApps() error {
 	for _, app := range apps {
 		if err := DB.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "slug"}},
-			DoUpdates: clause.AssignmentColumns([]string{"name", "description", "allowed_scopes", "default_scopes", "authorization_flow", "trusted", "updated_at"}),
+			DoUpdates: clause.AssignmentColumns([]string{"name", "description", "updated_at"}), // do not stomp operator scopes/trusted/client_id/flow
 		}).Create(&app).Error; err != nil {
 			return err
 		}
@@ -380,6 +397,56 @@ func GetConnectedAppGrant(appId int, userId int) (*ConnectedAppGrant, error) {
 		return nil, err
 	}
 	return &grant, nil
+}
+
+// ListConnectedAppGrantsByUserId returns grants for a user, newest first.
+// When authorizedOnly is true, only authorized grants are returned.
+func ListConnectedAppGrantsByUserId(userId int, authorizedOnly bool) ([]ConnectedAppGrant, error) {
+	if userId <= 0 {
+		return []ConnectedAppGrant{}, nil
+	}
+	query := DB.Where("user_id = ?", userId)
+	if authorizedOnly {
+		query = query.Where("status = ?", ConnectedAppGrantStatusAuthorized)
+	}
+	var grants []ConnectedAppGrant
+	err := query.Order("last_used_at desc").Order("authorized_at desc").Order("id desc").Find(&grants).Error
+	return grants, err
+}
+
+// MaybeSetUserSignupConnectedApp records registration-channel attribution once.
+// Call only from true account-signup paths (new user creation via a Connected App).
+// Do NOT call from Device authorize, OAuth consent, or token issue for existing users.
+// No-op when the user already has a signup app or inputs are invalid.
+// ResolveConnectedAppIDForSignup maps a signup_app slug or numeric id to a connected app id.
+// Returns 0 when the reference is empty or does not match an existing app.
+func ResolveConnectedAppIDForSignup(ref string) int {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return 0
+	}
+	if id, err := strconv.Atoi(ref); err == nil && id > 0 {
+		if app, err := GetConnectedAppByID(id); err == nil && app != nil && app.Id > 0 {
+			return app.Id
+		}
+		return 0
+	}
+	if app, err := GetConnectedAppBySlug(ref); err == nil && app != nil && app.Id > 0 {
+		return app.Id
+	}
+	return 0
+}
+
+func MaybeSetUserSignupConnectedApp(tx *gorm.DB, userId int, appId int) error {
+	if userId <= 0 || appId <= 0 {
+		return nil
+	}
+	if tx == nil {
+		tx = DB
+	}
+	return tx.Model(&User{}).
+		Where("id = ? AND (signup_connected_app_id = 0 OR signup_connected_app_id IS NULL)", userId).
+		Update("signup_connected_app_id", appId).Error
 }
 
 func normalizeConnectedAppScopes(scopes []string) []string {

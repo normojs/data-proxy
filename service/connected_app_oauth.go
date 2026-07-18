@@ -234,6 +234,8 @@ func IntersectConnectedAppScopes(allowed []string, requested []string) []string 
 }
 
 // IssueConnectedAppAPIKey creates grant + platform token + binding and returns plaintext key once.
+// For the same app/user/device fingerprint (e.g. oauth-web), any previous active platform
+// token is disabled before minting a new one so repeated OAuth exchanges do not leave orphan sk- keys.
 func IssueConnectedAppAPIKey(tx *gorm.DB, app *model.ConnectedApp, userId int, scopes []string, deviceName, platform, fingerprint string) (string, *model.Token, *model.ConnectedAppGrant, error) {
 	if tx == nil {
 		tx = model.DB
@@ -253,6 +255,22 @@ func IssueConnectedAppAPIKey(tx *gorm.DB, app *model.ConnectedApp, userId int, s
 	if err != nil {
 		return "", nil, nil, err
 	}
+	var existingBinding model.ConnectedAppTokenBinding
+	err = tx.Where(
+		"app_id = ? AND user_id = ? AND device_fingerprint = ? AND status = ?",
+		app.Id,
+		userId,
+		fingerprint,
+		model.ConnectedAppTokenBindingStatusActive,
+	).First(&existingBinding).Error
+	if err == nil && existingBinding.TokenId > 0 {
+		if err := model.DisableTokenWithTx(tx, existingBinding.TokenId, userId); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil, nil, err
+		}
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil, nil, err
+	}
+
 	key, err := common.GenerateKey()
 	if err != nil {
 		return "", nil, nil, err

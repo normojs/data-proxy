@@ -1293,7 +1293,8 @@ func connectedAppForPublicDeviceFlow(c *gin.Context) (*model.ConnectedApp, error
 	if !app.Trusted {
 		return nil, errors.New("connected app is not trusted")
 	}
-	if app.AuthorizationFlow != model.ConnectedAppAuthorizationFlowDeviceCode {
+	// device_code and both are valid; authorization_code-only clients use /oauth/authorize.
+	if !app.SupportsDeviceCode() {
 		return nil, errors.New("connected app authorization_flow is not supported")
 	}
 	return app, nil
@@ -1491,7 +1492,6 @@ func ensureConnectedAppTokenForDeviceTx(c *gin.Context, tx *gorm.DB, app *model.
 	if err != nil {
 		return connectedAppTokenResponse{}, 0, err
 	}
-
 	var existingBinding *model.ConnectedAppTokenBinding
 	if binding, err := findSnaplessBindingTx(tx, app.Id, userID, device.Fingerprint); err == nil {
 		existingBinding = binding

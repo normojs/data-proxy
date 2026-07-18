@@ -27,6 +27,7 @@ For commercial licensing, please contact support@quantumnous.com
 const STORAGE_KEYS = {
   USER_ID: 'uid',
   AFFILIATE: 'aff',
+  SIGNUP_APP: 'signup_app',
   STATUS: 'status',
 } as const
 
@@ -102,5 +103,42 @@ export function saveAffiliateCode(code: string): void {
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Failed to save affiliate code:', error)
+  }
+}
+
+
+// ============================================================================
+// Signup Connected App Storage
+// ============================================================================
+
+/**
+ * Get signup connected-app slug/id from localStorage (registration attribution).
+ */
+export function getSignupAppRef(): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    return window.localStorage.getItem(STORAGE_KEYS.SIGNUP_APP) ?? ''
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to get signup app ref:', error)
+    return ''
+  }
+}
+
+/**
+ * Save signup connected-app slug/id to localStorage.
+ */
+export function saveSignupAppRef(ref: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    const value = ref.trim()
+    if (!value) {
+      window.localStorage.removeItem(STORAGE_KEYS.SIGNUP_APP)
+      return
+    }
+    window.localStorage.setItem(STORAGE_KEYS.SIGNUP_APP, value)
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to save signup app ref:', error)
   }
 }

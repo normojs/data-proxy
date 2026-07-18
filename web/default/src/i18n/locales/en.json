@@ -1932,7 +1932,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Frontend design and development by New API contributors.",
+    "footer.newapi.projectAttributionSuffix": "Frontend design and development by New API contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For private deployments, format: https://fastgpt.run/api/openapi": "For private deployments, format: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Force a syntactically valid JSON response",
@@ -6748,6 +6748,22 @@
     "Purchase succeeded": "Purchase succeeded",
     "Name is required": "Name is required",
     "Please enter a valid price in quota points": "Please enter a valid price in quota points",
-    "Please enter a valid duration in days": "Please enter a valid duration in days"
+    "Please enter a valid duration in days": "Please enter a valid duration in days",
+    "Authorized applications": "Authorized applications",
+    "Third-party apps that can access your Data Proxy account": "Third-party apps that can access your Data Proxy account",
+    "No authorized applications yet.": "No authorized applications yet.",
+    "Authorization revoked": "Authorization revoked",
+    "Authorized": "Authorized",
+    "Revoke access": "Revoke access",
+    "Revoke authorization?": "Revoke authorization?",
+    "This will disconnect the app and disable keys issued for it. You can authorize again later.": "This will disconnect the app and disable keys issued for it. You can authorize again later.",
+    "Signup app": "Signup app",
+    "Authorized app": "Authorized app",
+    "Desktop agent API (quota / pricing)": "Desktop agent API (quota / pricing)",
+    "Request approved. Client secret copied to clipboard — it will not be shown again.": "Request approved. Client secret copied to clipboard — it will not be shown again.",
+    "Request approved. Open the app editor and rotate the secret if you did not capture it.": "Request approved. Open the app editor and rotate the secret if you did not capture it.",
+    "Request approved. Copy the client secret now.": "Request approved. Copy the client secret now.",
+    "Revoke application access?": "Revoke application access?",
+    "This app will lose access to your account. Issued API keys for this app will be disabled.": "This app will lose access to your account. Issued API keys for this app will be disabled."
   }
 }

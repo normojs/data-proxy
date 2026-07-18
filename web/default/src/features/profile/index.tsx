@@ -24,6 +24,7 @@ import {
   CardStaggerItem,
 } from '@/components/page-transition'
 import { SnaplessConnectedAppCard } from '@/features/snapless-device/connected-app-card'
+import { AuthorizedAppsCard } from './components/authorized-apps-card'
 import { ConnectedAppDeveloperAppsCard } from '@/features/snapless-device/developer-apps-card'
 import { ModelTokenPackagesCard } from '@/features/wallet/components/model-token-packages-card'
 import { QuotaOverviewCard } from '@/features/wallet/components/quota-overview-card'
@@ -84,6 +85,7 @@ export function Profile() {
                   />
                 )}
                 {canConfigureSidebar && <SidebarModulesCard />}
+                <AuthorizedAppsCard />
                 <SnaplessConnectedAppCard />
                 <PasskeyCard loading={loading} />
                 <TwoFACard loading={loading} />

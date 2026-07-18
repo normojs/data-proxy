@@ -62,6 +62,7 @@ export const userSchema = z.object({
   model_token_package_remaining: z.number().optional().default(0),
   model_token_package_used: z.number().optional().default(0),
   model_token_package_total: z.number().optional().default(0),
+  signup_connected_app_id: z.number().optional().default(0),
 })
 export type User = z.infer<typeof userSchema>
 
@@ -99,6 +100,8 @@ export interface SearchUsersParams {
   group?: string
   role?: string
   status?: string
+  connected_app_id?: string | number
+  signup_app_id?: string | number
   p?: number
   page_size?: number
 }

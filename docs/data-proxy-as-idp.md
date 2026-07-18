@@ -10,6 +10,19 @@ Data Proxy 可把本站账号授权给外部产品，并下发可调用本站 AP
 2. 用户打开 `verification_uri`（`/connect/device?user_code=...`）并批准
 3. `POST /api/connected-apps/:slug/device/poll` 一次拿到 `api_key`
 
+内置桌面示例：
+
+| slug | 说明 |
+| --- | --- |
+| `snapless` | 桌面语音/划词 |
+| `codex-dp` | Agent management token |
+| `niaoweisi` | 鸟维斯桌面 Agent（平台 `sk-`） |
+
+鸟维斯对接：
+
+- Device 登录 / poll 状态机：[niaoweisi-desktop-integration.md](./niaoweisi-desktop-integration.md)
+- 登录后 API（额度 / 用量 / 价格 / 模型）：[niaoweisi-desktop-api-reference.md](./niaoweisi-desktop-api-reference.md)
+
 ### 2) 网站跳转（OAuth 2.0 授权码 + PKCE）
 
 1. 浏览器打开：
@@ -70,9 +83,24 @@ grant_type=authorization_code
 - 管理：系统设置 → Connected Apps
 - 申请：`POST /api/connected-app-requests`
 
+## 注册渠道归因（signup）
+
+给新用户打上来源 Connected App（**不是**授权 grant）：
+
+```text
+https://<host>/sign-up?signup_app=niaoweisi
+```
+
+- 前端会把 `signup_app` 存 localStorage，密码注册 body 带 `signup_app`。
+- 第三方登录：`/api/oauth/state?signup_app=<slug>` 写入 session，新用户创建时写入 `users.signup_connected_app_id`。
+- 无效 slug 忽略，不阻断注册。
+- 管理端用户列表可用 `signup_app_id` 筛选注册来源；`connected_app_id` 筛的是当前授权关系。
+
 ## 安全
 
 - redirect_uri 精确匹配白名单
 - 强制 PKCE S256
 - authorization code 短 TTL、一次性
 - API Key 明文只返回一次；用户可在 Profile 撤销
+- 禁用客户端不得 consent / token exchange
+- 网站 OAuth 同 app/user/web 指纹会吊销旧 `sk-` 再发新 key

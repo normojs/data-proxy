@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -26,6 +27,9 @@ func GenerateOAuthCode(c *gin.Context) {
 	affCode := c.Query("aff")
 	if affCode != "" {
 		session.Set("aff", affCode)
+	}
+	if signupApp := strings.TrimSpace(c.Query("signup_app")); signupApp != "" {
+		session.Set("signup_app", signupApp)
 	}
 	session.Set("oauth_state", state)
 	err := session.Save()
@@ -262,12 +266,13 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	user.Role = common.RoleCommonUser
 	user.Status = common.UserStatusEnabled
 
-	// Handle affiliate code
+	// Handle affiliate code + optional Connected App signup attribution
 	affCode := session.Get("aff")
 	inviterId := 0
 	if affCode != nil {
 		inviterId, _ = model.GetUserIdByAffCode(affCode.(string))
 	}
+	applySignupConnectedAppFromSession(session, user)
 
 	// Use transaction to ensure user creation and OAuth binding are atomic
 	if genericProvider, ok := provider.(*oauth.GenericOAuthProvider); ok {

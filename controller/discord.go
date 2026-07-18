@@ -150,6 +150,7 @@ func DiscordOAuth(c *gin.Context) {
 			} else {
 				user.DisplayName = "Discord User"
 			}
+			applySignupConnectedAppFromSession(sessions.Default(c), &user)
 			err := user.Insert(0)
 			if err != nil {
 				c.JSON(http.StatusOK, gin.H{

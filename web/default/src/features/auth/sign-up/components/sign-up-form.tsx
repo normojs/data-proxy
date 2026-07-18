@@ -55,7 +55,9 @@ import { useEmailVerification } from '@/features/auth/hooks/use-email-verificati
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import {
   getAffiliateCode,
+  getSignupAppRef,
   saveAffiliateCode,
+  saveSignupAppRef,
 } from '@/features/auth/lib/storage'
 import type { ApiResponse, RegisterPayload } from '@/features/auth/types'
 
@@ -154,9 +156,14 @@ export function SignUpForm({
   }, [requiresLegalConsent])
 
   useEffect(() => {
-    const aff = new URLSearchParams(window.location.search).get('aff')?.trim()
+    const params = new URLSearchParams(window.location.search)
+    const aff = params.get('aff')?.trim()
     if (aff) {
       saveAffiliateCode(aff)
+    }
+    const signupApp = params.get('signup_app')?.trim()
+    if (signupApp) {
+      saveSignupAppRef(signupApp)
     }
   }, [])
 
@@ -194,6 +201,7 @@ export function SignUpForm({
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
+        signup_app: getSignupAppRef() || undefined,
         invite_code: inviteCode.trim() || undefined,
         turnstile: turnstileToken,
       })

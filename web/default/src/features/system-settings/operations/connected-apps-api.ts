@@ -54,6 +54,14 @@ export type ConnectedAppStatus =
   | typeof CONNECTED_APP_STATUS_ENABLED
   | typeof CONNECTED_APP_STATUS_DISABLED
 
+export type ConnectedAppAuthorizationFlow =
+  | 'device_code'
+  | 'authorization_code'
+  | 'both'
+  | string
+
+export type ConnectedAppClientType = 'public' | 'confidential'
+
 export type ConnectedApp = {
   id: number
   slug: string
@@ -63,7 +71,12 @@ export type ConnectedApp = {
   default_scopes: string[]
   trusted: boolean
   status: ConnectedAppStatus
-  authorization_flow: 'device_code' | string
+  authorization_flow: ConnectedAppAuthorizationFlow
+  client_id?: string
+  redirect_uris?: string[]
+  has_client_secret?: boolean
+  client_secret?: string
+  client_secret_once?: boolean
   grant_count: number
   device_count: number
   active_device_count: number
@@ -77,7 +90,10 @@ export type ConnectedAppPayload = {
   description: string
   allowed_scopes: string[]
   default_scopes: string[]
-  authorization_flow: 'device_code' | string
+  authorization_flow: ConnectedAppAuthorizationFlow
+  redirect_uris?: string[]
+  client_type?: ConnectedAppClientType
+  rotate_secret?: boolean
   trusted: boolean
   status: ConnectedAppStatus
 }
@@ -94,7 +110,7 @@ export type ConnectedAppRequest = {
   description: string
   requested_scopes: string[]
   default_scopes: string[]
-  authorization_flow: 'device_code' | string
+  authorization_flow: ConnectedAppAuthorizationFlow
   homepage_url: string
   callback_url: string
   reason: string
@@ -122,9 +138,10 @@ export type ConnectedAppReviewPayload = {
   description?: string
   allowed_scopes?: string[]
   default_scopes?: string[]
-  authorization_flow?: 'device_code' | string
+  authorization_flow?: ConnectedAppAuthorizationFlow
   homepage_url?: string
   callback_url?: string
+  client_type?: ConnectedAppClientType
 }
 
 export type ConnectedAppReviewResponse = {

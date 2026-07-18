@@ -48,6 +48,9 @@ type User struct {
 	AffQuota         int            `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
 	AffHistoryQuota  int            `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
 	InviterId        int            `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	SignupConnectedAppId int          `json:"signup_connected_app_id" gorm:"type:int;default:0;column:signup_connected_app_id;index"`
+	// SignupApp is request-only (connected app slug) for registration attribution; not persisted.
+	SignupApp            string        `json:"signup_app,omitempty" gorm:"-"`
 	DeletedAt        gorm.DeletedAt `gorm:"index"`
 	LinuxDOId        string         `json:"linux_do_id" gorm:"column:linux_do_id;index"`
 	Setting          string         `json:"setting" gorm:"type:text;column:setting"`
@@ -311,7 +314,7 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, connectedAppId int, signupAppId int, startIdx int, num int) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -351,6 +354,18 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	}
 	if status != nil {
 		query = query.Where("status = ?", *status)
+	}
+	if connectedAppId > 0 {
+		// EXISTS avoids materializing a large IN list twice (Count + Find) and uses
+		// connected_app_grants (app_id, user_id) unique index as a semi-join.
+		query = query.Where(
+			"EXISTS (SELECT 1 FROM connected_app_grants AS g WHERE g.user_id = users.id AND g.app_id = ? AND g.status = ?)",
+			connectedAppId,
+			ConnectedAppGrantStatusAuthorized,
+		)
+	}
+	if signupAppId > 0 {
+		query = query.Where("signup_connected_app_id = ?", signupAppId)
 	}
 
 	// 获取总数

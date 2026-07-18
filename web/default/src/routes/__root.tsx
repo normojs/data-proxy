@@ -29,7 +29,10 @@ import { ThemeCustomizationProvider } from '@/context/theme-customization-provid
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { Toaster } from '@/components/ui/sonner'
 import { NavigationProgress } from '@/components/navigation-progress'
-import { saveAffiliateCode } from '@/features/auth/lib/storage'
+import {
+  saveAffiliateCode,
+  saveSignupAppRef,
+} from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
 import { getSetupStatus } from '@/features/setup/api'
@@ -39,9 +42,14 @@ function RootComponent() {
   useSystemConfig({ autoLoad: true })
 
   useEffect(() => {
-    const aff = new URLSearchParams(window.location.search).get('aff')?.trim()
+    const params = new URLSearchParams(window.location.search)
+    const aff = params.get('aff')?.trim()
     if (aff) {
       saveAffiliateCode(aff)
+    }
+    const signupApp = params.get('signup_app')?.trim()
+    if (signupApp) {
+      saveSignupAppRef(signupApp)
     }
   }, [])
 
