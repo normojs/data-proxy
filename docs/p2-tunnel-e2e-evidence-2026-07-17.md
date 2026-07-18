@@ -72,7 +72,7 @@ connection `last_request_id=202607161854331768225398268d9d68PUjx7Kh`
 
 ## 仍未覆盖 / 后续
 
-- `mcp_code` 路径 tools/list + tools/call 未在本轮跑
+- `mcp_code` 路径：生产 tools/list + tools/call 端到端仍待补；**自动化覆盖**已有 `go test ./service -run TunnelMCP`（list/call 策略、计费拒绝、上游转发与审计）
 - ~~公网 agent 安装脚本/manifest 仍 SPA 壳~~ → 已在后续提交修复：`GET /agent/install.sh` 与 `/agent/install-data-proxy-agent.sh` 返回 shell（本地 `scripts/` 或 GitHub bootstrap），见 `router/web-router.go`
 - ~~setup token `used_at NULL` 与 `=0`~~ → consume 已支持 `used_at = 0 OR IS NULL`；BeforeCreate 保证默认 0
 - 计费 ledger 细账（billing_events）未单独拉表核对；audit 已覆盖 charged/allow 轨迹的请求侧

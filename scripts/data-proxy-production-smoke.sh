@@ -183,6 +183,56 @@ header_request_id() {
   ' "$headers"
 }
 
+run_public_surface_smoke() {
+  local headers body status
+
+  # Agent install scripts must be shell, never SPA HTML.
+  for path in /agent/install.sh /agent/install-data-proxy-agent.sh; do
+    body="$TMPDIR_SMOKE/install-$(basename "$path").body"
+    headers="$TMPDIR_SMOKE/install-$(basename "$path").headers"
+    log "GET $path"
+    status="$(curl -sS --max-time "$TIMEOUT_SECONDS" -D "$headers" -o "$body" -w '%{http_code}' "$BASE_URL$path" || true)"
+    if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+      die "GET $path failed with HTTP $status"
+    fi
+    if ! head -c 2 "$body" | grep -q '^#!'; then
+      die "GET $path did not start with a shell shebang (SPA shell regression?)"
+    fi
+    if grep -qi '<!DOCTYPE html>' "$body"; then
+      die "GET $path returned HTML SPA content"
+    fi
+    summary_row "public${path//\//_}" "passed"
+  done
+
+  # OIDC discovery + JWKS at site root (not under /api, not SPA).
+  body="$TMPDIR_SMOKE/oidc-discovery.json"
+  headers="$TMPDIR_SMOKE/oidc-discovery.headers"
+  log "GET /.well-known/openid-configuration"
+  status="$(curl -sS --max-time "$TIMEOUT_SECONDS" -D "$headers" -o "$body" -w '%{http_code}' "$BASE_URL/.well-known/openid-configuration" || true)"
+  if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+    die "OIDC discovery failed with HTTP $status"
+  fi
+  if grep -qi '<!DOCTYPE html>' "$body"; then
+    die "OIDC discovery returned HTML SPA content"
+  fi
+  jq -e '.issuer and .jwks_uri and .authorization_endpoint and .token_endpoint' "$body" >/dev/null \
+    || die "OIDC discovery JSON missing required fields"
+  summary_row "oidc_discovery" "passed"
+
+  body="$TMPDIR_SMOKE/oidc-jwks.json"
+  headers="$TMPDIR_SMOKE/oidc-jwks.headers"
+  log "GET /oauth/jwks.json"
+  status="$(curl -sS --max-time "$TIMEOUT_SECONDS" -D "$headers" -o "$body" -w '%{http_code}' "$BASE_URL/oauth/jwks.json" || true)"
+  if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+    die "JWKS failed with HTTP $status"
+  fi
+  if grep -qi '<!DOCTYPE html>' "$body"; then
+    die "JWKS returned HTML SPA content"
+  fi
+  jq -e '(.keys | length) > 0' "$body" >/dev/null || die "JWKS has no keys"
+  summary_row "oidc_jwks" "passed"
+}
+
 run_status_smoke() {
   local body="$TMPDIR_SMOKE/status.json"
   local headers="$TMPDIR_SMOKE/status.headers"
@@ -320,6 +370,7 @@ run_admin_diagnostic_smoke() {
 }
 
 run_status_smoke
+run_public_surface_smoke
 run_chat_smoke
 run_responses_smoke
 if [[ "$REQUIRE_REQUEST_ID" == "1" && -z "$REQUEST_ID" ]]; then

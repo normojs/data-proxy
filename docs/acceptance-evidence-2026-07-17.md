@@ -267,3 +267,12 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 - production smoke（无 API Key）：`api_status=passed`
 - 旧镜像归档：`image-archive/20260718T202638Z_data-proxy_07847f30.tar`
 
+## 2026-07-19：production smoke 扩展公开面
+
+`scripts/data-proxy-production-smoke.sh` 在 `/api/status` 之后增加：
+
+- `/agent/install.sh`、`/agent/install-data-proxy-agent.sh` 必须为 shell shebang（防 SPA 回归）
+- `/.well-known/openid-configuration`、`/oauth/jwks.json` 必须为 JSON（防 SPA 回归）
+
+对 `https://dp.app.mbu.ltd`（`sha-5f695ffe`）无 Key 运行结果：`api_status` / `public_agent_install*` / `oidc_discovery` / `oidc_jwks` 均为 `passed`。
+
