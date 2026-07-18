@@ -239,3 +239,18 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 - 生产版本：`x-new-api-version: sha-dcc267e8`
 - 本地 health ok；文档三份 200
 - 包含：渠道 Key 更新后清熔断；隧道 UI HTTPS/本机协议；P2 e2e 文档
+
+## 2026-07-19：部署 `sha-07847f30`（IdP 加固 + agent install shell）
+
+- 提交：`3a2fa717`（IdP review 债/注册归因）+ `07847f30`（`/agent/install.sh` 不再 SPA）
+- Package CI：run `29657633122` success → `data-proxy-07847f30-linux-amd64.tar.gz`
+- Electerm 主机：`47.122.29.88`（snsc-prod-应用2），目录 `/root/workspace/dataproxy/data-proxy`
+- 执行：`./data-proxy-remote-deploy-07847f30.sh`
+- 生产版本：
+  - `x-new-api-version: sha-07847f30`
+  - `/api/status` → `success=true`，`version=sha-07847f30`
+- 安装脚本验收：
+  - `GET /agent/install.sh` → `content-type: text/x-shellscript`，body 以 `#!/usr/bin/env sh` 开头，**非** SPA HTML（530B bootstrap）
+  - `GET /agent/install-data-proxy-agent.sh` 同上
+- 旧镜像归档：`image-archive/20260718T195728Z_data-proxy_dcc267e8.tar`
+
