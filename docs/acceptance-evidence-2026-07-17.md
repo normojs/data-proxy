@@ -52,9 +52,9 @@
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
 | 用户自助买/兑包→调用 | PASS | 2026-07-19：见 `docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md` |
-| 模型广场测通 | PARTIAL | pricing 有数据；测通跳转 playground 需登录 |
+| 模型广场测通 | PASS | 2026-07-19：见 `docs/p1-model-market-probe-e2e-evidence-2026-07-19.md` |
 | 干净机器 compose 部署复验 | NOT RUN | 未另起空机器 |
-| 坏渠道自动避开生产演练 | NOT RUN | 需 admin + 双渠道演练 |
+| 坏渠道自动避开生产演练 | PASS | 2026-07-19：见 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md` |
 | 生产侧栏默认配置含 `package_skus` 模块开关 | NOTE | 线上 `SidebarModulesAdmin.admin` 尚无 `package_skus` 键；路由仍可直达 `/package-skus`，侧栏是否显示取决于默认 merge（前端默认配置含该键） |
 | `/docs/one-click-deploy.md` 公网直链 | FAIL/NOTE | 公网返回 SPA shell（1026B），未像 user-quickstart 那样放入 `web/default/public/docs/` |
 
@@ -290,4 +290,31 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 | request id | `202607182303154328215078268d9d6pQIhFErm` |
 
 退出标准「用户可不经管理员完成买/兑包→调用」：**勾选 PASS**。
+
+## 2026-07-19：P1-2 模型广场复制 + 测通
+
+版本：`sha-5f695ffe`  
+证据：`docs/p1-model-market-probe-e2e-evidence-2026-07-19.md`
+
+| 步骤 | 结果 |
+| --- | --- |
+| `GET /api/pricing` | 19 models，选 `gpt-5.4-mini` |
+| 复制 base_url / model / curl | 与 pricing UI 字段一致 |
+| chat 测通 | 200，rid `202607182310338934997778268d9d6PBr961DX` |
+| `POST /api/playground/provider-check` | ok=true，output_preview=`OK` |
+
+## 2026-07-19：P1-4 坏渠道 failover
+
+版本：`sha-5f695ffe`  
+证据：`docs/p1-channel-failover-e2e-evidence-2026-07-19.md`
+
+| 步骤 | 结果 |
+| --- | --- |
+| 本地 local-channel-failover-smoke | PASS，rid `…R0TupOz5`，101→102 |
+| 生产 `RetryTimes=1` + 坏渠道 21 | selected→failed→selected 18 |
+| 生产 chat | 200，content=`FAILOVER_OK`，rid `202607182314216659897848268d9d6zVjlw3Sh` |
+| 审计 | error log ch=21 + consume log ch=18 + `channel_failover` |
+| 清理 | 坏渠道删除，`RetryTimes` 恢复 0 |
+
+运维备注：生产默认 `RetryTimes=0`，长期开启需按 `docs/channel-failover-and-circuit-breaker.md` 固化。
 

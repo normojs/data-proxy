@@ -157,13 +157,13 @@
 
 - [x] 用户可不经管理员完成「买/兑 Token 包 → 调用」
   - 2026-07-19 生产 PASS：兑码 package_id=2 + 买 SKU package_id=3 + chat `gpt-5.4-mini` funding=`model_token_package`；证据 `docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md`
-  - 部分完成：兑码/SKU 购买 API+UI 已上线；缺真实账号闭环证据
-- [ ] 模型广场可复制配置并完成一次测通
-  - 部分完成：pricing 公开数据可用；测通需登录 Playground
+- [x] 模型广场可复制配置并完成一次测通
+  - 2026-07-19 生产 PASS：pricing 复制 curl/base_url + chat 测通 + provider-check OK；证据 `docs/p1-model-market-probe-e2e-evidence-2026-07-19.md`
 - [ ] 新人按文档一条 compose 路径完成部署
   - 部分完成：仓库文档存在；公网未挂载 one-click-deploy 静态文件；未做干净机器复验
-- [ ] 坏渠道在配置开启后可自动避开并有审计
-  - 未跑：需生产/预发双渠道演练
+- [x] 坏渠道在配置开启后可自动避开并有审计
+  - 2026-07-19 PASS：本地 smoke + 生产临时坏渠道 failover（rid `…zVjlw3Sh`，21→18）；证据 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md`
+  - 注意：生产默认 `RetryTimes=0`，需按 channel-failover 文档固化 `RetryTimes>=1`
 
 ---
 
@@ -219,11 +219,11 @@
 2. [ ] **P0-2** 请求扣费解释（log + UI）  
 3. [ ] **P0-4** 错误文案人话化（可与 P0-2 并行）  
 4. [ ] **P0-3** 3 分钟接入文档与站内入口  
-5. [ ] **P1-1** Token 包购买/卡密  
-6. [ ] **P1-2** 模型广场测通与复制  
-7. [ ] **P1-4** 渠道健康傻瓜化  
+5. [x] **P1-1** Token 包购买/卡密  
+6. [x] **P1-2** 模型广场测通与复制  
+7. [x] **P1-4** 渠道健康傻瓜化  
 8. [ ] **P1-3** 部署一键化  
-9. [ ] **P2-1** 客户端隧道 E2E  
+9. [x] **P2-1** 客户端隧道 E2E  
 
 ---
 
@@ -247,3 +247,5 @@
 | P2 dpa HTTP Tunnel 生产 e2e | 2026-07-17 | `sha-da5af9b2` | setup→run→云端调用→audit；见 `docs/p2-tunnel-e2e-evidence-2026-07-17.md` |
 | P2 mcp_code 生产 e2e | 2026-07-19 | `sha-5f695ffe` | initialize/tools.list/tools.call + audit；见 `docs/p2-mcp-code-e2e-evidence-2026-07-19.md` |
 | P1-1 买/兑包→调用生产 e2e | 2026-07-19 | `sha-5f695ffe` | redeem+purchase+chat package funding；见 `docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md` |
+| P1-2 模型广场测通 | 2026-07-19 | `sha-5f695ffe` | pricing 复制 + chat/provider-check；见 `docs/p1-model-market-probe-e2e-evidence-2026-07-19.md` |
+| P1-4 坏渠道 failover 演练 | 2026-07-19 | `sha-5f695ffe` | 本地 smoke + 生产 21→18；见 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md` |
