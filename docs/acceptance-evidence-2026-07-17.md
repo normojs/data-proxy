@@ -51,7 +51,7 @@
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| 用户自助买/兑包→调用 | PARTIAL | 能力齐；缺真实账号走通 |
+| 用户自助买/兑包→调用 | PASS | 2026-07-19：见 `docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md` |
 | 模型广场测通 | PARTIAL | pricing 有数据；测通跳转 playground 需登录 |
 | 干净机器 compose 部署复验 | NOT RUN | 未另起空机器 |
 | 坏渠道自动避开生产演练 | NOT RUN | 需 admin + 双渠道演练 |
@@ -275,4 +275,19 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 - `/.well-known/openid-configuration`、`/oauth/jwks.json` 必须为 JSON（防 SPA 回归）
 
 对 `https://dp.app.mbu.ltd`（`sha-5f695ffe`）无 Key 运行结果：`api_status` / `public_agent_install*` / `oidc_discovery` / `oidc_jwks` 均为 `passed`。
+
+## 2026-07-19：P1-1 买/兑 Token 包 → 调用
+
+版本：`sha-5f695ffe`  
+证据全文：`docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md`
+
+| 步骤 | 结果 |
+| --- | --- |
+| `POST /api/user/topup` 兑换包码 | PASS → package_id=2，`source=redeem`，50000 tokens，`gpt-5.4-mini` |
+| `POST /api/user/model-token-package-skus/1/purchase` | PASS → package_id=3，`source=purchase`，20000 tokens，钱包不变 |
+| `POST /v1/chat/completions` `gpt-5.4-mini` | PASS HTTP 200，content=`P1_PACKAGE_OK` |
+| funding | `model_token_package`，package_id=3，consume=8242，wallet_quota_deducted=0 |
+| request id | `202607182303154328215078268d9d6pQIhFErm` |
+
+退出标准「用户可不经管理员完成买/兑包→调用」：**勾选 PASS**。
 

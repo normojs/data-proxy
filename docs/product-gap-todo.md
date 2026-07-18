@@ -155,7 +155,8 @@
 
 ### P1 退出标准
 
-- [ ] 用户可不经管理员完成「买/兑 Token 包 → 调用」
+- [x] 用户可不经管理员完成「买/兑 Token 包 → 调用」
+  - 2026-07-19 生产 PASS：兑码 package_id=2 + 买 SKU package_id=3 + chat `gpt-5.4-mini` funding=`model_token_package`；证据 `docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md`
   - 部分完成：兑码/SKU 购买 API+UI 已上线；缺真实账号闭环证据
 - [ ] 模型广场可复制配置并完成一次测通
   - 部分完成：pricing 公开数据可用；测通需登录 Playground
@@ -245,3 +246,4 @@
 | API 层扣费字段验收 | 2026-07-17 | `sha-da5af9b2` | token log 含 funding_source/wallet_quota_deducted |
 | P2 dpa HTTP Tunnel 生产 e2e | 2026-07-17 | `sha-da5af9b2` | setup→run→云端调用→audit；见 `docs/p2-tunnel-e2e-evidence-2026-07-17.md` |
 | P2 mcp_code 生产 e2e | 2026-07-19 | `sha-5f695ffe` | initialize/tools.list/tools.call + audit；见 `docs/p2-mcp-code-e2e-evidence-2026-07-19.md` |
+| P1-1 买/兑包→调用生产 e2e | 2026-07-19 | `sha-5f695ffe` | redeem+purchase+chat package funding；见 `docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md` |
