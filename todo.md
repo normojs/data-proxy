@@ -46,7 +46,7 @@
 
 ### P2 — 拉开差距
 
-- [ ] 客户端隧道真正可用（主路径 dpa；决策见 docs/p2-tunnel-client-decision.md；端到端生产证据待补）
+- [x] 客户端隧道真正可用（主路径 dpa；决策见 docs/p2-tunnel-client-decision.md；生产 HTTP e2e 见 docs/p2-tunnel-e2e-evidence-2026-07-17.md；`/agent/install.sh` 已改为 shell 而非 SPA）
 
 ---
 

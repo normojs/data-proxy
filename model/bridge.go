@@ -161,6 +161,11 @@ func (token *BridgeAgentSetupToken) BeforeCreate(tx *gorm.DB) error {
 	now := common.GetTimestamp()
 	token.CreatedAt = now
 	token.UpdatedAt = now
+	// Unused tokens must be 0 so consume queries using used_at = 0 work across DBs.
+	// Manual SQL inserts with NULL are still accepted by Consume (OR used_at IS NULL).
+	if token.UsedAt < 0 {
+		token.UsedAt = 0
+	}
 	return nil
 }
 

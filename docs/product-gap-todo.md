@@ -178,7 +178,7 @@
 - [x] 端到端：安装 → 注册 → 暴露本地 MCP/HTTP → 云端调用成功
   - 验收：有 smoke 清单与 request_id / audit 证据
   - 2026-07-17 生产 HTTP Tunnel e2e PASS：证据 `docs/p2-tunnel-e2e-evidence-2026-07-17.md`（rid `…XMJZfGnS` 等）
-  - 说明：本轮用本地构建 dpa；公网 `/agent/install.sh` 仍 SPA 壳。mcp_code tools/call 未跑
+  - 说明：本轮用本地构建 dpa；公网 `/agent/install.sh` 已改为 shell/bootstrap（见 router/web-router.go）。mcp_code tools/call 未跑
 - [x] 控制台给出可复制安装/注册/route 命令
   - 验收：用户无需读源码即可完成
   - 说明：Tunnel Connections Agent Setup / README / install script 已有
