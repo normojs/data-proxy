@@ -53,7 +53,7 @@
 | --- | --- | --- |
 | 用户自助买/兑包→调用 | PASS | 2026-07-19：见 `docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md` |
 | 模型广场测通 | PASS | 2026-07-19：见 `docs/p1-model-market-probe-e2e-evidence-2026-07-19.md` |
-| 干净机器 compose 部署复验 | NOT RUN | 未另起空机器 |
+| 干净机器 compose 部署复验 | PASS | 2026-07-19：隔离 compose 路径复验，见 `docs/p1-compose-deploy-e2e-evidence-2026-07-19.md` |
 | 坏渠道自动避开生产演练 | PASS | 2026-07-19：见 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md` |
 | 生产侧栏默认配置含 `package_skus` 模块开关 | NOTE | 线上 `SidebarModulesAdmin.admin` 尚无 `package_skus` 键；路由仍可直达 `/package-skus`，侧栏是否显示取决于默认 merge（前端默认配置含该键） |
 | `/docs/one-click-deploy.md` 公网直链 | FAIL/NOTE | 公网返回 SPA shell（1026B），未像 user-quickstart 那样放入 `web/default/public/docs/` |
@@ -317,4 +317,20 @@ DATA_PROXY_BASE_URL=https://dp.app.mbu.ltd scripts/data-proxy-production-smoke.s
 | 清理 | 坏渠道删除，`RetryTimes` 恢复 0 |
 
 运维备注：生产默认 `RetryTimes=0`，长期开启需按 `docs/channel-failover-and-circuit-breaker.md` 固化。
+
+## 2026-07-19：P1-3 一条 compose 部署路径
+
+证据：`docs/p1-compose-deploy-e2e-evidence-2026-07-19.md`
+
+| 步骤 | 结果 |
+| --- | --- |
+| 公网 one-click-deploy.md | 200 / 2498B |
+| `docker-compose.yml` / prod compose config | 可解析 |
+| 隔离 compose up（13003） | container healthy，`/api/status` success |
+| setup → login → create token | PASS |
+| Key 调 `/v1/models` | 200 |
+| Key 调 chat（无渠道） | 503 model_not_found（鉴权通过） |
+| 清理 | compose down，临时密钥删除 |
+
+P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
 

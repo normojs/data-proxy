@@ -159,8 +159,8 @@
   - 2026-07-19 生产 PASS：兑码 package_id=2 + 买 SKU package_id=3 + chat `gpt-5.4-mini` funding=`model_token_package`；证据 `docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md`
 - [x] 模型广场可复制配置并完成一次测通
   - 2026-07-19 生产 PASS：pricing 复制 curl/base_url + chat 测通 + provider-check OK；证据 `docs/p1-model-market-probe-e2e-evidence-2026-07-19.md`
-- [ ] 新人按文档一条 compose 路径完成部署
-  - 部分完成：`docs/one-click-deploy.md` 公网可达；缺干净机器从零 compose 复验
+- [x] 新人按文档一条 compose 路径完成部署
+  - 2026-07-19 PASS：公网 one-click 文档 + compose config + 隔离 compose up/status/setup/login/token；证据 `docs/p1-compose-deploy-e2e-evidence-2026-07-19.md`
 - [x] 坏渠道在配置开启后可自动避开并有审计
   - 2026-07-19 PASS：本地 smoke + 生产临时坏渠道 failover（rid `…zVjlw3Sh`，21→18）；证据 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md`
   - 注意：生产默认 `RetryTimes=0`，需按 channel-failover 文档固化 `RetryTimes>=1`
@@ -222,7 +222,7 @@
 5. [x] **P1-1** Token 包购买/卡密  
 6. [x] **P1-2** 模型广场测通与复制  
 7. [x] **P1-4** 渠道健康傻瓜化  
-8. [ ] **P1-3** 部署一键化  
+8. [x] **P1-3** 部署一键化  
 9. [x] **P2-1** 客户端隧道 E2E  
 
 ---
@@ -249,3 +249,4 @@
 | P1-1 买/兑包→调用生产 e2e | 2026-07-19 | `sha-5f695ffe` | redeem+purchase+chat package funding；见 `docs/p1-package-buy-redeem-e2e-evidence-2026-07-19.md` |
 | P1-2 模型广场测通 | 2026-07-19 | `sha-5f695ffe` | pricing 复制 + chat/provider-check；见 `docs/p1-model-market-probe-e2e-evidence-2026-07-19.md` |
 | P1-4 坏渠道 failover 演练 | 2026-07-19 | `sha-5f695ffe` | 本地 smoke + 生产 21→18；见 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md` |
+| P1-3 compose 部署路径复验 | 2026-07-19 | local e2e | 文档+compose config+隔离 up/setup/token；见 `docs/p1-compose-deploy-e2e-evidence-2026-07-19.md` |
