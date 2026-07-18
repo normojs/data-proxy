@@ -251,3 +251,4 @@
 | P1-4 坏渠道 failover 演练 | 2026-07-19 | `sha-5f695ffe` | 本地 smoke + 生产 21→18；见 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md` |
 | P1-3 compose 部署路径复验 | 2026-07-19 | local e2e | 文档+compose config+隔离 up/setup/token；见 `docs/p1-compose-deploy-e2e-evidence-2026-07-19.md` |
 | 生产安全故障切换预设固化 | 2026-07-19 | `sha-5f695ffe` | options `RetryTimes=1` + 健康/熔断键；见 `docs/p1-retrytimes-persist-evidence-2026-07-19.md` |
+| P1-3 路径 B 生产 compose 运行复验 | 2026-07-19 | local e2e | prod+wechat compose up/status/setup/token；见 `docs/p1-compose-pathb-e2e-evidence-2026-07-19.md` |

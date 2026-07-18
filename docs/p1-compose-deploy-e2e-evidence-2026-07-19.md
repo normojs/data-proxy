@@ -92,5 +92,5 @@ docker compose -f /tmp/data-proxy-p1-compose-e2e/compose.e2e.yml up -d
 ## 备注 / 建议
 
 1. 若本机 3000 已被占用，文档可补一句「改 `ports` 或停旧实例」；本轮用 13003 验证。  
-2. 路径 B 生产 compose 本轮做了 **config 级**校验；真实镜像拉取/`prod-compose.sh up` 仍建议在干净空机器或预发再跑一次（需 `DATA_PROXY_IMAGE` / SQL_DSN）。  
+2. 路径 B 已在 2026-07-19 补 **运行级** 隔离复验（prod compose 文件集 + wechat secrets 卷 + setup/token）：见 `docs/p1-compose-pathb-e2e-evidence-2026-07-19.md`。干净空机器 + 外部 SQL/Redis + ghcr 拉镜像仍属发布机清单。  
 3. `scripts/quickstart.sh` 固定探活 `127.0.0.1:3000`，与路径 A 默认端口一致。  

@@ -346,3 +346,15 @@ P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
 | 进程 | `syncing options from database` 持续出现（约 60s） |
 | 范围 | 仅 options；未改渠道/用户 |
 
+## 2026-07-19：P1-3 路径 B 生产 compose 运行复验
+
+证据：`docs/p1-compose-pathb-e2e-evidence-2026-07-19.md`
+
+| 步骤 | 结果 |
+| --- | --- |
+| prod + wechat-pay compose config | 50 lines OK |
+| 隔离 up（13004→13002） | healthy，`/api/status` success |
+| setup / login / token / key | PASS |
+| Key models / chat / 无效 Key | 200 空列表 / 503 无渠道 / 401 |
+| 清理 | compose down，临时 env/key 删除 |
+
