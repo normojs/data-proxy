@@ -178,7 +178,8 @@
 - [x] 端到端：安装 → 注册 → 暴露本地 MCP/HTTP → 云端调用成功
   - 验收：有 smoke 清单与 request_id / audit 证据
   - 2026-07-17 生产 HTTP Tunnel e2e PASS：证据 `docs/p2-tunnel-e2e-evidence-2026-07-17.md`（rid `…XMJZfGnS` 等）
-  - 说明：本轮用本地构建 dpa；公网 `/agent/install.sh` 已改为 shell/bootstrap（见 router/web-router.go）。mcp_code tools/call 未跑
+  - 2026-07-19 生产 **mcp_code** tools/list + tools/call PASS：证据 `docs/p2-mcp-code-e2e-evidence-2026-07-19.md`（`sha-5f695ffe`，slug `tun-bqzyhbyt2mmx`）
+  - 说明：本轮用本地构建 dpa；公网 `/agent/install.sh` 已改为 shell/bootstrap（见 router/web-router.go）
 - [x] 控制台给出可复制安装/注册/route 命令
   - 验收：用户无需读源码即可完成
   - 说明：Tunnel Connections Agent Setup / README / install script 已有
@@ -195,6 +196,7 @@
 
 - [x] 外部用户按文档完成一次「云端 Agent → 本机服务」闭环
   - 2026-07-17：云端 `https://dp.app.mbu.ltd/t/.../tunnel/http/.../hello` → dpa → 本机 18080（见 e2e 证据）
+  - 2026-07-19：云端 `/t/.../tunnel/mcp/...` → dpa `mcp_proxy.*` → 本机 19090 假 MCP（见 mcp_code e2e 证据）
 - [x] 不再依赖 mock-only 演示主路径
   - 说明：主路径 dpa 真连生产 bridge；QidianBrowser 仍为辅路径
 
@@ -242,3 +244,4 @@
 | API Key 请求面验收 | 2026-07-17 | `sha-da5af9b2` | chat/responses PASS；UI session 手测仍缺 |
 | API 层扣费字段验收 | 2026-07-17 | `sha-da5af9b2` | token log 含 funding_source/wallet_quota_deducted |
 | P2 dpa HTTP Tunnel 生产 e2e | 2026-07-17 | `sha-da5af9b2` | setup→run→云端调用→audit；见 `docs/p2-tunnel-e2e-evidence-2026-07-17.md` |
+| P2 mcp_code 生产 e2e | 2026-07-19 | `sha-5f695ffe` | initialize/tools.list/tools.call + audit；见 `docs/p2-mcp-code-e2e-evidence-2026-07-19.md` |
