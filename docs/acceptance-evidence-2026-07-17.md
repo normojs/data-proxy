@@ -358,3 +358,16 @@ P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
 | Key models / chat / 无效 Key | 200 空列表 / 503 无渠道 / 401 |
 | 清理 | compose down，临时 env/key 删除 |
 
+## 2026-07-19：P1-3 路径 B + 外部 MySQL/Redis
+
+证据：`docs/p1-compose-pathb-mysql-redis-e2e-evidence-2026-07-19.md`
+
+| 步骤 | 结果 |
+| --- | --- |
+| 外部 MySQL 8.0 库 `data_proxy_pathb` + Redis 容器 | PASS |
+| prod compose + `SQL_DSN`/`REDIS_CONN_STRING` | healthy |
+| setup 报告 mysql + redis_enabled | PASS |
+| setup/login/token + models/chat/401 | PASS |
+| 库表约 99；Redis DBSIZE>0 | PASS |
+| 清理 | down + DROP DATABASE/USER + 删临时密钥 |
+

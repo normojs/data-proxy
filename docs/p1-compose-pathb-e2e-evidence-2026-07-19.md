@@ -72,8 +72,9 @@ docker compose -f docker-compose.prod.yml -f docker-compose.wechat-pay.yml \
 ## 与退出标准 / 文档
 
 - 路径 A：见 `docs/p1-compose-deploy-e2e-evidence-2026-07-19.md`  
-- 路径 B：本文件 — **运行级 PASS**（不仅 config）  
-- 仍未覆盖：干净空机器 + 外部 MySQL/Redis 真 DSN + 从 ghcr 拉 `DATA_PROXY_IMAGE`（需 registry 凭据与独立库，属发布机清单）
+- 路径 B（SQLite 默认）：本文件 — **运行级 PASS**（不仅 config）  
+- 路径 B + 外部 MySQL/Redis：见 `docs/p1-compose-pathb-mysql-redis-e2e-evidence-2026-07-19.md`  
+- 仍未覆盖：从 ghcr 拉官方 `DATA_PROXY_IMAGE`（需 registry 凭据）
 
 ## 备注
 
