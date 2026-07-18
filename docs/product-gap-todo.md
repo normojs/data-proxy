@@ -160,7 +160,7 @@
 - [x] 模型广场可复制配置并完成一次测通
   - 2026-07-19 生产 PASS：pricing 复制 curl/base_url + chat 测通 + provider-check OK；证据 `docs/p1-model-market-probe-e2e-evidence-2026-07-19.md`
 - [ ] 新人按文档一条 compose 路径完成部署
-  - 部分完成：仓库文档存在；公网未挂载 one-click-deploy 静态文件；未做干净机器复验
+  - 部分完成：`docs/one-click-deploy.md` 公网可达；缺干净机器从零 compose 复验
 - [x] 坏渠道在配置开启后可自动避开并有审计
   - 2026-07-19 PASS：本地 smoke + 生产临时坏渠道 failover（rid `…zVjlw3Sh`，21→18）；证据 `docs/p1-channel-failover-e2e-evidence-2026-07-19.md`
   - 注意：生产默认 `RetryTimes=0`，需按 channel-failover 文档固化 `RetryTimes>=1`
