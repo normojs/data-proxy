@@ -25,6 +25,8 @@ docker compose up -d --build
 - 缓存：`MEMORY_CACHE_ENABLED` 自动视为开启（渠道内存缓存等）；**不是**嵌入式 Redis 进程
 - 已有 `pkg/cachex.HybridCache`：无 Redis 时回退进程内 LRU
 - **用户基础信息**（`GetUserCache`）：无 Redis 时写入进程内 `user_base:v1` 缓存（含 group/status/quota 展示字段）；有 Redis 时仍用 HASH + `HINCRBY`
+- **API Token**（`GetTokenByKey`）：无 Redis 时写入进程内 `token:v1`（按 key HMAC，不存明文 secret）；有 Redis 时仍用 HASH
+- **HTTP 限流**（全局 / 模型 / 邮件验证等）：无 Redis 时已用 `common.InMemoryRateLimiter`（进程内滑动窗口）；有 Redis 时用 list/incr
 - 限制：
   - **单节点 only**；多副本不共享限流/缓存/部分亲和状态
   - 进程重启后纯缓存丢失；**额度与业务真相在 SQLite**（扣费仍以 DB 事务为准，内存 quota 仅为加速读）
