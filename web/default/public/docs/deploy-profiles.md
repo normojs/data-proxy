@@ -24,9 +24,10 @@ docker compose up -d --build
 - 数据库：默认 SQLite（`./data` 或 `SQLITE_PATH`）
 - 缓存：`MEMORY_CACHE_ENABLED` 自动视为开启（渠道内存缓存等）；**不是**嵌入式 Redis 进程
 - 已有 `pkg/cachex.HybridCache`：无 Redis 时回退进程内 LRU
+- **用户基础信息**（`GetUserCache`）：无 Redis 时写入进程内 `user_base:v1` 缓存（含 group/status/quota 展示字段）；有 Redis 时仍用 HASH + `HINCRBY`
 - 限制：
   - **单节点 only**；多副本不共享限流/缓存/部分亲和状态
-  - 进程重启后纯缓存丢失；**额度与业务真相在 SQLite**
+  - 进程重启后纯缓存丢失；**额度与业务真相在 SQLite**（扣费仍以 DB 事务为准，内存 quota 仅为加速读）
   - 生产支付 / 多机请改用 standard 或 ha
 
 关闭自动内存缓存（不推荐自用）：

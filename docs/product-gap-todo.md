@@ -209,7 +209,8 @@
 - [ ] ~~多节点 / 跨节点 SSE / 分布式 Tunnel 限流~~ → 单机稳定后再单独立项
 - [ ] ~~企业治理 SSO 真实连接器全家桶~~ → 见 enterprise 队列，不阻塞 P0 口碑项
 - [x] 自用 **lite** 档位（SQLite + 进程内缓存，非嵌入式 Redis）→ `docs/deploy-profiles.md` + `common.ApplyCacheDefaults`（2026-07-19）
-  - 后续可选：user_cache / 限流等热路径统一走 HybridCache 内存后端（额度仍以 DB 为准）
+  - [x] `GetUserCache` 无 Redis 时走 `cachex.HybridCache` 内存后端（2026-07-19）
+  - 后续可选：全局限流等仍 `RedisEnabled` 分支的热路径统一内存后端（额度扣减仍以 DB 为准）
 
 ---
 
