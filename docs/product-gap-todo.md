@@ -259,3 +259,4 @@
 | 生产安全故障切换预设固化 | 2026-07-19 | `sha-5f695ffe` | options `RetryTimes=1` + 健康/熔断键；见 `docs/p1-retrytimes-persist-evidence-2026-07-19.md` |
 | P1-3 路径 B 生产 compose 运行复验 | 2026-07-19 | local e2e | prod+wechat compose up/status/setup/token；见 `docs/p1-compose-pathb-e2e-evidence-2026-07-19.md` |
 | P1-3 路径 B + 外部 MySQL/Redis | 2026-07-19 | local e2e | SQL_DSN+Redis 真依赖 + setup/token；见 `docs/p1-compose-pathb-mysql-redis-e2e-evidence-2026-07-19.md` |
+| lite 档位源码冒烟 | 2026-07-19 | local binary | SQLite 无 Redis + memory cache 日志 + setup/token；见 `docs/lite-profile-smoke-evidence-2026-07-19.md` |

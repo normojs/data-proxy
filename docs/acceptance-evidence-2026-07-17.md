@@ -371,3 +371,13 @@ P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
 | 库表约 99；Redis DBSIZE>0 | PASS |
 | 清理 | down + DROP DATABASE/USER + 删临时密钥 |
 
+## 2026-07-19：lite 档位源码冒烟
+
+证据：`docs/lite-profile-smoke-evidence-2026-07-19.md`
+
+| 步骤 | 结果 |
+| --- | --- |
+| `DATA_PROXY_PROFILE=lite`，无 Redis | 日志 `cache backend=memory` |
+| SQLite setup / login / token | PASS |
+| Key `/v1/models` ×2 / 无效 Key | 200 / 401 |
+

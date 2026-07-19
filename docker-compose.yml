@@ -1,11 +1,12 @@
 # Data Proxy Docker Compose Configuration
 #
-# Quick Start:
+# Quick Start (lite: SQLite + process-local cache, no Redis):
 #   1. docker compose up -d
 #   2. Access http://localhost:3000
-#   3. Use the first-run setup wizard to configure an existing
-#      MySQL/PostgreSQL database and optional Redis before creating the
-#      first administrator account.
+#   3. Complete the setup wizard (or keep SQLite defaults) and create the
+#      first administrator. See docs/deploy-profiles.md.
+#   Optional MySQL/PostgreSQL/Redis: use the setup wizard, or
+#   docker compose --profile local-deps up -d then point DSN at postgres/redis.
 #
 # Docker Desktop note:
 #   If Data Proxy runs in Docker and your database/Redis runs on this Mac,
@@ -33,6 +34,7 @@ services:
       - ./logs:/app/logs
     environment:
       - TZ=Asia/Shanghai
+      - DATA_PROXY_PROFILE=lite  # 自用/试用：SQLite + 进程内缓存；生产请改 standard/ha 并配置 SQL_DSN/REDIS
       - ERROR_LOG_ENABLED=true # 是否启用错误日志记录 (Whether to enable error log recording)
       - BATCH_UPDATE_ENABLED=true  # 是否启用批量更新 (Whether to enable batch update)
       - NODE_NAME=data-proxy-node-1  # 节点名称，用于审计日志中标识节点身份；多节点/容器部署时建议设置 (Node name used in audit logs; recommended when running multiple instances or in containers)

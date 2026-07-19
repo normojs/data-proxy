@@ -20,7 +20,10 @@ if [[ ! -f .env ]] && [[ -f .env.example.minimal ]]; then
   echo "created .env from .env.example.minimal (edit SESSION_SECRET for production)"
 fi
 
-echo "starting data-proxy (docker compose up -d --build)..."
+# Path A defaults to lite (SQLite + in-process cache). Override with DATA_PROXY_PROFILE=standard if needed.
+export DATA_PROXY_PROFILE="${DATA_PROXY_PROFILE:-lite}"
+
+echo "starting data-proxy (docker compose up -d --build, profile=${DATA_PROXY_PROFILE})..."
 docker compose up -d --build
 
 echo "waiting for /api/status ..."
@@ -39,4 +42,5 @@ if [[ "$ok" -ne 1 ]]; then
 fi
 
 echo "Data Proxy is up: http://127.0.0.1:3000"
+echo "Deploy profile: ${DATA_PROXY_PROFILE} (see docs/deploy-profiles.md)"
 echo "Next: open the setup wizard, create admin, add a channel, then see docs/user-quickstart.md"
