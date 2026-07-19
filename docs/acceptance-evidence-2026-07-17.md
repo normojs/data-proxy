@@ -381,3 +381,10 @@ P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
 | SQLite setup / login / token | PASS |
 | Key `/v1/models` ×2 / 无效 Key | 200 / 401 |
 
+## 2026-07-20：生产部署 `sha-e1e59279`
+
+- Package CI run `29668608093` → `data-proxy-e1e59279-linux-amd64.tar.gz`
+- 主机 `47.122.29.88`：归档 `5f695ffe` 后切换镜像；compose 曾硬编码 image，已改为 `data-proxy:e1e59279`
+- 公网：`x-new-api-version: sha-e1e59279`；`/api/status` success；docs/agent/OIDC 公开探针 PASS
+- 证据：`docs/deploy-evidence-2026-07-20-e1e59279.md`
+
