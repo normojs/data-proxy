@@ -388,3 +388,11 @@ P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
 - 公网：`x-new-api-version: sha-e1e59279`；`/api/status` success；docs/agent/OIDC 公开探针 PASS
 - 证据：`docs/deploy-evidence-2026-07-20-e1e59279.md`
 
+## 2026-07-20：生产部署 `sha-9de9a8d7`（DP-1/DP-2）
+
+- 提交：`9de9a8d7` feat(idp): device poll user summary and signup_app attribution path
+- Package CI：run `29697784348` success
+- 主机 `47.122.29.88`：归档 `e1e59279` → 镜像 `data-proxy:9de9a8d7`；compose image pin 更新
+- 公网：`x-new-api-version: sha-9de9a8d7`；production smoke 公开面 ALL_PASS
+- 证据：`docs/deploy-evidence-2026-07-20-9de9a8d7.md`
+
