@@ -26,11 +26,34 @@ docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis up -d --b
 ./scripts/quickstart.sh pg-redis
 ```
 
-## lite（自用 / 极简）
+## lite（自用 / 极简 / 小机器）
 
 ```bash
 export DATA_PROXY_PROFILE=lite   # compose 文件已写入；可省略
 docker compose -f docker-compose.lite.yml up -d --build
+```
+
+### 小机器默认（compose 已写死倾向）
+
+| 项 | 默认 | 说明 |
+| --- | --- | --- |
+| 容器数 | **1** | 无 PG/Redis sidecar |
+| `mem_limit` | `768m` | `DATA_PROXY_MEM_LIMIT` 可改；`512m` 可试 |
+| `cpus` | `1.0` | `DATA_PROXY_CPUS` |
+| `GOMEMLIMIT` | `700MiB` | 略低于 mem_limit，利于 GC |
+| `GOMAXPROCS` | `2` | 避免过多 OS 线程 |
+| `SYNC_FREQUENCY` | `120` | 降后台同步频率 |
+| `BATCH_UPDATE_*` | 开 / 10s | 减 SQLite 写放大 |
+| `ERROR_LOG_ENABLED` | `false` | 少写库；排障时再开 |
+| `CAPTURE_ENABLED` | `false` | 不跑请求捕获 |
+| 日志 | json-file 10m×3 | 防小盘打满 |
+| 安全 | `read_only` + `cap_drop: ALL` + `no-new-privileges` | 仅 `/data` `/app/logs` `/tmp` 可写 |
+
+更狠（约 512Mi 顶）：
+
+```bash
+DATA_PROXY_MEM_LIMIT=512m GOMEMLIMIT=450MiB GOMAXPROCS=1 DATA_PROXY_CPUS=0.5 \
+  docker compose -f docker-compose.lite.yml up -d
 ```
 
 行为：

@@ -1,20 +1,12 @@
-# Data Proxy Docker Compose — 默认 = lite
+# Data Proxy Docker Compose — 默认 = lite（与 docker-compose.lite.yml 同目标）
 #
-# 请按场景选择其一（二选一，不要同时 up 两套占同一端口）：
+# 二选一（勿同时占同一端口）：
+#   lite:     docker compose -f docker-compose.lite.yml up -d --build
+#             docker compose up -d --build          # 本文件
+#   pg+redis: docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis up -d --build
 #
-#   1) lite（SQLite + 进程内缓存，无 PG/Redis）
-#        docker compose -f docker-compose.lite.yml up -d --build
-#        # 或本文件：
-#        docker compose up -d --build
-#
-#   2) standard（PostgreSQL + Redis 一体）
-#        cp .env.example.pg-redis .env.pg-redis   # 改 SESSION_SECRET 与密码
-#        docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis up -d --build
-#
-# 档位说明：docs/deploy-profiles.md
-# 一键文档：docs/one-click-deploy.md
-#
-# 已有外部 MySQL/PG/Redis 的生产机仍可用 docker-compose.prod.yml + scripts/prod-compose.sh
+# 小机器调参见 docker-compose.lite.yml 头注释与 docs/deploy-profiles.md
+# 外部库生产：docker-compose.prod.yml + scripts/prod-compose.sh
 
 services:
   data-proxy:
@@ -22,32 +14,52 @@ services:
       context: .
       dockerfile: Dockerfile
     image: ${DATA_PROXY_IMAGE:-data-proxy:latest}
-    container_name: data-proxy
-    restart: always
-    command: --log-dir /app/logs
+    container_name: data-proxy-lite
+    restart: unless-stopped
+    init: true
+    cpus: ${DATA_PROXY_CPUS:-1.0}
+    mem_limit: ${DATA_PROXY_MEM_LIMIT:-768m}
+    memswap_limit: ${DATA_PROXY_MEM_LIMIT:-768m}
+    pids_limit: ${DATA_PROXY_PIDS_LIMIT:-256}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     ports:
-      - "${DATA_PROXY_HOST_PORT:-3000}:3000"
+      - "${DATA_PROXY_BIND_ADDR:-0.0.0.0}:${DATA_PROXY_HOST_PORT:-3000}:3000"
     volumes:
-      - ./data:/data
-      - ./logs:/app/logs
+      - ${DATA_PROXY_DATA_DIR:-./data}:/data
+      - ${DATA_PROXY_LOG_DIR:-./logs}:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DATA_PROXY_LOG_MAX_SIZE:-10m}
+        max-file: ${DATA_PROXY_LOG_MAX_FILE:-3}
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       PORT: "3000"
       DATA_PROXY_PROFILE: lite
-      ERROR_LOG_ENABLED: ${ERROR_LOG_ENABLED:-true}
+      GIN_MODE: ${GIN_MODE:-release}
+      GOMEMLIMIT: ${GOMEMLIMIT:-700MiB}
+      GOMAXPROCS: ${GOMAXPROCS:-2}
+      SYNC_FREQUENCY: ${SYNC_FREQUENCY:-120}
       BATCH_UPDATE_ENABLED: ${BATCH_UPDATE_ENABLED:-true}
+      BATCH_UPDATE_INTERVAL: ${BATCH_UPDATE_INTERVAL:-10}
+      ERROR_LOG_ENABLED: ${ERROR_LOG_ENABLED:-false}
+      NODE_TYPE: master
       NODE_NAME: ${NODE_NAME:-data-proxy-lite}
       SESSION_SECRET: ${SESSION_SECRET:-}
-      GIN_MODE: ${GIN_MODE:-release}
       ALLOW_RANDOM_SESSION_SECRET: ${ALLOW_RANDOM_SESSION_SECRET:-true}
-    networks:
-      - data-proxy-network
+      CAPTURE_ENABLED: ${CAPTURE_ENABLED:-false}
+    command: ["--log-dir", "/app/logs"]
+    working_dir: /data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: ${DATA_PROXY_HEALTH_INTERVAL:-60s}
+      timeout: 5s
       retries: 3
-
-networks:
-  data-proxy-network:
-    driver: bridge
+      start_period: 40s
+    stop_grace_period: 20s

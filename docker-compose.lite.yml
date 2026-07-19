@@ -1,14 +1,20 @@
-# Data Proxy — lite（自用 / 试用）
+# Data Proxy — lite（极致轻量 / 小机器自用）
 #
-# SQLite + 进程内缓存，不启动 PostgreSQL / Redis。
-# 文档：docs/deploy-profiles.md
+# 目标：1C1G～2C2G 单机也能跑。仅一个容器：SQLite + 进程内缓存，
+# 不启 PostgreSQL / Redis / 其它 sidecar。
+#
+# 文档：docs/deploy-profiles.md · docs/one-click-deploy.md
 #
 # 启动：
 #   docker compose -f docker-compose.lite.yml up -d --build
-# 或（默认 docker-compose.yml 即 lite）：
-#   docker compose up -d --build
+# 更小内存（约 512Mi 硬顶）：
+#   DATA_PROXY_MEM_LIMIT=512m DATA_PROXY_CPUS=0.75 \
+#     docker compose -f docker-compose.lite.yml up -d
 #
 # 访问：http://localhost:3000
+# 健康：curl -s http://127.0.0.1:3000/api/status
+#
+# 不要与 docker-compose.pg-redis.yml 抢同一端口。
 
 services:
   data-proxy:
@@ -17,32 +23,66 @@ services:
       dockerfile: Dockerfile
     image: ${DATA_PROXY_IMAGE:-data-proxy:latest}
     container_name: data-proxy-lite
-    restart: always
-    command: --log-dir /app/logs
+    restart: unless-stopped
+    init: true
+    # 小机器默认配额（可用环境变量覆盖）
+    # 512Mi～1Gi 内存、≤1 CPU 足够个人/轻量团队
+    cpus: ${DATA_PROXY_CPUS:-1.0}
+    mem_limit: ${DATA_PROXY_MEM_LIMIT:-768m}
+    memswap_limit: ${DATA_PROXY_MEM_LIMIT:-768m}
+    pids_limit: ${DATA_PROXY_PIDS_LIMIT:-256}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     ports:
-      - "${DATA_PROXY_HOST_PORT:-3000}:3000"
+      - "${DATA_PROXY_BIND_ADDR:-0.0.0.0}:${DATA_PROXY_HOST_PORT:-3000}:3000"
     volumes:
-      - ./data:/data
-      - ./logs:/app/logs
+      # SQLite 与运行时数据（唯一持久化）
+      - ${DATA_PROXY_DATA_DIR:-./data}:/data
+      # 应用日志（可关掉挂载改只打 stdout）
+      - ${DATA_PROXY_LOG_DIR:-./logs}:/app/logs
+    # 日志轮转，避免小盘被写满
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DATA_PROXY_LOG_MAX_SIZE:-10m}
+        max-file: ${DATA_PROXY_LOG_MAX_FILE:-3}
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       PORT: "3000"
       DATA_PROXY_PROFILE: lite
-      ERROR_LOG_ENABLED: ${ERROR_LOG_ENABLED:-true}
-      BATCH_UPDATE_ENABLED: ${BATCH_UPDATE_ENABLED:-true}
-      NODE_NAME: ${NODE_NAME:-data-proxy-lite}
-      # 试用可不设；多机或生产务必改掉
-      SESSION_SECRET: ${SESSION_SECRET:-}
       GIN_MODE: ${GIN_MODE:-release}
+      # Go 运行时：软内存上限略低于 mem_limit，减少 OOM 硬杀
+      GOMEMLIMIT: ${GOMEMLIMIT:-700MiB}
+      GOMAXPROCS: ${GOMAXPROCS:-2}
+      # 缓存：lite 无 Redis 时进程内渠道/用户/Token 缓存
+      # 未设 MEMORY_CACHE_ENABLED 时 ApplyCacheDefaults 会自动打开
+      # MEMORY_CACHE_ENABLED: "true"
+      # 降低后台压力（小机器）
+      SYNC_FREQUENCY: ${SYNC_FREQUENCY:-120}
+      BATCH_UPDATE_ENABLED: ${BATCH_UPDATE_ENABLED:-true}
+      BATCH_UPDATE_INTERVAL: ${BATCH_UPDATE_INTERVAL:-10}
+      ERROR_LOG_ENABLED: ${ERROR_LOG_ENABLED:-false}
+      NODE_TYPE: master
+      NODE_NAME: ${NODE_NAME:-data-proxy-lite}
+      # 试用可空（ALLOW_RANDOM）；长期运行请设置 SESSION_SECRET
+      SESSION_SECRET: ${SESSION_SECRET:-}
       ALLOW_RANDOM_SESSION_SECRET: ${ALLOW_RANDOM_SESSION_SECRET:-true}
-    networks:
-      - data-proxy-lite
+      # 关闭捕获/诊断等重功能（生产数据湖默认本就不该在 lite 开）
+      CAPTURE_ENABLED: ${CAPTURE_ENABLED:-false}
+    command: ["--log-dir", "/app/logs"]
+    working_dir: /data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
-      interval: 30s
-      timeout: 10s
+      # 低频探活，少占 CPU；start_period 给冷启动留时间
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: ${DATA_PROXY_HEALTH_INTERVAL:-60s}
+      timeout: 5s
       retries: 3
+      start_period: 40s
+    stop_grace_period: 20s
 
-networks:
-  data-proxy-lite:
-    driver: bridge
+# 不声明自定义 bridge 网络：使用 compose 默认网络，少一层配置。

@@ -14,7 +14,7 @@
 
 ---
 
-## 路径 A1：lite（推荐自用）
+## 路径 A1：lite（推荐自用 / 小机器）
 
 ```bash
 git clone <your-repo-url> data-proxy
@@ -27,12 +27,20 @@ docker compose -f docker-compose.lite.yml up -d --build
 # ./scripts/quickstart.sh lite
 ```
 
+约 512Mi 内存顶（可选）：
+
+```bash
+DATA_PROXY_MEM_LIMIT=512m GOMEMLIMIT=450MiB GOMAXPROCS=1 DATA_PROXY_CPUS=0.5 \
+  docker compose -f docker-compose.lite.yml up -d
+```
+
 1. 打开 `http://localhost:3000`
 2. 完成初始化向导（保持 SQLite 即可）
 3. 创建管理员 → 添加渠道与模型 → 按 [user-quickstart.md](./user-quickstart.md) 调一次 API
 4. 健康检查：`curl -s http://127.0.0.1:3000/api/status`
 
-无 `SQL_DSN` / `REDIS_CONN_STRING`：SQLite + 进程内缓存（日志可见 `cache backend=memory`）。
+无 `SQL_DSN` / `REDIS_CONN_STRING`：SQLite + 进程内缓存（日志可见 `cache backend=memory`）。  
+compose 默认：`mem_limit≈768m`、`read_only` 根文件系统、日志轮转、关闭 ERROR/CAPTURE 写放大——详见 [deploy-profiles.md](./deploy-profiles.md)。
 
 ---
 
