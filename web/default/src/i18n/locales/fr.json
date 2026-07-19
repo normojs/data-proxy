@@ -1932,7 +1932,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Projets liés",
     "footer.defaultCopyright": "Tous droits réservés.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Conception et développement frontend par les contributeurs New API.",
+    "footer.newapi.projectAttributionSuffix": "Conception et développement frontend par les contributeurs New API.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Pour les canaux ajoutés après le 10 mai 2025, pas besoin de supprimer \".\" des noms de modèles lors du déploiement",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Pour les déploiements privés, format : https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Imposer une réponse JSON syntaxiquement valide",
@@ -6748,6 +6748,16 @@
     "Purchase succeeded": "Achat réussi",
     "Name is required": "Le nom est obligatoire",
     "Please enter a valid price in quota points": "Saisissez un prix valide en points de quota",
-    "Please enter a valid duration in days": "Saisissez une durée valide en jours"
+    "Please enter a valid duration in days": "Saisissez une durée valide en jours",
+    "Invite friends": "Inviter des amis",
+    "Your invitation link": "Votre lien d’invitation",
+    "Friends open this link to register. Rewards follow system invitation settings.": "Vos amis s’inscrivent via ce lien. Les récompenses suivent les paramètres d’invitation du système.",
+    "Share your referral link. When friends sign up and top up, you can earn invitation rewards.": "Partagez votre lien de parrainage. Lorsque vos amis s’inscrivent et rechargent, vous pouvez gagner des récompenses d’invitation.",
+    "Invitation link unavailable": "Lien d’invitation indisponible",
+    "Copy link": "Copier le lien",
+    "Referral code": "Code de parrainage",
+    "Open wallet & rewards": "Ouvrir le portefeuille et les récompenses",
+    "Loading…": "Chargement…",
+    "Invitation": "Invitation"
   }
 }

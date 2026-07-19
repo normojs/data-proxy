@@ -6764,6 +6764,16 @@
     "Request approved. Open the app editor and rotate the secret if you did not capture it.": "Request approved. Open the app editor and rotate the secret if you did not capture it.",
     "Request approved. Copy the client secret now.": "Request approved. Copy the client secret now.",
     "Revoke application access?": "Revoke application access?",
-    "This app will lose access to your account. Issued API keys for this app will be disabled.": "This app will lose access to your account. Issued API keys for this app will be disabled."
+    "This app will lose access to your account. Issued API keys for this app will be disabled.": "This app will lose access to your account. Issued API keys for this app will be disabled.",
+    "Invite friends": "Invite friends",
+    "Your invitation link": "Your invitation link",
+    "Friends open this link to register. Rewards follow system invitation settings.": "Friends open this link to register. Rewards follow system invitation settings.",
+    "Share your referral link. When friends sign up and top up, you can earn invitation rewards.": "Share your referral link. When friends sign up and top up, you can earn invitation rewards.",
+    "Invitation link unavailable": "Invitation link unavailable",
+    "Copy link": "Copy link",
+    "Referral code": "Referral code",
+    "Open wallet & rewards": "Open wallet & rewards",
+    "Loading…": "Loading…",
+    "Invitation": "Invitation"
   }
 }

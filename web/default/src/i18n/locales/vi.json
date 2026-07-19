@@ -1932,7 +1932,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Thiết kế và phát triển giao diện người dùng bởi những người đóng góp New API.",
+    "footer.newapi.projectAttributionSuffix": "Thiết kế và phát triển giao diện người dùng bởi những người đóng góp New API.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Đối với các triển khai riêng tư, định dạng: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Buộc phản hồi JSON hợp lệ về cú pháp",
@@ -6748,6 +6748,16 @@
     "Purchase succeeded": "Mua thành công",
     "Name is required": "Tên là bắt buộc",
     "Please enter a valid price in quota points": "Nhập giá điểm quota hợp lệ",
-    "Please enter a valid duration in days": "Nhập số ngày hiệu lực hợp lệ"
+    "Please enter a valid duration in days": "Nhập số ngày hiệu lực hợp lệ",
+    "Invite friends": "Mời bạn bè",
+    "Your invitation link": "Liên kết mời của bạn",
+    "Friends open this link to register. Rewards follow system invitation settings.": "Bạn bè mở liên kết này để đăng ký. Phần thưởng theo cài đặt mời của hệ thống.",
+    "Share your referral link. When friends sign up and top up, you can earn invitation rewards.": "Chia sẻ liên kết giới thiệu. Khi bạn bè đăng ký và nạp tiền, bạn có thể nhận phần thưởng mời.",
+    "Invitation link unavailable": "Không có liên kết mời",
+    "Copy link": "Sao chép liên kết",
+    "Referral code": "Mã giới thiệu",
+    "Open wallet & rewards": "Mở ví và phần thưởng",
+    "Loading…": "Đang tải…",
+    "Invitation": "Lời mời"
   }
 }

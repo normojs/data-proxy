@@ -1932,7 +1932,7 @@
     "footer.columns.related.links.oneApi": "Один API",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Дизайн и разработка внешнего интерфейса участниками New API.",
+    "footer.newapi.projectAttributionSuffix": "Дизайн и разработка внешнего интерфейса участниками New API.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Для частных развертываний, формат: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Принудительно возвращать синтаксически корректный JSON",
@@ -6748,6 +6748,16 @@
     "Purchase succeeded": "Покупка выполнена",
     "Name is required": "Имя обязательно",
     "Please enter a valid price in quota points": "Введите корректную цену в баллах квоты",
-    "Please enter a valid duration in days": "Введите корректный срок в днях"
+    "Please enter a valid duration in days": "Введите корректный срок в днях",
+    "Invite friends": "Пригласить друзей",
+    "Your invitation link": "Ваша пригласительная ссылка",
+    "Friends open this link to register. Rewards follow system invitation settings.": "Друзья регистрируются по этой ссылке. Награды зависят от системных настроек приглашений.",
+    "Share your referral link. When friends sign up and top up, you can earn invitation rewards.": "Поделитесь реферальной ссылкой. Когда друзья зарегистрируются и пополнят баланс, вы можете получить награды за приглашение.",
+    "Invitation link unavailable": "Пригласительная ссылка недоступна",
+    "Copy link": "Копировать ссылку",
+    "Referral code": "Реферальный код",
+    "Open wallet & rewards": "Открыть кошелёк и награды",
+    "Loading…": "Загрузка…",
+    "Invitation": "Приглашение"
   }
 }

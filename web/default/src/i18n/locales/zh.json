@@ -6764,6 +6764,16 @@
     "Request approved. Open the app editor and rotate the secret if you did not capture it.": "申请已通过。若未保存密钥，请打开应用编辑并轮换密钥。",
     "Request approved. Copy the client secret now.": "申请已通过。请立即复制客户端密钥。",
     "Revoke application access?": "撤销应用访问权限？",
-    "This app will lose access to your account. Issued API keys for this app will be disabled.": "该应用将无法再访问你的账号，已为其签发的 API 密钥将被禁用。"
+    "This app will lose access to your account. Issued API keys for this app will be disabled.": "该应用将无法再访问你的账号，已为其签发的 API 密钥将被禁用。",
+    "Invite friends": "邀请好友",
+    "Your invitation link": "你的邀请链接",
+    "Friends open this link to register. Rewards follow system invitation settings.": "好友通过此链接注册。奖励规则以系统邀请设置为准。",
+    "Share your referral link. When friends sign up and top up, you can earn invitation rewards.": "分享你的邀请链接。好友注册并充值后，你可获得邀请奖励。",
+    "Invitation link unavailable": "暂无邀请链接",
+    "Copy link": "复制链接",
+    "Referral code": "邀请码",
+    "Open wallet & rewards": "打开钱包与奖励",
+    "Loading…": "加载中…",
+    "Invitation": "邀请"
   }
 }

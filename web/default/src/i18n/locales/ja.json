@@ -1932,7 +1932,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "New API の貢献者によるフロントエンドの設計と開発。",
+    "footer.newapi.projectAttributionSuffix": "New API の貢献者によるフロントエンドの設計と開発。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For private deployments, format: https://fastgpt.run/api/openapi": "プライベートデプロイメントの場合、形式: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "構文的に有効な JSON 応答を強制",
@@ -6748,6 +6748,16 @@
     "Purchase succeeded": "購入が完了しました",
     "Name is required": "名前は必須です",
     "Please enter a valid price in quota points": "有効なクォータポイント価格を入力してください",
-    "Please enter a valid duration in days": "有効な日数を入力してください"
+    "Please enter a valid duration in days": "有効な日数を入力してください",
+    "Invite friends": "友だちを招待",
+    "Your invitation link": "招待リンク",
+    "Friends open this link to register. Rewards follow system invitation settings.": "友だちがこのリンクから登録します。報酬はシステムの招待設定に従います。",
+    "Share your referral link. When friends sign up and top up, you can earn invitation rewards.": "紹介リンクを共有しましょう。友だちが登録してチャージすると、招待報酬を獲得できます。",
+    "Invitation link unavailable": "招待リンクを利用できません",
+    "Copy link": "リンクをコピー",
+    "Referral code": "紹介コード",
+    "Open wallet & rewards": "ウォレットと報酬を開く",
+    "Loading…": "読み込み中…",
+    "Invitation": "招待"
   }
 }
