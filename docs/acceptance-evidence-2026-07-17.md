@@ -396,3 +396,11 @@ P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
 - 公网：`x-new-api-version: sha-9de9a8d7`；production smoke 公开面 ALL_PASS
 - 证据：`docs/deploy-evidence-2026-07-20-9de9a8d7.md`
 
+## 2026-07-20：生产部署 `sha-5531ece2`（DP-3/4/5）
+
+- 提交：`5531ece2` feat(idp): account usage for sk- keys and invitation page
+- Package CI：run `29700214168` success
+- 公网：`x-new-api-version: sha-5531ece2`；公开 smoke PASS
+- 上线：`GET /api/usage/account`、`/api/usage/token`→`account`、`/invitation`
+- 证据：`docs/deploy-evidence-2026-07-20-5531ece2.md`
+
