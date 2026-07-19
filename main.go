@@ -68,10 +68,9 @@ func main() {
 		}
 	}()
 
-	if common.RedisEnabled {
-		// for compatibility with old versions
-		common.MemoryCacheEnabled = true
-	}
+	// Redis / SQLite-lite: enable process-local channel cache when appropriate.
+	// See docs/deploy-profiles.md (lite = SQLite + in-process cache, no Redis).
+	common.ApplyCacheDefaults()
 	if common.MemoryCacheEnabled {
 		common.SysLog("memory cache enabled")
 		common.SysLog(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))

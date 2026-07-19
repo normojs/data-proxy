@@ -2,13 +2,18 @@
 
 面向首次部署的运维/开发者：用最少步骤把服务跑起来并完成一次可用请求。
 
-## 路径 A：本机最快（开发 / 试用）
+部署档位（lite / standard / ha）见 [deploy-profiles.md](./deploy-profiles.md)。自用推荐 **lite**：SQLite + 进程内缓存，无需 Redis。
+
+## 路径 A：本机最快（开发 / 试用 / lite）
 
 ```bash
 git clone <your-repo-url> data-proxy
 cd data-proxy/upstream/new-api   # 或你的代码根目录
+# 可选：export DATA_PROXY_PROFILE=lite
 docker compose up -d --build
 ```
+
+无 `SQL_DSN` / `REDIS_CONN_STRING` 时使用 SQLite，并自动开启进程内渠道缓存（可用 `MEMORY_CACHE_ENABLED=false` 关闭）。
 
 1. 打开 `http://localhost:3000`
 2. 完成初始化向导（数据库 / 可选 Redis）
@@ -76,6 +81,7 @@ curl -s http://127.0.0.1:13002/api/status
 
 ## 相关文档
 
+- 部署档位（lite / standard / ha）：[deploy-profiles.md](./deploy-profiles.md)
 - 终端用户接入：[user-quickstart.md](./user-quickstart.md)
 - 渠道故障切换：[channel-failover-and-circuit-breaker.md](./channel-failover-and-circuit-breaker.md)
 - 运维手册：[data-proxy-operator-guide.md](./data-proxy-operator-guide.md)
