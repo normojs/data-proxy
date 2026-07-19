@@ -315,6 +315,7 @@ export function Wallet(props: WalletProps) {
               </div>
             </div>
 
+            <div id='invitation' className='scroll-mt-4'>
             <AffiliateRewardsCard
               user={user}
               affiliateLink={affiliateLink}
@@ -324,6 +325,7 @@ export function Wallet(props: WalletProps) {
               }
               loading={affiliateLoading}
             />
+            </div>
 
             <div id='model-token-packages' className='scroll-mt-4'>
               <ModelTokenPackagesCard />

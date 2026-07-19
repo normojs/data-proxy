@@ -546,3 +546,8 @@ curl -sS "$BASE/v1/dashboard/billing/usage" -H "Authorization: Bearer sk-..."
 
 成功 poll（与 `api_key` 同次）返回 `user.id` / `user.username` / `user.display_name` / `user.group`。
 `verification_uri` 含 `signup_app=<slug>`（DP-2）以便未登录注册归因。详见 `docs/data-proxy-as-idp.md`。
+
+## 账户额度与邀请（DP-4 / DP-5）
+
+- 账户钱包：`GET /api/usage/account`（`sk-` + `quota.read`），或读 `GET /api/usage/token` → `data.account`。
+- 邀请好友落地页：`https://<host>/invitation`（需网站登录）。

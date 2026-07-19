@@ -1061,6 +1061,9 @@ func connectedAppDeveloperOpenAPISpec(c *gin.Context, app *model.ConnectedApp) g
 		paths["/api/usage/token"] = gin.H{
 			"get": connectedAppOpenAPIOperation("Read current token usage", []string{connectedAppScopeQuotaRead}, nil),
 		}
+		paths["/api/usage/account"] = gin.H{
+			"get": connectedAppOpenAPIOperation("Read account wallet and package summary", []string{connectedAppScopeQuotaRead}, nil),
+		}
 	}
 
 	title := "Connected App Data Proxy API"
@@ -1694,6 +1697,7 @@ func connectedAppAPIEndpointsForScopes(c *gin.Context, scopes []string) map[stri
 			endpoints["audio_transcriptions"] = baseURL + "/audio/transcriptions"
 		case "quota.read":
 			endpoints["token_usage"] = snaplessServerBaseURL(c) + "/api/usage/token"
+			endpoints["account_usage"] = snaplessServerBaseURL(c) + "/api/usage/account"
 		}
 	}
 	keys := make([]string, 0, len(endpoints))

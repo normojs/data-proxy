@@ -487,6 +487,13 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				tokenUsageRoute.GET("/", controller.GetTokenUsage)
 			}
+			// DP-4: account-level wallet/package/subscription for sk- clients
+			accountUsageRoute := usageRoute.Group("/account")
+			accountUsageRoute.Use(middleware.TokenAuthReadOnly())
+			accountUsageRoute.Use(middleware.ConnectedAppScopeAuth())
+			{
+				accountUsageRoute.GET("/", controller.GetAccountUsage)
+			}
 		}
 
 		redemptionRoute := apiRouter.Group("/redemption")

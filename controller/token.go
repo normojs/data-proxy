@@ -209,22 +209,109 @@ func GetTokenUsage(c *gin.Context) {
 		expiredAt = 0
 	}
 
+	data := gin.H{
+		"object":                   "token_usage",
+		"name":                     token.Name,
+		"total_granted":            token.RemainQuota + token.UsedQuota,
+		"total_used":               token.UsedQuota,
+		"total_available":          token.RemainQuota,
+		"unlimited_quota":          token.UnlimitedQuota,
+		"quota_hard_limit_enabled": token.QuotaHardLimitEnabled,
+		"model_limits":             token.GetModelLimitsMap(),
+		"model_limits_enabled":     token.ModelLimitsEnabled,
+		"expires_at":               expiredAt,
+	}
+	// DP-4: account-level wallet/package/subscription snapshot for desktop clients
+	// that only hold sk- (Device keys are often unlimited at Key level).
+	if account, accErr := buildTokenAccountUsageSummary(token.UserId); accErr != nil {
+		common.SysError("failed to build account usage summary: " + accErr.Error())
+	} else if account != nil {
+		data["account"] = account
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"code":    true,
 		"message": "ok",
-		"data": gin.H{
-			"object":                   "token_usage",
-			"name":                     token.Name,
-			"total_granted":            token.RemainQuota + token.UsedQuota,
-			"total_used":               token.UsedQuota,
-			"total_available":          token.RemainQuota,
-			"unlimited_quota":          token.UnlimitedQuota,
-			"quota_hard_limit_enabled": token.QuotaHardLimitEnabled,
-			"model_limits":             token.GetModelLimitsMap(),
-			"model_limits_enabled":     token.ModelLimitsEnabled,
-			"expires_at":               expiredAt,
-		},
+		"data":    data,
 	})
+}
+
+// GetAccountUsage returns account-level quota summary using TokenAuth + quota.read.
+// Prefer this when the client only cares about wallet/packages, not Key-level remain_quota.
+func GetAccountUsage(c *gin.Context) {
+	userID := c.GetInt("id")
+	if userID <= 0 {
+		// TokenAuthReadOnly sets id from token owner; fall back to token lookup if needed.
+		authHeader := c.GetHeader("Authorization")
+		parts := strings.Split(authHeader, " ")
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			if token, err := model.GetTokenByKey(strings.TrimPrefix(parts[1], "sk-"), false); err == nil && token != nil {
+				userID = token.UserId
+			}
+		}
+	}
+	if userID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Unauthorized"})
+		return
+	}
+	account, err := buildTokenAccountUsageSummary(userID)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, account)
+}
+
+func buildTokenAccountUsageSummary(userID int) (gin.H, error) {
+	if userID <= 0 {
+		return nil, errors.New("invalid user id")
+	}
+	overview, err := service.BuildUserQuotaOverview(userID)
+	if err != nil {
+		return nil, err
+	}
+	user, err := model.GetUserById(userID, false)
+	if err != nil {
+		return nil, err
+	}
+	return gin.H{
+		"object":       "account_usage",
+		"user_id":      user.Id,
+		"username":     user.Username,
+		"display_name": user.DisplayName,
+		"wallet": gin.H{
+			"quota":         overview.Wallet.Quota,
+			"used_quota":    overview.Wallet.UsedQuota,
+			"request_count": overview.Wallet.RequestCount,
+			"unit":          overview.Wallet.Unit,
+			"status":        overview.Wallet.Status,
+		},
+		"model_token_packages": gin.H{
+			"active_count":     overview.ModelTokenPackages.ActiveCount,
+			"remaining_tokens": overview.ModelTokenPackages.RemainingTokens,
+			"used_tokens":      overview.ModelTokenPackages.UsedTokens,
+			"total_packages":   overview.ModelTokenPackages.TotalPackages,
+			"unit":             overview.ModelTokenPackages.Unit,
+			"status":           overview.ModelTokenPackages.Status,
+		},
+		"subscriptions": gin.H{
+			"active_count":     overview.Subscriptions.ActiveCount,
+			"remaining_quota":  overview.Subscriptions.RemainingQuota,
+			"total_quota":      overview.Subscriptions.TotalQuota,
+			"used_quota":       overview.Subscriptions.UsedQuota,
+			"unit":             overview.Subscriptions.Unit,
+			"status":           overview.Subscriptions.Status,
+		},
+		"links": gin.H{
+			"wallet":               overview.Links.Wallet,
+			"model_token_packages": overview.Links.ModelTokenPackages,
+			"subscriptions":        overview.Links.Subscriptions,
+			"invitation":           "/invitation",
+		},
+		// Convenience fields aligned with desktop cooperation doc examples.
+		"quota_remaining": overview.Wallet.Quota,
+		"quota_unlimited": false,
+	}, nil
 }
 
 func AddToken(c *gin.Context) {

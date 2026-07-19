@@ -51,6 +51,7 @@ import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_aut
 import { Route as AuthenticatedDashboardSubsitesRouteImport } from './routes/_authenticated/dashboard/subsites'
 import { Route as AuthenticatedEnterpriseIndexRouteImport } from './routes/_authenticated/enterprise/index'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedInvitationIndexRouteImport } from './routes/_authenticated/invitation/index'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedMcpIndexRouteImport } from './routes/_authenticated/mcp/index'
 import { Route as AuthenticatedMcpSectionRouteImport } from './routes/_authenticated/mcp/$section'
@@ -304,6 +305,12 @@ const AuthenticatedErrorsErrorRoute =
   AuthenticatedErrorsErrorRouteImport.update({
     id: '/errors/$error',
     path: '/errors/$error',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedInvitationIndexRoute =
+  AuthenticatedInvitationIndexRouteImport.update({
+    id: '/invitation/',
+    path: '/invitation/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
@@ -579,6 +586,7 @@ export interface FileRoutesByFullPath {
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/enterprise/': typeof AuthenticatedEnterpriseIndexRoute
+  '/invitation/': typeof AuthenticatedInvitationIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/mcp/': typeof AuthenticatedMcpIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
@@ -658,6 +666,7 @@ export interface FileRoutesByTo {
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
   '/enterprise': typeof AuthenticatedEnterpriseIndexRoute
+  '/invitation': typeof AuthenticatedInvitationIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/mcp': typeof AuthenticatedMcpIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
@@ -742,6 +751,7 @@ export interface FileRoutesById {
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/_authenticated/enterprise/': typeof AuthenticatedEnterpriseIndexRoute
+  '/_authenticated/invitation/': typeof AuthenticatedInvitationIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/mcp/': typeof AuthenticatedMcpIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
@@ -825,6 +835,7 @@ export interface FileRouteTypes {
     | '/channels/'
     | '/dashboard/'
     | '/enterprise/'
+    | '/invitation/'
     | '/keys/'
     | '/mcp/'
     | '/models/'
@@ -904,6 +915,7 @@ export interface FileRouteTypes {
     | '/channels'
     | '/dashboard'
     | '/enterprise'
+    | '/invitation'
     | '/keys'
     | '/mcp'
     | '/models'
@@ -987,6 +999,7 @@ export interface FileRouteTypes {
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
     | '/_authenticated/enterprise/'
+    | '/_authenticated/invitation/'
     | '/_authenticated/keys/'
     | '/_authenticated/mcp/'
     | '/_authenticated/models/'
@@ -1345,6 +1358,13 @@ declare module '@tanstack/react-router' {
       path: '/errors/$error'
       fullPath: '/errors/$error'
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/invitation/': {
+      id: '/_authenticated/invitation/'
+      path: '/invitation'
+      fullPath: '/invitation/'
+      preLoaderRoute: typeof AuthenticatedInvitationIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/keys/': {
@@ -1739,6 +1759,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
   AuthenticatedEnterpriseIndexRoute: typeof AuthenticatedEnterpriseIndexRoute
+  AuthenticatedInvitationIndexRoute: typeof AuthenticatedInvitationIndexRoute
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedMcpIndexRoute: typeof AuthenticatedMcpIndexRoute
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
@@ -1771,6 +1792,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
   AuthenticatedEnterpriseIndexRoute: AuthenticatedEnterpriseIndexRoute,
+  AuthenticatedInvitationIndexRoute: AuthenticatedInvitationIndexRoute,
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedMcpIndexRoute: AuthenticatedMcpIndexRoute,
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,

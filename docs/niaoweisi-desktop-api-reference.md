@@ -103,7 +103,42 @@ Device poll 成功时会返回 `base_url` 与 `endpoints`，例如：
 | 按日额度 | `GET` | `/api/data/self` | 统计 |
 | 撤销应用授权 | `DELETE` | `/api/user/connected-app-grants/:app_id` | 用户在网页撤销 |
 
-**鸟维斯 MVP 可不实现 1.2。** 账户级「钱包余额」若必须在桌面展示，需另开网页登录或后续服务端扩展；当前文档以 1.1 为准。
+**鸟维斯 MVP 可不实现 1.2 的会话接口。**
+
+### 1.3 `sk-` vs 用户会话（DP-3 收口）
+
+| | Device `sk-`（主路径） | 网站用户会话（Cookie / access token） |
+| --- | --- | --- |
+| 鉴权头 | `Authorization: Bearer sk-…` | 浏览器 Cookie / 用户会话 token |
+| 模型调用 | `/v1/models` `/v1/chat/completions` `/v1/responses` | 一般不用 |
+| Key 额度 | `GET /api/usage/token`（scope `quota.read`） | — |
+| **账户钱包/套餐** | `GET /api/usage/account` 或 `GET /api/usage/token` 的 `data.account`（DP-4） | `GET /api/user/quota-overview`（更完整明细） |
+| 用户资料 | poll 成功 `user`（DP-1） | `GET /api/user/self` |
+| 调用日志明细 | 无（勿用 sk- 调） | `GET /api/log/self` |
+| 邀请好友 | 打开网站 `/invitation`（需用户登录网页） | `/invitation` 或 `/wallet#invitation` |
+
+**禁止**：用 Device `sk-` 调 `/api/user/self`、`/api/user/quota-overview` 等 UserAuth 接口当主路径。
+
+### 1.4 账户级额度（DP-4）
+
+推荐：
+
+```http
+GET /api/usage/account HTTP/1.1
+Authorization: Bearer sk-<key>
+```
+
+成功：`{ "success": true, "data": { "user_id", "username", "wallet": { "quota", "used_quota", "unit", "status" }, "model_token_packages": {…}, "subscriptions": {…}, "quota_remaining", "links": { "wallet", "invitation" } } }`
+
+兼容：`GET /api/usage/token` 的 `data` 额外包含同结构 **`account`** 字段（Key 字段语义不变）。
+
+Connected App 需 scope **`quota.read`**（`niaoweisi` 默认已含）。
+
+### 1.5 邀请页（DP-5）
+
+站内独立页：**`/invitation`**（登录用户；展示邀请链接与跳转钱包奖励区）。  
+锚点兼容：`/wallet#invitation`。
+
 
 ---
 

@@ -128,3 +128,11 @@ https://<host>/sign-up?signup_app=niaoweisi
 
 `pending` / 二次 poll（`consumed`）不返回 `user` / `api_key`。
 
+## 桌面账户额度（DP-4）
+
+- `GET /api/usage/account`：TokenAuth + Connected App scope `quota.read`。
+- `GET /api/usage/token` 成功时附带 `data.account` 摘要（不改变原有 Key 字段）。
+
+## 邀请页（DP-5）
+
+- 用户登录后访问 `/invitation` 查看/复制邀请链接；钱包内锚点 `/wallet#invitation`。

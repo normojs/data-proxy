@@ -88,6 +88,8 @@ func connectedAppRequiredScope(c *gin.Context) string {
 		return connectedAppScopeOpenAIAudioTranscriptions
 	case method == http.MethodGet && (path == "/api/usage/token/" || path == "/api/usage/token"):
 		return connectedAppScopeQuotaRead
+	case method == http.MethodGet && (path == "/api/usage/account/" || path == "/api/usage/account"):
+		return connectedAppScopeQuotaRead
 	default:
 		return ""
 	}
