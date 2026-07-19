@@ -62,7 +62,7 @@ docker compose up -d data-proxy
 http://localhost:3000
 ```
 
-首次安装请优先使用初始化向导配置数据库和 Redis，然后创建第一个管理员账号。显式环境变量仍然支持，但更适合高级运维覆盖。
+首次安装请优先使用初始化向导配置数据库和可选 Redis，然后创建第一个管理员账号。自用/试用可走 **lite**（SQLite + 进程内缓存，无需 Redis），见 [docs/deploy-profiles.md](./docs/deploy-profiles.md)。显式环境变量仍然支持，但更适合高级运维覆盖。
 
 ### 使用本地依赖
 
@@ -160,8 +160,10 @@ scripts/data-proxy-production-smoke.sh
 
 | 变量 | 说明 |
 | --- | --- |
-| `SQL_DSN` | 数据库连接字符串，高级覆盖项。 |
-| `REDIS_CONN_STRING` | Redis 连接字符串，高级覆盖项。 |
+| `DATA_PROXY_PROFILE` | 部署档位：`lite`（SQLite + 进程内缓存）、`standard` / `ha`（MySQL/PG + Redis）。路径 A compose 默认 `lite`。 |
+| `SQL_DSN` | 数据库连接字符串，高级覆盖项；省略则 SQLite。 |
+| `REDIS_CONN_STRING` | Redis 连接字符串；省略时 lite 使用进程内缓存与限流。 |
+| `MEMORY_CACHE_ENABLED` | 渠道等进程内缓存；Redis 开启或 lite/SQLite 时默认开启，可设 `false` 关闭。 |
 | `SESSION_SECRET` | 多节点部署必须设置的会话密钥。 |
 | `NODE_TYPE` | 主节点可设为 `master`，用于周期任务。 |
 | `NODE_NAME` | 节点名称，会进入审计和运维排查链路。 |
@@ -181,7 +183,7 @@ scripts/data-proxy-production-smoke.sh
 | `CAPTURE_CLEANUP_ENABLED` / `CAPTURE_CLEANUP_INTERVAL_SECONDS` / `CAPTURE_CLEANUP_LIMIT` | 请求捕获留存清理任务，默认跟随 capture 存储启用，只在 master/single-node 节点执行；管理员也可调用 `POST /api/log/request-capture/cleanup?dry_run=true` 先预览。 |
 | `DIAGNOSTIC_BUNDLE_MAX_RAW_TAR_BYTES` | 诊断包下载时 raw capture tar 的最大展开字节数，默认 256 MiB，`0` 表示不限制；超限只跳过 zip 内 raw 展开并写说明文件，不影响正常请求或对象存储原始包。 |
 
-完整部署说明见 [Data Proxy Operator Guide](./docs/data-proxy-operator-guide.md)。
+部署档位与一键路径见 [deploy-profiles.md](./docs/deploy-profiles.md)、[one-click-deploy.md](./docs/one-click-deploy.md)。完整运维说明见 [Data Proxy Operator Guide](./docs/data-proxy-operator-guide.md)。
 
 请求捕获和诊断数据湖使用 SeaweedFS/S3-compatible 存储；生产部署可通过
 `docker-compose.capture-storage.yml` 追加 SeaweedFS 服务和持久化卷映射。

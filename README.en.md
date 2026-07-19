@@ -307,8 +307,10 @@ docker run --name new-api -d --restart always \
 |--------|------|--------|
 | `SESSION_SECRET` | Session secret (required for multi-machine deployment) | - |
 | `CRYPTO_SECRET` | Encryption secret (required for Redis) | - |
-| `SQL_DSN` | Database connection string | - |
-| `REDIS_CONN_STRING` | Redis connection string | - |
+| `DATA_PROXY_PROFILE` | Deploy profile: `lite` (SQLite + in-process cache), `standard` / `ha` (MySQL/PG + Redis). Path A compose defaults to `lite`. | - |
+| `SQL_DSN` | Database connection string; omit for SQLite | - |
+| `REDIS_CONN_STRING` | Redis connection string; omit for lite in-process cache/limits | - |
+| `MEMORY_CACHE_ENABLED` | In-process channel cache; on by default with Redis or lite/SQLite | - |
 | `STREAMING_TIMEOUT` | Streaming timeout (seconds) | `300` |
 | `STREAM_SCANNER_MAX_BUFFER_MB` | Max per-line buffer (MB) for the stream scanner; increase when upstream sends huge image/base64 payloads | `64` |
 | `MAX_REQUEST_BODY_MB` | Max request body size (MB, counted **after decompression**; prevents huge requests/zip bombs from exhausting memory). Exceeding it returns `413` | `32` |
@@ -395,8 +397,9 @@ docker run --name new-api -d --restart always \
 **Retry configuration:** `Settings → Operation Settings → General Settings → Failure Retry Count`
 
 **Cache configuration:**
-- `REDIS_CONN_STRING`: Redis cache (recommended)
-- `MEMORY_CACHE_ENABLED`: Memory cache
+- `DATA_PROXY_PROFILE=lite|standard|ha` (see `docs/deploy-profiles.md`)
+- `REDIS_CONN_STRING`: Redis cache (recommended for standard/ha)
+- `MEMORY_CACHE_ENABLED`: In-process channel cache (auto-on for lite/SQLite without Redis)
 
 ---
 

@@ -81,6 +81,15 @@ Both deploy and rollback run a default health check against
 server needs another compose override, append it with
 `DATA_PROXY_EXTRA_COMPOSE_FILES`, separated by `:`.
 
+## Deploy Profiles
+
+See [deploy-profiles.md](./deploy-profiles.md):
+
+- **lite** — SQLite + process-local cache (Path A / self-use; no Redis required)
+- **standard** / **ha** — MySQL or PostgreSQL + Redis (production; Path B)
+
+Path A `docker compose up` sets `DATA_PROXY_PROFILE=lite` by default.
+
 ## Database And Redis Choices
 
 Data Proxy supports two first-run dependency modes.
