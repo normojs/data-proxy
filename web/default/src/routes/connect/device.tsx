@@ -33,6 +33,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { saveSignupAppRef } from '@/features/auth/lib/storage'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -61,16 +62,26 @@ import {
 const searchSchema = z.object({
   user_code: z.string().optional(),
   app_slug: z.string().optional(),
+  signup_app: z.string().optional(),
 })
 
 export const Route = createFileRoute('/connect/device')({
   validateSearch: searchSchema,
-  beforeLoad: ({ location }) => {
+  beforeLoad: ({ location, search }) => {
     const { auth } = useAuthStore.getState()
+    // Prefer explicit signup_app query; fall back to app_slug for Device start URIs.
+    const signupApp =
+      search.signup_app?.trim() || search.app_slug?.trim() || undefined
+    if (signupApp) {
+      saveSignupAppRef(signupApp)
+    }
     if (!auth.user) {
       throw redirect({
         to: '/sign-in',
-        search: { redirect: location.href },
+        search: {
+          redirect: location.href,
+          ...(signupApp ? { signup_app: signupApp } : {}),
+        },
       })
     }
   },

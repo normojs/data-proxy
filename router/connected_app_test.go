@@ -824,8 +824,9 @@ func TestConnectedAppDeveloperAPIAndDeviceFlow(t *testing.T) {
 	require.NotEmpty(t, started.UserCode)
 	require.Equal(t, "snapless-addon", started.App.Slug)
 	require.Equal(t, "Addon Mac", started.Device.DeviceName)
-	require.Contains(t, started.VerificationURI, "/snapless/device?")
+	require.Contains(t, started.VerificationURI, "/connect/device?")
 	require.Contains(t, started.VerificationURI, "app_slug=snapless-addon")
+	require.Contains(t, started.VerificationURI, "signup_app=snapless-addon")
 	require.Contains(t, started.VerificationURI, "user_code=")
 
 	pending := decodeConnectedAppData[snaplessDevicePollStatusData](t, requestConnectedAppUser(
@@ -892,6 +893,8 @@ func TestConnectedAppDeveloperAPIAndDeviceFlow(t *testing.T) {
 	require.Equal(t, authorized.Token.ID, firstPoll.Token.ID)
 	require.True(t, firstPoll.Token.UnlimitedQuota)
 	require.False(t, firstPoll.Token.ModelLimitsEnabled)
+	require.Equal(t, connectedAppRouterDeveloperUserId, firstPoll.User.ID)
+	require.Equal(t, "connected-app-dev", firstPoll.User.Username)
 
 	secondPoll := decodeConnectedAppData[snaplessDevicePollStatusData](t, requestConnectedAppUser(
 		t,

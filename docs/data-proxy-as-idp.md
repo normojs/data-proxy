@@ -104,3 +104,27 @@ https://<host>/sign-up?signup_app=niaoweisi
 - API Key 明文只返回一次；用户可在 Profile 撤销
 - 禁用客户端不得 consent / token exchange
 - 网站 OAuth 同 app/user/web 指纹会吊销旧 `sk-` 再发新 key
+
+## Device 新用户注册归因（DP-2）
+
+- `device/start` 返回的 `verification_uri` 对 Connected App（非纯 snapless 路径）包含 `signup_app=<slug>` 与 `app_slug`。
+- `/connect/device` 未登录跳转 `/sign-in` 时携带 `signup_app`；sign-in 链到 sign-up / oauth-login 时保留该参数。
+- 仅真实新用户创建写 `users.signup_connected_app_id`。
+
+## Device poll 用户摘要（DP-1）
+
+`POST /api/connected-apps/:slug/device/poll`（及 snapless 等价 poll）在**首次**成功返回 `api_key` 时包含：
+
+```json
+{
+  "user": {
+    "id": 12345,
+    "username": "abc123",
+    "display_name": "",
+    "group": "default"
+  }
+}
+```
+
+`pending` / 二次 poll（`consumed`）不返回 `user` / `api_key`。
+

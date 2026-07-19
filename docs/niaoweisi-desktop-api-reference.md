@@ -590,3 +590,8 @@ curl -sS "$SITE/v1/dashboard/billing/usage" -H "Authorization: Bearer $API_KEY" 
 | 日期 | 说明 |
 | --- | --- |
 | 2026-07-18 | 初版：额度 / 用量 / 价格 / 模型 API 供鸟维斯桌面阅读对接 |
+
+## Device poll 用户摘要（DP-1 / 2026-07-20）
+
+成功 poll（与 `api_key` 同次）返回 `user.id` / `user.username` / `user.display_name` / `user.group`。
+`verification_uri` 含 `signup_app=<slug>`（DP-2）以便未登录注册归因。详见 `docs/data-proxy-as-idp.md`。

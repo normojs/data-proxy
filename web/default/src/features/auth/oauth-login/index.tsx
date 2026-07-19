@@ -56,7 +56,9 @@ function hasAnyOAuthProvider(status: ReturnType<typeof useStatus>['status']) {
 
 export function OAuthLoginPage() {
   const { t } = useTranslation()
-  const { redirect } = useSearch({ from: '/(auth)/oauth-login' })
+  const { redirect, signup_app: signupAppFromSearch } = useSearch({
+    from: '/(auth)/oauth-login',
+  })
   const { status, loading } = useStatus()
   const { handleLoginSuccess } = useAuthRedirect()
 
@@ -202,7 +204,12 @@ export function OAuthLoginPage() {
               {t('Prefer username and password?')}{' '}
               <Link
                 to='/sign-in'
-                search={redirect ? { redirect } : undefined}
+                search={{
+                  ...(redirect ? { redirect } : {}),
+                  ...(signupAppFromSearch
+                    ? { signup_app: signupAppFromSearch }
+                    : {}),
+                }}
                 className='hover:text-primary font-medium underline underline-offset-4'
               >
                 {t('Sign in with password')}
@@ -215,6 +222,11 @@ export function OAuthLoginPage() {
               {t("Don't have an account?")}{' '}
               <Link
                 to='/sign-up'
+                search={
+                  signupAppFromSearch
+                    ? { signup_app: signupAppFromSearch }
+                    : undefined
+                }
                 className='hover:text-primary font-medium underline underline-offset-4'
               >
                 {t('Sign up')}

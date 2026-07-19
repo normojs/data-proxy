@@ -541,3 +541,8 @@ curl -sS "$BASE/v1/dashboard/billing/usage" -H "Authorization: Bearer sk-..."
 - 授权页：`/connect/device`  
 - 开发者说明：`/developers`、`docs/data-proxy-as-idp.md`  
 - **登录后 API 参考（额度/用量/价格/模型）：** [niaoweisi-desktop-api-reference.md](./niaoweisi-desktop-api-reference.md)
+
+## Device poll 用户摘要（DP-1 / 2026-07-20）
+
+成功 poll（与 `api_key` 同次）返回 `user.id` / `user.username` / `user.display_name` / `user.group`。
+`verification_uri` 含 `signup_app=<slug>`（DP-2）以便未登录注册归因。详见 `docs/data-proxy-as-idp.md`。

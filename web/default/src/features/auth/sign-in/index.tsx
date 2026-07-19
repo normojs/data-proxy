@@ -16,17 +16,34 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useEffect } from 'react'
 import { Link, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { useStatus } from '@/hooks/use-status'
+import {
+  getSignupAppRef,
+  saveSignupAppRef,
+} from '@/features/auth/lib/storage'
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
 import { UserAuthForm } from './components/user-auth-form'
 
 export function SignIn() {
   const { t } = useTranslation()
-  const { redirect } = useSearch({ from: '/(auth)/sign-in' })
+  const { redirect, signup_app: signupAppFromSearch } = useSearch({
+    from: '/(auth)/sign-in',
+  })
   const { status } = useStatus()
+
+  useEffect(() => {
+    const fromQuery = signupAppFromSearch?.trim()
+    if (fromQuery) {
+      saveSignupAppRef(fromQuery)
+    }
+  }, [signupAppFromSearch])
+
+  const signupApp =
+    signupAppFromSearch?.trim() || getSignupAppRef() || undefined
 
   return (
     <AuthLayout>
@@ -39,7 +56,10 @@ export function SignIn() {
             {t('Prefer a third-party account?')}{' '}
             <Link
               to='/oauth-login'
-              search={redirect ? { redirect } : undefined}
+              search={{
+                ...(redirect ? { redirect } : {}),
+                ...(signupApp ? { signup_app: signupApp } : {}),
+              }}
               className='hover:text-primary font-medium underline underline-offset-4'
             >
               {t('Sign in with a third-party account')}
@@ -52,6 +72,7 @@ export function SignIn() {
                 {t("Don't have an account?")}{' '}
                 <Link
                   to='/sign-up'
+                  search={signupApp ? { signup_app: signupApp } : undefined}
                   className='hover:text-primary font-medium underline underline-offset-4'
                 >
                   {t('Sign up')}

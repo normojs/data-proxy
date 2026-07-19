@@ -23,6 +23,7 @@ import { OAuthLoginPage } from '@/features/auth/oauth-login'
 
 const searchSchema = z.object({
   redirect: z.string().optional(),
+  signup_app: z.string().optional(),
 })
 
 export const Route = createFileRoute('/(auth)/oauth-login')({

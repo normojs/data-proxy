@@ -70,6 +70,9 @@ type snaplessTokenResponse struct {
 	Grant        snaplessGrantResponse     `json:"grant"`
 	Device       snaplessDeviceInfo        `json:"device"`
 	Token        snaplessTokenSummary      `json:"token"`
+	// User is filled on successful device poll (with api_key) so clients can
+	// display the same account identity as the admin user list (DP-1).
+	User         connectedAppClientUser    `json:"user,omitempty"`
 	Models       snaplessModelAliases      `json:"models"`
 	Endpoints    map[string]string         `json:"endpoints"`
 	BaseURL      string                    `json:"base_url"`
@@ -607,6 +610,10 @@ func PollSnaplessDeviceFlow(c *gin.Context) {
 		if err != nil {
 			return err
 		}
+		user, err := getUserByIdTx(tx, session.UserId)
+		if err != nil {
+			return err
+		}
 		result := tx.Model(&model.ConnectedAppDeviceSession{}).
 			Where("id = ? AND status = ?", session.Id, model.ConnectedAppDeviceSessionStatusAuthorized).
 			Updates(map[string]any{
@@ -623,6 +630,7 @@ func PollSnaplessDeviceFlow(c *gin.Context) {
 			return nil
 		}
 		response = buildSnaplessTokenResponse(c, app, grant, binding, token, getSnaplessModelAliases(), snaplessDeviceInfoFromSession(&session), token.Key, session.TokenCreated, false)
+		response.User = connectedAppClientUserFromModel(user)
 		status = model.ConnectedAppDeviceSessionStatusAuthorized
 		return nil
 	})

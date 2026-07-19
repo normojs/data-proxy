@@ -36,6 +36,11 @@ type snaplessTokenData struct {
 	Rotated    bool   `json:"rotated"`
 	APIKeyOnce bool   `json:"api_key_once"`
 	BaseURL    string `json:"base_url"`
+	User       struct {
+		ID          int    `json:"id"`
+		Username    string `json:"username"`
+		DisplayName string `json:"display_name"`
+	} `json:"user"`
 	Grant      struct {
 		Status string   `json:"status"`
 		Scopes []string `json:"scopes"`
@@ -407,7 +412,7 @@ func TestSnaplessDeviceFlowAuthorizesAndReturnsKeyOnce(t *testing.T) {
 	started := decodeSnaplessData[snaplessDeviceStartData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/start", body, nil, ""))
 	require.NotEmpty(t, started.DeviceCode)
 	require.NotEmpty(t, started.UserCode)
-	require.Contains(t, started.VerificationURI, "/snapless/device?user_code=")
+	require.Contains(t, started.VerificationURI, "/connect/device?user_code=")
 	require.Equal(t, 3, started.Interval)
 	require.Equal(t, model.ConnectedAppSlugSnapless, started.App.Slug)
 	require.Equal(t, "Alice Mac", started.Device.DeviceName)
@@ -438,6 +443,8 @@ func TestSnaplessDeviceFlowAuthorizesAndReturnsKeyOnce(t *testing.T) {
 	require.True(t, firstPoll.APIKeyOnce)
 	require.True(t, strings.HasPrefix(firstPoll.APIKey, "sk-"))
 	require.Equal(t, authorized.Token.ID, firstPoll.Token.ID)
+	require.NotZero(t, firstPoll.User.ID)
+	require.NotEmpty(t, firstPoll.User.Username)
 	require.ElementsMatch(t, []string{"snapless-asr", "snapless-polish", "snapless-translate", "snapless-qa"}, strings.Split(firstPoll.Token.ModelLimits, ","))
 
 	secondPoll := decodeSnaplessData[snaplessDevicePollStatusData](t, requestSnaplessRouter(t, router, http.MethodPost, "/api/snapless/device/poll", fmt.Sprintf(`{"device_code":%q}`, started.DeviceCode), nil, ""))

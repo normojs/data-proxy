@@ -158,6 +158,10 @@ type connectedAppTokenResponse struct {
 	Grant        snaplessGrantResponse     `json:"grant"`
 	Device       snaplessDeviceInfo        `json:"device"`
 	Token        snaplessTokenSummary      `json:"token"`
+	// User is the approving account summary. Present on successful device poll
+	// (with api_key) and other key-issue paths so desktops can show the same
+	// username as the admin user list without calling session-only APIs.
+	User         connectedAppClientUser    `json:"user,omitempty"`
 	Endpoints    map[string]string         `json:"endpoints"`
 	BaseURL      string                    `json:"base_url"`
 	APIKey       string                    `json:"api_key,omitempty"`
@@ -796,6 +800,10 @@ func PollConnectedAppDeviceFlow(c *gin.Context) {
 		if err != nil {
 			return err
 		}
+		user, err := getUserByIdTx(tx, session.UserId)
+		if err != nil {
+			return err
+		}
 		result := tx.Model(&model.ConnectedAppDeviceSession{}).
 			Where("id = ? AND status = ?", session.Id, model.ConnectedAppDeviceSessionStatusAuthorized).
 			Updates(map[string]any{
@@ -812,6 +820,7 @@ func PollConnectedAppDeviceFlow(c *gin.Context) {
 			return nil
 		}
 		response = buildConnectedAppTokenResponse(c, app, grant, binding, token, snaplessDeviceInfoFromSession(&session), token.Key, session.TokenCreated, false)
+		response.User = connectedAppClientUserFromModel(user)
 		status = model.ConnectedAppDeviceSessionStatusAuthorized
 		return nil
 	})
@@ -1641,6 +1650,11 @@ func connectedAppVerificationURI(c *gin.Context, app *model.ConnectedApp, userCo
 	values.Set("user_code", normalizeSnaplessUserCode(userCode))
 	if app != nil && app.Slug != model.ConnectedAppSlugSnapless {
 		values.Set("app_slug", app.Slug)
+		// Device new-user path: keep signup attribution through /connect/device
+		// → sign-in/sign-up (DP-2). Desktop may open this URI as returned.
+		if slug := strings.TrimSpace(app.Slug); slug != "" {
+			values.Set("signup_app", slug)
+		}
 	}
 	return base + "/connect/device?" + values.Encode()
 }
