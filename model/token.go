@@ -518,13 +518,10 @@ func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	return tokens, err
 }
 
-// InvalidateUserTokensCache 清理指定用户所有令牌在 Redis 中的缓存，
+// InvalidateUserTokensCache 清理指定用户所有令牌缓存（Redis 或进程内 token:v1），
 // 配合 InvalidateUserCache 使用，可在用户被禁用/删除时立即阻断其令牌的请求。
 // 下一次请求将从数据库重新加载令牌及用户状态，从而立即识别出被禁用的用户。
 func InvalidateUserTokensCache(userId int) error {
-	if !common.RedisEnabled {
-		return nil
-	}
 	if userId <= 0 {
 		return errors.New("userId 无效")
 	}

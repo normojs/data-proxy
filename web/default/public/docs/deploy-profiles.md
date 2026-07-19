@@ -27,9 +27,12 @@ docker compose up -d --build
 - **用户基础信息**（`GetUserCache`）：无 Redis 时写入进程内 `user_base:v1` 缓存（含 group/status/quota 展示字段）；有 Redis 时仍用 HASH + `HINCRBY`
 - **API Token**（`GetTokenByKey`）：无 Redis 时写入进程内 `token:v1`（按 key HMAC，不存明文 secret）；有 Redis 时仍用 HASH
 - **HTTP 限流**（全局 / 模型 / 邮件验证等）：无 Redis 时已用 `common.InMemoryRateLimiter`（进程内滑动窗口）；有 Redis 时用 list/incr
+- **站内通知限流**：无 Redis 时用 `service` 包内 `sync.Map` 计数（`CheckNotificationLimit`）
+- **MCP 结算后 token 缓存刷新**、**禁用/批量删 token 缓存失效**：无 Redis 时同样更新/删除进程内 token 缓存
 - 限制：
   - **单节点 only**；多副本不共享限流/缓存/部分亲和状态
   - 进程重启后纯缓存丢失；**额度与业务真相在 SQLite**（扣费仍以 DB 事务为准，内存 quota 仅为加速读）
+  - 性能看板跨实例合并（`perf_metrics` Redis 桶）在无 Redis 时跳过，仅本机指标
   - 生产支付 / 多机请改用 standard 或 ha
 
 关闭自动内存缓存（不推荐自用）：

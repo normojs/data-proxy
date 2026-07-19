@@ -212,6 +212,8 @@
   - [x] `GetUserCache` 无 Redis 时走 `cachex.HybridCache` 内存后端（2026-07-19）
   - [x] `GetTokenByKey` / token 缓存无 Redis 时走进程内 HybridCache（2026-07-19）
   - [x] 全局限流 / 模型限流 / 邮件验证限流：无 Redis 时本就走 `InMemoryRateLimiter`（补单测 + 文档，2026-07-19）
+  - [x] 通知限流内存路径单测；MCP 结算 / 用户 token 批量失效 / Connected App 禁 token 在无 Redis 时也刷进程内缓存（2026-07-19）
+  - 已知可跳过：`perf_metrics` 跨实例 Redis 桶（lite 无多机需求）
 
 ---
 

@@ -14,7 +14,7 @@ func afterMCPToolCallQuotaSettled(userId int, tokenId int, quota int, tokenQuota
 			common.SysLog("failed to decrease user quota after MCP settlement: " + err.Error())
 		}
 	})
-	if common.RedisEnabled && tokenQuotaLimited && tokenId > 0 {
+	if tokenQuotaLimited && tokenId > 0 {
 		gopool.Go(func() {
 			token, err := GetTokenById(tokenId)
 			if err != nil {
@@ -37,7 +37,7 @@ func afterMCPToolCallQuotaRefunded(userId int, tokenId int, quota int, tokenQuot
 			common.SysLog("failed to increase user quota after MCP refund: " + err.Error())
 		}
 	})
-	if common.RedisEnabled && tokenQuotaLimited && tokenId > 0 {
+	if tokenQuotaLimited && tokenId > 0 {
 		gopool.Go(func() {
 			token, err := GetTokenById(tokenId)
 			if err != nil {

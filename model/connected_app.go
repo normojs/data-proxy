@@ -761,9 +761,6 @@ func DisableTokenWithTx(tx *gorm.DB, tokenId int, userId int) error {
 	if err := tx.Model(&token).Select("status").Update("status", common.TokenStatusDisabled).Error; err != nil {
 		return err
 	}
-	if !common.RedisEnabled {
-		return nil
-	}
 	return cacheDeleteToken(token.Key)
 }
 
