@@ -83,12 +83,18 @@ server needs another compose override, append it with
 
 ## Deploy Profiles
 
-See [deploy-profiles.md](./deploy-profiles.md):
+See [deploy-profiles.md](./deploy-profiles.md) and [one-click-deploy.md](./one-click-deploy.md).
 
-- **lite** — SQLite + process-local cache (Path A / self-use; no Redis required)
-- **standard** / **ha** — MySQL or PostgreSQL + Redis (production; Path B)
+| Choice | Compose file |
+| --- | --- |
+| **lite** | `docker-compose.lite.yml` (default `docker-compose.yml`) — SQLite, no Redis |
+| **standard (bundled)** | `docker-compose.pg-redis.yml` + `.env.example.pg-redis` — Postgres + Redis + app |
+| **standard/ha (external DB)** | `docker-compose.prod.yml` via `scripts/prod-compose.sh` |
 
-Path A `docker compose up` sets `DATA_PROXY_PROFILE=lite` by default.
+```bash
+./scripts/quickstart.sh lite
+./scripts/quickstart.sh pg-redis
+```
 
 ## Database And Redis Choices
 

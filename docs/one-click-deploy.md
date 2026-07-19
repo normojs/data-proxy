@@ -1,75 +1,112 @@
 # 一键部署 Data Proxy
 
-面向首次部署的运维/开发者：用最少步骤把服务跑起来并完成一次可用请求。
+面向首次部署：先选档位，再选对应 compose 文件。
 
-部署档位（lite / standard / ha）见 [deploy-profiles.md](./deploy-profiles.md)。自用推荐 **lite**：SQLite + 进程内缓存，无需 Redis。
+| 场景 | 文件 | 依赖 |
+| --- | --- | --- |
+| **自用 / 试用（lite）** | [`docker-compose.lite.yml`](../docker-compose.lite.yml) | 仅应用；SQLite + 进程内缓存 |
+| **标准（PG + Redis）** | [`docker-compose.pg-redis.yml`](../docker-compose.pg-redis.yml) | 内置 PostgreSQL + Redis + 应用 |
+| **已有外部库的生产** | [`docker-compose.prod.yml`](../docker-compose.prod.yml) + `scripts/prod-compose.sh` | 你自备 MySQL/PG + Redis |
 
-## 路径 A：本机最快（开发 / 试用 / lite）
+档位细节：[deploy-profiles.md](./deploy-profiles.md)
+
+默认 `docker-compose.yml` 与 **lite** 等价，便于 `docker compose up`。
+
+---
+
+## 路径 A1：lite（推荐自用）
 
 ```bash
 git clone <your-repo-url> data-proxy
-cd data-proxy/upstream/new-api   # 或你的代码根目录
-# 可选：export DATA_PROXY_PROFILE=lite
-docker compose up -d --build
-```
+cd data-proxy/upstream/new-api   # 或代码根目录
 
-无 `SQL_DSN` / `REDIS_CONN_STRING` 时使用 SQLite，并自动开启进程内渠道缓存（可用 `MEMORY_CACHE_ENABLED=false` 关闭）。
+docker compose -f docker-compose.lite.yml up -d --build
+# 或：
+# docker compose up -d --build
+# 或：
+# ./scripts/quickstart.sh lite
+```
 
 1. 打开 `http://localhost:3000`
-2. 完成初始化向导（数据库 / 可选 Redis）
-3. 创建首个管理员
-4. 添加至少一个上游渠道与模型
-5. 创建用户 API Key，按 [user-quickstart.md](./user-quickstart.md) 发一次请求
-6. 健康检查：`curl -s http://127.0.0.1:3000/api/status`
+2. 完成初始化向导（保持 SQLite 即可）
+3. 创建管理员 → 添加渠道与模型 → 按 [user-quickstart.md](./user-quickstart.md) 调一次 API
+4. 健康检查：`curl -s http://127.0.0.1:3000/api/status`
 
-可选本地依赖（不占用宿主机端口）：
+无 `SQL_DSN` / `REDIS_CONN_STRING`：SQLite + 进程内缓存（日志可见 `cache backend=memory`）。
+
+---
+
+## 路径 A2：PostgreSQL + Redis（一体）
 
 ```bash
-docker compose --profile local-deps up -d
+cp .env.example.pg-redis .env.pg-redis
+# 编辑 .env.pg-redis：SESSION_SECRET、POSTGRES_PASSWORD、REDIS_PASSWORD
+
+docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis up -d --build
+# 或：./scripts/quickstart.sh pg-redis
 ```
 
-向导里数据库主机填 `postgres`，Redis 主机填 `redis`。
+1. 打开 `http://localhost:3000`（首次可能需等 PG/Redis healthy）
+2. 初始化管理员（库已由 `SQL_DSN` 指向内置 Postgres）
+3. 添加渠道 → 验证请求
+4. `curl -s http://127.0.0.1:3000/api/status`
 
-## 路径 B：生产最小 compose
+密码勿含未转义的 `@` `:` `#`（会写进 DSN URL）。需要换端口：`DATA_PROXY_HOST_PORT=3001`。
+
+停止：
+
+```bash
+docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis down
+# 连同数据卷：down -v
+```
+
+---
+
+## 路径 B：已有外部数据库的生产
 
 文件：
 
-- `docker-compose.prod.yml`（主服务）
-- `docker-compose.wechat-pay.yml`（可选；无微信支付可准备空 `secrets/wechatpay` 目录）
+- `docker-compose.prod.yml`（主服务，默认 `127.0.0.1:13002`）
+- `docker-compose.wechat-pay.yml`（可选；无微信支付可准备空 `secrets/wechatpay`）
 
 ```bash
 cp .env.example.minimal .env.production
-# 编辑 .env.production：SESSION_SECRET、SQL_DSN、FRONTEND_BASE_URL 等
+# 编辑：SESSION_SECRET、SQL_DSN、REDIS_CONN_STRING、FRONTEND_BASE_URL
+# 建议：DATA_PROXY_PROFILE=standard
 
 mkdir -p secrets/wechatpay data logs
-# 拉取/导入镜像后（在仓库根目录执行；prod-compose.sh 会定位到代码根）：
-export DATA_PROXY_IMAGE=ghcr.io/normojs/data-proxy:<tag>   # 或本地已 load 的 tag
+export DATA_PROXY_IMAGE=ghcr.io/normojs/data-proxy:<tag>
 ./scripts/prod-compose.sh up -d
-# 或：
-# docker compose -f docker-compose.prod.yml -f docker-compose.wechat-pay.yml --env-file .env.production up -d
 ```
 
-健康检查（默认绑定 `127.0.0.1:13002`；端口被占用时改 `DATA_PROXY_HOST_PORT`）：
+健康检查：
 
 ```bash
 curl -s http://127.0.0.1:13002/api/status
 ```
 
-外部 MySQL/Redis：在 `.env.production` 填写 `SQL_DSN` 与推荐的 `REDIS_CONN_STRING` 后同样用上述 compose 启动；容器访问宿主机上的库可用 `host.docker.internal`（`docker-compose.prod.yml` 已配 `extra_hosts`）。首次初始化仍走浏览器向导或 `POST /api/setup`。
+容器访问宿主机上的库可用 `host.docker.internal`（prod compose 已配 `extra_hosts`）。  
+脚本：`scripts/prod-deploy.sh`、`scripts/prod-rollback.sh`。
 
-更完整的脚本：`scripts/prod-deploy.sh`、`scripts/prod-rollback.sh`。
+---
 
-## 环境变量（必填一屏）
+## 环境变量（按路径）
 
-见 [`.env.example.minimal`](../.env.example.minimal)。完整高级项见 [`.env.example`](../.env.example)。
+| 变量 | lite | pg-redis | 外部 prod |
+|------|------|----------|-----------|
+| `SESSION_SECRET` | 可选（试用可随机） | **必改** | **必改** |
+| `SQL_DSN` | 省略 → SQLite | compose 注入 PG | 自备 |
+| `REDIS_CONN_STRING` | 省略 → 内存 | compose 注入 Redis | 推荐 |
+| `DATA_PROXY_PROFILE` | `lite` | `standard` | `standard`/`ha` |
+| `FRONTEND_BASE_URL` | 可选 | 建议设置 | 必填（支付等） |
 
-| 变量 | 说明 |
-|------|------|
-| `SESSION_SECRET` | 多机/生产必改随机串 |
-| `SQL_DSN` | MySQL 或 PostgreSQL（也可用向导配置） |
-| `FRONTEND_BASE_URL` | 公网访问根 URL |
-| `REDIS_CONN_STRING` | 可选，推荐生产开启 |
-| `TZ` | 时区，默认 `Asia/Shanghai` |
+模板：
+
+- lite / 通用最小：[`.env.example.minimal`](../.env.example.minimal)
+- pg-redis：[`.env.example.pg-redis`](../.env.example.pg-redis)
+- 全量：[`.env.example`](../.env.example)
+
+---
 
 ## 验收清单
 
@@ -81,7 +118,7 @@ curl -s http://127.0.0.1:13002/api/status
 
 ## 相关文档
 
-- 部署档位（lite / standard / ha）：[deploy-profiles.md](./deploy-profiles.md)
+- 部署档位：[deploy-profiles.md](./deploy-profiles.md)
 - 终端用户接入：[user-quickstart.md](./user-quickstart.md)
 - 渠道故障切换：[channel-failover-and-circuit-breaker.md](./channel-failover-and-circuit-breaker.md)
 - 运维手册：[data-proxy-operator-guide.md](./data-proxy-operator-guide.md)

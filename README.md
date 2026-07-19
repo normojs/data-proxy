@@ -53,7 +53,16 @@ Data Proxy 适合需要集中管理大模型 API 资产的团队：
 ```bash
 git clone https://github.com/normojs/data-proxy.git
 cd data-proxy
-docker compose up -d data-proxy
+
+# 二选一：
+# 1) lite — SQLite + 进程内缓存（默认 docker-compose.yml / docker-compose.lite.yml）
+docker compose up -d --build
+
+# 2) standard — 内置 PostgreSQL + Redis
+# cp .env.example.pg-redis .env.pg-redis   # 修改 SESSION_SECRET 与密码
+# docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis up -d --build
+
+# 或：./scripts/quickstart.sh lite | pg-redis
 ```
 
 启动后访问：
@@ -62,22 +71,7 @@ docker compose up -d data-proxy
 http://localhost:3000
 ```
 
-首次安装请优先使用初始化向导配置数据库和可选 Redis，然后创建第一个管理员账号。自用/试用可走 **lite**（SQLite + 进程内缓存，无需 Redis），见 [docs/deploy-profiles.md](./docs/deploy-profiles.md)。显式环境变量仍然支持，但更适合高级运维覆盖。
-
-### 使用本地依赖
-
-如果希望 Compose 同时启动 PostgreSQL 和 Redis：
-
-```bash
-docker compose --profile local-deps up -d
-```
-
-初始化向导中使用：
-
-- PostgreSQL host: `postgres`
-- Redis host: `redis`
-
-这些本地依赖默认只在 Compose 网络内可见，不会占用宿主机的 `5432` 或 `6379` 端口。
+说明见 [docs/deploy-profiles.md](./docs/deploy-profiles.md)、[docs/one-click-deploy.md](./docs/one-click-deploy.md)。
 
 ### 使用已发布镜像
 

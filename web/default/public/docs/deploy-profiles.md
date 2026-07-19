@@ -1,22 +1,36 @@
 # 部署档位（Deploy Profiles）
 
-Data Proxy 支持三种部署档位。用环境变量 `DATA_PROXY_PROFILE` 标明意图；**未设置时**按依赖推断（见下）。
+用户在安装时**二选一**（或三选一生产变体）：
 
-| 档位 | 典型依赖 | 适用 |
-| --- | --- | --- |
-| **lite** | SQLite + **进程内缓存**（无 Redis） | 自用、试用、单机 demo |
-| **standard** | MySQL 或 PostgreSQL + **Redis** | 小团队 / 单机生产 |
-| **ha** | MySQL/PostgreSQL + Redis + 多节点约定 | 多副本 / 滚动发布（需共享状态） |
+| 档位 | Compose 文件 | 典型依赖 | 适用 |
+| --- | --- | --- | --- |
+| **lite** | [`docker-compose.lite.yml`](../docker-compose.lite.yml)（默认 `docker-compose.yml` 同义） | SQLite + **进程内缓存** | 自用、试用、单机 demo |
+| **standard** | [`docker-compose.pg-redis.yml`](../docker-compose.pg-redis.yml) **或** 外部库 + [`docker-compose.prod.yml`](../docker-compose.prod.yml) | PostgreSQL/MySQL + **Redis** | 小团队 / 单机生产 |
+| **ha** | 多节点共享同一 DB + Redis（仍用 prod compose 变体） | 同上 + 多副本约定 | 滚动发布（需共享状态） |
 
+环境变量 `DATA_PROXY_PROFILE` 标明意图；**未设置时**按依赖推断（见文末）。  
 别名：`self` / `self-use` → `lite`；`prod` / `production` → `standard`。
+
+一键命令总览见 [one-click-deploy.md](./one-click-deploy.md)。
+
+```bash
+# lite
+docker compose -f docker-compose.lite.yml up -d --build
+# 或
+./scripts/quickstart.sh lite
+
+# PostgreSQL + Redis 一体
+cp .env.example.pg-redis .env.pg-redis   # 改密钥
+docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis up -d --build
+# 或
+./scripts/quickstart.sh pg-redis
+```
 
 ## lite（自用 / 极简）
 
 ```bash
-# 路径 A 或单二进制；可不设 SQL_DSN / REDIS_CONN_STRING
-export DATA_PROXY_PROFILE=lite   # 可选；SQLite 无 Redis 时也会自动开内存缓存
-docker compose up -d --build
-# 或：./scripts/quickstart.sh
+export DATA_PROXY_PROFILE=lite   # compose 文件已写入；可省略
+docker compose -f docker-compose.lite.yml up -d --build
 ```
 
 行为：
@@ -33,7 +47,7 @@ docker compose up -d --build
   - **单节点 only**；多副本不共享限流/缓存/部分亲和状态
   - 进程重启后纯缓存丢失；**额度与业务真相在 SQLite**（扣费仍以 DB 事务为准，内存 quota 仅为加速读）
   - 性能看板跨实例合并（`perf_metrics` Redis 桶）在无 Redis 时跳过，仅本机指标
-  - 生产支付 / 多机请改用 standard 或 ha
+  - 需要 PG/Redis 或支付生产请改用 standard
 
 关闭自动内存缓存（不推荐自用）：
 
@@ -41,7 +55,19 @@ docker compose up -d --build
 MEMORY_CACHE_ENABLED=false
 ```
 
-## standard（推荐生产最小）
+## standard（PostgreSQL/MySQL + Redis）
+
+### 一体 compose（推荐首次上标准档）
+
+```bash
+cp .env.example.pg-redis .env.pg-redis
+# 修改 SESSION_SECRET、POSTGRES_PASSWORD、REDIS_PASSWORD
+docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis up -d --build
+```
+
+内置服务名：`postgres`、`redis`；应用环境自动带 `SQL_DSN` / `REDIS_CONN_STRING` 与 `DATA_PROXY_PROFILE=standard`。
+
+### 外部数据库（已有实例）
 
 ```bash
 export DATA_PROXY_PROFILE=standard
@@ -49,6 +75,7 @@ export DATA_PROXY_PROFILE=standard
 ./scripts/prod-compose.sh up -d
 ```
 
+见 [one-click-deploy.md](./one-click-deploy.md) 路径 B。
 见 [one-click-deploy.md](./one-click-deploy.md) 路径 B。
 
 ## ha（多节点）

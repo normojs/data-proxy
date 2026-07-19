@@ -1,20 +1,14 @@
-# Data Proxy Docker Compose — 默认 = lite
+# Data Proxy — lite（自用 / 试用）
 #
-# 请按场景选择其一（二选一，不要同时 up 两套占同一端口）：
+# SQLite + 进程内缓存，不启动 PostgreSQL / Redis。
+# 文档：docs/deploy-profiles.md
 #
-#   1) lite（SQLite + 进程内缓存，无 PG/Redis）
-#        docker compose -f docker-compose.lite.yml up -d --build
-#        # 或本文件：
-#        docker compose up -d --build
+# 启动：
+#   docker compose -f docker-compose.lite.yml up -d --build
+# 或（默认 docker-compose.yml 即 lite）：
+#   docker compose up -d --build
 #
-#   2) standard（PostgreSQL + Redis 一体）
-#        cp .env.example.pg-redis .env.pg-redis   # 改 SESSION_SECRET 与密码
-#        docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis up -d --build
-#
-# 档位说明：docs/deploy-profiles.md
-# 一键文档：docs/one-click-deploy.md
-#
-# 已有外部 MySQL/PG/Redis 的生产机仍可用 docker-compose.prod.yml + scripts/prod-compose.sh
+# 访问：http://localhost:3000
 
 services:
   data-proxy:
@@ -22,7 +16,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: ${DATA_PROXY_IMAGE:-data-proxy:latest}
-    container_name: data-proxy
+    container_name: data-proxy-lite
     restart: always
     command: --log-dir /app/logs
     ports:
@@ -37,11 +31,12 @@ services:
       ERROR_LOG_ENABLED: ${ERROR_LOG_ENABLED:-true}
       BATCH_UPDATE_ENABLED: ${BATCH_UPDATE_ENABLED:-true}
       NODE_NAME: ${NODE_NAME:-data-proxy-lite}
+      # 试用可不设；多机或生产务必改掉
       SESSION_SECRET: ${SESSION_SECRET:-}
       GIN_MODE: ${GIN_MODE:-release}
       ALLOW_RANDOM_SESSION_SECRET: ${ALLOW_RANDOM_SESSION_SECRET:-true}
     networks:
-      - data-proxy-network
+      - data-proxy-lite
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
       interval: 30s
@@ -49,5 +44,5 @@ services:
       retries: 3
 
 networks:
-  data-proxy-network:
+  data-proxy-lite:
     driver: bridge

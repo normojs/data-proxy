@@ -1,0 +1,102 @@
+# Data Proxy — standard（PostgreSQL + Redis 一体）
+#
+# 自带 Postgres 15 + Redis 7 + 应用，适合小团队 / 单机「标准生产」路径。
+# 文档：docs/deploy-profiles.md
+#
+# 启动：
+#   cp .env.example.pg-redis .env.pg-redis   # 至少改 SESSION_SECRET 与密码
+#   docker compose -f docker-compose.pg-redis.yml --env-file .env.pg-redis up -d --build
+#
+# 访问：http://localhost:3000
+# 健康：curl -s http://127.0.0.1:3000/api/status
+#
+# 不要与 lite 同时占用同一宿主机端口。
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: data-proxy-pg
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-data_proxy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-data_proxy_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-data_proxy}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - data-proxy-pg-redis
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: data-proxy-redis
+    restart: always
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-data_proxy_redis_change_me}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:-data_proxy_redis_change_me}
+    volumes:
+      - redis_data:/data
+    networks:
+      - data-proxy-pg-redis
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  data-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${DATA_PROXY_IMAGE:-data-proxy:latest}
+    container_name: data-proxy
+    restart: always
+    command: --log-dir /app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${DATA_PROXY_HOST_PORT:-3000}:3000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PORT: "3000"
+      DATA_PROXY_PROFILE: standard
+      NODE_TYPE: ${NODE_TYPE:-master}
+      NODE_NAME: ${NODE_NAME:-data-proxy-pg-redis}
+      ERROR_LOG_ENABLED: ${ERROR_LOG_ENABLED:-true}
+      BATCH_UPDATE_ENABLED: ${BATCH_UPDATE_ENABLED:-true}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-string}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+      # 服务名 postgres / redis 仅在本 compose 网络内解析
+      SQL_DSN: postgresql://${POSTGRES_USER:-data_proxy}:${POSTGRES_PASSWORD:-data_proxy_change_me}@postgres:5432/${POSTGRES_DB:-data_proxy}
+      REDIS_CONN_STRING: redis://:${REDIS_PASSWORD:-data_proxy_redis_change_me}@redis:6379/0
+    networks:
+      - data-proxy-pg-redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  pg_data:
+  redis_data:
+
+networks:
+  data-proxy-pg-redis:
+    driver: bridge
