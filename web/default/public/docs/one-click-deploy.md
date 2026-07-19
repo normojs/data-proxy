@@ -40,6 +40,7 @@ DATA_PROXY_MEM_LIMIT=512m GOMEMLIMIT=450MiB GOMAXPROCS=1 DATA_PROXY_CPUS=0.5 \
 4. 健康检查：`curl -s http://127.0.0.1:3000/api/status`
 
 无 `SQL_DSN` / `REDIS_CONN_STRING`：SQLite + 进程内缓存（日志可见 `cache backend=memory`）。  
+镜像：`Dockerfile.lite`（**Alpine 3.21** 运行时，比默认 `Dockerfile` 的 bookworm-slim 更轻；保留 busybox `wget` 做健康检查）。  
 compose 默认：`mem_limit≈768m`、`read_only` 根文件系统、日志轮转、关闭 ERROR/CAPTURE 写放大——详见 [deploy-profiles.md](./deploy-profiles.md)。
 
 ---

@@ -38,6 +38,7 @@ docker compose -f docker-compose.lite.yml up -d --build
 | 项 | 默认 | 说明 |
 | --- | --- | --- |
 | 容器数 | **1** | 无 PG/Redis sidecar |
+| 运行时镜像 | **`Dockerfile.lite` → Alpine 3.21** | 非 bookworm-slim；无 libasan；静态 Go 二进制 |
 | `mem_limit` | `768m` | `DATA_PROXY_MEM_LIMIT` 可改；`512m` 可试 |
 | `cpus` | `1.0` | `DATA_PROXY_CPUS` |
 | `GOMEMLIMIT` | `700MiB` | 略低于 mem_limit，利于 GC |

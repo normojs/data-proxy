@@ -12,8 +12,8 @@ services:
   data-proxy:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: ${DATA_PROXY_IMAGE:-data-proxy:latest}
+      dockerfile: Dockerfile.lite
+    image: ${DATA_PROXY_IMAGE:-data-proxy:lite}
     container_name: data-proxy-lite
     restart: unless-stopped
     init: true
