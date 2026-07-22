@@ -129,6 +129,7 @@ const connectedAppFormSchema = z
     rotateSecret: z.boolean(),
     allowedScopesText: z.string(),
     defaultScopesText: z.string(),
+    defaultTokenGroup: z.string().max(64),
     trusted: z.boolean(),
     enabled: z.boolean(),
   })
@@ -296,6 +297,7 @@ function buildFormDefaults(app: ConnectedApp | null): ConnectedAppFormValues {
     rotateSecret: false,
     allowedScopesText: scopesToText(app?.allowed_scopes ?? []),
     defaultScopesText: scopesToText(app?.default_scopes ?? []),
+    defaultTokenGroup: app?.default_token_group ?? '',
     trusted: app?.trusted ?? false,
     enabled:
       (app?.status ?? CONNECTED_APP_STATUS_ENABLED) ===
@@ -310,6 +312,7 @@ function buildPayload(values: ConnectedAppFormValues): ConnectedAppPayload {
     description: values.description.trim(),
     allowed_scopes: parseScopesText(values.allowedScopesText),
     default_scopes: parseScopesText(values.defaultScopesText),
+    default_token_group: values.defaultTokenGroup.trim(),
     authorization_flow: values.authorizationFlow,
     redirect_uris: parseRedirectUrisText(values.redirectUrisText),
     client_type: values.clientType,
@@ -1498,6 +1501,30 @@ function ConnectedAppSheet({
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name='defaultTokenGroup'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Default token group')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={mutation.isPending}
+                        placeholder={t('e.g. 鸟维斯 — leave empty for no forced group')}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Device/OAuth issued API keys are pinned to this billing/model group. Leave empty to inherit the user default group.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
             </div>
 
             <SheetFooter className='border-t'>

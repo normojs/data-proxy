@@ -6758,6 +6758,9 @@
     "Referral code": "Code de parrainage",
     "Open wallet & rewards": "Ouvrir le portefeuille et les récompenses",
     "Loading…": "Chargement…",
-    "Invitation": "Invitation"
+    "Invitation": "Invitation",
+    "Default token group": "Groupe de jeton par défaut",
+    "e.g. 鸟维斯 — leave empty for no forced group": "ex. 鸟维斯 — laisser vide pour aucun groupe forcé",
+    "Device/OAuth issued API keys are pinned to this billing/model group. Leave empty to inherit the user default group.": "Les clés API émises via Device/OAuth sont rattachées à ce groupe de facturation/modèles. Laissez vide pour hériter du groupe par défaut de l’utilisateur."
   }
 }

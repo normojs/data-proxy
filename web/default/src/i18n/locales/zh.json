@@ -6774,6 +6774,9 @@
     "Referral code": "邀请码",
     "Open wallet & rewards": "打开钱包与奖励",
     "Loading…": "加载中…",
-    "Invitation": "邀请"
+    "Invitation": "邀请",
+    "Default token group": "默认令牌分组",
+    "e.g. 鸟维斯 — leave empty for no forced group": "例如：鸟维斯 — 留空表示不强制分组",
+    "Device/OAuth issued API keys are pinned to this billing/model group. Leave empty to inherit the user default group.": "通过 Device/OAuth 签发的 API Key 会固定使用此计费/模型分组。留空则继承用户默认分组。"
   }
 }

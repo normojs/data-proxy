@@ -6758,6 +6758,9 @@
     "Referral code": "Mã giới thiệu",
     "Open wallet & rewards": "Mở ví và phần thưởng",
     "Loading…": "Đang tải…",
-    "Invitation": "Lời mời"
+    "Invitation": "Lời mời",
+    "Default token group": "Nhóm token mặc định",
+    "e.g. 鸟维斯 — leave empty for no forced group": "vd. 鸟维斯 — để trống nếu không ép nhóm",
+    "Device/OAuth issued API keys are pinned to this billing/model group. Leave empty to inherit the user default group.": "API key cấp qua Device/OAuth sẽ gắn cố định vào nhóm tính phí/mô hình này. Để trống để kế thừa nhóm mặc định của người dùng."
   }
 }

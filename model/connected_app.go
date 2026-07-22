@@ -49,6 +49,9 @@ type ConnectedApp struct {
 	Description       string `json:"description" gorm:"type:varchar(512);not null;default:''"`
 	AllowedScopes     string `json:"allowed_scopes" gorm:"type:varchar(512);not null;default:''"`
 	DefaultScopes     string `json:"default_scopes" gorm:"type:varchar(512);not null;default:''"`
+	// DefaultTokenGroup is stamped onto Device/OAuth-issued API keys (tokens.group).
+	// Empty means do not force a group (inherit user/token default routing).
+	DefaultTokenGroup string `json:"default_token_group" gorm:"type:varchar(64);not null;default:''"`
 	AuthorizationFlow string `json:"authorization_flow" gorm:"type:varchar(32);not null;default:'device_code'"`
 	ClientId          string `json:"client_id" gorm:"type:varchar(64);not null;default:'';index"`
 	ClientSecretHash  string `json:"-" gorm:"type:varchar(64);not null;default:''"`
@@ -236,11 +239,13 @@ func EnsureBuiltinConnectedApps() error {
 		{
 			// 鸟维斯桌面 Agent：Device Code 登录本站用户，poll 一次拿到 sk-，自由调用本站 OpenAI 兼容 API。
 			// 含 token.manage → 走平台 API Key 绑定流（非 management token 流）。
+			// DefaultTokenGroup 默认「鸟维斯」，可在管理端改；OnConflict 不覆盖运营配置。
 			Slug:              ConnectedAppSlugNiaoweisi,
 			Name:              "鸟维斯桌面版",
 			Description:       "鸟维斯桌面 Agent。用户在 Data Proxy 授权后，桌面端获取本站 API Key 调用模型与配额接口。",
 			AllowedScopes:     "openai.models openai.chat openai.responses quota.read token.manage",
 			DefaultScopes:     "openai.models openai.chat openai.responses quota.read token.manage",
+			DefaultTokenGroup: "鸟维斯",
 			AuthorizationFlow: ConnectedAppAuthorizationFlowDeviceCode,
 			ClientId:          ConnectedAppSlugNiaoweisi,
 			Trusted:           true,
@@ -250,10 +255,16 @@ func EnsureBuiltinConnectedApps() error {
 	for _, app := range apps {
 		if err := DB.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "slug"}},
-			DoUpdates: clause.AssignmentColumns([]string{"name", "description", "updated_at"}), // do not stomp operator scopes/trusted/client_id/flow
+			DoUpdates: clause.AssignmentColumns([]string{"name", "description", "updated_at"}), // do not stomp operator scopes/trusted/client_id/flow/default_token_group
 		}).Create(&app).Error; err != nil {
 			return err
 		}
+	}
+	// Existing installs: only fill niaoweisi default_token_group when still empty.
+	if err := DB.Model(&ConnectedApp{}).
+		Where("slug = ? AND (default_token_group = '' OR default_token_group IS NULL)", ConnectedAppSlugNiaoweisi).
+		Update("default_token_group", "鸟维斯").Error; err != nil {
+		return err
 	}
 	return nil
 }

@@ -69,6 +69,7 @@ export type ConnectedApp = {
   description: string
   allowed_scopes: string[]
   default_scopes: string[]
+  default_token_group?: string
   trusted: boolean
   status: ConnectedAppStatus
   authorization_flow: ConnectedAppAuthorizationFlow
@@ -90,6 +91,7 @@ export type ConnectedAppPayload = {
   description: string
   allowed_scopes: string[]
   default_scopes: string[]
+  default_token_group?: string
   authorization_flow: ConnectedAppAuthorizationFlow
   redirect_uris?: string[]
   client_type?: ConnectedAppClientType

@@ -6758,6 +6758,9 @@
     "Referral code": "Реферальный код",
     "Open wallet & rewards": "Открыть кошелёк и награды",
     "Loading…": "Загрузка…",
-    "Invitation": "Приглашение"
+    "Invitation": "Приглашение",
+    "Default token group": "Группа токена по умолчанию",
+    "e.g. 鸟维斯 — leave empty for no forced group": "напр. 鸟维斯 — оставьте пустым, чтобы не задавать группу",
+    "Device/OAuth issued API keys are pinned to this billing/model group. Leave empty to inherit the user default group.": "API-ключи, выданные через Device/OAuth, привязываются к этой группе биллинга/моделей. Оставьте пустым, чтобы наследовать группу пользователя по умолчанию."
   }
 }

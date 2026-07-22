@@ -25,6 +25,7 @@ type connectedAppRequest struct {
 	Description       string   `json:"description"`
 	AllowedScopes     []string `json:"allowed_scopes"`
 	DefaultScopes     []string `json:"default_scopes"`
+	DefaultTokenGroup string   `json:"default_token_group"`
 	AuthorizationFlow string   `json:"authorization_flow"`
 	RedirectURIs      []string `json:"redirect_uris"`
 	ClientType        string   `json:"client_type"` // public | confidential
@@ -40,6 +41,7 @@ type connectedAppResponse struct {
 	Description       string   `json:"description"`
 	AllowedScopes     []string `json:"allowed_scopes"`
 	DefaultScopes     []string `json:"default_scopes"`
+	DefaultTokenGroup string   `json:"default_token_group"`
 	Trusted           bool     `json:"trusted"`
 	Status            int      `json:"status"`
 	AuthorizationFlow string   `json:"authorization_flow"`
@@ -197,12 +199,14 @@ func buildConnectedAppForCreate(req connectedAppRequest) (model.ConnectedApp, st
 		secretHash = service.HashConnectedAppOAuthValue(plainSecret)
 	}
 
+	defaultTokenGroup := normalizeConnectedAppTokenGroup(req.DefaultTokenGroup)
 	return model.ConnectedApp{
 		Slug:              slug,
 		Name:              name,
 		Description:       description,
 		AllowedScopes:     strings.Join(allowedScopes, " "),
 		DefaultScopes:     strings.Join(defaultScopes, " "),
+		DefaultTokenGroup: defaultTokenGroup,
 		AuthorizationFlow: authorizationFlow,
 		ClientId:          slug,
 		ClientSecretHash:  secretHash,
@@ -222,6 +226,8 @@ func applyConnectedAppUpdate(app *model.ConnectedApp, req connectedAppRequest) (
 	app.Description = description
 	app.AllowedScopes = strings.Join(allowedScopes, " ")
 	app.DefaultScopes = strings.Join(defaultScopes, " ")
+	// Always apply (including empty) so operators can clear a forced group.
+	app.DefaultTokenGroup = normalizeConnectedAppTokenGroup(req.DefaultTokenGroup)
 	flow := app.AuthorizationFlow
 	if strings.TrimSpace(req.AuthorizationFlow) != "" {
 		authorizationFlow, err := normalizeConnectedAppAuthorizationFlow(req.AuthorizationFlow)
@@ -278,6 +284,15 @@ func applyConnectedAppUpdate(app *model.ConnectedApp, req connectedAppRequest) (
 		app.Status = status
 	}
 	return plainSecret, nil
+}
+
+
+func normalizeConnectedAppTokenGroup(raw string) string {
+	group := strings.TrimSpace(raw)
+	if len(group) > 64 {
+		return group[:64]
+	}
+	return group
 }
 
 func normalizeConnectedAppSlug(raw string) (string, error) {
@@ -421,6 +436,7 @@ func buildConnectedAppResponse(app model.ConnectedApp) (connectedAppResponse, er
 		Description:       app.Description,
 		AllowedScopes:     app.ScopeList(),
 		DefaultScopes:     app.DefaultScopeList(),
+		DefaultTokenGroup: app.DefaultTokenGroup,
 		Trusted:           app.Trusted,
 		Status:            app.Status,
 		AuthorizationFlow: connectedAppResponseAuthorizationFlow(app),

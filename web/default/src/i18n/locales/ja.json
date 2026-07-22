@@ -6758,6 +6758,9 @@
     "Referral code": "紹介コード",
     "Open wallet & rewards": "ウォレットと報酬を開く",
     "Loading…": "読み込み中…",
-    "Invitation": "招待"
+    "Invitation": "招待",
+    "Default token group": "デフォルトトークングループ",
+    "e.g. 鸟维斯 — leave empty for no forced group": "例: 鸟维斯 — 空欄で強制グループなし",
+    "Device/OAuth issued API keys are pinned to this billing/model group. Leave empty to inherit the user default group.": "Device/OAuth で発行された API キーはこの課金/モデルグループに固定されます。空欄の場合はユーザーのデフォルトグループを継承します。"
   }
 }

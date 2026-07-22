@@ -6774,6 +6774,9 @@
     "Referral code": "Referral code",
     "Open wallet & rewards": "Open wallet & rewards",
     "Loading…": "Loading…",
-    "Invitation": "Invitation"
+    "Invitation": "Invitation",
+    "Default token group": "Default token group",
+    "e.g. 鸟维斯 — leave empty for no forced group": "e.g. 鸟维斯 — leave empty for no forced group",
+    "Device/OAuth issued API keys are pinned to this billing/model group. Leave empty to inherit the user default group.": "Device/OAuth issued API keys are pinned to this billing/model group. Leave empty to inherit the user default group."
   }
 }

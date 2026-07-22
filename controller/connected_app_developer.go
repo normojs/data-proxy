@@ -1518,6 +1518,10 @@ func ensureConnectedAppTokenForDeviceTx(c *gin.Context, tx *gorm.DB, app *model.
 					return connectedAppTokenResponse{}, 0, err
 				}
 			}
+			// niaoweisi desktop keys must stay pinned to the dedicated billing/model group.
+			if err := syncConnectedAppTokenGroup(tx, app, token); err != nil {
+				return connectedAppTokenResponse{}, 0, err
+			}
 			return buildConnectedAppTokenResponse(c, app, grant, existingBinding, token, device, "", false, false), token.Id, nil
 		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return connectedAppTokenResponse{}, 0, err
@@ -1555,6 +1559,31 @@ func ensureConnectedAppTokenForDeviceTx(c *gin.Context, tx *gorm.DB, app *model.
 	return buildConnectedAppTokenResponse(c, app, grant, binding, token, device, key, true, rotate && existingBinding != nil), token.Id, nil
 }
 
+// connectedAppFixedTokenGroup returns the billing/model group stamped onto
+// keys issued for a connected app (from app.DefaultTokenGroup). Empty means
+// do not force a group (inherit user/token default routing).
+func connectedAppFixedTokenGroup(app *model.ConnectedApp) string {
+	if app == nil {
+		return ""
+	}
+	return strings.TrimSpace(app.DefaultTokenGroup)
+}
+
+func syncConnectedAppTokenGroup(tx *gorm.DB, app *model.ConnectedApp, token *model.Token) error {
+	if token == nil {
+		return nil
+	}
+	group := connectedAppFixedTokenGroup(app)
+	if group == "" || strings.TrimSpace(token.Group) == group {
+		return nil
+	}
+	token.Group = group
+	if tx == nil {
+		tx = model.DB
+	}
+	return tx.Model(token).Select("group").Updates(token).Error
+}
+
 func createConnectedAppToken(tx *gorm.DB, app *model.ConnectedApp, userID int, device snaplessDeviceInfo, now int64) (*model.Token, string, error) {
 	key, err := common.GenerateKey()
 	if err != nil {
@@ -1572,6 +1601,7 @@ func createConnectedAppToken(tx *gorm.DB, app *model.ConnectedApp, userID int, d
 		UnlimitedQuota:        true,
 		QuotaHardLimitEnabled: false,
 		ModelLimitsEnabled:    false,
+		Group:                 connectedAppFixedTokenGroup(app),
 	}
 	if app != nil && app.Slug == model.ConnectedAppSlugSnapless {
 		token.ModelLimitsEnabled = true
