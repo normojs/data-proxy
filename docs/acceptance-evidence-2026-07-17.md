@@ -404,3 +404,12 @@ P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
 - 上线：`GET /api/usage/account`、`/api/usage/token`→`account`、`/invitation`
 - 证据：`docs/deploy-evidence-2026-07-20-5531ece2.md`
 
+## 2026-07-23：生产部署 `sha-fdf8fd73`（邀请 i18n + token group 可配置）
+
+- 提交：`fdf8fd73` feat(idp): make connected-app token group configurable（含前序 `bf8c8f5e` 邀请页 i18n）
+- Package CI：run `29966836973` success
+- 主机 `47.122.29.88`：归档 `5531ece2` → 镜像 `data-proxy:fdf8fd73`；compose image pin 更新
+- 公网：`x-new-api-version: sha-fdf8fd73`；production smoke 公开面 ALL_PASS
+- 上线：Connected App `default_token_group`；邀请页 i18n/侧栏
+- 证据：`docs/deploy-evidence-2026-07-23-fdf8fd73.md`
+
