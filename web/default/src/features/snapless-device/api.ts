@@ -45,6 +45,7 @@ export type SnaplessTokenSummary = {
   name?: string
   status?: number
   masked_key?: string
+  group?: string
   expired_time?: number
   unlimited_quota?: boolean
   quota_hard_limit_enabled?: boolean
@@ -62,6 +63,7 @@ export type SnaplessApp = {
   status: number
   allowed_scopes?: string[]
   default_scopes: string[]
+  default_token_group?: string
 }
 
 export type SnaplessGrant = {

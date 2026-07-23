@@ -302,6 +302,10 @@ function DeviceAuthorizationCard(props: {
       : data?.app.allowed_scopes?.length
         ? data.app.allowed_scopes
         : []
+  const tokenGroup =
+    data?.token.group?.trim() ||
+    data?.app.default_token_group?.trim() ||
+    ''
 
   return (
     <Card>
@@ -336,6 +340,9 @@ function DeviceAuthorizationCard(props: {
             value={data?.device.device_name || appName}
           />
           <InfoRow label={t('Platform')} value={data?.device.platform || '-'} />
+          {tokenGroup ? (
+            <InfoRow label={t('Token group')} value={tokenGroup} mono />
+          ) : null}
         </div>
 
         {scopes.length > 0 ? (

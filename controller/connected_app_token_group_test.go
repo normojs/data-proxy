@@ -19,3 +19,27 @@ func TestConnectedAppFixedTokenGroupFromConfig(t *testing.T) {
 		DefaultTokenGroup: " custom-group ",
 	}))
 }
+
+func TestBuildSnaplessAppResponseIncludesDefaultTokenGroup(t *testing.T) {
+	resp := buildSnaplessAppResponse(&model.ConnectedApp{
+		Id:                7,
+		Slug:              model.ConnectedAppSlugNiaoweisi,
+		Name:              "鸟维斯",
+		DefaultTokenGroup: " 鸟维斯 ",
+	})
+	require.Equal(t, "鸟维斯", resp.DefaultTokenGroup)
+	require.Equal(t, model.ConnectedAppSlugNiaoweisi, resp.Slug)
+
+	empty := buildSnaplessAppResponse(&model.ConnectedApp{Slug: "other"})
+	require.Equal(t, "", empty.DefaultTokenGroup)
+}
+
+func TestBuildSnaplessTokenSummaryIncludesGroup(t *testing.T) {
+	summary := buildSnaplessTokenSummary(&model.Token{
+		Id:    9,
+		Name:  "niaoweisi-device",
+		Group: " 鸟维斯 ",
+	}, nil)
+	require.Equal(t, "鸟维斯", summary.Group)
+	require.Equal(t, 9, summary.ID)
+}

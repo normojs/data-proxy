@@ -88,13 +88,14 @@ type snaplessClientInstruction struct {
 }
 
 type snaplessAppResponse struct {
-	ID            int      `json:"id"`
-	Slug          string   `json:"slug"`
-	Name          string   `json:"name"`
-	Trusted       bool     `json:"trusted"`
-	Status        int      `json:"status"`
-	AllowedScopes []string `json:"allowed_scopes"`
-	DefaultScopes []string `json:"default_scopes"`
+	ID                int      `json:"id"`
+	Slug              string   `json:"slug"`
+	Name              string   `json:"name"`
+	Trusted           bool     `json:"trusted"`
+	Status            int      `json:"status"`
+	AllowedScopes     []string `json:"allowed_scopes"`
+	DefaultScopes     []string `json:"default_scopes"`
+	DefaultTokenGroup string   `json:"default_token_group,omitempty"`
 }
 
 type snaplessGrantResponse struct {
@@ -111,6 +112,7 @@ type snaplessTokenSummary struct {
 	Name                  string `json:"name,omitempty"`
 	Status                int    `json:"status,omitempty"`
 	MaskedKey             string `json:"masked_key,omitempty"`
+	Group                 string `json:"group,omitempty"`
 	ExpiredTime           int64  `json:"expired_time,omitempty"`
 	UnlimitedQuota        bool   `json:"unlimited_quota"`
 	QuotaHardLimitEnabled bool   `json:"quota_hard_limit_enabled"`
@@ -1438,13 +1440,14 @@ func buildSnaplessAppResponse(app *model.ConnectedApp) snaplessAppResponse {
 		return snaplessAppResponse{}
 	}
 	return snaplessAppResponse{
-		ID:            app.Id,
-		Slug:          app.Slug,
-		Name:          app.Name,
-		Trusted:       app.Trusted,
-		Status:        app.Status,
-		AllowedScopes: app.ScopeList(),
-		DefaultScopes: app.DefaultScopeList(),
+		ID:                app.Id,
+		Slug:              app.Slug,
+		Name:              app.Name,
+		Trusted:           app.Trusted,
+		Status:            app.Status,
+		AllowedScopes:     app.ScopeList(),
+		DefaultScopes:     app.DefaultScopeList(),
+		DefaultTokenGroup: strings.TrimSpace(app.DefaultTokenGroup),
 	}
 }
 
@@ -1474,6 +1477,7 @@ func buildSnaplessTokenSummary(token *model.Token, binding *model.ConnectedAppTo
 		Name:                  token.Name,
 		Status:                token.Status,
 		MaskedKey:             "sk-" + token.GetMaskedKey(),
+		Group:                 strings.TrimSpace(token.Group),
 		ExpiredTime:           token.ExpiredTime,
 		UnlimitedQuota:        token.UnlimitedQuota,
 		QuotaHardLimitEnabled: token.QuotaHardLimitEnabled,
