@@ -413,3 +413,11 @@ P1 退出标准现已全部有生产/本地复验证据（P1-1/2/3/4）。
 - 上线：Connected App `default_token_group`；邀请页 i18n/侧栏
 - 证据：`docs/deploy-evidence-2026-07-23-fdf8fd73.md`
 
+## 2026-07-23：生产部署 `sha-421a2e6e`（授权页展示 Token group）
+
+- 提交：`421a2e6e` feat(idp): show token group on device authorization page
+- Package CI：run `29972015325` success
+- 公网：`x-new-api-version: sha-421a2e6e`；公开 smoke PASS
+- 上线：`/connect/device` 信息区显示 `Token group`（来自 app.default_token_group / token.group）
+- 证据：`docs/deploy-evidence-2026-07-23-421a2e6e.md`
+
